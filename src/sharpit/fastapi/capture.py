@@ -359,6 +359,8 @@ class CaptureWiring:
                 masker=ctx.masker,
             )
             ctx.capture.hooks.register(journal)
+            if ctx.capture.exceptions is not None:
+                ctx.capture.exceptions.journal, ctx.capture.exceptions.context_id = journal, ctx.context_id
             self._arm_sensors(ctx, journal)
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions

@@ -51,7 +51,9 @@ uv run python scripts/dev/active_plan.py      # where are we?
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 plus Windows, a
-`--resolution lowest-direct` job, and a UI build-drift job.
+`--resolution lowest-direct` job, and a UI build-drift job. A pull request runs Windows 3.14, Ubuntu 3.13 (coverage)
+and `lowest` (3.12); the locked-deps Ubuntu 3.12 and 3.14 legs (`test-shard-locked`) run on push to `main`, `mvp`
+and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every merge gets the full matrix.
 
 ## Global constraints
 

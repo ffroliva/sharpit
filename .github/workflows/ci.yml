@@ -1,9 +1,13 @@
 name: ci
 on:
   push:
-    branches: [main, mvp]
+    branches: [main, mvp, "release/**"]
   pull_request:
   workflow_dispatch:
+
+# zizmor cache-poisoning (owner ruling 2026-11-12): ignored on each cache step below. This workflow publishes
+# nothing, and GitHub scopes caches so a pull request's cache is never restored by a push run on main, mvp or
+# release/**; the audit fires because release/** is a push trigger.
 
 permissions:
   contents: read
@@ -42,8 +46,10 @@ jobs:
 
   # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards an Ubuntu leg, 6 on Windows (its
   # tests run ~1.45x slower), because the costliest shard sets the leg's wall (ceiling: tests/test_ci_layout.py).
-  # Windows rows come first: they are the long pole, so they ask the 20-runner pool for a slot first.
   # Each leg's shards together run every test exactly once (tests/test_shard.py).
+  # On a pull request this job is the Windows 3.14 leg, the long pole, so it asks the 20-runner pool for a slot first.
+  # The locked-deps Ubuntu 3.12 and 3.14 legs are test-shard-locked: the same steps, push and dispatch only (owner
+  # decision 2026-11-12). A PR still runs every Python (3.12 in lowest, 3.13 in coverage-shard, 3.14 here) and both OSes.
   test-shard:
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
     strategy:
@@ -56,14 +62,6 @@ jobs:
           - { os: windows-latest, python: "3.14", shard: 4/6 }
           - { os: windows-latest, python: "3.14", shard: 5/6 }
           - { os: windows-latest, python: "3.14", shard: 6/6 }
-          - { os: ubuntu-latest, python: "3.12", shard: 1/4 }
-          - { os: ubuntu-latest, python: "3.12", shard: 2/4 }
-          - { os: ubuntu-latest, python: "3.12", shard: 3/4 }
-          - { os: ubuntu-latest, python: "3.12", shard: 4/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 1/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 2/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 3/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 4/4 }
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
@@ -72,7 +70,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
@@ -170,7 +168,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
@@ -268,7 +266,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
       - run: uv run --no-sync ruff check
@@ -337,11 +335,112 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The locked-deps Ubuntu 3.12 and 3.14 legs: push (main, mvp, release/**) and workflow_dispatch, never a pull request.
+  # Steps identical to test-shard's (tests/test_ci_layout.py compares them); only the rows and the event gate differ.
+  test-shard-locked:
+    name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.12", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 4/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 4/4 }
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with: # zizmor: ignore[cache-poisoning]
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
+      - run: uv run python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+        env:
+          SHARPIT_SHARD: ${{ matrix.shard }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - id: scan-junit
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
+        with: # per-file timings: pytest-speed's `rank` and the shard weights (tests/shard_weights.json) read these
+          name: junit-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+      - id: scan-overhead
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
+        with:
+          name: overhead-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '4/4' || matrix.shard == '6/6') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
+          if-no-files-found: ignore
+          retention-days: 7
+
   test:
     # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
     # required check would count as green). Stricter than per leg: one failed shard, or lint, fails all four.
-    # The 3.13 leg is coverage-shard (it runs the suite once, under coverage).
-    needs: [test-shard, coverage-shard, lint, changes]
+    # The 3.13 leg is coverage-shard (it runs the suite once, under coverage). The locked Ubuntu 3.12 and 3.14 legs
+    # (test-shard-locked) run on push only: on a pull request every check here passes with a note, on a push they gate.
+    needs: [test-shard, test-shard-locked, coverage-shard, lint, changes]
     if: always()
     strategy:
       fail-fast: false # each required check reports, none shows as cancelled
@@ -358,8 +457,14 @@ jobs:
         run: |
           test "${{ needs.changes.result }}" = success
           if [ "$CODE_CHANGED" = false ]; then exit 0; fi
-          test "${{ needs.test-shard.result }}" = success && test "${{ needs.coverage-shard.result }}" = success
+          test "${{ needs.test-shard.result }}" = success
+          test "${{ needs.coverage-shard.result }}" = success
           test "${{ needs.lint.result }}" = success
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "Pull request: the locked-deps Ubuntu 3.12 and 3.14 legs run on push to main, mvp and release/**, not here."
+            exit 0
+          fi
+          test "${{ needs.test-shard-locked.result }}" = success
 
   coverage:
     # Required check, fails unless every coverage shard passed; combines their data into coverage.xml for people.
@@ -380,7 +485,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.changes.outputs.code != 'false'
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - if: needs.changes.outputs.code != 'false'
         run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
@@ -422,7 +527,7 @@ jobs:
           fetch-depth: 0 # blame and new-code detection need full history
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.changes.outputs.code != 'false'
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - if: needs.changes.outputs.code != 'false'
         run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
@@ -455,7 +560,7 @@ jobs:
           github.actor != 'dependabot[bot]' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           path: ~/.sonar/cache
           key: sonar-${{ runner.os }}-v8.4.1 # the scan action's version: a new pin downloads a fresh scanner
       - name: SonarCloud scan
@@ -499,7 +604,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
@@ -604,7 +709,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: >-
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
@@ -722,7 +827,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && '--group full-extras' || '' }} --python 3.14 # NOSONAR - installs sharpit from source for the gate
@@ -788,7 +893,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           node-version: 22
       - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         run: npm ci --ignore-scripts && npm run build
@@ -811,7 +916,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           node-version: 22
       - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         run: npm ci --ignore-scripts && npm test
@@ -835,7 +940,7 @@ jobs:
         run: python3 scripts/ci/no_superpowers.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.changes.outputs.code != 'false'
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - if: needs.changes.outputs.code != 'false'
         run: uv build --out-dir "$RUNNER_TEMP/dist"
@@ -880,7 +985,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --group full-extras --python 3.14 # NOSONAR - installs sharpit from source and every live driver
