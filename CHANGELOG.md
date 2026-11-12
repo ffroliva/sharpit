@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Internal: a shared class-method wrap helper for capture integrations (`engine/capture/wraps.py`).
 - Runtime journal `sql` source: one literal- and parameter-free event per executed statement (BootUI `SqlPayload`), joined to its request by `requestId` or `traceId`; the runtime insights now treat `sql` as recorded when enabled.
 - Agent sensors `processes` and `files` (`SHARPIT_AGENT_SENSORS`, off by default): one resident, inert `sys.addaudithook` dispatcher records the commands the app starts (file name only) and the files it opens, deletes, moves and copies (path patterns only) into the runtime journal; the `files` sensor switches through the Java Agent sensor action.
 - Runtime journal `http` source: the capture middleware offers one metadata-only event per finished request (method, masked path, route template, status, duration, request and trace id; BootUI `RequestCorrelationFilter.publish`), so `ai-usage-by-route` (the only insight reading real requests today) sees them when `http` is in `runtime_journal_sources`.
