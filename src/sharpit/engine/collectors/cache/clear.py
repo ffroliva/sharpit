@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import sys
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
@@ -256,25 +257,28 @@ class CacheService:
     def _sorted_caches(self, manager: CacheManagerSnapshot) -> list[CacheSnapshot]:
         return sorted(manager.caches, key=lambda c: c.name)
 
+    def _local_caches(
+        self, managers: list[CacheManagerSnapshot]
+    ) -> Iterator[tuple[CacheManagerSnapshot, CacheSnapshot]]:
+        """Every in-process cache, managers in order and caches by name; remote ones are never touched."""
+        for manager in managers:
+            if not manager.is_remote:
+                yield from ((manager, cache) for cache in self._sorted_caches(manager) if not cache.is_remote)
+
     def _clear_all(self, managers: list[CacheManagerSnapshot]) -> CacheClearResponse:
         if self.provider is None:
             return self._result(409, "unavailable", _NO_BACKEND, [])
         cleared: list[str] = []
         cleared_count = 0
-        for manager in managers:
-            if manager.is_remote:
-                continue
-            for cache in self._sorted_caches(manager):
-                if cache.is_remote:
-                    continue
-                try:
-                    evicted = self.provider.evict(manager.name, cache.name)
-                except Exception as ex:
-                    return self._failed_result(manager.name, cache.name, ex, cleared)
-                if evicted:
-                    cleared_count += 1
-                    if len(cleared) < MAX_CLEARED_NAMES:
-                        cleared.append(f"{manager.name}/{cache.name}")
+        for manager, cache in self._local_caches(managers):
+            try:
+                evicted = self.provider.evict(manager.name, cache.name)
+            except Exception as ex:
+                return self._failed_result(manager.name, cache.name, ex, cleared)
+            if evicted:
+                cleared_count += 1
+                if len(cleared) < MAX_CLEARED_NAMES:
+                    cleared.append(f"{manager.name}/{cache.name}")
 
         if cleared_count > len(cleared):
             cleared.append(f"... and {cleared_count - len(cleared)} more")
