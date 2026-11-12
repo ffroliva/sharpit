@@ -328,6 +328,44 @@ def test_a_setattr_that_does_nothing_answers_none() -> None:
     assert Quiet().send() == 1
 
 
+def test_a_setattr_that_transforms_the_value_answers_none_and_restores_the_original() -> None:
+    """Council r2 nit: a metaclass that stores something else must not leave the owner changed with no remover."""
+
+    class Transforming(type):
+        def __setattr__(cls, key: str, value: Any) -> None:  # replaces sharpit's wrapper, keeps anything else
+            marked = "__sharpit_tag__" in getattr(value, "__dict__", {})
+            super().__setattr__(key, (lambda self: "transformed") if marked else value)
+
+    class Odd(metaclass=Transforming):
+        def send(self) -> int:
+            return 1
+
+    original = Odd.__dict__["send"]
+    assert wrap(Odd, "send", passthrough, tag="t") is None
+    assert Odd.__dict__["send"] is original
+
+
+def test_an_entry_whose_metaclass_defines_eq_runs_no_host_code() -> None:
+    """Council r2 nit: classifying the entry never compares its type with ``==`` (a metaclass ``__eq__`` would run)."""
+    calls: list[object] = []
+
+    class Comparing(type):
+        def __eq__(cls, other: object) -> bool:
+            calls.append(other)
+            return False
+
+        __hash__ = type.__hash__
+
+    class Odd(metaclass=Comparing):
+        pass
+
+    class Owner:
+        send = Odd()
+
+    assert wrap(Owner, "send", passthrough, tag="t") is None
+    assert calls == []
+
+
 def test_a_make_that_returns_the_function_itself_answers_none_and_stamps_nothing() -> None:
     client = make_client()
     original = client.__dict__["send"]
