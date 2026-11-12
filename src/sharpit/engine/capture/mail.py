@@ -26,7 +26,7 @@ Shortcut: only ``sendmail`` is captured, so a host that talks to a server throug
 from __future__ import annotations
 
 import functools
-import importlib.util
+import importlib.metadata
 import smtplib
 import sys
 import threading
@@ -474,10 +474,11 @@ def _aiosmtplib_pending() -> bool:
     """The library is installed but the host has not imported it yet: the attacher is retried later."""
     if "aiosmtplib" in sys.modules:
         return False
-    try:
-        return importlib.util.find_spec("aiosmtplib") is not None
-    except (ImportError, ValueError):
+    try:  # the distribution's metadata: nothing is imported (find_spec belongs to appsource alone)
+        importlib.metadata.distribution("aiosmtplib")
+    except importlib.metadata.PackageNotFoundError:
         return False
+    return True
 
 
 def _wrap_one(family: str, owner: type, name: str, make: Callable[[Callable[..., Any]], Callable[..., Any]]) -> None:
