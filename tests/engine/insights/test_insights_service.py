@@ -83,6 +83,10 @@ def test_every_produced_source_has_a_producer_test() -> None:
             "tests/engine/capture/test_sql_journal.py",
             "test_sql_journal_event_offered_once_per_statement_with_bootui_fields",
         ),
+        "http": (
+            "tests/fastapi/test_http_journal.py",
+            "test_http_journal_event_offered_once_per_request_with_bootui_fields",
+        ),
     }
     assert set(producer_tests) == snapshot_module.PRODUCED_SOURCES
     root = Path(__file__).resolve().parents[3]
@@ -232,6 +236,7 @@ def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget()
 def test_the_window_counts_http_requests_only_when_http_is_produced(monkeypatch: pytest.MonkeyPatch) -> None:
     journal = _journal()
     journal.offer({"source": "http", "requestId": "r1"})
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset({"ai"}))
     assert InsightsService(journal).report()["window"]["requests"] == 0
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset({"ai", "http"}))
     assert InsightsService(journal).report()["window"]["requests"] == 1

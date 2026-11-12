@@ -8,6 +8,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Runtime journal `sql` source: one literal- and parameter-free event per executed statement (BootUI `SqlPayload`), joined to its request by `requestId` or `traceId`; the runtime insights now treat `sql` as recorded when enabled.
+- Runtime journal `http` source: the capture middleware offers one metadata-only event per finished request (method, masked path, route template, status, duration, request and trace id; BootUI `RequestCorrelationFilter.publish`), so `ai-usage-by-route` (the only insight reading real requests today) sees them when `http` is in `runtime_journal_sources`.
 - Alembic panel: `POST /alembic/migrate` runs `python -m alembic upgrade heads` in a child process (confirm must be `true`, single-flight, gated like BootUI's Flyway migrate).
 - Cache clear action (REST POST {api}/cache/clear, BootUI parity) behind confirmation and SHARPIT_CACHE_CLEAR_ENABLED (off by default) for functools and cachetools caches; reachable once the Cache read panel lands.
 - GitHub dashboard (`GET /github`, `get_github_dashboard`, CLI `github`): local repository identity and cached report, read without network access.
