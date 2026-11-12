@@ -17,11 +17,15 @@ from sharpit.settings_registry import JOURNAL_SOURCES
 PRODUCED_SOURCES: frozenset[str] = frozenset({"ai"})  # W7 A2's AI recognizer (#134); W5a's http and sql are not merged
 
 
+DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
+
+
 @dataclass(frozen=True)
 class Snapshot:
     status: Mapping[str, Any]
     records: Mapping[str, tuple[dict[str, object], ...]]  # recorded sources only
     newest_at: int | None = None
+    ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD  # runtime_insights_ai_token_threshold, validated positive
 
     def recorded(self, source: str) -> bool:
         return source in self.records
@@ -30,9 +34,9 @@ class Snapshot:
         return int(self.status["dropped"].get(source, 0))
 
 
-def project(journal: Any) -> Snapshot:
+def project(journal: Any, ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD) -> Snapshot:
     """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear."""
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
     recorded = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
     status, records, newest = journal.view(recorded)
-    return Snapshot(status, records, newest)
+    return Snapshot(status, records, newest, ai_token_threshold)

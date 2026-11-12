@@ -98,9 +98,9 @@ def test_a_source_disabled_in_the_journal_is_not_recorded_even_when_produced() -
 def test_a_recorded_kind_without_an_evaluator_is_not_applicable_yet() -> None:
     journal = _journal()
     journal.offer(AI)
-    usage = _checks(journal)["ai-usage-by-route"]
-    assert usage["status"] == "NOT_APPLICABLE"
-    assert usage["reason"] == "sharpit has not implemented this observation yet."
+    check = InsightsService(journal, [FakeKind(evaluate=None)]).report()["checks"][0]
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == "sharpit has not implemented this observation yet."
 
 
 def test_a_finding_makes_the_check_evaluated_and_the_row_carries_the_listing() -> None:

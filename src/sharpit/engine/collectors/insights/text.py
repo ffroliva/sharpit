@@ -26,3 +26,21 @@ UNDER_DEFAULT_FLOOR = (
     f"{HIGH_REPEAT_KEEP} times in any one, are left out of the default agent list; "
     "ask for them with the query repeated-selects."
 )
+
+
+def unit(route: str | None) -> str:
+    """``InsightText.unit``: what one unit of a route's work is called."""
+    if route and route.startswith("@Scheduled "):
+        return "run"
+    return "message" if route and route.startswith("consume ") else "request"
+
+
+def millis(nanos: int) -> str:
+    """``InsightText.millis``: milliseconds, one decimal below 10 ms."""
+    ms = nanos / 1_000_000
+    return f"{ms:.1f}" if ms < 10 else str(int(ms + 0.5))
+
+
+def median(values: list[int]) -> int:
+    """``RouteTimeBreakdown.median``: the lower median, 0 for none."""
+    return sorted(values)[(len(values) - 1) // 2] if values else 0

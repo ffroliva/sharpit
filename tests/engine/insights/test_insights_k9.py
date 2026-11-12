@@ -185,9 +185,7 @@ def test_ai_operations_without_the_http_source_say_they_cannot_be_placed_on_a_ro
 def test_ai_usage_by_route_text_uses_journal_fields_only() -> None:
     run = Run()
     canary = "CANARY-prompt-text-7f3a"
-    run.request(
-        ASSISTANT, "t1", *(chat(100, 10, prompt=canary, completion=canary, spanId=canary) for _ in range(3))
-    )
+    run.request(ASSISTANT, "t1", *(chat(100, 10, prompt=canary, completion=canary, spanId=canary) for _ in range(3)))
     rows = run.rows()
     assert len(rows) == 1
     assert canary not in json.dumps(run.report())

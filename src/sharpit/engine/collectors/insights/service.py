@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
-from sharpit.engine.collectors.insights.snapshot import Snapshot, project
+from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, Snapshot, project
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 
 if TYPE_CHECKING:
@@ -168,10 +168,14 @@ def _report(
 
 class InsightsService:
     def __init__(
-        self, journal: Any, observations: Sequence[Observation] | None = None, ai_token_threshold: int = 8000
+        self,
+        journal: Any,
+        observations: Sequence[Observation] | None = None,
+        ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
     ) -> None:
         self.journal = journal
-        self.ai_token_threshold = ai_token_threshold  # stub: the setting is wired and validated in the feat commit
+        # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
+        self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
         masker = getattr(journal, "masker", None)
         self._mask: Mask = masker.mask_text if masker else str
@@ -197,7 +201,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal)
+        snapshot = project(self.journal, self.ai_token_threshold)
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
         for observation in self.observations:
@@ -216,6 +220,10 @@ class InsightsService:
         missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)
         if missing is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, _not_recorded(missing)), []
+        gate = getattr(observation, "not_applicable", None)  # BootUI Observation.notApplicable; a stub has none
+        reason = gate(snapshot) if gate else None
+        if reason is not None:
+            return _check(observation, "NOT_APPLICABLE", 0, 0, reason), []
         evaluate = observation.evaluate
         if evaluate is None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, NOT_IMPLEMENTED), []
@@ -252,4 +260,5 @@ def _detail(
 
 def insights_service(ctx: SharpitContext) -> InsightsService:
     """The install's service over its journal, shared by the routes and the tools (a test seeds it through ``lazy``)."""
-    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal))
+    threshold = ctx.settings.runtime_insights_ai_token_threshold
+    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold))
