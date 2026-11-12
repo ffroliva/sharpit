@@ -90,7 +90,18 @@ def _targets(engine: object | None) -> list[SharpitContext]:
 
 def journal_targets(engine: object | None, source: str) -> list[SharpitContext]:
     """The contexts whose journal records ``source`` for work on ``engine``: routed, and the source configured."""
-    return [c for c in _targets(engine) if c.capture.journal is not None and c.capture.journal.accepts(source)]
+    contexts = [c for r in _refs if (c := r()) is not None]
+    info = REQUEST.get()
+    if info is not None:
+        targets = [c for c in contexts if c.context_id == info.context_id]
+    else:
+        held = (
+            [c for c in contexts if c.capture.engine_registry is not None and c.capture.engine_registry.holds(engine)]
+            if engine is not None
+            else []
+        )
+        targets = held or (contexts if len(contexts) == 1 else [])
+    return [c for c in targets if c.capture.journal is not None and c.capture.journal.accepts(source)]
 
 
 def offer_journal(ctx: SharpitContext, build: Callable[[], dict[str, str | int | bool | None]], hook: str) -> None:
