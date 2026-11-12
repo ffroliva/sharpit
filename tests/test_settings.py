@@ -393,6 +393,10 @@ PROPERTIES = {
     "bootui.alembic.clean-enabled": ("alembic_clean_enabled", "true"),
     "bootui.dev-services.restart-enabled": ("dev_services_restart_enabled", "true"),
     "bootui.cache.clear-enabled": ("cache_clear_enabled", "true"),
+    "bootui.email.max-entries": ("email_max_entries", "7"),
+    "bootui.email.dev-trap": ("email_dev_trap", "true"),
+    "bootui.email.mask-content": ("email_mask_content", "true"),
+    "bootui.email.max-body-length": ("email_max_body_length", "4096"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {
@@ -832,6 +836,10 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "ALEMBIC_CLEAN_ENABLED",
         "DEV_SERVICES_RESTART_ENABLED",
         "CACHE_CLEAR_ENABLED",
+        "EMAIL_MAX_ENTRIES",
+        "EMAIL_DEV_TRAP",
+        "EMAIL_MASK_CONTENT",
+        "EMAIL_MAX_BODY_LENGTH",
     ]
     observed = [
         warning.removeprefix("Ignoring invalid SHARPIT_").split(" value")[0]
@@ -951,6 +959,30 @@ def test_runtime_insights_settings_env_values(field: str, env: str, raw: str, ex
     ],
 )
 def test_runtime_insights_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
+# W7 E: BootUI P:3286-3320 (email.*); a non-positive or unparsable value takes the field's default and warns
+def test_w7_email_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "email_max_entries", None) == 100
+    assert getattr(s, "email_dev_trap", None) is False
+    assert getattr(s, "email_mask_content", None) is False
+    assert getattr(s, "email_max_body_length", None) == 200_000
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("email_max_entries", "SHARPIT_EMAIL_MAX_ENTRIES", "0", 100),
+        ("email_max_body_length", "SHARPIT_EMAIL_MAX_BODY_LENGTH", "many", 200_000),
+        ("email_dev_trap", "SHARPIT_EMAIL_DEV_TRAP", "maybe", False),
+        ("email_mask_content", "SHARPIT_EMAIL_MASK_CONTENT", "maybe", False),
+    ],
+)
+def test_w7_email_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
     s = load_settings({}, {env: raw})
     assert getattr(s, field, None) == expected
     assert f"Ignoring invalid {env} value '{raw}'" in s.warnings

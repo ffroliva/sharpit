@@ -308,23 +308,23 @@
     },
     {
       "name": "bootui.email.dev-trap",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for email_dev_trap"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.email.mask-content",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for email_mask_content"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.email.max-body-length",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for email_max_body_length"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.email.max-entries",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for email_max_entries"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.enabled",

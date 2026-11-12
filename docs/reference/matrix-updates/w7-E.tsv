@@ -1,0 +1,13 @@
+route:GET /email	partial	list and detail match EmailControllerTests; D-E1: sharpit's secret scrub is on below FULL, BootUI reveals content; the fork's masking corpus rows wait
+route:GET /email/{id}	matched	EmailControllerTests.returns404ForUnknownId; detail DTO keys match
+route:GET /email/{id}/eml	partial	EmailControllerTests.downloadsEmlFile; built from the masked message (D-E1); parity: a CRLF decoded from an encoded-word subject starts a new header line, as EmailEmlRenderer.render appends the subject raw
+route:DELETE /email	matched	EmailControllerTests.clearRemovesAllCapturedEmails; refused read-only and disabled, tests/fastapi/test_email_api.py
+tool:get_emails	matched	NONE read tool; result is the report
+cli:mail	matched	CLI command mail runs get_emails
+panel:email	partial	capture on smtplib/aiosmtplib sendmail; secret scrub on below FULL (D-E1); fork masking corpus and canary pending
+prop:bootui.email.max-entries	matched	default 100, env parsing and fail-safe in tests/test_settings.py
+prop:bootui.email.max-body-length	matched	default 200000, a body is masked then cut
+prop:bootui.email.dev-trap	partial	default false; a session opened under the trap never connects (smtplib connect and starttls, aiosmtplib _create_connection answered in memory) and sendmail is captured, not sent; D-E2 (proposed): a capture that fails on a trapped session is neither sent nor stored, BootUI sends it (a session connected before the trap is sent, as BootUI); an LMTP unix socket, or a subclass whose own connect opens its own socket, is not trapped; D-E3 (proposed): outside a request (plain thread, websocket handler, startup) the trap holds only when every live armed app has it on, else the mail is sent, because BootUI's trap belongs to one app's sender bean and a mail no app owns is never swallowed on one app's say-so
+prop:bootui.email.mask-content	matched	default false; masks every field unless FULL; the secret scrub is on either way below FULL (D-E1)
+prop:bootui.panels.email.enabled	matched	capture runs with the panel disabled (OQ3); reads and DELETE answer 403
+prop:bootui.panels.email.read-only	matched	DELETE /email refused, GET answers
