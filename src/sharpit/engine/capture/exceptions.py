@@ -124,7 +124,7 @@ def _chosen(frames: list[dict[str, Any]]) -> dict[str, Any] | None:
 def fingerprint(exc: BaseException, frames: list[dict[str, Any]] | None = None) -> str:
     """The class and the place it came from (``frames``: the uncapped walk); equal fingerprints share a group."""
     frame = _chosen(_frames(exc) if frames is None else frames)
-    name = _class_name(type(exc))
+    name = class_name(type(exc))
     return name if frame is None else f"{name}\n{frame['declaringClass']}:{frame['methodName']}:{frame['lineNumber']}"
 
 
@@ -135,13 +135,13 @@ def _types(exc: BaseException) -> list[str]:
     names: list[str] = []
     for current in reversed([exc, *_causes(exc, [], MAX_CAUSE_DEPTH)]):
         for cls in type(current).__mro__:
-            name = _class_name(cls)
+            name = class_name(cls)
             if cls not in _BASE_TYPES and name not in names:
                 names.append(name)
     return names[:MAX_TYPES]
 
 
-def _class_name(cls: type) -> str:
+def class_name(cls: type) -> str:
     return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
 
 
@@ -310,7 +310,7 @@ class ExceptionStore:
             cause_frames = _frames(cause, self.max_frames)
             causes.append(
                 {
-                    "exceptionClassName": _class_name(type(cause)),
+                    "exceptionClassName": class_name(type(cause)),
                     "message": self._text(cause),
                     "frames": cause_frames,
                     "commonFrames": _common(cause_frames, frames),
@@ -338,7 +338,7 @@ class ExceptionStore:
         with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
-                group = self._groups[gid] = _Group(gid, _class_name(type(exc)), now_ms)
+                group = self._groups[gid] = _Group(gid, class_name(type(exc)), now_ms)
             elif group.status == "RESOLVED":  # a regression: reopen; ACKNOWLEDGED stays as it is
                 group.status = "OPEN"
                 group.regressions += 1
@@ -363,7 +363,7 @@ class ExceptionStore:
     ) -> dict[str, object]:
         """BootUI's ``exception`` event (``ExceptionPayload`` and its envelope): the class, group, signature (the
         fingerprint without line numbers) and types; never the message, ``args`` or a frame."""
-        name = _class_name(type(exc))
+        name = class_name(type(exc))
         place = "" if chosen is None else f"\n{chosen['declaringClass']}:{chosen['methodName']}"
         owned = request is not None and request.context_id == self.context_id  # another install's request is not ours
         return {

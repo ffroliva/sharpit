@@ -57,7 +57,10 @@ CAPTURE_PANELS = (
     "activity",
     "security-logs",
 )  # any implemented, enabled request-capture panel needs the middleware
-LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
+LOG_PANELS = (
+    "log-tail",
+    "exceptions",
+)  # either enabled needs the log handler (spec §6.1 step 3), as does a journal listing `log`
 LOG_TAIL_DETACHED_REASON = (
     "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "
     "basicConfig(force=True)) after startup, or the app has not started"
@@ -361,11 +364,14 @@ class CaptureWiring:
             self._arm_sensors(ctx, journal)
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
-        if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
+        journal = ctx.capture.journal
+        # BootUI installs its journal appender whenever the journal records ``log`` (BootUiEngineConfiguration): a
+        # journal that lists the source needs the handler though no log panel is enabled
+        if any(_panel_enabled(ctx, p) for p in LOG_PANELS) or (journal is not None and journal.accepts("log")):
             self.log_handler = SharpitLogHandler(
                 ctx.masker, ctx.capture.log_tail, application=lambda: application_family(ctx)
             )
-            self.log_handler.journal, self.log_handler.context_id = ctx.capture.journal, ctx.context_id
+            self.log_handler.journal, self.log_handler.context_id = journal, ctx.context_id
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works

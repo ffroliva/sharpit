@@ -428,10 +428,13 @@ def test_log_journal_a_16_kb_message_masks_only_the_head(monkeypatch: pytest.Mon
 
 
 @pytest.mark.parametrize("secret_at", [470, 485, 495, 499])
-def test_log_journal_a_secret_straddling_the_cut_is_masked(secret_at: int, installed: list[Any]) -> None:
+def test_log_journal_a_secret_straddling_the_cut_is_masked(
+    secret_at: int, monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
     handle = _journal_only(installed)
+    offered = _offered_by(handle, monkeypatch)  # as built, before the read-time mask
     _emit(handle, "a" * secret_at + f" password={SECRET_CANARY}-{'z' * 600}")
-    (event,) = _records(handle)
+    (event,) = offered
     assert len(str(event["template"])) <= 500
     assert SECRET_CANARY[:8] not in str(event["template"])
 

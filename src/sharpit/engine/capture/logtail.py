@@ -13,11 +13,13 @@ import secrets
 import threading
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from functools import lru_cache
 from typing import Any, cast
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
-from sharpit.engine.capture.journal import JournalSink
+from sharpit.engine.capture.exceptions import class_name
+from sharpit.engine.capture.journal import REENTRANT, JournalSink
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, log_statement
@@ -25,6 +27,8 @@ from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, l
 LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
 MAX_TEMPLATE = 500  # LogPayload.MAX_TEMPLATE_LENGTH
+TEMPLATE_MARGIN = 4_096  # masked past the cut, as the SQL recorder does: a secret across the cut is read whole
+TEMPLATE_CACHE = 256  # masked templates kept (a call site's template, not an f-string's text)
 _FAILED = "sharpit log capture failed (%s); log capture continues"
 
 
@@ -99,16 +103,12 @@ def _is_classified_exc(value: object) -> bool:
     return issubclass(type(value), BaseException) and is_database_exception(cast(BaseException, value))
 
 
-def _class_name(cls: type) -> str:
-    return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
-
-
 def _exception_class(record: logging.LogRecord) -> str | None:
     info = record.exc_info
     if not isinstance(info, tuple):
         return None
     cls = type(info[1]) if isinstance(info[1], BaseException) else info[0]
-    return _class_name(cls) if isinstance(cls, type) else None
+    return class_name(cls) if isinstance(cls, type) else None
 
 
 def _substitute_arg(value: object, masker: Masker, dialect: Dialect) -> object:
@@ -180,6 +180,7 @@ class SharpitLogHandler(logging.Handler):
         self.context_id: str | None = None  # the installed context a request's id must belong to to be offered
         self._local = threading.local()
         self._failed = False
+        self.template_cache = lru_cache(maxsize=TEMPLATE_CACHE)(self._cached_template)
 
     def handleError(self, record: logging.LogRecord) -> None:
         """A bad record never prints a traceback from sharpit."""
@@ -188,7 +189,7 @@ class SharpitLogHandler(logging.Handler):
         local = self._local
         if getattr(local, "busy", False):  # a record raised while this thread is already in emit()
             if getattr(local, "offering", False) and not _own(record.name):
-                self._offer_journal(record)  # inside the journal's own append: it counts the nested offer as dropped
+                self._offer_journal(record)  # raised while this thread builds or offers an event: counted, not built
             return
         local.busy = True
         try:
@@ -215,7 +216,8 @@ class SharpitLogHandler(logging.Handler):
         if engine_log and not self.masker.capture_parameters and (_is_parameter_line(record) or record.args):
             return None
         dialect = self._dialect()
-        masked = self._masked(record, _record_message(record, self.masker, dialect), dialect)
+        message = _record_message(record, self.masker, dialect)
+        masked = self._masked(engine_log, message, dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {
@@ -231,38 +233,50 @@ class SharpitLogHandler(logging.Handler):
         family = self.application()
         return Dialect.UNSUPPORTED if family is None else family
 
-    def _masked(self, record: logging.LogRecord, message: str, dialect: Dialect) -> str | None:
+    def _masked(self, engine_log: bool, message: str, dialect: Dialect, limit: int = 4 * MAX_MESSAGE) -> str | None:
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
-        shown = message[: 4 * MAX_MESSAGE]
+        shown = message[:limit]
         # capture on shows a known dialect's raw text, but never one sharpit cannot read (owner, item 7)
-        statement = record.name.startswith("sqlalchemy.engine") and (
-            not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED
-        )
+        statement = engine_log and (not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED)
         return log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
 
     def _offer_journal(self, record: logging.LogRecord) -> None:
         """BootUI ``RuntimeJournalLogAppender.append``: a WARN-or-above record becomes one ``log`` event. Built here,
-        inside the guard and only when a journal is set, so a failing build or offer never reaches the host's call."""
+        inside the guard and only when the journal accepts ``log``, so a failing build or offer never reaches the
+        host's call. A record raised while this thread already builds or offers one is counted, never built."""
         journal = self.journal
         if journal is None or record.levelno < logging.WARNING or INTERNAL.get():
             return
         local = self._local
-        outer = getattr(local, "offering", False)
-        try:
-            with contextlib.suppress(Exception):  # publishing never disturbs the application's logging
-                event = self._journal_event(record)
-                local.offering = True
-                # the event is flat scalars it never touches again: no deep copy
-                offer = getattr(journal, "offer_flat", journal.offer)
-                offer(event)
-        finally:
-            local.offering = outer
+        if getattr(local, "offering", False):
+            journal.count_dropped(REENTRANT)
+        elif not journal.accepts("log"):
+            journal.count_dropped("log")  # no masking, no event: the journal would refuse it
+        else:
+            local.offering = True
+            try:
+                with contextlib.suppress(Exception):  # publishing never disturbs the application's logging
+                    event = self._journal_event(record)
+                    # the event is flat scalars it never touches again: no deep copy
+                    offer = getattr(journal, "offer_flat", journal.offer)
+                    offer(event)
+            finally:
+                local.offering = False
 
     def _journal_event(self, record: logging.LogRecord) -> dict[str, str | int | bool | None]:
         """BootUI's ``log`` event (``LogPayload`` and its envelope): the unformatted ``msg`` (a template, never
-        ``getMessage()`` or an argument; an object gives its class name), masked, cut at ``MAX_TEMPLATE``."""
+        ``getMessage()`` or an argument; an object gives its class name), masked, cut at ``MAX_TEMPLATE``. An
+        f-string or a concatenated ``str(exc)`` IS ``msg``: shown at MASKED (masked) and FULL,
+        withheld at METADATA_ONLY."""
         msg = record.msg
-        template = self._masked(record, msg if type(msg) is str else type(msg).__name__, self._dialect())
+        text = msg if type(msg) is str else type(msg).__name__
+        engine_log, dialect, masker = record.name.startswith("sqlalchemy.engine"), self._dialect(), self.masker
+        if record.args:  # a call site's template, not an f-string's text: the same masked result every time
+            template = self.template_cache(
+                text, engine_log, dialect, (masker.exposure, masker.identity_key, masker.capture_parameters)
+            )
+        else:
+            template = self._template(text, engine_log, dialect)
         request = REQUEST.get()
         owned = request is not None and request.context_id == self.context_id  # another install's request is not ours
         return {
@@ -275,9 +289,17 @@ class SharpitLogHandler(logging.Handler):
             "failedOrSlow": record.levelno >= logging.ERROR,
             "logger": record.name,
             "level": "ERROR" if record.levelno >= logging.ERROR else "WARN",
-            "template": None if template is None else template[:MAX_TEMPLATE],
+            "template": template,
             "exceptionClass": _exception_class(record),
         }
+
+    def _template(self, text: str, engine_log: bool, dialect: Dialect) -> str | None:
+        masked = self._masked(engine_log, text, dialect, MAX_TEMPLATE + TEMPLATE_MARGIN)
+        return None if masked is None else masked[:MAX_TEMPLATE]
+
+    def _cached_template(self, text: str, engine_log: bool, dialect: Dialect, masker_state: object) -> str | None:
+        del masker_state  # part of the cache key only: what the masker hides changes when its exposure or key does
+        return self._template(text, engine_log, dialect)
 
     def _forward_to_last_resort(self, record: logging.LogRecord) -> None:
         """With a handler on root, ``callHandlers`` no longer falls back to ``lastResort``: do it here (spec §6.1).

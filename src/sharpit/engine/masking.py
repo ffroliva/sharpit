@@ -395,6 +395,10 @@ class Masker:
         self.identity_key = identity_key
 
     @property
+    def exposure(self) -> Exposure:
+        return self._exposure
+
+    @property
     def identity_key(self) -> bytes | None:
         return self._identity_key
 
