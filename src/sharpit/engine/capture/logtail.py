@@ -252,11 +252,13 @@ class SharpitLogHandler(logging.Handler):
             with contextlib.suppress(Exception):  # publishing never disturbs the application's logging
                 event = self._journal_event(record)
                 local.offering = True
-                journal.offer(event)
+                # the event is flat scalars it never touches again: no deep copy
+                offer = getattr(journal, "offer_flat", journal.offer)
+                offer(event)
         finally:
             local.offering = outer
 
-    def _journal_event(self, record: logging.LogRecord) -> dict[str, object]:
+    def _journal_event(self, record: logging.LogRecord) -> dict[str, str | int | bool | None]:
         """BootUI's ``log`` event (``LogPayload`` and its envelope): the unformatted ``msg`` (a template, never
         ``getMessage()`` or an argument; an object gives its class name), masked, cut at ``MAX_TEMPLATE``."""
         msg = record.msg

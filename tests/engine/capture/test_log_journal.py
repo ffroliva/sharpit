@@ -83,13 +83,13 @@ def _offered_by(handle: Any, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, 
     """Every event the producer built, as built, before any read-time masking."""
     journal = handle.context.capture.journal
     offered: list[dict[str, object]] = []
-    real_offer = journal.offer
+    real_offer = journal.offer_flat
 
     def spy(event: dict[str, object]) -> bool:
         offered.append(dict(event))
         return real_offer(event)
 
-    monkeypatch.setattr(journal, "offer", spy)
+    monkeypatch.setattr(journal, "offer_flat", spy)
     return offered
 
 
@@ -301,11 +301,11 @@ def test_log_journal_a_failing_offer_never_reaches_the_host(
         raise RuntimeError("journal down")
 
     journal = handle.context.capture.journal
-    real_offer = journal.offer
-    monkeypatch.setattr(journal, "offer", refuse)
+    real_offer = journal.offer_flat
+    monkeypatch.setattr(journal, "offer_flat", refuse)
     _emit(handle, "host log call")
     assert len(handle.context.capture.log_tail.recent()) == 1
-    monkeypatch.setattr(journal, "offer", real_offer)
+    monkeypatch.setattr(journal, "offer_flat", real_offer)
     _emit(handle, "control")
     assert len(_records(handle)) == 1
 

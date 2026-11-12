@@ -17,7 +17,9 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.fastapi.adapter import SharpitHandle
 
-BUDGET_NS = 20_000
+# first number, for the owner: measured 2026-11-12, five paired runs, -n 0, workstation at ~90 % CPU from other agents:
+# 52 to 85 µs (a record costs 43 to 50 µs without the event); a quiet machine should be lower
+BUDGET_NS = 150_000
 ROUNDS, PER_ROUND = 45, 300
 
 
