@@ -279,6 +279,7 @@ def test_host_code_on_an_attribute_object_never_runs() -> None:
     client = make_client()
     client.spy = Spy()  # type: ignore[attr-defined]
     client.boxed = staticmethod(Spy())  # type: ignore[attr-defined]
+    calls.clear()  # staticmethod() itself copies attributes off its argument
     assert wrap(client, "spy", passthrough, tag="t") is None
     assert wrap(client, "boxed", passthrough, tag="t") is None
     assert calls == []
