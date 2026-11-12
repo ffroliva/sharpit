@@ -302,6 +302,7 @@ WRITES = [
     ("sql-trace", "POST", "/sharpit/api/sql-trace/recording", {"enabled": False}),
     ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
     ("alembic", "POST", "/sharpit/api/alembic/migrate", {"confirm": True}),
+    ("alembic", "POST", "/sharpit/api/alembic/clean", {"confirm": True}),
     ("health", "POST", "/sharpit/api/health/check", None),
     ("rest-api", "POST", "/sharpit/api/rest-api/scan", None),
     ("http-probe", "POST", "/sharpit/api/http-probe", {"method": "GET", "path": "/owners"}),
