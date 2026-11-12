@@ -21,6 +21,7 @@ _ASSIGNMENT = re.compile(rf"""\s*[A-Za-z_]\w*=(?:{_PIECE}|\$\([^()]*\)|`[^`]*`|\
 _NAMED = re.compile(r"\s*[A-Za-z_]\w*=")  # an assignment, whether its value parses or not
 _WORD = re.compile(rf"""\s*((?:{_PIECE}|[^\s'"\\])++)(?=\s|$)""")
 _QUOTE = re.compile("[\"']")
+_PLAIN = re.compile(r"[^\s'\"\\=]+")  # one word with no quote, escape or '=': a path to basename as it is
 
 
 def _text(value: object) -> str | None:
@@ -37,6 +38,8 @@ def _program(command: str) -> str | None:
 
     Fails closed: a value or a quote that does not parse gives ``(unknown)``, never a fragment of what follows.
     """
+    if _PLAIN.fullmatch(command):
+        return command.rpartition("/")[2][:_MAX] or UNKNOWN
     end = 0
     while match := _ASSIGNMENT.match(command, end):
         end = match.end()
