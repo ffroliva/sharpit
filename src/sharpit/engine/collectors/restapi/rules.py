@@ -234,10 +234,10 @@ RULES: tuple[RuleDefinition, ...] = (
         "Make error-handler status ownership explicit",
         ERRORS_DOCS,
         "MEDIUM",
-        "An @ExceptionHandler that renders a body but neither returns ResponseEntity nor declares @ResponseStatus"
-        " has no explicit status selection visible in the Spring declaration."
-        " Runtime response rewriting is not observed.",
-        "Return ResponseEntity/ProblemDetail or add @ResponseStatus so the handler responds with an error status.",
+        "An exception handler that renders a body without an explicit status selection visible in its declaration"
+        " has no explicit status selection. Runtime response rewriting is not observed.",
+        "Return a response with an explicit status_code or specify an error status so the handler responds with an"
+        " error status.",
         PROBLEM_DETAIL_DOCS,
     ),
     RuleDefinition(

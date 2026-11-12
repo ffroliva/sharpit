@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - SQL Trace `requestPhase` is `STARTUP` or `SHUTDOWN` for statements outside a request while sharpit observes the host's lifespan in that phase; null (unknown) otherwise.
 - `pytest --sharpit-sarif=PATH` (ini `sharpit_sarif`) writes the findings as SARIF 2.1.0: masked text, root-relative URIs, location-free fingerprints, baselined findings as suppressions; written by the xdist controller only.
 - REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
+- REST API rules RAPI-ERR-004, -005, -007, -008, -010 on the error contract; RAPI-ERR-011 kept as retired (BootUI 2.3.0).
 - Runtime Insights panel slot (`runtime-insights`, not yet served), the registry of BootUI's 28 insight kinds as stubs, and SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD and SHARPIT_RESOURCES_JFR_MAX_DURATION.
 - Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.

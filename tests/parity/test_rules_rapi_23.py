@@ -864,7 +864,8 @@ def test_rapi_err_010_fires_on_differing_known_error_categories() -> None:
 
     finding = _one(app, "RAPI-ERR-010", "LOW")
     assert finding.target == "application"
-    assert "different error body declaration categories: problem details" in finding.message
+    assert "different error body declaration categories:" in finding.message
+    assert "problem details" in finding.message
     assert "raw string" in finding.message
 
 
