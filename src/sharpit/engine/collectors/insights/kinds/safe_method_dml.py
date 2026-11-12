@@ -6,3 +6,5 @@ MINIMUM_TIER = "REQUEST_ID"
 READS: frozenset[str] = frozenset({"http", "sql"})
 OPTIONAL_READS: frozenset[str] = frozenset()
 IMPLEMENTED = False
+IDS_WITHHELD = ""
+LIMITATIONS: tuple[str, ...] = ()
