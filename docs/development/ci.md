@@ -57,6 +57,37 @@ fails, never skips, when coverage did not succeed; forks and Dependabot still sk
 shard therefore turns all four `test` checks red; the shard job's own name says which leg failed. To add a shard,
 change the matrix only; never shard to hide a slow test (`skills/optimize/SKILL.md`).
 
+## Wall clock
+
+Target (owner, top priority): a PR's run, first job queued to last check green, averages 3-5 minutes, and so does an
+sbx full-suite run. Measure a run with the jobs API (`gh api repos/ffroliva/sharpit/actions/runs/<id>/jobs`): wall is
+the last `completed_at` minus the first `created_at`, runner-minutes the sum of job durations.
+
+| Run | Layout | Wall | Runner-min | Long pole |
+|---|---|---|---|---|
+| 43178363371 (PR #153) | stale weights; Windows 4 shards, Ubuntu 5 | 10.8 | 89.9 | `test shard (windows, 1/4)` 5.1 min (841 test-s; 2/4 had 397) |
+| 43183266267 (PR #156) | fresh weights; Windows 6, Ubuntu 4 | 14.6 | 102.0 | `test shard (windows, 5/6)` 8.0 min (962 test-s; 4/6 had 211) |
+| 43186443513 (PR #156) | same, plus `--dist worksteal` (reverted, see below) | 6.4 | 80.0 | `test shard (windows, 6/6)` 3.9 min (its shards 1.6-2.7 min) |
+
+What the numbers say:
+
+- **Setup is not the cost.** With uv's cache hot, checkout, setup-uv and `uv sync` take 10-25 s a job.
+- **The pool is.** ~52 jobs share an account-wide pool of ~20 runners with every other lane's runs; in 43183266267
+  only 10-14 of ours ran at once and Windows shards started 4-8 minutes in. Job order in the file does not change
+  which job gets a runner first.
+- **Shard times swing with what shares a worker, not with the weights.** The same `tests/test_safety_matrix.py`
+  slice cost 33-69 s on five Windows shards and 464 s on the sixth: its tests ran at ~0.8 s each, then ~11 s each
+  after some earlier test on that worker. Same file, 92 s on `lowest` and 382 s on Ubuntu 3.12 in one run. Candidate
+  cause (unconfirmed): `engine/sources/sqlite.py` `_count_preexisting` walks `gc.get_objects()` and calls
+  `gc.get_referrers` for each live sqlite3 connection on every attach, so a worker that piles up connections pays
+  heap x connections on every `install()`. `test_a12_resolver.py` first did not reproduce it.
+- **Tail stragglers.** `--dist load` left one worker with a 3-minute queue after the other three were idle
+  (ubuntu 3.14 3/4: 98% -> 100% took 3 min). `--dist worksteal` evened the Windows shards (1.6-2.7 min) but reorders
+  tests across workers, and that exposed a logging-state leak older than this change: seven `caplog` tests in
+  `tests/fastapi/test_install.py` saw no records on coverage shard 4/5. The logging guard (`_logging_unchanged` in
+  `tests/conftest.py`) covers only `pytest_plugin/` and `testsession/`, so the leaking test is not named. worksteal
+  comes back once the guard covers the whole suite and the leak is fixed.
+
 ## Reading a red job
 
 - **Only on CI, never locally.** Reproduce that job's command in its own env first; the difference is the environment
