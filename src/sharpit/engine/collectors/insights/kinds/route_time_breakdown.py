@@ -23,7 +23,7 @@ from collections import defaultdict
 
 from sharpit.engine.collectors.insights import route_phases as phases
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
-from sharpit.engine.collectors.insights.requests import Request, project_requests
+from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests
 from sharpit.engine.collectors.insights.route_phases import Breakdown, Totals
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.collectors.insights.text import counted, median, millis
@@ -50,10 +50,6 @@ NOT_SPLIT = (
     "Its time is not split into phases, since its requests reached no handler sharpit marks or named nothing at all, "
     "and its warm median is under 20 ms."
 )
-IDS_WITHHELD = (
-    "Request ids are withheld at METADATA_ONLY exposure, so requests cannot be told apart to break a route's time "
-    "down (SHARPIT_EXPOSE_VALUES)."
-)
 SLOWEST = "Open the slowest exemplar request in Live Activity to see its timeline."
 FEW_MORE = "Exercise the route a few more times to read where its time goes."
 CHECKS = {
@@ -67,7 +63,7 @@ CHECKS = {
 
 def not_applicable(snapshot: Snapshot) -> str | None:
     """http records exist but none names a request id: the exposure withheld them, so none can be told apart."""
-    return IDS_WITHHELD if snapshot.records.get("http") and not snapshot.requests else None
+    return ids_withheld(snapshot, "requests cannot be told apart to break a route's time down")
 
 
 def _slowest(breakdowns: list[Breakdown]) -> list[str]:

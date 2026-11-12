@@ -40,12 +40,12 @@ class RequestIndex:
         # a record without a request id (withheld by the exposure, or never written) is no request: never ``str(None)``
         self.requests = tuple(
             Request(
-                request_id, str(r.get("route") or ""), _text(r.get("traceId")), _text(r.get("method")),
+                request_id, str(r.get("route") or ""), text_or_none(r.get("traceId")), text_or_none(r.get("method")),
                 count(r.get("status")), count(r.get("durationNanos")),
                 count(r.get("epochMillis", r.get("startedAt"))), count(r.get("startNanos")),
             )
             for r in records
-            if (request_id := _text(r.get("requestId")))
+            if (request_id := text_or_none(r.get("requestId")))
         )  # fmt: skip
         self._by_id = {r.request_id: r for r in self.requests}
         self._joined: dict[str, dict[str, list[dict[str, object]]]] = {}
@@ -56,10 +56,10 @@ class RequestIndex:
                 self._by_trace.setdefault(request.trace_id, request)
 
     def owner(self, event: dict[str, object]) -> Request | None:
-        request_id = _text(event.get("requestId"))
+        request_id = text_or_none(event.get("requestId"))
         if request_id:
             return self._by_id.get(request_id)
-        return self._by_trace.get(_text(event.get("traceId")) or "")
+        return self._by_trace.get(text_or_none(event.get("traceId")) or "")
 
     def _join(self, source: str, events: tuple[dict[str, object], ...]) -> dict[str, list[dict[str, object]]]:
         """``source``'s events by owning request id, computed once."""
@@ -85,7 +85,7 @@ def project_requests(snapshot: Snapshot, *sources: str) -> tuple[Request, ...]:
     return snapshot.request_index.project(snapshot, sources)
 
 
-def _text(value: object) -> str | None:
+def text_or_none(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
@@ -93,12 +93,11 @@ def count(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def ids_withheld(snapshot: Snapshot, what: str) -> str | None:
-    """Why a kind cannot place ``what`` on a route: http events were recorded but none kept its request id (the
-    exposure withheld them). That is not "no eligible work"; the kind says so."""
+def ids_withheld(snapshot: Snapshot, consequence: str) -> str | None:
+    """Why a kind cannot work: http events were recorded but none kept its request id (the exposure withheld them),
+    so ``consequence`` (what the kind cannot do). That is not "no eligible work"; the kind says so.
+
+    Follow-up: ``errors_behind_2xx`` (P-transaction) and ``ai_usage_by_route`` keep their own copies of this gate."""
     if snapshot.requests or not snapshot.records.get("http"):
         return None
-    return (
-        f"Request ids are withheld at METADATA_ONLY exposure, so {what} cannot be placed on a route "
-        "(SHARPIT_EXPOSE_VALUES)."
-    )
+    return f"Request ids are withheld at METADATA_ONLY exposure, so {consequence} (SHARPIT_EXPOSE_VALUES)."

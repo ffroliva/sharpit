@@ -294,7 +294,7 @@ def test_framework_warnings_by_route_list_errors_and_known_warnings_and_count_er
     assert unowned.listed is True
     assert unowned.sentence == (
         "Framework loggers wrote 4 `ERROR` events that carried no request or execution id, from 2 messages; the most "
-        "frequent from `QueuePool`, 3 times."
+        f"frequent from `{POOL}`, 3 times."
     )
     assert (unowned.eligible, unowned.affected, unowned.exemplar_request_ids) == (0, 4, [])
     assert unowned.columns == ["Logger", "Message", "Events"]
@@ -320,7 +320,9 @@ def test_framework_warnings_by_route_messages_that_differ_only_by_ids_or_path_nu
     findings = by_subject(run.evaluate(WARNINGS).findings, ORDERS)
     assert len(findings) == 2
     grouped = next(f for f in findings if "HTTP Request" in f.sentence)
-    assert grouped.sentence.startswith(f"`{ORDERS}` logged `ERROR` from `starlette.errors` in 3 of 4 requests (3 events): ")
+    assert grouped.sentence.startswith(
+        f"`{ORDERS}` logged `ERROR` from `starlette.errors` in 3 of 4 requests (3 events): "
+    )
     assert "/api/orders/<n> failed, error id: <id>" in grouped.sentence
     assert base not in grouped.sentence
     assert grouped.affected == 3
@@ -504,15 +506,15 @@ def test_framework_warnings_by_route_an_event_with_only_a_trace_id_is_counted_on
 
 
 def test_framework_warnings_by_route_leaks_that_differ_only_by_address_are_one_group() -> None:
-    run = Run()
+    run = Run()  # the real message is long: the sentence quotes 80 characters, so the group key is read short here
     for address in ("0x7f3a1c2b4d10", "0x7f3a1c2b9e88"):
-        run.request(200, log(POOL, ERROR, f"{LEAK} <connection object at {address}>"))
-    run.unowned(*[log(POOL, ERROR, f"{LEAK} <connection object at 0x7f3a1c2b{n}>") for n in ("0001", "0002")])
+        run.request(200, log(POOL, ERROR, f"non-checked-in connection <object at {address}>"))
+    run.unowned(*[log(POOL, ERROR, f"non-checked-in connection <object at 0x7f3a1c2b{n}>") for n in ("0001", "0002")])
     findings = run.evaluate(WARNINGS).findings
     assert len(by_subject(findings, ORDERS)) == 1
     grouped = by_subject(findings, ORDERS)[0]
     assert grouped.affected == 2
-    assert grouped.sentence.endswith('<connection object at <addr>>".')
+    assert grouped.sentence.endswith('<object at <addr>>".')
     (unowned,) = by_subject(findings, "No request")
     assert [row[2] for row in unowned.rows] == ["2"]
 

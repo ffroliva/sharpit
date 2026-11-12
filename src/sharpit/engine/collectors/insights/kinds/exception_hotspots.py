@@ -7,7 +7,8 @@ nearly every request of its route answered 4xx with it; groups seen only behind 
 Deviations (proposed, ``w5c-K2b.tsv``): sharpit keeps no previous run, so no group is marked "not observed in the
 previous run" and every finding's limitations say so; scheduled runs and messages are not projected, so there is no
 "caught in completed runs" row; the specific checks are SQLAlchemy's, keyed by ``module.Class`` as ``exceptionClass``
-and ``types`` carry it; no ``EXACT_ONLY`` list (it names Jackson wrappers); no WebFlux limitation.
+and ``types`` carry it; no ``EXACT_ONLY`` list (it names Jackson wrappers); no WebFlux limitation; an event with neither
+a signature nor a group id is skipped (it cannot be grouped).
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field, replace
 from typing import cast
 
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
-from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests
+from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests, text_or_none
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.collectors.insights.text import counted, simple_name, stable_hash, unit
 
@@ -84,7 +85,7 @@ CHECKS: dict[str, str] = {  # by ``module.Class``, as ``exceptionClass`` and ``t
 
 
 def not_applicable(snapshot: Snapshot) -> str | None:
-    return ids_withheld(snapshot, "exceptions")
+    return ids_withheld(snapshot, "exceptions cannot be placed on a route")
 
 
 def _status_class(status: int | None) -> str:
@@ -94,10 +95,6 @@ def _status_class(status: int | None) -> str:
     if 400 <= code < 500:
         return CLIENT
     return SUCCESS if 200 <= code < 300 else OTHER
-
-
-def _text(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
 
 
 @dataclass
@@ -113,7 +110,7 @@ class _Group:
         types = event.get("types")
         names = [t for t in cast("list[object]", types) if isinstance(t, str)] if isinstance(types, list) else []
         specific = next((CHECKS[n] for n in names if n in CHECKS), None)
-        specific = specific or CHECKS.get(_text(event.get("exceptionClass")) or "")
+        specific = specific or CHECKS.get(text_or_none(event.get("exceptionClass")) or "")
         if specific and specific not in self.checks:
             self.checks.append(specific)
 
@@ -144,13 +141,13 @@ def _groups(requests: list[Request]) -> dict[str, _Group]:
         counts: dict[str, int] = {}
         ids: dict[str, str] = {}
         for event in request.children.get(SOURCE, ()):
-            key = _text(event.get("signature")) or _text(event.get("groupId"))
+            key = text_or_none(event.get("signature")) or text_or_none(event.get("groupId"))
             if key is None:
                 continue
             group = groups.setdefault(key, _Group(simple_name(event.get("exceptionClass"))))
             group.observe(event)
             counts[key] = counts.get(key, 0) + 1
-            ids[key] = _text(event.get("groupId")) or ""
+            ids[key] = text_or_none(event.get("groupId")) or ""
         for key, count in counts.items():
             groups[key].add(request, count, ids[key])
     return groups
