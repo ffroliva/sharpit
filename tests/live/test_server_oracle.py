@@ -141,8 +141,8 @@ def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path
 # reaches the recorder: a wrong dialect on the event alone conflicts with its engine, and since Task 29 a conflict hides
 # whole, so that plant leaked nothing (test_live_anchors.py::test_the_wrong_wired_plant_reaches_the_recorder)
 WRONG_WIRED = Mutant(
-    "dialect=event_dialect(event, lambda ctx=ctx: application_family(ctx)),",
-    "dialect=Dialect.POSTGRESQL,",
+    "dialect = event_dialect(event, lambda ctx=ctx: application_family(ctx))",
+    "dialect = Dialect.POSTGRESQL",
     "",
     "",
     "engine/sources/dispatch.py",
