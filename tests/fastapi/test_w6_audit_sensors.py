@@ -175,10 +175,11 @@ def test_a_read_only_panel_refuses_the_switch_and_nothing_changes(
 def test_the_mcp_tools_switch_the_same_sensor(tmp_path: Path, hook: Hook, tool: str, enabled: bool) -> None:
     _, handle = _app(tmp_path, agent_sensors=("files",))
     handler = next(t for t in TOOLS if t.name == tool).handler
+    hook.fire("os.remove", "a.txt", None)  # on at the start: one row before the switch
     with contextlib.suppress(ToolCallError):  # a refusal leaves the sensor as it was: the row count below proves it
         handler(CallContext(handle.context, {}), {"id": "files"})
     hook.fire("os.remove", "a.txt", None)
-    assert _rows(handle, "files") == (1 if enabled else 0)
+    assert _rows(handle, "files") == (2 if enabled else 1)
     handle.uninstall_capture()
 
 
