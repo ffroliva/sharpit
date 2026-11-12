@@ -119,12 +119,17 @@ def run_alembic(
         return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
     try:
         tail = _Tail(proc.stdout)
+    except RuntimeError as exc:  # the reader thread could not start: the time cap must still apply, so kill the child
+        _kill_tree(proc)
+        _reap(proc)
+        return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
+    try:
         proc.wait(timeout=limit)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
         _reap(proc)
         return RunResult(None, tail.text(_REAP), "timeout")
-    except (OSError, ValueError, RuntimeError) as exc:  # RuntimeError: the reader thread could not start
+    except (OSError, ValueError) as exc:
         _kill_tree(proc)
         _reap(proc)
         return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
