@@ -31,6 +31,11 @@ JOBS = _jobs()
 SHARD = re.compile(r"shard: \[?(\d+)/(\d+)")
 
 
+def _artifact_job(job: str) -> str:
+    """The locked job keeps test-shard's artifact names: scripts/ci/shard_weights.py reads Ubuntu weights from them."""
+    return "test-shard" if job == "test-shard-locked" else job
+
+
 def _legs(job: str) -> dict[str, list[tuple[int, int]]]:
     """Shard entries of a matrix job, grouped by (os, python) leg."""
     legs: dict[str, list[tuple[int, int]]] = defaultdict(list)
@@ -159,7 +164,7 @@ def test_the_budget_files_run_alone_after_the_parallel_step(job: str) -> None:
     assert writer in JOBS[job]
     assert JOBS[job].index(writer) < JOBS[job].index(parallel[0])
     for kind in ("junit", "overhead", "speed"):
-        assert re.search(rf"name: {kind}-{job}-\S*budgets$", JOBS[job], re.MULTILINE), kind
+        assert re.search(rf"name: {kind}-{_artifact_job(job)}-\S*budgets$", JOBS[job], re.MULTILINE), kind
 
 
 def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
@@ -183,8 +188,8 @@ def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
     missing_overhead = [name for name in pytest_jobs if "name: overhead-" not in JOBS[name]]
     assert not missing_overhead, f"pytest jobs without overhead uploads: {missing_overhead}"
     for job in pytest_jobs:
-        assert f"name: junit-{job}-" in JOBS[job], job
-        assert f"name: overhead-{job}-" in JOBS[job], job
+        assert f"name: junit-{_artifact_job(job)}-" in JOBS[job], job
+        assert f"name: overhead-{_artifact_job(job)}-" in JOBS[job], job
         assert "SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl" in JOBS[job], job
         assert JOBS[job].count("if: always()") >= 2, job
     assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
@@ -209,7 +214,7 @@ def test_every_pytest_job_records_fixture_times_and_rebuilds_and_uploads_them(jo
     body = JOBS[job]
     assert body.index(f'os.makedirs(sys.argv[1], exist_ok=True)" "{SPEED_DIR}"') < body.index(runs[0])
     assert f'--values-file "${{{{ runner.temp }}}}/sharpit-canary.txt" "{SPEED_DIR}"' in body
-    upload = body.split(f"name: speed-{job}", 1)
+    upload = body.split(f"name: speed-{_artifact_job(job)}", 1)
     assert len(upload) == 2, f"{job} uploads no speed-{job}-* artifact"
     tail = upload[1].split("\n      - ", 1)[0]
     assert f"path: {SPEED_DIR}" in tail
@@ -848,8 +853,8 @@ def test_release_branches_run_on_push() -> None:
     branches = {item.strip().strip('"') for item in push[1].split(",")}
     assert {"main", "mvp", "release/**"} <= branches
     # every push, release branches included, is its own concurrency group: none cancels another
-    assert "${{ github.event.pull_request.number || github.run_id }}" in _on_header()
-    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in _on_header()
+    assert "${{ github.event.pull_request.number || github.run_id }}" in CI
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in CI
 
 
 def _run_test_aggregator(
