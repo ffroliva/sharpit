@@ -86,7 +86,7 @@ def _evicted(snapshot: Snapshot, cold_known: bool) -> list[str]:
     found = [
         "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
     ]
-    if snapshot.recorded("sql"):
+    if snapshot.available("sql"):
         found.append(
             "The journal evicted older events, so a request may have lost its SQL statements while the request "
             "stayed: that time reads as unattributed."
@@ -101,7 +101,7 @@ def _unplaced(unplaced: int) -> list[str]:
 
 
 def _ai(snapshot: Snapshot, warm: list[Breakdown]) -> list[str]:
-    ai = sum(1 for b in warm if b.request.children["ai"]) if snapshot.recorded("ai") else 0
+    ai = sum(1 for b in warm if b.request.children["ai"]) if snapshot.available("ai") else 0
     if not ai:
         return []
     return [

@@ -375,8 +375,8 @@ def test_the_sql_source_is_recorded_only_when_enabled() -> None:
     enabled, disabled = _journal(["sql"]), _journal(["http"])
     enabled.offer(sql)
     disabled.offer(sql)
-    assert snapshot_module.project(enabled).recorded("sql")
-    assert not snapshot_module.project(disabled).recorded("sql")
+    assert snapshot_module.project(enabled).journaled("sql")
+    assert not snapshot_module.project(disabled).journaled("sql")
 
 
 def test_the_exception_source_is_recorded_only_when_enabled() -> None:
@@ -384,8 +384,8 @@ def test_the_exception_source_is_recorded_only_when_enabled() -> None:
     enabled, disabled = _journal(["exception"]), _journal(["http"])
     enabled.offer(event)
     disabled.offer(event)
-    assert snapshot_module.project(enabled).recorded("exception")
-    assert not snapshot_module.project(disabled).recorded("exception")
+    assert snapshot_module.project(enabled).journaled("exception")
+    assert not snapshot_module.project(disabled).journaled("exception")
 
 
 def test_the_log_source_is_recorded_only_when_enabled() -> None:
@@ -393,5 +393,5 @@ def test_the_log_source_is_recorded_only_when_enabled() -> None:
     enabled, disabled = _journal(["log"]), _journal(["http"])
     enabled.offer(event)
     disabled.offer(event)
-    assert snapshot_module.project(enabled).recorded("log")
-    assert not snapshot_module.project(disabled).recorded("log")
+    assert snapshot_module.project(enabled).journaled("log")
+    assert not snapshot_module.project(disabled).journaled("log")

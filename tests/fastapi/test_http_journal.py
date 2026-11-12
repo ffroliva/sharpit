@@ -272,8 +272,8 @@ def test_http_is_a_recorded_source_only_when_enabled() -> None:
     assert "http" in snapshot_module.PRODUCED_SOURCES
     on = RuntimeJournal(sources=("http", "ai"))
     off = RuntimeJournal(sources=("ai",))
-    assert project(on).recorded("http")
-    assert not project(off).recorded("http")
+    assert project(on).journaled("http")
+    assert not project(off).journaled("http")
 
 
 def test_ai_operation_in_a_real_request_is_joined_by_request_id() -> None:

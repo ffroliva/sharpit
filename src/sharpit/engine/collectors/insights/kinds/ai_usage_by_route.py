@@ -221,7 +221,7 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
 
 def _uncounted(snapshot: Snapshot) -> str | None:
     events = snapshot.records.get("ai", ())
-    if not snapshot.recorded("http"):
+    if not snapshot.available("http"):
         return NO_ROUTE if events else None
     unjoined = sum(snapshot.request_index.owner(event) is None for event in events)
     if not unjoined:
