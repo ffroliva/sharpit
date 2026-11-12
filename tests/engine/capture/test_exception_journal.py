@@ -230,7 +230,12 @@ def test_exception_journal_a_failing_event_build_keeps_the_stores_record(monkeyp
         raise RuntimeError("build failed")
 
     monkeypatch.setattr(exceptions_module, "_types", broken)
-    store.record(_raised(Brewing("x")), "handler", None, "t")  # nothing escapes to the host
+    escaped: list[Exception] = []
+    try:
+        store.record(_raised(Brewing("x")), "handler", None, "t")
+    except Exception as error:  # noqa: BLE001 - the defect: a broken build reaches the host
+        escaped.append(error)
+    assert escaped == []
     assert store.report()["totalExceptions"] == 1
     assert _records(handle) == ()
     monkeypatch.undo()
