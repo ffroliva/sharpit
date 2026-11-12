@@ -590,6 +590,18 @@ FRAGMENT_CASES = [
     ("os.system", (f'cmd /c "prog {CANARY}"',), "cmd"),
     ("os.system", (f"env A={CANARY} prog",), "env"),
     ("os.system", (f"\tprog\t--password\t{CANARY}",), "prog"),
+    # round 4: a shell metacharacter glued to the program ends the word; one that starts it is not a program
+    ("os.system", (f"prog>/tmp/{CANARY}.log",), "prog"),
+    ("os.system", (f"prog;{CANARY}",), "prog"),
+    ("os.system", (f"prog|{CANARY}",), "prog"),
+    ("os.system", (f"prog#{CANARY}",), "prog"),
+    ("os.system", (f"prog&{CANARY}",), "prog"),
+    ("os.system", (f"prog<{CANARY}",), "prog"),
+    ("os.system", (f"`{CANARY}` prog",), "(unknown)"),
+    ("os.system", (f"$(cat /etc/{CANARY}) x",), "(unknown)"),
+    ("os.system", (f"${{{CANARY}}} x",), "(unknown)"),
+    ("os.system", (f"(prog {CANARY})",), "(unknown)"),
+    ("os.system", (f"C:\dir\ {CANARY}",), "(unknown)"),  # cmd.exe: a trailing backslash is not an escape
 ]
 
 
