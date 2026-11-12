@@ -29,8 +29,7 @@ from sharpit.engine.sqla.dialect_source import exception_dialect
 from sharpit.engine.sqltext import Dialect, error_text, exception_leaves, is_database_exception
 
 MAX_MESSAGE = 2000
-MAX_CAUSES = 5
-MAX_CAUSE_DEPTH = 8  # ExceptionStore.MAX_CAUSE_DEPTH: how deep the journal event's types walk
+MAX_CAUSE_DEPTH = 8  # ExceptionStore.MAX_CAUSE_DEPTH: the panel's causes and the journal event's types walk this deep
 MAX_TYPES = 16  # ExceptionPayload.MAX_TYPES
 _BASE_TYPES = frozenset(
     {BaseException, Exception, object}
@@ -146,7 +145,7 @@ def _class_name(cls: type) -> str:
     return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
 
 
-def _causes(exc: BaseException, extra: list[BaseException], limit: int = MAX_CAUSES) -> list[BaseException]:
+def _causes(exc: BaseException, extra: list[BaseException], limit: int = MAX_CAUSE_DEPTH) -> list[BaseException]:
     """``__cause__``, else an unsuppressed ``__context__``; cycle-safe, then other group leaves; ``limit`` at most."""
     seen = {id(exc)}
     found: list[BaseException] = []
