@@ -467,7 +467,12 @@ def test_a_dispatcher_whose_thread_state_is_gone_still_never_raises() -> None:
     hub = AuditHub(add_hook=recorder)
     hub.enable(ProcessesSensor(), RuntimeJournal(sources=JOURNAL_SOURCES))
     hub._busy = Gone()  # pyright: ignore[reportPrivateUsage, reportAttributeAccessIssue]
-    recorder.fire("os.system", "prog")  # interpreter shutdown can leave the thread-local unusable
+    raised: BaseException | None = None
+    try:
+        recorder.fire("os.system", "prog")  # interpreter shutdown can leave the thread-local unusable
+    except BaseException as error:  # noqa: BLE001 - the test asserts the hook let nothing out
+        raised = error
+    assert raised is None
 
 
 def test_a_cache_cleared_by_another_thread_mid_lookup_still_records_the_row() -> None:
