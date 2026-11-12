@@ -73,6 +73,7 @@ def test_a_foreign_wrapper_installed_after_ours_is_left_alone() -> None:
     original = client.__dict__["send"]
     remover = wrap(client, "send", passthrough, tag="t")
     assert remover is not None
+    assert hasattr(client.__dict__["send"], "__sharpit_original__")
     foreign = functools.wraps(client.__dict__["send"])(lambda self, x: ("foreign", x))  # copies our marker too
     client.send = foreign  # type: ignore[method-assign]
     assert remover() is False
@@ -97,6 +98,7 @@ def test_wrapping_over_a_foreign_wrapper_restores_the_foreign_one() -> None:
 def test_a_foreign_wrapper_copying_our_marker_is_not_taken_for_ours() -> None:
     client = make_client()
     assert wrap(client, "send", passthrough, tag="t") is not None
+    assert hasattr(client.__dict__["send"], "__sharpit_original__")
     client.send = functools.wraps(client.__dict__["send"])(lambda self, x: ("foreign", x))  # type: ignore[method-assign]
     assert wrap(client, "send", passthrough, tag="t") is not None
 
@@ -146,6 +148,7 @@ def test_an_async_method_stays_a_coroutine_function() -> None:
         return wrapper
 
     assert wrap(client, "fetch", make_async, tag="t") is not None
+    assert hasattr(client.__dict__["fetch"], "__sharpit_original__")
     assert inspect.iscoroutinefunction(client.__dict__["fetch"])
 
 
