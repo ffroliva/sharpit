@@ -68,6 +68,14 @@ the last `completed_at` minus the first `created_at`, runner-minutes the sum of 
 | 43178363371 (PR #153) | stale weights; Windows 4 shards, Ubuntu 5 | 10.8 | 89.9 | `test shard (windows, 1/4)` 5.1 min (841 test-s; 2/4 had 397) |
 | 43183266267 (PR #156) | fresh weights; Windows 6, Ubuntu 4 | 14.6 | 102.0 | `test shard (windows, 5/6)` 8.0 min (962 test-s; 4/6 had 211) |
 | 43186443513 (PR #156) | same, plus `--dist worksteal` (reverted, see below) | 6.4 | 80.0 | `test shard (windows, 6/6)` 3.9 min (its shards 1.6-2.7 min) |
+| 43187639646 (PR #156) | worksteal reverted | 8.1 | 96.5 | `test shard (ubuntu, 3.14, 1/4)` 4.5 min |
+| 43199441634 (PR #156) | sqlite heap-walk fix | 6.7 | 77.5 | `test shard (windows, 6/6)` 3.3 min; jobs queued up to 2.9 min, 20 at once |
+| 43201435266 (PR #156) | weights refreshed after the fix | 6.7 | 77.7 | `test shard (ubuntu, 3.14, 4/4)` 4.3 min; queued up to 3.0 min |
+
+After the heap-walk fix the shards are balanced and no test file drifts by worker; the wall is the account's 20-runner
+pool (77 runner-min, so ~3.9 min even perfectly packed) plus `sonar` (~2 min) after the coverage shards. Its Python
+sensor re-parses every file each run because the base branch's analysis cache is stale. The remaining levers are the
+layout and runner options (O1-O3 in the 0.6.0 plan's `W0b-ci-method.md`), queued for the owner.
 
 What the numbers say:
 
