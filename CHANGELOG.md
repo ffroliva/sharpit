@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Runtime journal `http` source: the capture middleware offers one metadata-only event per finished request (method, masked path, route template, status, duration, request and trace id; BootUI `RequestCorrelationFilter.publish`), so `ai-usage-by-route` and the request-based insights read real requests when `http` is in `runtime_journal_sources`.
 - Cache clear action (REST POST {api}/cache/clear, BootUI parity) behind confirmation and SHARPIT_CACHE_CLEAR_ENABLED (off by default) for functools and cachetools caches; reachable once the Cache read panel lands.
 - GitHub dashboard (`GET /github`, `get_github_dashboard`, CLI `github`): local repository identity and cached report, read without network access.
 - GitHub refresh action (`POST /github/refresh`, REST only): calls the GitHub REST API with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`, never follows redirects, refused when the panel is read-only.

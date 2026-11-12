@@ -77,7 +77,13 @@ def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
 
 def test_every_produced_source_has_a_producer_test() -> None:
     # a producer lane adds its source to PRODUCED_SOURCES and its (file, test function) row here in the same PR
-    producer_tests = {"ai": ("tests/engine/capture/test_ai_journal.py", "test_ai_journal_event_is_metadata_only")}
+    producer_tests = {
+        "ai": ("tests/engine/capture/test_ai_journal.py", "test_ai_journal_event_is_metadata_only"),
+        "http": (
+            "tests/fastapi/test_http_journal.py",
+            "test_http_journal_event_offered_once_per_request_with_bootui_fields",
+        ),
+    }
     assert set(producer_tests) == snapshot_module.PRODUCED_SOURCES
     root = Path(__file__).resolve().parents[3]
     for source, (path, name) in producer_tests.items():
@@ -226,6 +232,7 @@ def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget()
 def test_the_window_counts_http_requests_only_when_http_is_produced(monkeypatch: pytest.MonkeyPatch) -> None:
     journal = _journal()
     journal.offer({"source": "http", "requestId": "r1"})
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset({"ai"}))
     assert InsightsService(journal).report()["window"]["requests"] == 0
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset({"ai", "http"}))
     assert InsightsService(journal).report()["window"]["requests"] == 1

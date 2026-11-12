@@ -26,7 +26,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from sharpit.engine import sqla
 from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
-from sharpit.engine.capture.exchanges import exchange_row
+from sharpit.engine.capture.exchanges import exchange_row, http_event
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
@@ -667,15 +667,16 @@ class CaptureMiddleware:
                     if raised is not None:
                         store.record(raised, "request", info, threading.current_thread().name)
                     store.forget_request(info.id)
+                if status is not None:  # the status that went out is the status; anything after is an error
+                    recorded, error = status, failed or cancelled or disconnected
+                elif failed:  # ServerErrorMiddleware sends the 500 after us
+                    recorded, error = 500, True
+                elif disconnected or cancelled:  # nginx's "client closed request"
+                    recorded, error = 499, False
+                else:  # returned without a response: the server answers 500
+                    recorded, error = 500, True
+                template = _route_template(scope, root_path, wiring.app)
                 if buffer is not None:
-                    if status is not None:  # the status that went out is the status; anything after is an error
-                        recorded, error = status, failed or cancelled or disconnected
-                    elif failed:  # ServerErrorMiddleware sends the 500 after us
-                        recorded, error = 500, True
-                    elif disconnected or cancelled:  # nginx's "client closed request"
-                        recorded, error = 499, False
-                    else:  # returned without a response: the server answers 500
-                        recorded, error = 500, True
                     buffer.add(
                         exchange_row(
                             self.ctx.masker,
@@ -694,8 +695,10 @@ class CaptureMiddleware:
                             error=error,
                             endpoint=info.endpoint,
                             finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
-                            route=_route_template(scope, root_path, wiring.app),
+                            route=template,
                         )
                     )
+                if (journal := self.ctx.capture.journal) is not None:
+                    journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
             except Exception as exc:  # noqa: BLE001
                 wiring.hook_failed("request end", exc)

@@ -1,0 +1,1 @@
+kind:ai-usage-by-route	partial	Implemented over ai events joined to http requests by request or trace id (AiUsageByRoute.java:63-264); the http producer (W5a P-http, RequestCorrelationFilter.publish) now supplies the route; joins without BootUI's time window

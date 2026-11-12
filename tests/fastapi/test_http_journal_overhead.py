@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import asyncio
 
+from starlette.responses import PlainTextResponse
 from tests.fastapi.test_capture_overhead import REQUESTS, ROUNDS, SCOPE, _receive, _round_ns, _send
 from tests.overhead import check_budget, paired
 
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.fastapi.adapter import SharpitHandle
-from starlette.responses import PlainTextResponse
 
 BUDGET_MS = 0.05
 

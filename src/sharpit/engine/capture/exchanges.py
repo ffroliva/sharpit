@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.routes import route_of
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
@@ -125,6 +126,29 @@ def exchange_row(
         "endpoint": endpoint,
         "startNs": started_epoch_ns,
         "endNs": finished_epoch_ns if finished_epoch_ns is not None else started_epoch_ns + duration_ms * 1_000_000,
+    }
+
+
+def http_event(
+    info: RequestInfo, request_headers: RawHeaders, started_epoch_ns: int, status: int, template: str | None
+) -> dict[str, str | int | bool | None]:
+    """The ``http`` journal event of one finished request (BootUI ``RequestCorrelationFilter.publish``): the envelope
+    and ``HttpPayload`` fields plus the route label the insights read. Metadata only: no header, query, body or
+    client; ``path`` is the already-masked path. ``started_ns`` and ``finished_ns`` are monotonic."""
+    route, _ = route_of(template, info.path)
+    return {
+        "source": "http",
+        "epochMillis": started_epoch_ns // 1_000_000,
+        "durationNanos": max(0, (info.finished_ns or info.started_ns) - info.started_ns),
+        "traceId": trace_id(request_headers, info.id),
+        "thread": threading.current_thread().name,
+        "requestId": info.id,
+        "method": info.method,
+        "path": info.path,
+        "routeTemplate": template,
+        "operation": None,
+        "status": status,
+        "route": f"{info.method} {route}",
     }
 
 
