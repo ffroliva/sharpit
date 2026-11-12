@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from tests.overhead import check_wall_budget
 
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
@@ -201,7 +202,7 @@ def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget()
         report = service.report()
         best = min(best, time.perf_counter() - start)
     assert report["window"]["retainedEvents"] == 50_000
-    assert best < 2.0, f"{best * 1000:.0f} ms against the 2000 ms BootUI pins"
+    check_wall_budget("insights report over a full journal", best, 2.0)
 
 
 def test_the_window_counts_http_requests_only_when_http_is_produced(monkeypatch: pytest.MonkeyPatch) -> None:
