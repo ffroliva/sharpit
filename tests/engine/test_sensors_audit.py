@@ -126,7 +126,7 @@ def test_the_real_hook_never_raises_reenters_or_logs(tmp_path: Path) -> None:
 
         class Exploding:
             name, events = "exploding", ("probe.event",)
-            def record(self, event, args): raise KeyboardInterrupt
+            def record(self, event, args): raise RuntimeError("sensor failed")
 
         hub = AuditHub()
         sink, failing = Sink(None), Sink(RuntimeError("sink failed"))
@@ -456,6 +456,23 @@ def test_the_announced_copy_paths_never_grow_past_their_bound() -> None:
         sensor.record("shutil.copyfile", (f"/work/a-{i}.csv", f"/work/b-{i}.csv"))
         largest = max(largest, len(sensor._pending))  # pyright: ignore[reportPrivateUsage]
     assert largest <= files._PENDING  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_sensor_raising_keyboard_interrupt_propagates_out_of_the_hook() -> None:
+    recorder, sink = Recorder(), Sink()  # the hub holds its sink weakly: keep it alive
+    AuditHub(add_hook=recorder).enable(Probe(raises=KeyboardInterrupt()), sink)
+    with pytest.raises(KeyboardInterrupt):
+        recorder.fire("probe.event")
+
+
+def test_a_sensor_raising_an_ordinary_exception_is_swallowed_and_the_next_subscriber_still_runs() -> None:
+    recorder, sink = Recorder(), Sink()
+    hub = AuditHub(add_hook=recorder)
+    failing = Sink()
+    hub.enable(Probe(raises=RuntimeError("boom")), failing)
+    hub.enable(Probe(), sink)
+    recorder.fire("probe.event")  # raises nothing
+    assert len(sink.records("probe")) == 1
 
 
 def test_a_dispatcher_whose_thread_state_is_gone_still_never_raises() -> None:

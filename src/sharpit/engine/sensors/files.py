@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 SOURCE = "files"
+_RENAME = "os.rename"
 _FOLD = os.name == "nt"
 _MAX_PATTERN = 200  # SideEffects.MAX_PATTERN
 _ID_RUNS = re.compile(  # SideEffects.collapse: a JWT-like tail, a uuid, or any alphanumeric run
@@ -28,8 +29,8 @@ _ID_RUNS = re.compile(  # SideEffects.collapse: a JWT-like tail, a uuid, or any 
     r"|(?P<run>[0-9A-Za-z]+)"
 )
 _RUNS = re.compile(
-    r"(?<![0-9A-Za-z])(?P<run>[0-9A-Za-z]*[0-9][0-9A-Za-z]*|[A-Za-z]{24,})"
-)  # _ID_RUNS without a token or a uuid
+    r"(?<![0-9A-Za-z])(?P<run>[0-9A-Za-z]*\d[0-9A-Za-z]*|[A-Za-z]{24,})", re.ASCII
+)  # _ID_RUNS without a token or a uuid; ASCII keeps \d to [0-9]
 _DIGITS = re.compile(r"\d+")
 _COLLAPSIBLE = re.compile(r"\d|eyJ|[A-Za-z]{24}")  # nothing else can collapse: most paths stop here, after one scan
 _SEEN = 256  # distinct paths remembered per sensor, cleared when full (BootUI's Seen cache)
@@ -66,6 +67,10 @@ def _text(path: object) -> str | None:
     return raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
 
 
+def _rows(*rows: Mapping[str, object] | None) -> tuple[Mapping[str, object], ...]:
+    return tuple(row for row in rows if row is not None)
+
+
 def _is_absolute(path: str) -> bool:
     return path.startswith("/") or bool(_DRIVE.match(path))
 
@@ -92,6 +97,19 @@ def _collapse(path: str) -> str:
     return (_RUNS if plain else _ID_RUNS).sub(_run, path)
 
 
+def _is_home_segment(segment: str, index: int, previous: str | None) -> bool:
+    if segment.casefold() == "users" and index <= 4:
+        return True
+    return segment == "home" and (index == 1 or (index == 2 and previous in ("var", "export")))
+
+
+def _user_name_end(path: str, end: int) -> int:
+    """Where the user name that starts after ``end`` stops, or -1 when it is empty."""
+    user_end = path.find("/", end + 1)
+    user_end = len(path) if user_end < 0 else user_end
+    return user_end if user_end > end + 1 else -1
+
+
 def _other_home(path: str) -> int:
     """``SideEffects.otherHome``: where the user name ends in another user's home directory, else -1."""
     start, previous = 0, None
@@ -99,19 +117,15 @@ def _other_home(path: str) -> int:
         if index > 5:
             return -1
         end = start + len(segment)
-        users = segment.casefold() == "users" and index <= 4
-        home = segment == "home" and (index == 1 or (index == 2 and previous in ("var", "export")))
-        if (users or home) and end < len(path):
-            user_end = path.find("/", end + 1)
-            user_end = len(path) if user_end < 0 else user_end
-            return user_end if user_end > end + 1 else -1
+        if _is_home_segment(segment, index, previous) and end < len(path):
+            return _user_name_end(path, end)
         previous, start = segment, end + 1
     return -1
 
 
 class FilesSensor:
     name = SOURCE
-    events = ("open", "os.remove", "os.rename", "shutil.copyfile")
+    events = ("open", "os.remove", _RENAME, "shutil.copyfile")
 
     def __init__(
         self,
@@ -148,10 +162,10 @@ class FilesSensor:
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
         if event == "open":
             return self._open(args)
-        if event in ("os.rename", "shutil.copyfile"):
+        if event in (_RENAME, "shutil.copyfile"):
             return self._pair(event, args)
         if event == "os.remove":
-            return self._row("delete", args[0] if args else None)
+            return _rows(self._row("delete", args[0] if args else None))
         return ()
 
     def _open(self, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -164,17 +178,17 @@ class FilesSensor:
             wrote = not _WRITE_MODE.isdisjoint(mode)
         else:
             wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
-        return self._row("write" if wrote else "read", path)
+        return _rows(self._row("write" if wrote else "read", path))
 
     def _pair(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
-        verb = "move" if event == "os.rename" else "copy"
+        verb = "move" if event == _RENAME else "copy"
         if len(args) < 2:
             return ()
         if verb == "copy":
             if len(self._pending) >= _PENDING:
                 self._pending.clear()
             self._pending.update((_text(args[0]), _text(args[1])))
-        return (*self._row(f"{verb} from", args[0]), *self._row(f"{verb} to", args[1]))
+        return _rows(self._row(f"{verb} from", args[0]), self._row(f"{verb} to", args[1]))
 
     def _is_inner_copy_open(self, path: object) -> bool:
         """The open ``shutil.copyfile`` makes of a path it announced is the copy's own: BootUI records it once.
@@ -195,10 +209,10 @@ class FilesSensor:
             frame = frame.f_back
         return False
 
-    def _row(self, kind: str, path: object) -> tuple[Mapping[str, object], ...]:
+    def _row(self, kind: str, path: object) -> Mapping[str, object] | None:
         text = path if type(path) is str else _text(path)
         if not text:
-            return ()  # a file descriptor names no file, nor does an empty name
+            return None  # a file descriptor names no file, nor does an empty name
         seen = self._seen
         found = seen.get(text, _MISS)  # one lookup: another thread may clear the cache between two
         if found is _MISS:
@@ -207,8 +221,8 @@ class FilesSensor:
             found = seen[text] = self._resolve(_slashes(text))
         if found is None:
             self.ignored += 1
-            return ()
-        return ({"source": SOURCE, "kind": kind, "target": found[0], "origin": "unknown", "location": found[1]},)
+            return None
+        return {"source": SOURCE, "kind": kind, "target": found[0], "origin": "unknown", "location": found[1]}
 
     def _resolve(self, text: str) -> tuple[str, str] | None:
         """The pattern and place of ``text``, or None for an import or sharpit's own state."""

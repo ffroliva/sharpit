@@ -95,7 +95,7 @@ class AuditHub:
                     self._deliver(sub, event, args)
             finally:
                 busy.active = False
-        except BaseException:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
+        except Exception:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
             pass
 
     @staticmethod
@@ -107,7 +107,7 @@ class AuditHub:
             offer = getattr(sink, "offer_flat", sink.offer)  # a sensor's row is flat scalars it never touches again
             for row in sub.sensor.record(event, args):
                 offer(row)
-        except BaseException:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
+        except Exception:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
             pass
 
 
