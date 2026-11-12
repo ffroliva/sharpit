@@ -78,7 +78,7 @@ jobs:
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
       - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
-      - run: uv run python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run python -m pytest -q -n auto --dist worksteal "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -181,7 +181,7 @@ jobs:
           COVERAGE_CORE: sysmon # sys.monitoring tracer (Python 3.12+): same report, a fraction of the classic tracer's cost
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-        run: uv run python -m pytest -q -n auto --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+        run: uv run python -m pytest -q -n auto --dist worksteal --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
       - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
       - id: scan-junit
         if: always()
@@ -505,7 +505,7 @@ jobs:
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
       - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
-      - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -m pytest -q -n auto --dist worksteal "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -611,7 +611,7 @@ jobs:
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
       - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
-      - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -m pytest -q -n auto --dist worksteal "@${{ runner.temp }}/no-budgets.args" -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -727,7 +727,7 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && '--group full-extras' || '' }} --python 3.14 # NOSONAR - installs sharpit from source for the gate
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
-      - run: uv run --no-sync python -m pytest ${{ matrix.files }} -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -m pytest ${{ matrix.files }} -q -n auto --dist worksteal -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit
@@ -885,7 +885,7 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --group full-extras --python 3.14 # NOSONAR - installs sharpit from source and every live driver
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
-      - run: uv run --no-sync python -m pytest tests/live --live -n auto -k "$LIVE_FILTER" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -m pytest tests/live --live -n auto --dist worksteal -k "$LIVE_FILTER" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           LIVE_FILTER: ${{ matrix.filter }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
