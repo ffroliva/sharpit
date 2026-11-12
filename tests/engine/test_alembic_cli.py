@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import subprocess
 import sys
@@ -126,7 +127,7 @@ def test_runner_drops_the_cut_first_line_of_an_oversized_output(tmp_path: Path):
     cap = alembic_cli.MAX_OUTPUT_BYTES
     raw = b"SECRETFRAGMENT\n" + b"k" * (cap - 5)  # the last `cap` bytes start inside the first line
     seen = _spawn(tmp_path, _Proc(raw))
-    assert "AGMENT" not in seen["result"].output
+    assert "MENT" not in seen["result"].output
     assert seen["result"].output == "k" * (cap - 5)
 
 
@@ -149,6 +150,28 @@ def test_runner_reaps_the_child_after_a_kill_whose_drain_times_out(tmp_path: Pat
     assert len(proc.waits) == 2  # the time cap, then the post-kill reap: no zombie is left on POSIX
     assert proc.waits[-1] is not None
     assert proc.waits[-1] <= 30  # short, never the 600 s cap
+
+
+def test_runner_kills_the_child_when_the_reader_thread_cannot_start(tmp_path: Path, monkeypatch: Any):
+    def refuse(self: Any) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(alembic_cli.threading.Thread, "start", refuse)
+    killed: list[Any] = []
+    monkeypatch.setattr(alembic_cli, "_kill_tree", killed.append)
+    proc = _Proc()
+    seen: dict[str, Any] = {}
+    with contextlib.suppress(RuntimeError):  # a raise escaping the runner is the defect, asserted below
+        seen = _spawn(tmp_path, proc)
+    assert seen.get("result") is not None
+    assert seen["result"].failure == "error"
+    assert killed == [proc]
+
+
+def test_runner_closes_the_pipe_when_done(tmp_path: Path):
+    proc = _Proc()
+    _spawn(tmp_path, proc)
+    assert proc.stdout.closed
 
 
 def test_runner_has_a_hard_cap_of_ten_minutes():

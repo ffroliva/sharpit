@@ -231,6 +231,29 @@ def test_migrate_naming_one_of_several_engines_is_not_found_and_spawns_nothing(i
     assert spy.calls == []
 
 
+def test_migrate_two_engines_on_the_same_database_are_one_target(ini: Path, spy: Spy):
+    client = _client(ini, [_engine(ini), _engine(ini)])  # e.g. Alembic at startup plus a health-check engine
+    client.post("/sharpit/api/alembic/refresh")
+    resp = _post(client, {"confirm": True})
+    assert resp.status_code == 200, resp.text
+    assert len(spy.calls) == 1
+
+
+def test_migrate_naming_the_database_of_two_same_url_engines_runs_once(ini: Path, spy: Spy):
+    client = _client(ini, [_engine(ini), _engine(ini)])
+    resp = _post(client, {"beanName": _name(client), "confirm": True})
+    assert resp.status_code == 200, resp.text
+    assert len(spy.calls) == 1
+
+
+def test_report_gives_the_reason_when_several_databases_would_answer_404(ini: Path, spy: Spy):
+    client = _client(ini, [_engine(ini), _engine(ini, suffix="other.db")])
+    client.post("/sharpit/api/alembic/refresh")
+    databases = client.get(REPORT).json()["databases"]
+    assert [d["migrateEnabled"] for d in databases] == [False, False]
+    assert [d["migrateDisabledReason"] for d in databases] == [NO_TARGET, NO_TARGET]
+
+
 # ported: FlywayServiceTests.migrateWithBlankNameAndMultipleTargetsIsNotFound
 def test_migrate_blank_name_with_several_targets_is_not_found(ini: Path, spy: Spy):
     engines = [_engine(ini), _engine(ini, suffix="other.db")]
