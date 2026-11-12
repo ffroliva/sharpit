@@ -758,3 +758,27 @@ def test_begin_rows_never_share_their_fields() -> None:
     assert rows[second]["endTimestamp"] is None
     assert rows[second]["propagation"] == "PARTICIPATING"
     assert rows[second]["methodName"] == "orders:update"
+
+
+def test_a_direct_begin_names_its_caller_as_the_call_site(monkeypatch) -> None:
+    """r4: the call-site walk starts exactly at the listener's caller: a begin called from this frame names it."""
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.transactions import tx_begin
+    from sharpit.engine.sources import dispatch
+
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="test-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=True,
+        ),
+    )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    tx_begin(connection)
+    method = recorder.report([])["entries"][0]["methodName"]
+    assert method.split(":")[1] == "test_a_direct_begin_names_its_caller_as_the_call_site"
