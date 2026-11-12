@@ -101,8 +101,9 @@ class AuditHub:
         if sink is None:
             return  # the context is gone: skipped here, dropped at the next release
         try:
+            offer = getattr(sink, "offer_flat", sink.offer)  # a sensor's row is flat scalars it never touches again
             for row in sub.sensor.record(event, args):
-                sink.offer(row)
+                offer(row)
         except BaseException:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
             pass
 

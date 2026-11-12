@@ -14,10 +14,11 @@ from typing import Any, cast
 SOURCE = "processes"
 _MAX = 128
 _ASSIGNMENT = re.compile(r"""\s*[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)""")  # FOO=bar, FOO='a b': a shell's env prefix
-_SEPARATORS = re.compile(r"[\\/]")
 
 
 def _text(value: object) -> str | None:
+    if type(value) is str:
+        return value
     if isinstance(value, (str, bytes, os.PathLike)):
         raw: str | bytes = os.fspath(value)  # pyright: ignore[reportUnknownVariableType]
         return raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
@@ -25,7 +26,7 @@ def _text(value: object) -> str | None:
 
 
 def _base(program: str) -> str | None:
-    name = _SEPARATORS.split(program.strip())[-1][:_MAX]
+    name = program.replace("\\", "/").rpartition("/")[2].strip()[:_MAX]
     return name or None
 
 
