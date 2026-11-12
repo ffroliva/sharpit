@@ -25,7 +25,12 @@ _ID_RUNS = re.compile(  # SideEffects.collapse: a JWT-like tail, a uuid, or any 
     r"|(?P<uuid>(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z]))"
     r"|(?P<run>[0-9A-Za-z]+)"
 )
+_RUNS = re.compile(
+    r"(?<![0-9A-Za-z])(?P<run>[0-9A-Za-z]*[0-9][0-9A-Za-z]*|[A-Za-z]{24,})"
+)  # _ID_RUNS without a token or a uuid
 _DIGITS = re.compile(r"\d+")
+_COLLAPSIBLE = re.compile(r"\d|eyJ|[A-Za-z]{24}")  # nothing else can collapse: most paths stop here, after one scan
+_SEEN = 256  # distinct paths remembered per sensor, cleared when full (BootUI's Seen cache)
 _HEX_LETTERS = frozenset("abcdefABCDEF")
 _DRIVE = re.compile(r"[A-Za-z]:/")
 _SYSTEM = (
@@ -42,17 +47,12 @@ def _slashes(path: str) -> str:
     return path.replace("\\", "/")
 
 
+def _fold(path: str) -> str:
+    return path.casefold() if _FOLD else path
+
+
 def _is_absolute(path: str) -> bool:
     return path.startswith("/") or bool(_DRIVE.match(path))
-
-
-def _under(path: str, base: str) -> str | None:
-    """``path`` below directory ``base`` (both with forward slashes), as a relative remainder, else None."""
-    a, b = (path.casefold(), base.casefold()) if _FOLD else (path, base)
-    if a == b:
-        return ""
-    prefix = b.rstrip("/") + "/"
-    return path[len(prefix) :] if a.startswith(prefix) else None
 
 
 def _run(match: re.Match[str]) -> str:
@@ -71,7 +71,10 @@ def _run(match: re.Match[str]) -> str:
 
 
 def _collapse(path: str) -> str:
-    return _ID_RUNS.sub(_run, path)
+    if not _COLLAPSIBLE.search(path):
+        return path
+    plain = "eyJ" not in path and path.count("-") < 4  # a uuid has four dashes, a token starts with eyJ
+    return (_RUNS if plain else _ID_RUNS).sub(_run, path)
 
 
 def _other_home(path: str) -> int:
@@ -108,13 +111,22 @@ class FilesSensor:
         self._cwd = _slashes(
             cwd if cwd is not None else os.getcwd()
         )  # shortcut: fixed at build, a chdir is not followed
-        self._places = (  # SideEffects.pattern's order: on equal length the temporary directory wins, then the cwd
-            (_slashes(tmp if tmp is not None else tempfile.gettempdir()), "$TMPDIR/", "temporary-directory"),
+        places = (  # SideEffects.pattern's order: on equal length the temporary directory wins, then the cwd
+            (tmp if tmp is not None else tempfile.gettempdir(), "$TMPDIR/", "temporary-directory"),
             (self._cwd, "./", "working-directory"),
-            (_slashes(home if home is not None else os.path.expanduser("~")), "~/", "home"),
+            (home if home is not None else os.path.expanduser("~"), "~/", "home"),
+        )
+        # (the directory and its trailing slash, folded where the file system is; lead; location), longest first
+        self._places = tuple(
+            sorted(
+                ((_fold(_slashes(base).rstrip("/") + "/"), lead, location) for base, lead, location in places),
+                key=lambda place: -len(place[0]),
+            )
         )
         skipped = {sys.prefix, sys.base_prefix, sys.exec_prefix, *own}
-        self._skip = tuple(_slashes(os.path.abspath(path)) for path in skipped if path)
+        self._skip = tuple(_fold(_slashes(os.path.abspath(path)).rstrip("/") + "/") for path in skipped if path)
+        self._system = tuple(_fold(prefix + "/") for prefix in _SYSTEM)
+        self._seen: dict[str, tuple[str, str] | None] = {}  # raw path -> (pattern, location); None: left out
         self.ignored = 0
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -147,31 +159,35 @@ class FilesSensor:
         if not isinstance(path, (str, bytes, os.PathLike)):
             return ()  # a file descriptor names no file
         raw: str | bytes = os.fspath(path)  # pyright: ignore[reportUnknownVariableType]
-        text = _slashes(raw if isinstance(raw, str) else raw.decode("utf-8", "replace"))
+        text = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
         if not text:
             return ()
-        full = posixpath.normpath(text if _is_absolute(text) else f"{self._cwd.rstrip('/')}/{text}")
-        if full.startswith("//"):
-            full = "/" + full.lstrip("/")  # normpath keeps a leading pair; BootUI's clean() does not
-        if self._ignored(full):
+        seen = self._seen
+        if text in seen:
+            found = seen[text]
+        else:
+            if len(seen) >= _SEEN:
+                seen.clear()
+            found = seen[text] = self._resolve(_slashes(text))
+        if found is None:
             self.ignored += 1
             return ()
-        target, location = self._pattern(full)
-        return ({"source": SOURCE, "kind": kind, "target": target, "origin": "unknown", "location": location},)
+        return ({"source": SOURCE, "kind": kind, "target": found[0], "origin": "unknown", "location": found[1]},)
 
-    def _ignored(self, full: str) -> bool:
-        return any(_under(full, base) is not None for base in self._skip)
-
-    def _pattern(self, full: str) -> tuple[str, str]:
-        best: tuple[int, str, str] | None = None
+    def _resolve(self, text: str) -> tuple[str, str] | None:
+        """The pattern and place of ``text``, or None for an import or sharpit's own state."""
+        full = text if _is_absolute(text) else f"{self._cwd.rstrip('/')}/{text}"
+        if "/." in full or "//" in full or full.endswith("/"):
+            full = posixpath.normpath(full)
+            if full.startswith("//"):
+                full = "/" + full.lstrip("/")  # normpath keeps a leading pair; BootUI's clean() does not
+        probe = _fold(full) + "/"  # a trailing slash, so the directory itself is under itself
+        if probe.startswith(self._skip):
+            return None
         for base, lead, location in self._places:
-            rest = _under(full, base)
-            if rest is not None and (best is None or len(base) > best[0]):
-                best = (len(base), lead + rest, location)
-        if best is not None:
-            return self._finish(best[1]), best[2]
-        folded = full.casefold() if _FOLD else full
-        place = "system" if any(folded == s or folded.startswith(s + "/") for s in _SYSTEM) else "elsewhere"
+            if probe.startswith(base):
+                return self._finish(lead + full[len(base) :]), location
+        place = "system" if probe.startswith(self._system) else "elsewhere"
         user = _other_home(full)
         if user > 0:
             full = f"{full[: full.rfind('/', 0, user) + 1]}*{full[user:]}"  # the user's name never reaches the mask

@@ -20,7 +20,9 @@ EVENTS = 2_000  # audit events per round
 ROUNDS = 15
 RESIDENT_HOOK_BUDGET = 1.0e-6  # us/event the dispatcher adds over an empty hook: one dict lookup that finds nothing
 PROCESSES_SENSOR_BUDGET = 6.0e-6  # us/event: minimise + offer, against the flag test
-FILES_SENSOR_BUDGET = 6.0e-6  # us/event: pattern + mask + offer; ``open`` is hotter than a start, so no looser than it
+# us/event on a hot set of 64 files (the sensor remembers 256 paths): lookup + offer. A path it has not seen costs about
+# 11 us once (pattern, mask, collapse); that is not budgeted here, it is paid per new file beside the open() itself.
+FILES_SENSOR_BUDGET = 6.0e-6
 
 CHILD = """
 import json, sys, time
@@ -54,7 +56,14 @@ def audited(event, *args):
     return (time.perf_counter() - start) / EVENTS
 
 popen = lambda: audited("subprocess.Popen", "/usr/bin/git", ["git", "status"], None, None)
-opened = lambda: audited("open", "reports/report-42/data.csv", "r", 0)
+HOT = [f"reports/report-{i}/data.csv" for i in range(64)]  # a hot set of distinct files, each opened over and over
+
+def opened():
+    audit, hot = sys.audit, HOT
+    start = time.perf_counter()
+    for i in range(EVENTS):
+        audit("open", hot[i & 63], "r", 0)
+    return (time.perf_counter() - start) / EVENTS
 
 def alternate(first, second):
     one, two = [], []

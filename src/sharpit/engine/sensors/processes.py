@@ -27,14 +27,15 @@ def _text(value: object) -> str | None:
 
 def _base(program: str) -> str | None:
     """The file name of ``program``, cut at its first blank: whatever follows is an argument, never a name."""
-    text = program.replace("\\", "/").strip()
-    first_blank = next((i for i, c in enumerate(text) if c.isspace()), len(text))
-    if "/" not in text[:first_blank]:
-        text = text[:first_blank]  # ``prog --password x``: no separator before the blank, so nothing after it is a name
-    words = text.rpartition("/")[2].split(
-        None, 1
-    )  # shortcut: an unquoted path with blanks and a later ``/`` argument yields that segment
-    return words[0][:_MAX] if words else None
+    parts = program.split(None, 1)
+    if not parts:
+        return None
+    head = parts[0]
+    if len(parts) == 2 and "/" not in head and "\\" not in head:
+        return head[:_MAX]  # ``prog --password x``: no separator before the blank, so nothing after it is a name
+    # shortcut: an unquoted path with blanks and a later ``/`` argument yields that segment
+    name = (head if len(parts) == 1 else program).replace("\\", "/").rpartition("/")[2].split(None, 1)
+    return name[0][:_MAX] if name else None
 
 
 def _first_word(command: str) -> str | None:
