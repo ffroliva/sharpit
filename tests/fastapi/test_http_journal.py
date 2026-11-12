@@ -24,7 +24,14 @@ from sharpit.engine.capture.traces import span_buffer
 from sharpit.engine.collectors.insights.service import insights_service
 
 ENVELOPE = {"source", "epochMillis", "durationNanos", "traceId", "thread", "requestId"}
-PAYLOAD = {"method", "path", "routeTemplate", "operation", "status"}
+PAYLOAD = {
+    "method",
+    "path",
+    "routeTemplate",
+    "operation",
+    "status",
+    "startNanos",
+}  # startNanos: timing.startNanos, flat
 
 
 def _world(**options: Any) -> tuple[TestClient, RuntimeJournal, Any]:

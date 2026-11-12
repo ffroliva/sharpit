@@ -267,7 +267,7 @@ def test_a_statement_straddling_the_request_end_is_clipped_to_it(run: Run) -> No
     for _ in range(6):
         run.request("GET /api/late", 10, (8, 5), (-3, 4))  # [8,13] ends 3 ms after the request; [-3,1] began 3 before
     row = run.rows()["GET /api/late"]
-    assert {c[0]: c[1:] for c in run.cells(row)}["SQL"] == ["18", "30 %", "3.0"]  # (2 + 1) ms a request, six requests
+    assert {c[0]: c[1:] for c in run.cells(row)}["SQL"] == ["15", "30 %", "3.0"]  # (2 + 1) ms a request, five warm
 
 
 def test_ai_calls_are_not_placed_and_the_breakdown_says_their_time_is_unattributed(run: Run) -> None:

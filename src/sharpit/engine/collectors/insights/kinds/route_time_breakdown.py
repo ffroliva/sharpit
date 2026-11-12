@@ -3,12 +3,12 @@
 reported apart as cold.
 
 Deviations (proposed, by field; the phase maths is ``route_phases``):
-- ``timing`` (monotonic start, handler and response marks, authentication time): not written by sharpit's http event.
-  A request is placed by its ``epochMillis`` and ``durationNanos``; one without either is left out and counted. The
-  stack never marks phases (BootUI's WebFlux branch): no handler-unmarked split, no ``Other filters``, ``Handler`` or
-  ``Response write`` phase, and the WebFlux limitation names sharpit.
-- sql ``completedNanos`` is on a clock the request does not carry, so a statement is placed by ``startedAt`` to the
-  millisecond (BootUI does the same for a GenAI span) and says so. The sql text is never read.
+- ``timing``: only its ``startNanos`` is written, flat as the http event's ``startNanos`` (``perf_counter_ns``, the
+  clock of the sql event's ``completedNanos``); the handler and response marks and the authentication time are not. A
+  request is placed by ``startNanos`` and ``durationNanos`` and a statement by ``completedNanos - durationNanos``
+  against it, as BootUI does; a request without either is unplaced (left out and counted), never placed by wall
+  clock. The stack never marks phases (BootUI's WebFlux branch): no handler-unmarked split, no ``Other filters``,
+  ``Handler`` or ``Response write`` phase, and the WebFlux limitation names sharpit. The sql text is never read.
 - ``connection``, ``rest-client``, ``authorization``, ``orm`` and ``messaging`` have no producer: their phases, the
   authorization-share and decision-count prominence triggers and the Kafka limitation are absent. ``ai`` events carry
   no wall-clock start, so their time stays unattributed and a limitation names the requests that made AI calls.
@@ -41,16 +41,13 @@ MIN_WARM_REQUESTS = 5
 PROMINENT_MEDIAN_NANOS = 20_000_000
 SLOW_FEW_WARM_REQUESTS = 2
 SLOW_FEW_WARM_MEDIAN_NANOS = 100_000_000
-NOT_PROMINENT = (
-    "Its warm median is under 20 ms, and authorization takes under 20 % of its time and under 50 decisions a "
-    "request, so it is not prominent."
-)
+NOT_PROMINENT = "Its warm median is under 20 ms, so it is not prominent."  # no producer records authorization
 TOO_FEW_WARM = (
     f"It has fewer than {MIN_WARM_REQUESTS} warm requests, so where its time goes is not known yet, and fewer than 2 "
     "of them or a warm median under 100 ms."
 )
 NOT_SPLIT = (
-    "Its time is not split into phases, since its requests reached no handler BootUI marks or named nothing at all, "
+    "Its time is not split into phases, since its requests reached no handler sharpit marks or named nothing at all, "
     "and its warm median is under 20 ms."
 )
 IDS_WITHHELD = (
@@ -87,32 +84,44 @@ def _rejected(warm: list[Breakdown]) -> str:
     return ""
 
 
+def _evicted(snapshot: Snapshot, cold_known: bool) -> list[str]:
+    if cold_known:
+        return []
+    found = [
+        "The journal evicted older events, so a route's first request may be gone and none is reported apart as cold."
+    ]
+    if snapshot.recorded("sql"):
+        found.append(
+            "The journal evicted older events, so a request may have lost its SQL statements while the request "
+            "stayed: that time reads as unattributed."
+        )
+    return found
+
+
+def _unplaced(unplaced: int) -> list[str]:
+    if not unplaced:
+        return []
+    return [f"{counted(unplaced, 'request')} had no monotonic start and {'is' if unplaced == 1 else 'are'} left out."]
+
+
+def _ai(snapshot: Snapshot, warm: list[Breakdown]) -> list[str]:
+    ai = sum(1 for b in warm if b.request.children["ai"]) if snapshot.recorded("ai") else 0
+    if not ai:
+        return []
+    return [
+        f"{counted(ai, 'request')} made AI calls, which carry no start on the request's clock, so their time "
+        "stays unattributed."
+    ]
+
+
 def _limitations(snapshot: Snapshot, cold_known: bool, unplaced: int, warm: list[Breakdown]) -> list[str]:
-    limitations: list[str] = []
-    if not cold_known:
-        limitations.append(
-            "The journal evicted older events, so a route's first request may be gone and none is reported apart as "
-            "cold."
-        )
-    if unplaced:
-        limitations.append(
-            f"{counted(unplaced, 'request')} had no start time and {'is' if unplaced == 1 else 'are'} left out."
-        )
-    limitations.append(
+    return [
+        *_evicted(snapshot, cold_known),
+        *_unplaced(unplaced),
         "sharpit marks no handler or response phase, so filters, handler, and response write are one unattributed "
-        "span around the recorded SQL statements."
-    )
-    if any(b.request.children["sql"] for b in warm):
-        limitations.append(
-            "SQL statements are placed by their wall-clock start to the millisecond rather than on the request's "
-            "clock, so their time beside the unattributed time can be off by about a millisecond."
-        )
-    if snapshot.recorded("ai") and (ai := sum(1 for b in warm if b.request.children["ai"])):
-        limitations.append(
-            f"{counted(ai, 'request')} made AI calls, which carry no start on the request's clock, so their time "
-            "stays unattributed."
-        )
-    return limitations
+        "span around the recorded SQL statements.",
+        *_ai(snapshot, warm),
+    ]
 
 
 def _cold_text(cold: Request | None) -> str:
@@ -155,10 +164,9 @@ def _split(route: str, warm: list[Breakdown], cold: Request | None, limitations:
             totals.rows(), limitations, unlisted=None if prominent else NOT_SPLIT,
         )  # fmt: skip
     ranked = totals.ranked()
-    top = [f"{phase} {phases.percent(time, totals.sum)}" for phase, time in ranked[:3] if time]
-    checks = [CHECKS[ranked[0][0]]]
-    if prominent or ranked[0][1] * 2 >= totals.total:
-        checks.append(SLOWEST)
+    top = [f"{phase} {phases.percent(time, totals.whole)}" for phase, time in ranked[:3] if time]
+    # BootUI adds SLOWEST when prominent or the top phase holds half the time; with two phases the top always does
+    checks = [CHECKS[ranked[0][0]], SLOWEST]
     return Finding(
         route, route, True, f"{warm_text}; {', '.join(top)}.{cold_text}", len(warm), len(warm), checks, _slowest(warm),
         phases.COLUMNS, totals.rows(), limitations, unlisted=None if prominent else NOT_PROMINENT,
