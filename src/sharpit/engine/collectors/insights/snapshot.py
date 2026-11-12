@@ -28,8 +28,9 @@ PRODUCED_SOURCES: frozenset[str] = frozenset({"ai", "exception", "http", "log", 
 
 # JournalSourcePanels.panelsOf (v2.3.0 :31-48) with sharpit's panel ids. A source whose BootUI panel sharpit lacks maps
 # to its nearest panel, or to none (always visible): rest-client (no rest-client-trace panel), messaging (no broker
-# panels), fault-tolerance, websocket; orm -> sqlalchemy-statistics; processes, files -> side-effects (BootUI keeps
-# them in its Side Effects store). app-event, lifecycle, gc, resources own no panel in BootUI either.
+# panels), fault-tolerance, websocket; orm -> sqlalchemy-statistics; processes, files -> side-effects (sharpit's
+# own mapping: BootUI 2.3.0 has no such sources). app-event,
+# lifecycle, gc, resources own no panel in BootUI either.
 SOURCE_PANELS: Mapping[str, tuple[str, ...]] = {
     "http": ("http-exchanges",), "sql": ("sql-trace",), "connection": ("sql-trace",),
     "transaction": ("transactions",), "exception": ("exceptions",), "agent.caught-exceptions": ("exceptions",),
@@ -64,9 +65,12 @@ class Snapshot:
     def requests(self) -> tuple[Request, ...]:
         return self.request_index.requests
 
-    def recorded(self, source: str) -> bool:
-        """BootUI ``available``: the journal records ``source`` and its panel is enabled (hidden ones are not in
-        ``records``)."""
+    def journaled(self, source: str) -> bool:
+        """BootUI ``records``: the journal records ``source`` (a source with its panel off is still journaled)."""
+        return source in self.records or source in self.hidden
+
+    def available(self, source: str) -> bool:
+        """BootUI ``available`` = ``records && visible``: journaled and its panel enabled."""
         return source in self.records
 
     def dropped(self, source: str) -> int:

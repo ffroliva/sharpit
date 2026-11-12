@@ -50,6 +50,11 @@ class KindSpec:
         return getattr(self.module, "not_applicable", None)
 
     @property
+    def uses_requests(self) -> bool:
+        """BootUI ``unitKinds()`` non-empty: hidden requests leave the kind nothing to examine."""
+        return bool(getattr(self.module, "USES_REQUESTS", True))
+
+    @property
     def implemented(self) -> bool:
         """Read from the kind module at call time: a flip or a monkeypatch is seen everywhere."""
         return bool(self.module.IMPLEMENTED)

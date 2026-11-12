@@ -7,7 +7,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it.
 - Runtime insights `safe-method-dml` (a GET or HEAD request that executed an INSERT, UPDATE, DELETE or MERGE, one finding per route naming the verb, never the statement); `lazy-sql-after-handler` answers not applicable because sharpit marks no handler end.
 - Email panel (GET /email, /email/{id}, /email/{id}/eml, DELETE /email, get_emails, CLI mail): outgoing mail captured at `smtplib` and `aiosmtplib` `sendmail`, bounded, with SHARPIT_EMAIL_MAX_ENTRIES, _MAX_BODY_LENGTH, _DEV_TRAP and _MASK_CONTENT; secret-shaped text is masked even when content is shown, unless the exposure is FULL; the dev trap never connects.
 - Internal: a shared class-method wrap helper for capture integrations (`engine/capture/wraps.py`).
@@ -89,6 +88,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it; with the http-exchanges panel off, a kind that examines requests answers not applicable for its unit-of-work evidence.
 - The live BootUI capture rejects every request outside GET and the allow-listed POSTs, keys uncaptured routes individually, and confines raw output outside git work trees. Machine identity values, including short logins and home path variants, are retained by the artifact leak gate.
 
 - In test fixtures, `golden._folder()` honours `fixture_version` when `ROOT` has been patched, selecting the versioned fixture folder instead of an unversioned one.

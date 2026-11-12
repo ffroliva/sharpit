@@ -71,10 +71,19 @@ def _verb(panels: Sequence[str]) -> str:
 
 
 def _missing(snapshot: Snapshot, source: str) -> str:
-    """Why a required source is absent (``missingSource``): a disabled panel is named, else it is not recorded."""
-    if panels := snapshot.hidden.get(source):
-        return f"{_panels_label(panels)}, whose evidence this reads, {_verb(panels)} disabled."
-    return _not_recorded(source)
+    """Why a required source is absent (``missingSource``): not journaled, else its disabled panel is named."""
+    if not snapshot.journaled(source):
+        return _not_recorded(source)
+    panels = snapshot.hidden[source]
+    return f"{_panels_label(panels)}, whose evidence this reads, {_verb(panels)} disabled."
+
+
+def _requests_hidden(observation: Observation, snapshot: Snapshot) -> str | None:
+    """``missingSource``'s last rule (v2.3.0 :1362-1368): the http panel is off, so no request is visible to a kind
+    that examines requests."""
+    if not getattr(observation, "uses_requests", True) or not (panels := snapshot.hidden.get("http")):
+        return None
+    return f"{_panels_label(panels)} {_verb(panels)} disabled, so its unit-of-work evidence cannot be evaluated."
 
 
 def _check(observation: Observation, status: str, eligible: int, findings: int, reason: str | None) -> Row:
@@ -85,7 +94,7 @@ def _check(observation: Observation, status: str, eligible: int, findings: int, 
 
 
 def _partial(observation: Observation, snapshot: Snapshot) -> str | None:
-    sources = observation.reads | {s for s in observation.optional_reads if snapshot.recorded(s)}
+    sources = observation.reads | {s for s in observation.optional_reads if snapshot.available(s)}
     dropped = sum(snapshot.dropped(source) for source in sources)
     if not dropped:
         return None
@@ -100,7 +109,7 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     for source in sorted(observation.optional_reads):
         if panels := snapshot.hidden.get(source):
             unseen.append(f"{_panels_label(panels)} {_verb(panels)} disabled, so its evidence is not counted.")
-        elif not snapshot.recorded(source):
+        elif not snapshot.journaled(source):
             unseen.append(
                 f"Without the {source} source, which the runtime journal does not record, its evidence is not counted."
             )
@@ -250,9 +259,11 @@ class InsightsService:
         }
 
     def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[tuple[Row, Finding]]]:
-        missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)
+        missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
         if missing is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, _missing(snapshot, missing)), []
+        if (hidden := _requests_hidden(observation, snapshot)) is not None:
+            return _check(observation, "NOT_APPLICABLE", 0, 0, hidden), []
         gate = getattr(observation, "not_applicable", None)  # BootUI Observation.notApplicable; a stub has none
         reason = gate(snapshot) if gate else None
         if reason is not None:
