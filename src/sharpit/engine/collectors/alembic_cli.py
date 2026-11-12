@@ -56,6 +56,10 @@ class _Tail:
                     while self._size - len(self._parts[0]) >= MAX_OUTPUT_BYTES:
                         self._size -= len(self._parts.popleft())
 
+    @property
+    def alive(self) -> bool:
+        return self._thread.is_alive()
+
     def text(self, wait: float) -> str:
         """The kept tail once the pipe closed (or after ``wait`` seconds: a grandchild may still hold it)."""
         self._thread.join(wait)
@@ -113,15 +117,19 @@ def run_alembic(
         )
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
-    tail = _Tail(proc.stdout)
     try:
+        tail = _Tail(proc.stdout)
         proc.wait(timeout=limit)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
         _reap(proc)
         return RunResult(None, tail.text(_REAP), "timeout")
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:  # RuntimeError: the reader thread could not start
         _kill_tree(proc)
         _reap(proc)
         return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
-    return RunResult(proc.returncode, tail.text(_REAP), None)
+    output = tail.text(_REAP)
+    if not tail.alive:  # closing under a blocked reader (a grandchild holds the pipe) would wait on its lock
+        with contextlib.suppress(OSError, ValueError):
+            proc.stdout.close()
+    return RunResult(proc.returncode, output, None)

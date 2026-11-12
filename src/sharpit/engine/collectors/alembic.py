@@ -364,7 +364,8 @@ def _report(ctx: SharpitContext, files: AlembicFiles) -> dict[str, Any]:
     reads = state.reads if isinstance(state, AlembicState) else None
     registry = ctx.capture.engine_registry
     engines = registry.names() if registry is not None else []
-    migrate_reason = _migrate_reason(ctx, bool(engines))
+    targets = registry.database_names() if registry is not None else []
+    migrate_reason = _migrate_reason(ctx, targets)
     if reads:
         databases = [_database(files, r.name, r, None, migrate_reason) for r in reads]
     else:
@@ -476,13 +477,15 @@ def _ini_file(ctx: SharpitContext) -> Path | None:
     return Path(os.path.abspath(path)) if path is not None and path.is_file() else None
 
 
-def _migrate_reason(ctx: SharpitContext, has_engines: bool) -> str | None:
+def _migrate_reason(ctx: SharpitContext, targets: list[str]) -> str | None:
     """Why migrate is off for the report, or None when the action can run."""
     if not _installed():
         return NOT_INSTALLED
     if _ini_file(ctx) is None:
         return f"Alembic migrate needs the config file {ctx.settings.alembic_config}"
-    return None if has_engines else NO_ENGINE
+    if not targets:
+        return NO_ENGINE
+    return None if len(targets) == 1 else NO_TARGET
 
 
 def _answer(status: int, result: str, message: str, name: str | None, executed: int | None = None) -> tuple[int, Any]:
@@ -545,7 +548,8 @@ def _requested(given: object) -> str | None:
 
 def _target(requested: str | None, targets: list[str]) -> str | None:
     """The engine to migrate, or None. One ``alembic.ini`` drives one database (it runs ``env.py``'s), so with
-    several engines registered no name can be mapped to it: answering "migrated engine #2" would be false."""
+    several databases registered no name can be mapped to it: "migrated engine #2" would be false. ``targets`` holds
+    one name per database (engines on the same URL are one)."""
     if len(targets) != 1:
         return None
     return targets[0] if requested is None or requested == targets[0] else None
@@ -560,7 +564,7 @@ def migrate(ctx: SharpitContext, body: dict[str, Any], run: Runner) -> tuple[int
     requested = _requested(body.get("beanName"))
     registry = ctx.capture.engine_registry
     ini = _ini_file(ctx)
-    target = _target(requested, registry.names() if registry is not None else [])
+    target = _target(requested, registry.database_names() if registry is not None else [])
     if not _installed() or ini is None or target is None:
         return _answer(404, "unavailable", NO_TARGET, None)
     if body.get("confirm") is not True:
