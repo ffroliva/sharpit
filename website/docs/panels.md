@@ -9,6 +9,7 @@
 | Loggers | logger tree with levels you can change at runtime |
 | Beans | dependency providers, middleware and lifespan, with their dependencies |
 | Vulnerabilities | installed distributions checked against [OSV](https://osv.dev) and scored with EPSS, on explicit request |
+| GitHub | the app's GitHub repository, read from local git files; **Connect** (`POST /sharpit/api/github/refresh`) calls the GitHub REST API with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`. That token goes to the repository's API host, which may be any host in `SHARPIT_GITHUB_ALLOWED_API_HOSTS`, so a github.com token is also sent to an allow-listed GitHub Enterprise host (BootUI does the same). Only allow-list hosts you trust with that token. |
 | HTTP Exchanges | ring buffer of recent HTTP requests with duration, headers, status code, and path masking |
 | Exceptions | unhandled errors grouped by exception class and innermost application frame |
 | SQL Trace | executed SQL statements, execution durations, slow query alerts, and live SSE feed |
