@@ -1,5 +1,5 @@
 """W5a P-exception: one ``exception`` journal event per captured exception occurrence (BootUI ``ExceptionStore.record``
-offers ``RuntimeEvent.of(JournalSource.EXCEPTION, ..., ExceptionPayload)``): class, group, signature, types; never text."""
+offers an ``ExceptionPayload`` event): class, group, signature, types; no text."""
 
 from __future__ import annotations
 
