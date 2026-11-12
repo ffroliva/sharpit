@@ -150,6 +150,6 @@ def test_detail_of_an_unlisted_observation_says_why_first_among_its_limitations(
 
 
 def test_an_empty_subject_omits_the_query_argument_of_the_next_steps() -> None:
-    row = _observation(1, "route-time-breakdown", "", "")
+    row = _observation(1, "anonymous-data-reach", "", "")
     steps = agent_list(_report([row]), None, None, STEPS)["next"]
     assert [s for s in steps if s["arguments"].get("query") == ""] == []
