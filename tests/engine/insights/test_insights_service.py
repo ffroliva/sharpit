@@ -218,34 +218,45 @@ def test_insights_report_golden_keys_23() -> None:
     ]  # fmt: skip
 
 
-def _sql_event(i: int) -> dict[str, str | int | bool | None]:
-    """A ``sql`` event as the producer builds it: a few dozen shapes repeat, as an application's statements do."""
-    return {
-        "source": "sql", "sql": f"select a, b from t{i % 40} where id = ? and name = 'x{i % 40}'", "traceId": None,
-        "requestId": f"r{i % 700}", "thread": "MainThread", "durationNanos": 1_000 + i,
-        "startedAt": 1_700_000_000_000 + i, "dataSource": None, "failed": False, "phase": None,
-        "completedNanos": 10_000 + i, "codePathStamp": 0, "provenance": "EXECUTION", "batchSize": 1,
-        "callSite": f"app/db.py:load:{i % 12}",
-    }  # fmt: skip
+def _request_events(request: int) -> list[dict[str, str | int | bool | None]]:
+    """One request's events as the producers build them, in BootUI's mix: seven ``sql``, one ``ai``, one ``http``.
 
-
-def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget() -> None:
-    """Times projection and coverage over a full journal with stub kinds; not BootUI's budget test.
-
-    W5a P-sql r3: 50,000 ``sql`` events with repeated shapes too, so the read-time SQL masking is inside the budget.
+    BootUI's request holds a ``connection`` event where this one holds ``ai``: sharpit produces no connection source.
     """
-    journal = _journal(max_events=100_000)
-    for i in range(50_000):
-        journal.offer_flat({"source": "ai", "operation": "chat", "inputTokens": i, "requestId": f"r{i % 700}"})
-    for i in range(50_000):
-        journal.offer_flat(_sql_event(i))
+    request_id, route = f"r{request}", f"/api/route{request % 200}/{{id}}"
+    sql: list[dict[str, str | int | bool | None]] = [
+        {
+            "source": "sql", "sql": f"select * from t{n % 3} where id = ?", "traceId": None, "requestId": request_id,
+            "thread": "MainThread", "durationNanos": 1_000_000, "startedAt": 1_700_000_000_000 + request,
+            "dataSource": None, "failed": False, "phase": None, "completedNanos": 10_000 + request,
+            "codePathStamp": 0, "provenance": "EXECUTION", "batchSize": 1, "callSite": f"app/db.py:load:{n}",
+        }
+        for n in range(7)
+    ]  # fmt: skip
+    ai = {"source": "ai", "operation": "chat", "inputTokens": request, "outputTokens": 7, "requestId": request_id}
+    http = {
+        "source": "http", "epochMillis": 1_700_000_000_000 + request, "durationNanos": 9_000_000, "traceId": None,
+        "thread": "MainThread", "requestId": request_id, "method": "GET", "path": route.replace("{id}", "1"),
+        "routeTemplate": route, "operation": None, "status": 200, "route": f"GET {route}",
+    }  # fmt: skip
+    return [*sql, ai, http]
+
+
+# ported: InsightsReadBudgetTests.aFullJournalIsProjectedAndEvaluatedWellWithinTheReadBudget
+def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget() -> None:
+    """The journal at its default bounds, filled to its 50,000-event bound in BootUI's per-request mix, read whole."""
+    journal = _journal()
+    events = [event for request in range(journal.max_events // 9 + 1) for event in _request_events(request)]
+    for event in events[: journal.max_events]:
+        journal.offer_flat(event)
     service = InsightsService(journal)
     best = float("inf")
     for _ in range(3):
         start = time.perf_counter()
         report = service.report()
         best = min(best, time.perf_counter() - start)
-    assert report["window"]["retainedEvents"] == 100_000
+    assert report["window"]["retainedEvents"] == 50_000
+    assert report["window"]["evictedEvents"] == 0
     check_wall_budget("insights report over a full journal", best, 2.0)
 
 
