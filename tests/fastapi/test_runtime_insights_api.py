@@ -191,7 +191,7 @@ def test_no_read_starts_anything(no_side_effects: SideEffectGuard) -> None:
     with client:
         no_side_effects.block_network()
         client.get("/sharpit/api/panels")  # the portal's worker thread starts with the first sync route
-        threads = threading.active_count()
+        before = {t.ident for t in threading.enumerate()}
         listed = client.get(API)
         assert listed.status_code == 200
         observation = listed.json()["observations"][0]
@@ -199,7 +199,7 @@ def test_no_read_starts_anything(no_side_effects: SideEffectGuard) -> None:
         assert client.get(PROFILE).status_code == 200
         assert _mcp(client, "get_runtime_insights").get("isError") is False
         assert _mcp(client, "get_runtime_insight", id=observation["id"]).get("isError") is False
-        assert threading.active_count() == threads
+        assert [t.name for t in threading.enumerate() if t.ident not in before] == []
     assert no_side_effects.violations == []
 
 
