@@ -142,3 +142,43 @@ def test_errors_behind_2xx_with_log_tail_off_names_the_panel_for_the_log_evidenc
     assert journal.offer({"source": "log", "logger": "orders", "level": "ERROR", "template": "t", "requestId": "r1"})
     check = _check(insights_service(handle.context).report(), "errors-behind-2xx")
     assert "The log-tail panel is disabled, so its evidence is not counted." in str(check["reason"])
+
+
+# SQL capture state: RuntimeInsightsService.java:975-1008 (v2.3.0) with SqlCapture.DISABLED. The flag off is not a
+# panel being unavailable: a check that needs SQL is UNAVAILABLE, and an optional SQL read is a caveat.
+SQL_OFF = "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
+_SQL = {"source": "sql", "sql": "select ?", "requestId": "r1"}
+
+
+def _sql_report(handles: list[Any], events: list[dict[str, Any]], **options: Any) -> dict[str, Any]:
+    handle = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, **options)
+    handles.append(handle)
+    for event in events:
+        assert handle.context.capture.journal.offer(event)
+    return insights_service(handle.context).report()
+
+
+def test_a_required_sql_check_with_sql_capture_off_is_unavailable_with_the_capture_reason(handles: list[Any]) -> None:
+    check = _check(_sql_report(handles, [_SQL], sql_trace_enabled=False), "safe-method-dml")
+    assert check["status"] == "UNAVAILABLE"
+    assert check["reason"] == SQL_OFF
+
+
+def test_an_optional_sql_read_with_sql_capture_off_is_a_caveat_with_the_not_counted_suffix(handles: list[Any]) -> None:
+    check = _check(_sql_report(handles, [_HTTP, _SQL], sql_trace_enabled=False), "route-time-breakdown")
+    assert check["status"] != "UNAVAILABLE"
+    assert f"{SQL_OFF} Its SQL and connection evidence is not counted." in str(check["reason"])
+
+
+def test_the_disabled_panel_wins_over_the_capture_reason(handles: list[Any]) -> None:
+    report = _sql_report(handles, [_SQL], sql_trace_enabled=False, panels={"sql-trace": {"enabled": False}})
+    check = _check(report, "safe-method-dml")
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == "The sql-trace panel, whose evidence this reads, is disabled."
+
+
+def test_sql_capture_on_adds_no_capture_text(handles: list[Any]) -> None:
+    on = _sql_report(handles, [_HTTP, _SQL], sql_trace_enabled=True)
+    default = _sql_report(handles, [_HTTP, _SQL])
+    assert json.dumps(on["checks"], sort_keys=True) == json.dumps(default["checks"], sort_keys=True)  # window: run id
+    assert "SQL capture is disabled" not in json.dumps(on)

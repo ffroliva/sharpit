@@ -70,6 +70,14 @@ def test_get_returns_the_report_with_every_bootui_key() -> None:
     assert len(body["checks"]) == 28
 
 
+def test_get_reports_sql_capture_off_as_unavailable_through_the_route() -> None:
+    client, ctx = _client(sql_trace_enabled=False)
+    assert ctx.capture.journal.offer({"source": "sql", "sql": "select ?", "requestId": "r1"})
+    check = next(c for c in client.get(API).json()["checks"] if c["kind"] == "safe-method-dml")
+    assert check["status"] == "UNAVAILABLE"
+    assert check["reason"] == "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
+
+
 def test_the_panel_is_listed_now_that_it_is_implemented() -> None:
     client, _ = _client()
     panels = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
