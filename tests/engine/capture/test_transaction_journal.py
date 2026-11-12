@@ -11,6 +11,8 @@ import contextlib
 import dis
 import gc
 import json
+import os
+import re
 import sqlite3
 import time
 from collections.abc import Generator, Iterator
@@ -24,10 +26,11 @@ orm = pytest.importorskip("sqlalchemy.orm")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+import sharpit  # noqa: E402
 from fastapi import Depends, FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.capture import transactions  # noqa: E402
+from sharpit.engine.capture import sqltrace, transactions  # noqa: E402
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal  # noqa: E402
 from sharpit.engine.collectors.insights.service import insights_service  # noqa: E402
 
@@ -400,6 +403,27 @@ def test_transaction_event_never_hands_out_or_changes_its_fixed_parts():
     assert second["ormFlushes"] == -1
     assert second["requestId"] == "r-2"
     assert tuple(second) == transactions._TX_KEYS  # pyright: ignore[reportPrivateUsage]
+
+
+def test_transaction_call_site_walk_starts_above_sharpit_own_frames(monkeypatch: pytest.MonkeyPatch):
+    """r4: the begin's call-site walk starts at the listener's caller; sharpit's own frames are never checked."""
+    own = os.path.dirname(sharpit.__file__)
+    checked: list[str] = []
+    real = sqltrace.is_application_frame
+    monkeypatch.setattr(sqltrace, "is_application_frame", lambda name: checked.append(name) or real(name))
+    _, engine = _install()
+    with engine.connect() as conn, conn.begin():
+        pass
+    assert checked, "the walk ran"
+    assert [name for name in checked if name.startswith(own)] == []
+
+
+def test_transaction_call_site_is_the_application_frame_that_began_it():
+    handle, engine = _install()
+    with engine.begin() as conn:
+        _read(conn)
+    name = "test_transaction_call_site_is_the_application_frame_that_began_it"
+    assert re.fullmatch(rf".*test_transaction_journal:{name}:\d+", str(_records(handle)[0]["method"]))
 
 
 def test_transaction_journal_failure_never_breaks_the_transaction(monkeypatch: pytest.MonkeyPatch):
