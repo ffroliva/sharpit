@@ -70,9 +70,10 @@ def test_the_coverage_shards_use_the_sys_monitoring_tracer() -> None:
 
 
 # Weighted test-seconds per shard. Run 43178363371: a shard's pytest step takes ~0.27 s of wall per weighted second on
-# Ubuntu (586 s in 158 s) and ~0.31 s on Windows (841 s in 262 s), so these keep each step near 2 minutes and a shard
-# job, setup included, within the 3-5 minute CI target. The old 170/305 predated the suite doubling (stale weights).
-LOAD_CEILING = {"ubuntu-latest": 410.0, "windows-latest": 400.0}
+# Ubuntu (586 s in 158 s) and ~0.31 s on Windows (841 s in 262 s), so these keep each step under ~1.7 minutes. Weights
+# from run 43199441634 (after the sqlite heap-walk fix): max loads 313 (Ubuntu, 4 shards) and 294 (Windows, 6). Windows
+# is back at its old 305; Ubuntu's old 170 was set against stale weights that summed to half the measured time.
+LOAD_CEILING = {"ubuntu-latest": 330.0, "windows-latest": 305.0}
 
 
 @pytest.mark.parametrize("leg", [leg for leg in _legs("test-shard") if leg])
