@@ -475,7 +475,7 @@ def test_a_failed_copy_does_not_hide_the_applications_next_open(tmp_path: Path) 
 
         here = os.getcwd()
         sink, hub = Sink(), AuditHub()
-        hub.enable(FilesSensor(cwd=here, home=here, tmp=here), sink)
+        hub.enable(FilesSensor(cwd=here, home="/nohome", tmp="/notmp"), sink)
         with open("a.txt", "w") as f:
             f.write("x")
         sink.rows.clear()
