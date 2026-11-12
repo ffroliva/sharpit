@@ -23,7 +23,7 @@ def _entry(
     component_simple_name: str = "errors",
     method: str = "handle",
     status: str | None = None,
-    status_source: str = "DYNAMIC",
+    status_source: str = "UNRESOLVED",  # no status visible
     body_category: str = "CUSTOM_OBJECT",
     body_type: str | None = "dict",
     produces: tuple[str, ...] = (),
@@ -94,7 +94,7 @@ def test_err005_flags_broad_handler_with_fixed_non_5xx_status() -> None:
     violations = _err005((), (), error_contract=(entry,))
     assert len(violations) == 1
     assert "errors#handle" in violations[0].target
-    assert "catches Exception/Throwable and maps it to a fixed non-5xx status (400)" in violations[0].message
+    assert "catches Exception/BaseException and maps it to a fixed non-5xx status (400)" in violations[0].message
 
 
 def test_err005_passes_500_fallback_or_specific_exception() -> None:

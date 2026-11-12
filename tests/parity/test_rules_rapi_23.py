@@ -752,7 +752,7 @@ def test_rapi_err_005_fires_when_broad_handler_declares_fixed_non_5xx_status() -
 
     finding = _one(app, "RAPI-ERR-005", "LOW")
     assert "handle_all" in finding.target
-    assert "catches Exception/Throwable and maps it to a fixed non-5xx status (400)" in finding.message
+    assert "catches Exception/BaseException and maps it to a fixed non-5xx status (400)" in finding.message
 
 
 @pytest.mark.bootui("rule:RAPI-ERR-005")
