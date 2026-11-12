@@ -45,5 +45,6 @@
   "scheduled": "scheduled",
   "live-memory": "live-memory",
   "cache": "cache",
-  "dev-services": "dev-services"
+  "dev-services": "dev-services",
+  "email": "email"
 }

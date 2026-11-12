@@ -692,6 +692,14 @@ def _probe_app() -> tuple[FastAPI, SharpitHandle]:
     return app, install(app, enabled="ON", show_banner=False, engines=[engine])
 
 
+def _mail_records(capture: Any) -> bool:
+    """Whether the context's mail recorder still stores a message (a paused one does not); no socket is opened."""
+    recorder = capture.mail
+    before = len(recorder.entries())
+    recorder.record("probe@example.test", ["probe@example.test"], "Subject: probe\n\nbody\n")
+    return len(recorder.entries()) > before
+
+
 def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
     """Hook name -> whether that hook still records, each probed by what it captures (lanes: armed)."""
     from sharpit.engine import tools
@@ -714,7 +722,7 @@ def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
     client.get("/denied")
     client.get("/teapot")
     client.get("/sql")
-    armed = {wiring._lane_of[id(a)] for a in capture.attachers if id(a) in wiring._armed}  # pyright: ignore[reportPrivateUsage]
+    armed = {wiring._lane_of[id(a)] for a in capture.attachers if id(a) in wiring._armed and id(a) in wiring._lane_of}  # pyright: ignore[reportPrivateUsage]
     return {
         "capture-middleware": len(_rows(handle)) > rows,
         "security-log": len(capture.security_logs.snapshot()) > events,
@@ -725,6 +733,7 @@ def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
         "traces": "traces" in armed,
         "transactions": "transactions" in armed,
         "runtime-journal": capture.journal is not None and capture.journal.offer({"source": "http", "probe": True}),
+        "mail": _mail_records(capture),
     }
 
 

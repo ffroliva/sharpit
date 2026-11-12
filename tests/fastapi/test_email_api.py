@@ -160,7 +160,7 @@ def test_get_emails_tool_masks_secrets():
     with harness(mcp_enabled="ON") as h:
         h.send(subject="s", body=f"token {secret}")
         report = _mcp(h, "get_emails")
-        assert report["total"] == 1
+        assert report["structuredContent"]["total"] == 1
         assert secret not in json.dumps(report)
 
 

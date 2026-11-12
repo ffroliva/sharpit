@@ -215,7 +215,8 @@ def fake_aiosmtplib(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     module = types.ModuleType("aiosmtplib")
 
     class SMTP:
-        sent: list[tuple[str, Any, Any]] = []  # noqa: RUF012
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, Any, Any]] = []
 
         async def sendmail(
             self, sender: str, recipients: Any, message: Any, **_options: Any
