@@ -3,15 +3,21 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import secrets
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.background import BackgroundTask
+from starlette.responses import StreamingResponse
 
 from fastapi import FastAPI, Request
 from sharpit import install
+from sharpit.engine.capture.exchanges import MAX_PATH
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.traces import span_buffer
 from sharpit.engine.collectors.insights.service import insights_service
@@ -66,7 +72,117 @@ def test_http_journal_event_request_id_is_the_exchange_id() -> None:
     (row,) = exchanges.rows()
     record = _one(journal)
     assert record["requestId"] == row["id"]
-    assert record["traceId"] == row["traceId"]
+    assert row["traceId"] == row["id"]  # the exchanges row keeps its own fallback
+    assert record["traceId"] is None  # BootUI's MDC trace id is null without tracing
+
+
+def test_http_journal_event_trace_id_is_null_without_a_traceparent() -> None:
+    client, journal, _ = _world()
+    client.get("/api/items/1")
+    assert _one(journal)["traceId"] is None
+
+
+def test_http_journal_event_trace_id_is_the_traceparent_trace() -> None:
+    client, journal, _ = _world()
+    trace = "0af7651916cd43dd8448eb211c80319c"
+    client.get("/api/items/1", headers={"traceparent": f"00-{trace}-b7ad6b7169203331-01"})
+    assert _one(journal)["traceId"] == trace
+
+
+def test_without_tracing_and_ai_outside_any_request_the_kind_is_not_applicable() -> None:
+    client, journal, handle = _world()
+    client.get("/api/items/1")
+    journal.offer({"source": "ai", "operation": "chat", "traceId": None, "requestId": None})
+    checks = insights_service(handle.context).report()["checks"]  # type: ignore[attr-defined]
+    check = next(c for c in checks if c["kind"] == "ai-usage-by-route")
+    assert check["status"] == "NOT_APPLICABLE"
+    assert "Without tracing" in str(check["reason"])
+
+
+def test_http_journal_event_path_is_cut_like_the_exchange_row() -> None:
+    client, journal, _ = _world()
+    client.get("/x" * 3000)
+    assert len(str(_one(journal)["path"])) <= MAX_PATH
+
+
+def test_an_exchange_row_failure_does_not_lose_the_http_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("row")
+
+    monkeypatch.setattr("sharpit.fastapi.capture.exchange_row", boom)
+    client, journal, _ = _world()
+    assert client.get("/api/items/1").status_code == 200
+    assert _one(journal)["status"] == 200
+
+
+# BootUI parity: HttpPayload.path carries path-parameter values; the journal masks a secret-shaped segment at read
+def test_http_journal_event_path_canary_secret_segment_masked_plain_id_kept() -> None:
+    canary = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0." + secrets.token_urlsafe(24)  # a JWT-shaped segment
+    client, journal, _ = _world()
+    client.get(f"/api/items/{canary}")
+    client.get("/api/items/42")
+    first, second = journal.records("http")
+    assert canary not in repr(first)
+    assert second["path"] == "/api/items/42"
+
+
+def _boom_world() -> tuple[TestClient, RuntimeJournal]:
+    app = FastAPI()
+
+    @app.get("/boom")
+    async def boom() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError("boom")
+
+    @app.get("/stream")
+    async def stream() -> StreamingResponse:  # pyright: ignore[reportUnusedFunction]
+        async def chunks() -> AsyncIterator[bytes]:
+            yield b"a"
+            yield b"b"
+
+        return StreamingResponse(chunks(), background=BackgroundTask(lambda: None))
+
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False)
+    journal = handle.context.capture.journal
+    assert journal is not None
+    return TestClient(app, raise_server_exceptions=False), journal
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status"),
+    [("GET", "/boom", 500), ("GET", "/stream", 200), ("HEAD", "/boom", 405)],
+)
+def test_one_http_event_per_request_whatever_the_outcome(method: str, path: str, status: int) -> None:
+    client, journal = _boom_world()
+    assert client.request(method, path).status_code == status
+    assert _one(journal)["status"] == status
+
+
+def test_a_client_disconnect_is_one_499_event() -> None:
+    app = FastAPI()
+
+    @app.get("/slow")
+    async def slow() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise asyncio.CancelledError
+
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False)
+    journal = handle.context.capture.journal
+    assert journal is not None
+
+    async def call() -> None:
+        scope = {"type": "http", "method": "GET", "path": "/slow", "raw_path": b"/slow", "query_string": b"",
+                 "headers": [], "scheme": "http", "server": ("t", 80), "client": ("c", 1), "root_path": ""}  # fmt: skip
+
+        async def receive() -> dict[str, str]:
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, Any]) -> None:
+            return None
+
+        with contextlib.suppress(asyncio.CancelledError):
+            await app(scope, receive, send)  # pyright: ignore[reportArgumentType]
+
+    asyncio.run(call())
+    assert _one(journal)["status"] == 499
 
 
 def test_http_journal_event_route_is_the_template_label() -> None:
