@@ -10,8 +10,10 @@ import pytest
 from tests.overhead import check_budget, paired
 
 from fastapi import FastAPI
-from mailsink import OPTIONS, harness
+from mailsink import OPTIONS, harness, isolated_mail_registry
 from sharpit import install
+
+pytestmark = pytest.mark.usefixtures(isolated_mail_registry.__name__)
 
 ROUNDS = 200
 MESSAGE = "Subject: hi\n\nbody\n"

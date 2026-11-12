@@ -10,10 +10,20 @@ from contextlib import contextmanager
 from email.message import EmailMessage
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine.capture import mail
+
+
+@pytest.fixture
+def isolated_mail_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mail registry is process-wide and the suite leaves apps installed: an app an earlier test never shut down
+    would count among "every live app" outside a request. Each mail test starts with an empty registry, holding only
+    the apps it installs, and the earlier ones come back after it."""
+    monkeypatch.setattr(mail, "_refs", ())
 
 
 class _Handler(socketserver.StreamRequestHandler):

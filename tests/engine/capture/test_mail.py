@@ -18,9 +18,11 @@ from typing import Any, ClassVar, NamedTuple
 import pytest
 
 from fastapi import FastAPI, WebSocket
-from mailsink import API, OPTIONS, Harness, harness, smtp_sink
+from mailsink import API, OPTIONS, Harness, harness, isolated_mail_registry, smtp_sink
 from sharpit import install
 from sharpit.engine.panels import PANELS
+
+pytestmark = pytest.mark.usefixtures(isolated_mail_registry.__name__)
 
 SECRET = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 RESET = "https://app.example.test/reset?token=" + "r3s3t" + "9x8y7z6w5v4u"
