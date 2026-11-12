@@ -249,7 +249,9 @@ def test_exception_hotspots_text_uses_journal_fields_only() -> None:
     run = Run()
     secret = "Bearer " + CANARY
     run.request(500, {**exc(ILLEGAL_STATE), "message": secret, "stack": secret, "args": [secret]})
-    (row,) = run.rows(HOTSPOTS)
+    rows = run.rows(HOTSPOTS)
+    assert len(rows) == 1
+    row = rows[0]
     assert CANARY not in run.dump(HOTSPOTS)
     assert row["sentence"] == f"`{ORDERS}` recorded `{ILLEGAL_STATE}` in 1 of 1 request (1 occurrence)."
     assert run.detail(row)["rows"] == [{"cells": ["r1", "500", "1", f"g-{ILLEGAL_STATE}"]}]
@@ -296,7 +298,7 @@ def test_framework_warnings_by_route_list_errors_and_known_warnings_and_count_er
     assert (unowned.eligible, unowned.affected, unowned.exemplar_request_ids) == (0, 4, [])
     assert unowned.columns == ["Logger", "Message", "Events"]
     assert [row[2] for row in unowned.rows] == ["3", "1"]
-    assert unowned.rows[0] == [POOL, '"Exception during reset or similar"', "3"]
+    assert unowned.rows[0] == [POOL, "Exception during reset or similar", "3"]
     assert any("sharpit keeps no previous-run summary" in text for text in unowned.limitations)
     broke = next(f for f in by_subject(findings, ORDERS) if "Broke" in f.sentence)
     assert broke.listed is True
@@ -393,7 +395,9 @@ def test_framework_warnings_by_route_text_uses_journal_fields_only() -> None:
     run = Run()
     secret = "Bearer " + CANARY
     run.request(200, {**log(POOL, "WARN", LEAK), "message": secret, "args": [secret], "exceptionClass": "X"})
-    (row,) = run.rows(WARNINGS)
+    rows = run.rows(WARNINGS)
+    assert len(rows) == 1
+    row = rows[0]
     assert CANARY not in run.dump(WARNINGS)
     assert row["sentence"] == f'`{ORDERS}` logged `WARN` from `QueuePool` in 1 of 1 request (1 event): "{LEAK}".'
     assert run.detail(row)["rows"] == [{"cells": ["r1", "200", "1", POOL]}]
