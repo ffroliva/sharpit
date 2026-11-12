@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
-from sharpit.engine.collectors.alembic import NEVER_RUNS, NO_ENGINE, NOT_READ, OPERATION
+from sharpit.engine.collectors.alembic import CLEAN_DISABLED, NO_ENGINE, NOT_READ, OPERATION
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
@@ -77,7 +77,7 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         "executionTime", "checksum",
     ]  # fmt: skip
     assert (database["migrateEnabled"], database["migrateDisabledReason"]) == (True, None)  # W8 M1
-    assert (database["cleanEnabled"], database["cleanDisabledReason"]) == (False, NEVER_RUNS)
+    assert (database["cleanEnabled"], database["cleanDisabledReason"]) == (False, CLEAN_DISABLED)
 
 
 test_shape_matches_flyway_dto = test_shape_keys_match_bootui

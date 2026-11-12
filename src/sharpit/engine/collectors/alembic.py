@@ -34,9 +34,10 @@ if TYPE_CHECKING:
 
 OPERATION = "alembic-refresh"
 NOT_READ = "(not read yet)"
-NEVER_RUNS = "sharpit never runs migrations"  # the clean action's reason until W8 M2
 MIGRATE_OPERATION = "alembic-migrate"
-ACTION_FLIGHT = "singleflight:alembic-actions"  # one lock for migrate and (M2) clean
+CLEAN_OPERATION = "alembic-clean"
+CLEAN_DISABLED = "Alembic clean is disabled. Set SHARPIT_ALEMBIC_CLEAN_ENABLED=true to allow it."
+ACTION_FLIGHT = "singleflight:alembic-actions"  # one lock for migrate and clean
 CONFIRMATION_REQUIRED = "Action requires confirm=true because it mutates the application database."
 NO_TARGET = "No Alembic configuration matched the requested database."
 NOT_INSTALLED = "Alembic is not installed in this Python environment"
@@ -331,8 +332,13 @@ def _applied(files: AlembicFiles, heads: tuple[str, ...]) -> set[str]:
 
 
 def _database(
-    files: AlembicFiles, name: str, read: DatabaseRead | None, reason: str | None, migrate_reason: str | None
+    files: AlembicFiles,
+    name: str,
+    read: DatabaseRead | None,
+    reason: str | None,
+    gates: tuple[str | None, str | None],
 ) -> dict[str, Any]:
+    migrate_reason, clean_reason = gates
     heads = read.heads if read else None
     if heads is None:
         rows = [_row(r, r.revision, "Unknown") for r in files.revisions]
@@ -350,8 +356,8 @@ def _database(
         "migrations": rows,
         "migrateEnabled": migrate_reason is None,
         "migrateDisabledReason": migrate_reason,
-        "cleanEnabled": False,
-        "cleanDisabledReason": NEVER_RUNS,
+        "cleanEnabled": clean_reason is None,
+        "cleanDisabledReason": clean_reason,
         "checkedAt": read.checked_at if read else None,
         "unavailableReason": read.reason if read else reason,
     }
@@ -366,10 +372,11 @@ def _report(ctx: SharpitContext, files: AlembicFiles) -> dict[str, Any]:
     engines = registry.names() if registry is not None else []
     targets = registry.database_names() if registry is not None else []
     migrate_reason = _migrate_reason(ctx, targets)
+    gates = (migrate_reason, migrate_reason or (None if ctx.settings.alembic_clean_enabled else CLEAN_DISABLED))
     if reads:
-        databases = [_database(files, r.name, r, None, migrate_reason) for r in reads]
+        databases = [_database(files, r.name, r, None, gates) for r in reads]
     else:
-        databases = [_database(files, NOT_READ, None, None if engines else NO_ENGINE, migrate_reason)]
+        databases = [_database(files, NOT_READ, None, None if engines else NO_ENGINE, gates)]
     return {
         "alembicPresent": True,
         "configPath": files.config_path,
@@ -522,14 +529,21 @@ def _failure(ctx: SharpitContext, result: ProcessResult) -> str:
     return f"Alembic failed with exit code {result.returncode}." if result.failure is None else "Alembic did not run."
 
 
-def _upgrade(ctx: SharpitContext, ini: Path, target: str, run: Runner) -> tuple[int, Any]:
-    argv = [sys.executable, "-m", "alembic", "-c", str(ini), "upgrade", "heads"]
+def _child(ctx: SharpitContext, ini: Path, target: str, run: Runner, *command: str) -> ProcessResult | tuple[int, Any]:
+    """Run ``python -m alembic <command>``; a failed run is the (status, DTO) answer, a good one the result."""
     try:
-        result = run(argv, str(ini.parent))
+        result = run([sys.executable, "-m", "alembic", "-c", str(ini), *command], str(ini.parent))
     except Exception as exc:  # noqa: BLE001 - the action answers 500; SingleFlight.run releases the lock
         return _answer(500, "failed", _capped(ctx, f"{type(exc).__name__}: {exc}") or "Alembic did not run.", target)
     if result.failure is not None or result.returncode != 0:
         return _answer(500, "failed", _failure(ctx, result), target)
+    return result
+
+
+def _upgrade(ctx: SharpitContext, ini: Path, target: str, run: Runner) -> tuple[int, Any]:
+    result = _child(ctx, ini, target, run, "upgrade", "heads")
+    if isinstance(result, tuple):
+        return result
     executed = _executed(result.output)
     if executed is None:
         message = "Alembic upgrade completed."
@@ -557,19 +571,60 @@ def _target(requested: str | None, targets: list[str]) -> str | None:
     return targets[0] if requested is None or requested == targets[0] else None
 
 
+_BLOCKED = "blocked"
+
+
+def _unavailable() -> tuple[int, Any]:
+    return _answer(404, "unavailable", NO_TARGET, None)
+
+
+def _resolve(ctx: SharpitContext, body: dict[str, Any]) -> tuple[Path, str] | None:
+    """The shared first step of migrate and clean: the (ini file, target) pair, or None for the 404 answer."""
+    registry = ctx.capture.engine_registry
+    ini = _ini_file(ctx)
+    target = _target(_requested(body.get("beanName")), registry.database_names() if registry is not None else [])
+    if not _installed() or ini is None or target is None:
+        return None
+    return ini, target
+
+
 def migrate(ctx: SharpitContext, body: dict[str, Any], run: Runner) -> tuple[int, Any]:
     """``FlywayService.migrate``: target, blocked, confirmation, single-flight, then run. Returns (status, DTO).
 
     The target is one of the engine names sharpit itself reports, never the request string; the argv holds no request
     text. ``confirm`` must be JSON ``true`` exactly. A non-installed Alembic is BootUI's missing provider: 404.
     """
-    requested = _requested(body.get("beanName"))
-    registry = ctx.capture.engine_registry
-    ini = _ini_file(ctx)
-    target = _target(requested, registry.database_names() if registry is not None else [])
-    if not _installed() or ini is None or target is None:
-        return _answer(404, "unavailable", NO_TARGET, None)
+    resolved = _resolve(ctx, body)
+    if resolved is None:
+        return _unavailable()
+    ini, target = resolved
     if body.get("confirm") is not True:
-        return _answer(400, "blocked", CONFIRMATION_REQUIRED, target)
+        return _answer(400, _BLOCKED, CONFIRMATION_REQUIRED, target)
     single = ctx.lazy(ACTION_FLIGHT, SingleFlight)
     return single.run(MIGRATE_OPERATION, lambda: _upgrade(ctx, ini, target, run))
+
+
+def _downgrade(ctx: SharpitContext, ini: Path, target: str, run: Runner) -> tuple[int, Any]:
+    result = _child(ctx, ini, target, run, "downgrade", "base")
+    if isinstance(result, tuple):
+        return result
+    status, dto = _answer(200, "success", f"Alembic cleaned schema(s) for {target}.", target)
+    dto["schemasCleaned"] = [target]
+    return status, dto
+
+
+def clean(ctx: SharpitContext, body: dict[str, Any], run: Runner) -> tuple[int, Any]:
+    """``FlywayService.clean``: target, disabled (403, before confirmation), confirmation, single-flight, then run.
+
+    ``alembic downgrade base`` with a fixed argv through the same runner and the same single-flight as migrate.
+    """
+    resolved = _resolve(ctx, body)
+    if resolved is None:
+        return _unavailable()
+    ini, target = resolved
+    if not ctx.settings.alembic_clean_enabled:
+        return _answer(403, _BLOCKED, CLEAN_DISABLED, target)
+    if body.get("confirm") is not True:
+        return _answer(400, _BLOCKED, CONFIRMATION_REQUIRED, target)
+    single = ctx.lazy(ACTION_FLIGHT, SingleFlight)
+    return single.run(CLEAN_OPERATION, lambda: _downgrade(ctx, ini, target, run))
