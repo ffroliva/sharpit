@@ -77,7 +77,8 @@ from sqlalchemy import engine_from_config, pool
 
 config = context.config
 fileConfig(config.config_file_name)
-engine = engine_from_config(config.get_section(config.config_ini_section), prefix="sqlalchemy.", poolclass=pool.NullPool)
+section = config.get_section(config.config_ini_section)
+engine = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
 with engine.connect() as connection:
     context.configure(connection=connection, target_metadata=None)
     with context.begin_transaction():
