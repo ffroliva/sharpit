@@ -260,7 +260,7 @@
     "exception": 1
    },
    "dropped": {
-    "network": 1,
+    "not a source": 1,
     "failed": 1
    },
    "droppedEvents": 2,
@@ -292,7 +292,7 @@
      "exception": 1
     },
     "dropped": {
-     "network": 1,
+     "not a source": 1,
      "failed": 1
     },
     "droppedEvents": 2,
@@ -786,7 +786,7 @@
     "exception": 1
    },
    "dropped": {
-    "network": 1,
+    "not a source": 1,
     "failed": 1
    },
    "droppedEvents": 2,
@@ -818,7 +818,7 @@
      "exception": 1
     },
     "dropped": {
-     "network": 1,
+     "not a source": 1,
      "failed": 1
     },
     "droppedEvents": 2,
@@ -1312,7 +1312,7 @@
     "exception": 1
    },
    "dropped": {
-    "network": 1,
+    "not a source": 1,
     "failed": 1
    },
    "droppedEvents": 2,
@@ -1344,7 +1344,7 @@
      "exception": 1
     },
     "dropped": {
-     "network": 1,
+     "not a source": 1,
      "failed": 1
     },
     "droppedEvents": 2,
@@ -1718,7 +1718,7 @@
     "exception": 1
    },
    "dropped": {
-    "network": 1,
+    "not a source": 1,
     "failed": 1
    },
    "droppedEvents": 2,
@@ -1750,7 +1750,7 @@
      "exception": 1
     },
     "dropped": {
-     "network": 1,
+     "not a source": 1,
      "failed": 1
     },
     "droppedEvents": 2,
@@ -1887,7 +1887,7 @@
     "exception": 1
    },
    "dropped": {
-    "network": 1,
+    "not a source": 1,
     "failed": 1
    },
    "droppedEvents": 2,

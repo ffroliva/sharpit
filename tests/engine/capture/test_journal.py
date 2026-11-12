@@ -342,14 +342,6 @@ def test_a_read_masks_each_sql_event_exactly_as_masking_it_alone_at_every_exposu
         assert journal.records("sql") == expected
 
 
-def test_offer_flat_with_a_size_below_one_still_charges_the_event_and_respects_the_byte_bound() -> None:
-    """W5a P-sql r3: a caller's size of 0 or less never bypasses ``max_bytes`` nor drives the byte count negative."""
-    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=100)
-    assert journal.offer_flat({"source": "sql", "sql": "x" * 200}, size=-5) is False
-    assert journal.offer_flat({"source": "sql", "sql": "select 1"}, size=0) is True
-    assert journal.status()["retainedBytes"] > 0
-
-
 def test_a_suspended_journal_accepts_no_source() -> None:
     # a paused SQL Trace panel asks accepts() before building an event: a suspended journal must not cost it one
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)

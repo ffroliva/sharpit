@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
-from sharpit.engine.capture.journal import SCALAR_BYTES, RecordFields
+from sharpit.engine.capture.journal import RecordFields, value_bytes
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.context import application_family
 from sharpit.engine.sqla.dialect_source import event_dialect
@@ -117,9 +117,12 @@ _SQL_FIELDS = RecordFields(
     "sql", "sql", "traceId", "requestId", "thread", "durationNanos", "startedAt", "dataSource", "failed", "phase",
     "completedNanos", "codePathStamp", "provenance", "batchSize", "callSite",
 )  # fmt: skip
-# the layout's key bytes, the two constant texts ("sql", "EXECUTION") and the eight scalar fields (``phase`` is always
-# None): what the journal charges before the variable texts
-_SQL_EVENT_BYTES = _SQL_FIELDS.key_bytes + len("sql") + len("EXECUTION") + 8 * SCALAR_BYTES
+# what the journal charges of a record before its variable texts: the layout's key bytes and a record whose variable
+# fields are empty ("" costs nothing) or zero, with the constants in place (``source``, ``phase`` and ``dataSource``
+# None, ``codePathStamp`` 0, ``provenance``)
+_SQL_CONSTANT_BYTES = _SQL_FIELDS.key_bytes + sum(
+    map(value_bytes, ("sql", "", "", "", "", 0, 0, None, False, None, 0, 0, "EXECUTION", 0, ""))
+)
 
 
 def _batch(event: SqlEvent) -> int:
@@ -168,12 +171,12 @@ def _journal_event(
         site,
     )
     return record, (
-        _SQL_EVENT_BYTES
+        _SQL_CONSTANT_BYTES
         + len(text)
         + len(thread)
-        + (SCALAR_BYTES if trace_id is None else len(trace_id))
-        + (SCALAR_BYTES if request_id is None else len(request_id))
-        + (SCALAR_BYTES if site is None else len(site))
+        + value_bytes(trace_id)
+        + value_bytes(request_id)
+        + value_bytes(site)
     )
 
 

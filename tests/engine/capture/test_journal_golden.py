@@ -23,6 +23,7 @@ from sharpit.engine.capture import journal as journal_module
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights import snapshot
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.settings_registry import JOURNAL_SOURCES
 
 GOLDEN = Path(__file__).parents[2] / "fixtures" / "journal" / "read_golden.json"
 SECRET = "sk_" + "live_" + "EXAMPLE0123456789"  # built at load: no secret-shaped literal in the source or the fixture
@@ -161,6 +162,7 @@ RAW = {  # what a capture source could hand over unmasked: masked when read, wha
     "ratio": 0.25,
     "ok": True,
 }
+UNCONFIGURED = "not a source"  # a space no registry name has: no sensor will ever configure it (asserted below)
 SOURCES = ("ai", "exception", "http", "log", "mail", "sql")  # the six offered here: another producer changes nothing
 
 
@@ -174,11 +176,10 @@ def _fill(journal: RuntimeJournal) -> None:
     for event in (*HTTP, *LOG, *MAIL, *AI):
         assert journal.offer_flat(dict(event)) is True  # type: ignore[arg-type]
     for event in SQL:
-        size = sum(len(k) + (len(v) if isinstance(v, str) else 8) for k, v in event.items())
-        assert journal.offer_flat(dict(event), size) is True  # type: ignore[arg-type]
+        assert journal.offer_flat(dict(event)) is True  # type: ignore[arg-type]
     for event in (*EXCEPTION, RAW):
         assert journal.offer(event) is True
-    assert journal.offer({"source": "network", "port": 5}) is False  # a source not configured: counted
+    assert journal.offer({"source": UNCONFIGURED, "port": 5}) is False  # a source not configured: counted
     assert journal.offer({"source": 7}) is False
 
 
@@ -234,6 +235,11 @@ def observed(monkeypatch: pytest.MonkeyPatch) -> str:
     out["api"] = _api()
     text = json.dumps(out, indent=1, ensure_ascii=False) + "\n"
     return text.replace(SECRET, "<canary>")  # FULL exposure shows the canary: the fixture never holds it
+
+
+def test_the_unconfigured_source_can_never_be_configured() -> None:
+    assert UNCONFIGURED not in JOURNAL_SOURCES
+    assert " " not in "".join(JOURNAL_SOURCES)
 
 
 def test_the_journal_reads_exactly_what_the_base_read(monkeypatch: pytest.MonkeyPatch) -> None:
