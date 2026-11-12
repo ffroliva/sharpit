@@ -17,6 +17,7 @@ import pytest
 import sharpit
 from sharpit.engine import sqla, tools
 from sharpit.engine.activation import ActivationStatus
+from sharpit.engine.capture import sqltrace
 from sharpit.engine.capture.activity import request_profile
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer, exchange_row
 from sharpit.engine.capture.sqltrace import ENTRY_KEYS, SqlTraceRecorder
@@ -320,11 +321,16 @@ def test_no_internal_key_reaches_an_entry(surface: str) -> None:
 
 
 @pytest.mark.parametrize("surface", SURFACES)
-def test_a_planted_row_key_reaches_an_entry(surface: str) -> None:
-    # the check above needs teeth: a key the row gains and ``entry_dto`` does not pop shows on all three
+def test_a_planted_row_key_reaches_an_entry(surface: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    # the check above needs teeth: a key the row gains and ``entry_dto`` does not pop shows on all three; every read
+    # builds its rows through ``materialize``, so the key is planted there
     ctx = _ctx()
-    assert ctx.capture.sql_trace is not None
-    ctx.capture.sql_trace.rows()[0]["dialect"] = Dialect.UNSUPPORTED
+    real = sqltrace.materialize
+
+    def planted(*args: Any) -> dict[str, Any]:
+        return {**real(*args), "dialect": Dialect.UNSUPPORTED}
+
+    monkeypatch.setattr(sqltrace, "materialize", planted)
 
     entries = SURFACES[surface](ctx)
 
