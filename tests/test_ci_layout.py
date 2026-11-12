@@ -782,10 +782,10 @@ def test_every_upload_is_preceded_by_the_artifact_scan() -> None:
             _assert_job_upload_steps_scanned(job_name, planted_body)
 
 
-def test_a_wall_clock_budget_runs_with_the_timing_files() -> None:
+def test_a_wall_clock_budget_runs_with_the_timing_files(monkeypatch: pytest.MonkeyPatch) -> None:
     # found on #144 CI: the insights read budget (an absolute 2000 ms, no check_budget call) ran inside a parallel
     # Windows shard and failed at 2088 ms beside busy xdist workers
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+    monkeypatch.syspath_prepend(str(Path(__file__).parent.parent))
     from tests._shard import timing_files  # noqa: PLC0415
 
     assert "tests/engine/insights/test_insights_service.py" in timing_files()
