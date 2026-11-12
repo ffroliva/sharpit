@@ -210,12 +210,12 @@ def test_sql_journal_event_size_is_what_the_flat_walk_charges(
     event = dispatch.SqlEvent(
         "sqlalchemy", "select 1", None, True, 4, 0, 7, 1, None, None, None, Dialect.SQLITE
     )  # fmt: skip
-    built, size = dispatch._journal_event(  # pyright: ignore[reportPrivateUsage]
+    values, size = dispatch._journal_event(  # pyright: ignore[reportPrivateUsage]
         handle.context, recorder, event, "select ?", request, "worker-7", site
     )
+    built = dict(zip(dispatch._SQL_FIELDS.keys, values, strict=True))  # pyright: ignore[reportPrivateUsage]
     assert built["traceId"] == trace_id
     assert size == _flat(built)[1]
-    assert tuple(built) == getattr(dispatch, "_SQL_KEYS", None)  # the size constant is derived from these keys
 
 
 def _event(**fields: Any) -> Any:
@@ -287,7 +287,7 @@ def test_sql_journal_a_raising_offer_still_records_the_trace_row_and_is_not_an_s
     def boom(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("journal bug")
 
-    monkeypatch.setattr(journal, "offer_flat", boom)
+    monkeypatch.setattr(journal, "offer_record", boom)
     with caplog.at_level("WARNING", logger="sharpit"):
         _run(engine)
     assert len(handle.context.capture.sql_trace.rows()) == 1
@@ -303,7 +303,17 @@ def test_sql_journal_event_request_id_only_for_a_request_of_its_own_context():
     recorder = handle.context.capture.sql_trace
     other = RequestInfo("r-other", "another-context", "GET", "/x", None, 0, None)
     own = RequestInfo("r-own", handle.context.context_id, "GET", "/x", None, 0, None)
+    request_id = dispatch._SQL_FIELDS.keys.index("requestId")  # pyright: ignore[reportPrivateUsage]
     built, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", other, "t", None)  # pyright: ignore[reportPrivateUsage]
-    assert built["requestId"] is None
+    assert built[request_id] is None
     built, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", own, "t", None)  # pyright: ignore[reportPrivateUsage]
-    assert built["requestId"] == "r-own"
+    assert built[request_id] == "r-own"
+
+
+def test_sql_journal_call_site_is_the_application_frame():
+    """Perf proto: the walk starts above sharpit's own frames; the reported site stays the application's line."""
+    handle, engine = _install()
+    _run(engine)
+    site = _records(handle)[0]["callSite"]
+    assert isinstance(site, str)
+    assert site.startswith("test_sql_journal:_run:")  # the helper is the first application frame

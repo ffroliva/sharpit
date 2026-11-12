@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 import weakref
@@ -11,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
-from sharpit.engine.capture.journal import SCALAR_BYTES
+from sharpit.engine.capture.journal import SCALAR_BYTES, RecordFields
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.context import application_family
 from sharpit.engine.sqla.dialect_source import event_dialect
@@ -112,13 +113,13 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
     return targets
 
 
-_SQL_KEYS = (
-    "source", "sql", "traceId", "requestId", "thread", "durationNanos", "startedAt", "dataSource", "failed", "phase",
+_SQL_FIELDS = RecordFields(
+    "sql", "sql", "traceId", "requestId", "thread", "durationNanos", "startedAt", "dataSource", "failed", "phase",
     "completedNanos", "codePathStamp", "provenance", "batchSize", "callSite",
 )  # fmt: skip
-# every key's length, the two constant texts ("sql", "EXECUTION") and the eight scalar fields (``phase`` is always
-# None): what ``_flat`` charges
-_SQL_EVENT_BYTES = sum(map(len, _SQL_KEYS)) + len("sql") + len("EXECUTION") + 8 * SCALAR_BYTES
+# the layout's key bytes, the two constant texts ("sql", "EXECUTION") and the eight scalar fields (``phase`` is always
+# None): what the journal charges before the variable texts
+_SQL_EVENT_BYTES = _SQL_FIELDS.key_bytes + len("sql") + len("EXECUTION") + 8 * SCALAR_BYTES
 
 
 def _batch(event: SqlEvent) -> int:
@@ -139,7 +140,7 @@ def _journal_event(
     info: RequestInfo | None,
     thread: str,
     site: str | None,
-) -> tuple[dict[str, str | int | bool | None], int]:
+) -> tuple[tuple[str | int | bool | None, ...], int]:
     """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope) and its charged size, computed here per
     statement instead of by walking the event: the literal-free text, never a parameter.
 
@@ -148,24 +149,24 @@ def _journal_event(
     trace_id = otel.current_trace_id()
     request_id = info.id if info is not None and info.context_id == ctx.context_id else None
     site = site if recorder.capture_call_site else None
-    record: dict[str, str | int | bool | None] = {
-        "source": "sql",
-        "sql": text,
-        "traceId": trace_id,
-        "requestId": request_id,
-        "thread": thread,
-        "durationNanos": event.duration_ns,
-        "startedAt": time.time_ns() // 1_000_000 - event.duration_ns // 1_000_000,
-        "dataSource": None,
-        "failed": event.error is not None,
-        "phase": None,
+    record = (
+        "sql",
+        text,
+        trace_id,
+        request_id,
+        thread,
+        event.duration_ns,
+        time.time_ns() // 1_000_000 - event.duration_ns // 1_000_000,
+        None,
+        event.error is not None,
+        None,
         # the statement's end on the perf_counter clock, before any recording work (SqlTraceRecorder.java:738)
-        "completedNanos": event.started_ns + event.duration_ns,
-        "codePathStamp": 0,
-        "provenance": "EXECUTION",
-        "batchSize": _batch(event),
-        "callSite": site,
-    }
+        event.started_ns + event.duration_ns,
+        0,
+        "EXECUTION",
+        _batch(event),
+        site,
+    )
     return record, (
         _SQL_EVENT_BYTES
         + len(text)
@@ -204,7 +205,9 @@ def _trace_text(
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
     info = REQUEST.get()
     site = (
-        call_site(None) if any(c.capture.sql_trace and c.capture.sql_trace.capture_call_site for c in targets) else None
+        call_site(sys._getframe(1))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]  # start above _record
+        if any(c.capture.sql_trace and c.capture.sql_trace.capture_call_site for c in targets)
+        else None
     )
     thread = threading.current_thread().name
     for ctx in targets:
@@ -219,7 +222,7 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
         journal = ctx.capture.journal
         if journal is not None and text is not None:
             try:  # its own guard: a journal failure is never reported as the SQL hook's
-                journal.offer_flat(*_journal_event(ctx, recorder, event, text, info, thread, site))
+                journal.offer_record(_SQL_FIELDS, *_journal_event(ctx, recorder, event, text, info, thread, site))
             except Exception as exc:  # noqa: BLE001
                 _context_failed(ctx, exc, "sql journal")
 
