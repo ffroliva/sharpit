@@ -72,12 +72,18 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
     assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
-    assert "ai" in snapshot_module.PRODUCED_SOURCES
+    assert {"ai", "sql"} <= snapshot_module.PRODUCED_SOURCES
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
     # a producer lane adds its source to PRODUCED_SOURCES and its (file, test function) row here in the same PR
-    producer_tests = {"ai": ("tests/engine/capture/test_ai_journal.py", "test_ai_journal_event_is_metadata_only")}
+    producer_tests = {
+        "ai": ("tests/engine/capture/test_ai_journal.py", "test_ai_journal_event_is_metadata_only"),
+        "sql": (
+            "tests/engine/capture/test_sql_journal.py",
+            "test_sql_journal_event_offered_once_per_statement_with_bootui_fields",
+        ),
+    }
     assert set(producer_tests) == snapshot_module.PRODUCED_SOURCES
     root = Path(__file__).resolve().parents[3]
     for source, (path, name) in producer_tests.items():
@@ -321,3 +327,12 @@ def test_a_kind_that_raises_logs_only_its_id(caplog: pytest.LogCaptureFixture) -
 def test_the_kind_spec_evaluate_is_typed_as_a_callable() -> None:
     annotation = KindSpec.evaluate.fget.__annotations__["return"]  # type: ignore[union-attr]
     assert annotation == "Callable[[Snapshot], Evaluation] | None"
+
+
+def test_the_sql_source_is_recorded_only_when_enabled() -> None:
+    sql = {"source": "sql", "sql": "select ?", "requestId": "r1"}
+    enabled, disabled = _journal(["sql"]), _journal(["http"])
+    enabled.offer(sql)
+    disabled.offer(sql)
+    assert snapshot_module.project(enabled).recorded("sql")
+    assert not snapshot_module.project(disabled).recorded("sql")
