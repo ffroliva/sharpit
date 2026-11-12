@@ -131,6 +131,7 @@ TIMING_MODULES = (
     "test_transactions_overhead.py",  # lane R-transactions
     "test_sink_overhead.py",  # lane P-sink-mask-memo
     "test_journal.py",  # lane W5a-J: the journal append budgets
+    "test_sensors_overhead.py",  # lane W6-S3: the audit hook and processes sensor, per event
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 
