@@ -159,7 +159,9 @@ def test_get_emails_tool_masks_secrets():
     secret = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
     with harness(mcp_enabled="ON") as h:
         h.send(subject="s", body=f"token {secret}")
-        assert secret not in json.dumps(_mcp(h, "get_emails"))
+        report = _mcp(h, "get_emails")
+        assert report["total"] == 1
+        assert secret not in json.dumps(report)
 
 
 def test_mail_cli_command_runs_the_tool():
