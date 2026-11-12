@@ -142,14 +142,17 @@ def http_event(
     client; ``path`` is the already-masked path, cut to ``MAX_PATH`` like the exchange row. ``traceId`` is the
     ``traceparent``'s only (BootUI's MDC trace id is null without tracing). Deviations from BootUI: the envelope's
     ``executionId``, ``threadKind`` and ``failedOrSlow`` are absent; ``HttpPayload``'s ``resources``, ``timing`` and
-    ``asyncStarted`` are not ported; ``route`` is an extra label (BootUI derives it at read time with
-    ``RouteLabel.of``); ``operation`` is null; ``path`` carries path-parameter values as ``HttpPayload.path`` does
-    (masked at read). ``started_ns`` and ``finished_ns`` are monotonic."""
+    ``asyncStarted`` are not ported, except ``timing.startNanos``, written flat as ``startNanos`` (the request's
+    ``perf_counter_ns`` start, the clock of the sql event's ``completedNanos``; the journal holds flat scalars);
+    ``route`` is an extra label (BootUI derives it at read time with ``RouteLabel.of``); ``operation`` is null;
+    ``path`` carries path-parameter values as ``HttpPayload.path`` does (masked at read).
+    ``started_ns`` and ``finished_ns`` are monotonic."""
     route, _ = route_of(template, info.path)
     return {
         "source": "http",
         "epochMillis": started_epoch_ns // 1_000_000,
         "durationNanos": max(0, (info.finished_ns or info.started_ns) - info.started_ns),
+        "startNanos": info.started_ns,
         "traceId": traceparent_id(request_headers),
         "thread": threading.current_thread().name,
         "requestId": info.id,
