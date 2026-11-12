@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dis
+
 import pytest
 
 from sharpit.engine.capture.transactions import TransactionRecorder
@@ -734,3 +736,25 @@ def test_classified_driver_exception_in_transaction_falls_back_to_class_name(cas
     recorder.end(entry_id, "ROLLED_BACK", exc)
     message = recorder.report([])["entries"][0]["errorMessage"]
     assert message == wanted
+
+
+def test_begin_copies_its_prebuilt_row_instead_of_building_every_key() -> None:
+    """W5a P-transaction r4: the panel row's fixed parts are built once; a begin copies them (the listener budget)."""
+    built = {instruction.opname for instruction in dis.get_instructions(TransactionRecorder.begin)}
+    assert not built & {"BUILD_MAP", "BUILD_CONST_KEY_MAP"}
+
+
+def test_begin_rows_never_share_their_fields() -> None:
+    recorder = _recorder()
+    first = _begin(recorder)
+    recorder.end(first, "ROLLED_BACK", RuntimeError("boom"))
+    second = recorder.begin(
+        2, parent=first, method="orders:update", thread="worker", trace_id="r-2", connection_id=None
+    )
+    rows = {row["id"]: row for row in recorder.report([])["entries"]}
+    assert rows[first]["status"] == "ROLLED_BACK"
+    assert rows[second]["status"] == "OPEN"
+    assert rows[second]["errorMessage"] is None
+    assert rows[second]["endTimestamp"] is None
+    assert rows[second]["propagation"] == "PARTICIPATING"
+    assert rows[second]["methodName"] == "orders:update"
