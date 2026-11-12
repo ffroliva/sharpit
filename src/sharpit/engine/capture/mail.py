@@ -322,16 +322,17 @@ def _trapping() -> bool:
         return False
 
 
-def _dispatch(sender: str, recipients: object, message: object) -> bool:
+def _dispatch(sender: str, recipients: object, message: object, trapped: bool) -> bool:
     """Record on every targeted recorder; ``True`` when a trap holds the real send back. A trap whose capture failed
-    lets the message through, as BootUI's ``captureMime`` answers ``true`` when it cannot capture."""
+    lets the message through, as BootUI's ``captureMime`` answers ``true`` when it cannot capture. A ``trapped``
+    session (opened under a trap) has no server behind it, so it is always held, even once its trap is gone."""
     try:
         targets = _targets()
     except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
-        return False
-    sent = not any(r.dev_trap for r in targets)
+        return trapped
+    sent = not (trapped or any(r.dev_trap for r in targets))
     held = [_held(recorder, sender, recipients, message, sent) for recorder in targets]  # every one records
-    return any(held)
+    return trapped or any(held)
 
 
 def _held(recorder: MailRecorder, sender: str, recipients: object, message: object, sent: bool) -> bool:
@@ -346,7 +347,7 @@ def _held(recorder: MailRecorder, sender: str, recipients: object, message: obje
 def _sync_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(original)
     def sendmail(self: Any, from_addr: str, to_addrs: object, msg: object, *args: Any, **kwargs: Any) -> Any:
-        if _refs and _dispatch(from_addr, to_addrs, msg):
+        if _refs and _dispatch(from_addr, to_addrs, msg, isinstance(getattr(self, "sock", None), _TrapPeer)):
             return {}
         return original(self, from_addr, to_addrs, msg, *args, **kwargs)
 
@@ -356,7 +357,8 @@ def _sync_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
 def _async_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(original)
     async def sendmail(self: Any, sender: str, recipients: object, message: object, *args: Any, **kwargs: Any) -> Any:
-        if _refs and _dispatch(sender, recipients, message):
+        trapped = isinstance(getattr(self, "protocol", None), _TrapProtocol)
+        if _refs and _dispatch(sender, recipients, message, trapped):
             return _ASYNC_REFUSED
         return await original(self, sender, recipients, message, *args, **kwargs)
 
