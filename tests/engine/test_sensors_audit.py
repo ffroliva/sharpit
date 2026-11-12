@@ -320,7 +320,7 @@ def _processes(event: str, *args: Any) -> list[Mapping[str, object]]:
         ("subprocess.Popen", (None, f'"C:\\Program Files\\x\\tool.exe" --key {CANARY}', None, None), "tool.exe"),
         ("os.system", (f"TOKEN={CANARY} PASS='{CANARY}' backup --secret {CANARY}",), "backup"),
         ("os.system", ("FOO=bar",), None),
-        ("os.system", (f'"prog --password {CANARY}',), "prog"),  # an unclosed quote: the word after it
+        ("os.system", (f'"prog --password {CANARY}',), "(unknown)"),  # an unclosed quote: BootUI's unknown marker
         ("os.system", (f"	  tool	--password {CANARY}",), "tool"),
         ("os.system", (f"cmd /c tool --password {CANARY}",), "cmd"),
         ("os.system", (f'"C:\\Program Files\\x y\\tool.exe" --password {CANARY}',), "tool.exe"),
@@ -436,6 +436,71 @@ def test_the_files_sensor_leaves_out_imports_and_sharpits_own_state(tmp_path: Pa
     assert len(sensor.record("open", (str(tmp_path / "app.cfg"), "rb", 0))) == 1
 
 
+def test_the_path_cache_never_grows_past_its_bound() -> None:
+    from sharpit.engine.sensors import files
+
+    sensor = _files()
+    largest = 0
+    for i in range(files._SEEN * 2 + 10):  # pyright: ignore[reportPrivateUsage]
+        sensor.record("open", (f"/work/app/data/file-{i}.csv", "r", 0))
+        largest = max(largest, len(sensor._seen))  # pyright: ignore[reportPrivateUsage]
+    assert largest <= files._SEEN  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_cache_cleared_by_another_thread_mid_lookup_still_records_the_row() -> None:
+    class ClearedMidLookup(dict[str, Any]):
+        """Another thread clears the cache between a membership test and the read that follows it."""
+
+        def __contains__(self, key: object) -> bool:
+            self.clear()
+            return True
+
+    sensor, sink, recorder = _files(), Sink(), Recorder()
+    sensor._seen = ClearedMidLookup()  # pyright: ignore[reportPrivateUsage]
+    AuditHub(add_hook=recorder).enable(sensor, sink)
+    recorder.fire("open", "/work/app/a.txt", "r", 0)  # the hook swallows whatever the sensor raises: a lost row
+    assert [row["target"] for row in sink.records("files")] == ["./a.txt"]
+
+
+def test_a_failed_copy_does_not_hide_the_applications_next_open(tmp_path: Path) -> None:
+    out = _child(
+        """
+        import json, os, shutil
+        from sharpit.engine.sensors.audit import AuditHub
+        from sharpit.engine.sensors.files import FilesSensor
+
+        class Sink:
+            def __init__(self): self.rows = []
+            def offer(self, event): self.rows.append(event); return True
+
+        here = os.getcwd()
+        sink, hub = Sink(), AuditHub()
+        hub.enable(FilesSensor(cwd=here, home=here, tmp=here), sink)
+        with open("a.txt", "w") as f:
+            f.write("x")
+        sink.rows.clear()
+        shutil.copyfile("a.txt", "b.txt")  # its own two opens are the copy's: two rows, not four
+        try:
+            shutil.copyfile("a.txt", "a.txt")  # SameFileError after the audit event, before any open
+        except shutil.SameFileError:
+            pass
+        with open("a.txt") as f:  # the application's own read, after the failed copy
+            f.read()
+        hub.release()
+        rows = [(r["kind"], r["target"]) for r in sink.rows if r["target"] in ("./a.txt", "./b.txt")]
+        print(json.dumps(rows))
+        """,
+        tmp_path,
+    )
+    assert out == [
+        ["copy from", "./a.txt"],
+        ["copy to", "./b.txt"],
+        ["copy from", "./a.txt"],
+        ["copy to", "./a.txt"],
+        ["read", "./a.txt"],
+    ]
+
+
 # --- scenario 4: the journal takes both sensors' sources -----------------------------------------------------------
 
 
@@ -482,6 +547,63 @@ def test_a_space_separated_secret_never_reaches_the_journal_even_masked(event: s
     lane.attach()
     recorder.fire(event, *args)
     assert len(journal.records("processes")) == 1
+    assert CANARY not in json.dumps(journal.records("processes"))
+
+
+# Each case leaked a fragment through round 2's cut rules: the target is the program's file name or ``(unknown)``.
+FRAGMENT_CASES = [
+    ("os.system", (f'"/opt/tool --token-file /run/secrets/{CANARY}',), "(unknown)"),
+    ("subprocess.Popen", (f"/usr/bin/curl https://api.example/key={CANARY}", ["x"], None, None), "curl"),
+    ("subprocess.Popen", (None, [f"/bin/x /tmp/{CANARY}"], None, None), "x"),
+    ("os.system", (f"A=s3cr\\ {CANARY} prog",), "prog"),
+    ("os.system", (f'A="a \\"b {CANARY}" prog',), "prog"),
+    ("os.system", (f"A=$(cat /run/{CANARY} key) prog",), "prog"),
+    ("os.system", (f"A='x {CANARY} prog",), "(unknown)"),
+    ("os.system", (f'"C:\\Program Files\\x\\y.exe" --password {CANARY}',), "y.exe"),
+    ("subprocess.Popen", (None, f'"C:\\Program Files\\x\\y.exe" --password {CANARY}', None, None), "y.exe"),
+    # an unquoted path with blanks: the first word only, never the words after it
+    ("subprocess.Popen", (f"C:\\Program Files\\x\\y.exe --password {CANARY}", ["x"], None, None), "Program"),
+    ("subprocess.Popen", (f"TOKEN={CANARY} prog", ["x"], None, None), "prog"),
+    ("os.system", (f'cmd /c "prog {CANARY}"',), "cmd"),
+    ("os.system", (f"env A={CANARY} prog",), "env"),
+    ("os.system", (f"\tprog\t--password\t{CANARY}",), "prog"),
+]
+
+
+@pytest.mark.parametrize("exposure", ["MASKED", "FULL"])
+@pytest.mark.parametrize(
+    ("event", "args", "target"),
+    FRAGMENT_CASES,
+    ids=[
+        "unclosed-quote-path",
+        "popen-url-with-slash",
+        "argv0-path-with-args",
+        "escaped-blank-value",
+        "escaped-quote-value",
+        "command-substitution-value",
+        "unclosed-quote-value",
+        "system-quoted-windows-path",
+        "popen-quoted-windows-path",
+        "popen-unquoted-windows-path",
+        "popen-assignment-executable",
+        "cmd-c",
+        "env",
+        "tabs",
+    ],
+)
+def test_no_argument_or_value_fragment_reaches_the_journal(
+    exposure: str, event: str, args: tuple[Any, ...], target: str
+) -> None:
+    from sharpit.engine.masking import Exposure, Masker
+
+    journal = RuntimeJournal(sources=JOURNAL_SOURCES)
+    recorder = Recorder()
+    masker = Masker(Exposure(exposure), True)
+    lane = build_lane(("processes",), journal, masker.mask_path, audit=AuditHub(add_hook=recorder))
+    assert lane is not None
+    lane.attach()
+    recorder.fire(event, *args)
+    assert [row["target"] for row in journal.records("processes")] == [target]
     assert CANARY not in json.dumps(journal.records("processes"))
 
 

@@ -7,6 +7,7 @@ events by hand.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -188,15 +189,22 @@ def test_a_switch_returns_the_report_a_read_returns_with_the_sensors_toggle(
     assert after == switched
 
 
-def test_a_copy_records_one_row_per_side_not_the_files_copyfile_opens(tmp_path: Path, hook: Hook) -> None:
+def test_a_copy_records_one_row_per_side_not_the_files_copyfile_opens(
+    tmp_path: Path, hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # BootUI hooks the copy once (copy from, copy to); the opens shutil makes inside it are the copy's own
     app, handle = _app(tmp_path, agent_sensors=("files",))
     source, target = tmp_path / "a.txt", tmp_path / "b.txt"
     source.write_text("x", encoding="utf-8")
-    with _client(app):
-        hook.fire("shutil.copyfile", str(source), str(target))
-        hook.fire("open", str(source), "rb", 0)  # shutil's own inner opens, as the real hook would deliver them
-        hook.fire("open", str(target), "wb", 0)
+
+    def opener(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        hook.fire("open", file, mode, 0)  # the event the real hook delivers from inside shutil's own open
+        return open(file, mode, *args, **kwargs)  # noqa: SIM115 - shutil closes what it opened
+
+    with _client(app), monkeypatch.context() as patched:
+        patched.setattr(sys, "audit", hook.fire)
+        patched.setattr(shutil, "open", opener, raising=False)
+        shutil.copyfile(source, target)  # the real copy: its audit event, then its own two opens
     kinds = [row["kind"] for row in handle.context.capture.journal.records("files")]  # pyright: ignore[reportOptionalMemberAccess]
     assert kinds == ["copy from", "copy to"]
     handle.uninstall_capture()
