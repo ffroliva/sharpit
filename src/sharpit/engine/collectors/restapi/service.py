@@ -41,6 +41,7 @@ class _Evaluation:
     evaluated: tuple[str, ...]  # ids of the rules that ran to completion
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
+    skipped: tuple[str, ...] = ()  # ids counted as SKIPPED results
 
 
 def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None) -> _Evaluation:
@@ -55,7 +56,7 @@ def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None)
         raw, errored = evaluate(routes, model.exception_handlers, error_contract=contract)
         for rule in RULES:
             if rule.id in errored or rule.id in RETIRED_RULES:
-                continue
+                continue  # a retired rule is reported SKIPPED, below
             evaluated.append(rule.id)
             findings.extend(
                 Finding(rule.id, ADVISOR, rule.severity, mask(masker, v.target), mask(masker, v.message))
@@ -71,6 +72,7 @@ def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None)
         tuple(evaluated),
         tuple(findings),
         evidence(bool(routes), not limitations, limitations),  # no routes and no limitation: confirmed empty
+        tuple(sorted(RETIRED_RULES)) if routes else (),
     )
 
 
@@ -140,7 +142,7 @@ def _scan_evaluation(model: ApiModel, masker: Masker, index: SourceIndex | None)
         message = report.scanned_message(len(done.modules), done.routes)
     else:
         message = report.NO_ROUTES_MESSAGE
-    return Evaluation(done.status, message, done.evaluated, done.findings, done.evidence, done)
+    return Evaluation(done.status, message, done.evaluated, done.findings, done.evidence, done, done.skipped)
 
 
 SPEC = ScanSpec(ADVISOR, report.ANALYZER, report.DISCLAIMER, report.NOT_SCANNED_MESSAGE)

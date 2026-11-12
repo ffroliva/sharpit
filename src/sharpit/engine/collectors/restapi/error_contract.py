@@ -176,14 +176,19 @@ def _declaration(
     status_source = "ANNOTATION" if status is not None else "UNRESOLVED"  # BootUI: no visible status is UNRESOLVED
     if function is None:
         return status, status_source, "UNRESOLVED", None, False
-    category, body_type, retry_after = "UNRESOLVED", None, False
+    category, body_type = "UNRESOLVED", None
     returns = [node.value for node in ast.walk(function) if isinstance(node, ast.Return) and node.value is not None]
+    statuses = {_status(value, status, status_source) for value in returns}
+    retries = {_retry_after(value) for value in returns}
     for value in returns:
-        status, status_source = _status(value, status, status_source)
         category, body_type = _body(value)
-        retry_after = _retry_after(value)
         if category != "DYNAMIC" or isinstance(value, ast.Call):
             break
+    if len(statuses) > 1:  # branches that disagree are unknown, whatever their order
+        status, status_source = None, "DYNAMIC"
+    elif statuses:
+        status, status_source = statuses.pop()
+    retry_after = retries.pop() if len(retries) == 1 else None if retries else False
     return status, status_source, category, body_type, retry_after
 
 
