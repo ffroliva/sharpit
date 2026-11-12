@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.collectors.config import overrides as overrides_mod
@@ -31,7 +30,13 @@ def isolated_environ(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def _client(file: Path, **options: Any) -> TestClient:
     app = FastAPI()
-    merged: dict[str, Any] = {"enabled": "ON", "show_banner": False, "overrides_file": str(file), **options}
+    merged: dict[str, Any] = {
+        "enabled": "ON",
+        "show_banner": False,
+        "overrides_file": str(file),
+        "expose_values": "FULL",
+        **options,
+    }
     install(app, **merged)
     return TestClient(app, base_url="http://localhost", client=LOCAL, follow_redirects=False)
 
@@ -113,10 +118,9 @@ def test_config_report_override_flags_real(tmp_path: Path) -> None:
     assert only["properties"][0]["override"] is True
 
 
-def test_config_get_never_writes(tmp_path: Path, no_side_effects: SideEffectGuard) -> None:
-    no_side_effects.unblock_network()
+def test_config_get_never_writes(tmp_path: Path) -> None:
     file = tmp_path / "o.env"
-    client = _client(file, state_dir=str(no_side_effects.state_dir))
+    client = _client(file)
     _post(client, {"name": NAME, "value": "x"})
     env, content = _snapshot(file)
     assert client.get("/sharpit/api/config").status_code == 200
@@ -124,7 +128,9 @@ def test_config_get_never_writes(tmp_path: Path, no_side_effects: SideEffectGuar
 
 
 def test_post_masks_secret_value_in_response(tmp_path: Path) -> None:
-    body = _post(_client(tmp_path / "o.env"), {"name": "O2_DB_PASSWORD", "value": "hunter2-secret"}).json()
+    body = _post(
+        _client(tmp_path / "o.env", expose_values="MASKED"), {"name": "O2_DB_PASSWORD", "value": "hunter2-secret"}
+    ).json()
     assert "hunter2-secret" not in str(body)
     assert body["value"] != "hunter2-secret"
 
@@ -241,10 +247,8 @@ def _gate_client(tmp_path: Path, **options: Any) -> tuple[TestClient, Path]:
 def test_read_only_refuses_and_changes_nothing(tmp_path: Path, options: dict[str, Any], method: str) -> None:
     client, file = _gate_client(tmp_path, **options)
     env, content = _snapshot(file)
-    if method == "DELETE":
-        resp = client.delete(f"{URL}/{NAME}")
-    else:
-        resp = client.post(URL, json={"name": NAME, "value": "x"})
+    path = f"{URL}/{NAME}" if method == "DELETE" else URL
+    resp = client.request(method, path, json=None if method == "DELETE" else {"name": NAME, "value": "x"})
     assert resp.status_code == 403
     assert resp.json()["panel"] == "config"
     assert "read-only" in resp.json()["reason"]

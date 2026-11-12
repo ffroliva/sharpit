@@ -12,10 +12,13 @@ import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.settings import SharpitSettings
+
+if TYPE_CHECKING:
+    from sharpit.engine.context import SharpitContext
 
 logger = logging.getLogger("sharpit.config.overrides")
 
@@ -83,7 +86,7 @@ def _validate_name(name: object, profile_vars: Iterable[str] = ()) -> str:
         raise ValueError("Property name must not be blank")
     trimmed = name.strip()
     if not _NAME_PATTERN.fullmatch(trimmed):
-        raise ValueError(f"Property name '{trimmed}' is invalid")
+        raise ValueError("Property name is invalid")  # never echoes the text: it may be a pasted secret
     if _is_sharpit_key(trimmed):
         raise RefusedNameError("sharpit settings cannot be overridden at runtime.")
     if _is_refused_name(trimmed, profile_vars):
@@ -426,3 +429,8 @@ def apply_overrides_file(path: str | Path, profile_vars: Iterable[str] = ()) -> 
                     _ORIGINAL_ENVIRON.pop(_env_key(name), None)
             warnings.append(f"Ignoring overrides file {path}: the environment refused an entry; nothing applied")
     return warnings
+
+
+def override_service(ctx: SharpitContext) -> ConfigOverrideService:
+    """The one service of this install: the routes write through it, the config report reads its flags."""
+    return ctx.lazy("config.overrides", lambda: ConfigOverrideService(ctx.settings, masker=ctx.masker))

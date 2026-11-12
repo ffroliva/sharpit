@@ -1,0 +1,2 @@
+route:POST /config/overrides	matched	POST {api}/config/overrides: strict JSON body, refusals are 400 with fixed messages, write failure 500; REST only
+route:DELETE /config/overrides/{name}	matched	DELETE restores the pre-override value; idempotent; REST only

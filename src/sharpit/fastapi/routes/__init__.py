@@ -656,12 +656,14 @@ def _panel_04_routes(ctx: SharpitContext, host_app: Any = None) -> list[BaseRout
 
 def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     low_footprint = import_module("sharpit.fastapi.routes.lowfootprint").build_routes
+    config_overrides = import_module("sharpit.fastapi.routes.config_overrides").build_routes
     return [
         *_root_routes(ctx),
         *_read_routes(ctx),
         *_http_exchange_routes(ctx),
         *_http_probe_routes(ctx, host_app),
         *low_footprint(ctx),
+        *config_overrides(ctx),
         *_activity_routes(ctx),
         *_exception_routes(ctx),
         *_exception_status_routes(ctx),
