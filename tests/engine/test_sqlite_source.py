@@ -6,6 +6,7 @@ Every case is derived: BootUI wraps a JDBC ``DataSource``, so there is no BootUI
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import re
 import sqlite3
@@ -323,6 +324,49 @@ def test_preexisting_count_excludes_coverage_owned_connection():
     sqlite.attach(HOLDER)
     assert sqlite.preexisting_connections() == baseline
     del owner
+
+
+def test_preexisting_count_excludes_directly_held_owned_connection():
+    """An owner without ``__dict__`` (``__slots__``) holds its connection directly; it is still not an early one."""
+    sqlite.attach(HOLDER)
+    baseline = sqlite.preexisting_connections()
+    sqlite.detach(HOLDER)
+    namespace: dict[str, Any] = {"__name__": "aiosqlite.core"}
+    exec(  # noqa: S102
+        "import sqlite3\nclass Connection:\n    __slots__ = ('con',)\n"
+        "    def __init__(self):\n        self.con = sqlite3.connect(':memory:')\n",
+        namespace,
+    )
+    owner = namespace["Connection"]()
+    sqlite.attach(HOLDER)
+    assert sqlite.preexisting_connections() == baseline
+    del owner
+
+
+def _referrer_walks(monkeypatch: pytest.MonkeyPatch, connections: int) -> int:
+    """How many ``gc.get_referrers`` heap walks one attach makes with ``connections`` early connections alive."""
+    early = [REAL_CONNECT(":memory:") for _ in range(connections)]
+    calls = 0
+    real = gc.get_referrers
+
+    def counting(*objs: object) -> list[object]:
+        nonlocal calls
+        calls += 1
+        return real(*objs)
+
+    sqlite.detach_all()  # clears the rescan cache: this attach must scan
+    monkeypatch.setattr(gc, "get_referrers", counting)
+    sqlite.attach(HOLDER)
+    monkeypatch.setattr(gc, "get_referrers", real)
+    sqlite.detach_all()
+    for conn in early:
+        conn.close()
+    return calls
+
+
+def test_preexisting_count_walks_the_heap_a_fixed_number_of_times(monkeypatch: pytest.MonkeyPatch):
+    """CI finding: one ``get_referrers`` heap walk per live connection made each attach cost heap x connections."""
+    assert _referrer_walks(monkeypatch, 50) == _referrer_walks(monkeypatch, 5)
 
 
 def test_early_alias_detected(monkeypatch: pytest.MonkeyPatch):
