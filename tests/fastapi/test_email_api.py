@@ -8,6 +8,7 @@ from typing import Any
 
 from conftest import SideEffectGuard
 from mailsink import API, Harness, harness
+from sharpit.engine.panels import PANELS
 
 GOLDEN = Path(__file__).parents[1] / "fixtures/bootui/2.3.0/email/captured.json"
 REPORT_KEYS = ["available", "unavailableReason", "devTrapEnabled", "maxEntries", "total", "messages"]
@@ -27,6 +28,7 @@ def test_email_panel_is_registered_and_implemented():
 
     with harness() as h:
         panels = {p["id"]: p for p in h.client.get(f"{API}/panels").json()["panels"]}
+        assert "email" in panels  # finding W7-E r2 #5: the defect named before indexing
         assert panels["email"]["title"] == "Email"
         assert panel_for_api_path("/email").action_capable is True
 
@@ -55,6 +57,7 @@ def test_empty_list_answers_the_golden_shape():
 def test_detail_answers_one_message():
     with harness() as h:
         h.send(subject="detail")
+        assert h.emails()["total"] == 1  # finding W7-E r2 #5
         listed = h.client.get(f"{API}/email").json()["messages"][0]
         detail = h.client.get(f"{API}/email/{listed['id']}")
         assert detail.status_code == 200
@@ -74,6 +77,7 @@ def test_eml_download_is_rfc822_built_from_the_stored_message():
     # ported: EmailControllerTests.downloadsEmlFile
     with harness() as h:
         h.send(subject="Download me", body="eml body", to=("dl@example.test",), attachment=b"%PDF-1")
+        assert h.emails()["total"] == 1  # finding W7-E r2 #5
         message_id = h.client.get(f"{API}/email").json()["messages"][0]["id"]
         response = h.client.get(f"{API}/email/{message_id}/eml")
         assert response.status_code == 200
@@ -95,7 +99,13 @@ def test_clear_removes_every_captured_email():
         assert h.emails()["total"] == 0
 
 
+def _email_panel_exists() -> bool:
+    """Finding W7-E r2 #5: asserted before ``harness(panels={"email": ...})``, which the settings refuse without it."""
+    return "email" in {p.id for p in PANELS}
+
+
 def test_clear_is_refused_when_the_panel_is_read_only():
+    assert _email_panel_exists()
     with harness(panels={"email": {"read_only": True}}) as h:
         h.send()
         response = h.client.delete(f"{API}/email")
@@ -114,12 +124,14 @@ def test_clear_is_refused_when_sharpit_is_read_only():
 
 
 def test_a_read_only_panel_still_answers_reads():
+    assert _email_panel_exists()
     with harness(panels={"email": {"read_only": True}}) as h:
         h.send()
         assert h.emails()["total"] == 1
 
 
 def test_clear_is_refused_when_the_panel_is_disabled():
+    assert _email_panel_exists()
     with harness(panels={"email": {"enabled": False}}) as h:
         response = h.client.delete(f"{API}/email")
         assert response.status_code == 403
@@ -137,14 +149,13 @@ def test_clear_from_an_untrusted_source_is_refused():
 def test_reads_have_no_side_effects(no_side_effects: SideEffectGuard):
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
     with harness() as h, h.client as client:
-        recorder = h.handle.context.capture.mail
+        recorder = getattr(h.handle.context.capture, "mail", None)
         assert recorder is not None
         recorder.record("a@example.test", ["b@example.test"], "Subject: quiet\n\nbody\n")  # no socket
         client.get(f"{API}/panels")
         no_side_effects.block_network()
-        client.get(f"{API}/email")
-        client.get(f"{API}/email/email-1")
-        client.get(f"{API}/email/email-1/eml")
+        for path in ("/email", "/email/email-1", "/email/email-1/eml"):  # finding W7-E r2 #5: never a 404 sweep
+            assert client.get(f"{API}{path}").status_code == 200
 
 
 def test_get_emails_tool_answers_the_report_over_mcp():
@@ -160,6 +171,7 @@ def test_get_emails_tool_masks_secrets():
     with harness(mcp_enabled="ON") as h:
         h.send(subject="s", body=f"token {secret}")
         report = _mcp(h, "get_emails")
+        assert report.get("isError") is False  # finding W7-E r2 #5
         assert report["structuredContent"]["total"] == 1
         assert secret not in json.dumps(report)
 
@@ -170,3 +182,24 @@ def test_mail_cli_command_runs_the_tool():
         response = h.client.post(f"{API}/cli/tools/get_emails", json={})
         assert response.status_code == 200
         assert response.json()["messages"][0]["subject"] == "over cli"
+
+
+def test_the_secret_scrub_is_described_as_it_behaves():
+    # finding W7-E r2 #4: under FULL a body within the limit shows the secret, so no text may say it is always masked
+    secret = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    with harness(expose_values="FULL") as h:
+        h.send(body=f"token {secret}")
+        report = h.emails()
+        assert report["total"] == 1
+        assert secret in report["messages"][0]["textBody"]
+    from sharpit.engine.tools04.email import TOOLS
+
+    assert "always" not in TOOLS[0].description
+    root = Path(__file__).parents[2]
+    lines = [
+        *(x for x in (root / "website/docs/mcp.md").read_text(encoding="utf-8").splitlines() if "`get_emails`:" in x),
+        *(x for x in (root / "skills/sharpit/SKILL.md").read_text(encoding="utf-8").splitlines() if "| Email |" in x),
+    ]
+    assert len(lines) == 2
+    for line in lines:
+        assert "always" not in line

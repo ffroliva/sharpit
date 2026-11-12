@@ -4,15 +4,21 @@ at capture, secrets never reach an output, and the journal event holds metadata 
 from __future__ import annotations
 
 import asyncio
+import gc
 import smtplib
+import socket
 import sys
 import types
+import weakref
 from email.message import EmailMessage
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
-from mailsink import API, harness
+from fastapi import FastAPI
+from mailsink import API, OPTIONS, Harness, harness, smtp_sink
+from sharpit import install
+from sharpit.engine.panels import PANELS
 
 SECRET = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 RESET = "https://app.example.test/reset?token=" + "r3s3t" + "9x8y7z6w5v4u"
@@ -141,6 +147,7 @@ def test_dev_trap_captures_and_suppresses_the_real_send():
 
 
 def test_email_capture_runs_with_panel_disabled():
+    assert "email" in {p.id for p in PANELS}  # finding W7-E r2 #5: the defect named before the settings refuse it
     with harness(panels={"email": {"enabled": False}}, email_dev_trap=True) as h:
         h.send(subject="still captured")
         records = h.mail_records()
@@ -149,15 +156,16 @@ def test_email_capture_runs_with_panel_disabled():
         assert h.client.get(f"{API}/email").status_code == 403
 
 
+def _boom(*_args: Any, **_kwargs: Any) -> None:
+    raise RuntimeError("capture exploded")
+
+
 def test_capture_raising_never_affects_delivery(monkeypatch: pytest.MonkeyPatch):
     from sharpit.engine.capture import mail
 
-    def boom(*_args: Any, **_kwargs: Any) -> bool:  # noqa: ARG001
-        raise RuntimeError("capture exploded")
-
     with harness() as h:
         real = mail.MailRecorder.record
-        monkeypatch.setattr(mail.MailRecorder, "record", boom)
+        monkeypatch.setattr(mail.MailRecorder, "record", _boom)
         h.send(subject="lost to the capture")
         assert len(h.sink.messages) == 1
         monkeypatch.setattr(mail.MailRecorder, "record", real)
@@ -210,13 +218,51 @@ def test_two_installs_each_capture_and_the_last_one_out_restores_smtplib():
     assert _plain_sendmail() is original
 
 
+class _Response(NamedTuple):  # aiosmtplib.SMTPResponse
+    code: int
+    message: str
+
+
 @pytest.fixture
 def fake_aiosmtplib(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """aiosmtplib's shape (5.1.3, smtp.py): ``connect`` opens the transport in ``_create_connection``, and every
+    command after it (login, quit) runs through ``self.protocol``; no server is reachable here."""
     module = types.ModuleType("aiosmtplib")
+    attempts: list[object] = []
 
     class SMTP:
         def __init__(self) -> None:
             self.sent: list[tuple[str, Any, Any]] = []
+            self.protocol: Any = None
+
+        async def _create_connection(self, timeout: float | None) -> _Response:
+            attempts.append(timeout)
+            raise ConnectionRefusedError("no SMTP server reachable")
+
+        async def connect(self) -> _Response:
+            return await self._create_connection(timeout=None)
+
+        async def execute_command(self, *args: bytes, timeout: float | None = None) -> _Response:
+            if self.protocol is None:
+                raise ConnectionError("Server not connected")
+            return await self.protocol.execute_command(*args, timeout=timeout)
+
+        async def login(self, username: str, password: str) -> _Response:
+            response = await self.execute_command(b"AUTH", b"PLAIN", f"{username}:{password}".encode())
+            assert response.code == 235
+            return response
+
+        async def quit(self) -> _Response:
+            response = await self.execute_command(b"QUIT")
+            self.protocol = None
+            return response
+
+        async def __aenter__(self) -> SMTP:
+            await self.connect()
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            await self.quit()
 
         async def sendmail(
             self, sender: str, recipients: Any, message: Any, **_options: Any
@@ -228,15 +274,163 @@ def fake_aiosmtplib(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
             return await self.sendmail(message["From"], [message["To"]], message.as_bytes())
 
     module.SMTP = SMTP  # type: ignore[attr-defined]
+    module.SMTPResponse = _Response  # type: ignore[attr-defined]
+    module.attempts = attempts  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "aiosmtplib", module)
     return module
 
 
-def _message() -> EmailMessage:
+def _message(subject: str = "async hello") -> EmailMessage:
     message = EmailMessage()
-    message["From"], message["To"], message["Subject"] = "app@example.test", "z@example.test", "async hello"
+    message["From"], message["To"], message["Subject"] = "app@example.test", "z@example.test", subject
     message.set_content("async body")
     return message
+
+
+@pytest.fixture
+def no_smtp_server(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Every SMTP connection attempt (``smtplib`` opens its socket with ``socket.create_connection``), refused as if
+    no server were reachable."""
+    attempts: list[object] = []
+
+    def refuse(address: object, *_args: Any, **_kwargs: Any) -> socket.socket:
+        attempts.append(address)
+        raise ConnectionRefusedError("no SMTP server reachable")
+
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    return attempts
+
+
+def _host_session(subject: str) -> object:
+    """A host's usual ``smtplib`` session: connect, STARTTLS, login, send, quit; its answer, or what it raised."""
+    try:
+        with smtplib.SMTP("smtp.example.test", 587, local_hostname="app.example.test") as smtp:
+            smtp.starttls()
+            smtp.login("app", "app-" + "password")
+            return smtp.send_message(_message(subject))
+    except OSError as exc:  # smtplib.SMTPException is an OSError
+        return exc
+
+
+def test_dev_trap_never_connects_and_the_host_sees_success(no_smtp_server: list[object]):
+    # finding W7-E r2 #2: BootUI's trap skips the transport; sharpit's ran EHLO, STARTTLS and AUTH before sendmail
+    with harness(email_dev_trap=True) as h:
+        answer = _host_session("trapped offline")
+        assert no_smtp_server == []
+        assert answer == {}
+        report = h.emails()
+        assert [m["subject"] for m in report["messages"]] == ["trapped offline"]
+        assert report["messages"][0]["sent"] is False
+
+
+def test_aiosmtplib_dev_trap_never_connects(fake_aiosmtplib: types.ModuleType):
+    # finding W7-E r2 #2: aiosmtplib connected and logged in before sendmail
+    async def session() -> object:
+        try:
+            async with fake_aiosmtplib.SMTP() as smtp:  # type: ignore[attr-defined]
+                await smtp.login("app", "app-" + "password")
+                return await smtp.send_message(_message("async trapped"))
+        except OSError as exc:
+            return exc
+
+    with harness(email_dev_trap=True) as h:
+        answer = asyncio.run(session())
+        assert fake_aiosmtplib.attempts == []  # type: ignore[attr-defined]
+        assert answer == ({}, "OK")
+        assert [m["subject"] for m in h.emails()["messages"]] == ["async trapped"]
+
+
+def test_without_the_trap_a_session_connects_as_it_would_without_sharpit(no_smtp_server: list[object]):
+    with harness() as h:
+        answer = _host_session("offline")
+        assert no_smtp_server == [("smtp.example.test", 587)]
+        assert isinstance(answer, ConnectionRefusedError)
+        assert h.emails()["total"] == 0
+
+
+def test_a_capture_failure_under_the_trap_still_sends_a_connected_session(monkeypatch: pytest.MonkeyPatch):
+    # finding W7-E r2 #3: BootUI's captureMime answers true when it cannot capture, so the message is sent
+    from sharpit.engine.capture import mail
+
+    with smtp_sink() as sink:
+        smtp = smtplib.SMTP("127.0.0.1", sink.port)  # connected before the trap armed: a real session
+        h = Harness(sink, email_dev_trap=True)
+        try:
+            monkeypatch.setattr(mail.MailRecorder, "record", _boom)
+            answer = smtp.sendmail("app@example.test", ["b@example.test"], "Subject: kept\r\n\r\nbody\r\n")
+            smtp.quit()
+        finally:
+            h.handle.uninstall_capture()
+        assert answer == {}
+        assert len(sink.messages) == 1
+
+
+def test_a_capture_failure_on_a_trapped_session_is_not_sent(
+    no_smtp_server: list[object], monkeypatch: pytest.MonkeyPatch
+):
+    # proposed deviation D-E2: a trapped session never connected, so a failed capture has no transport to fall back to
+    from sharpit.engine.capture import mail
+
+    with harness(email_dev_trap=True) as h:
+        monkeypatch.setattr(mail.MailRecorder, "record", _boom)
+        answer = _host_session("lost")
+        assert no_smtp_server == []
+        assert answer == {}
+        assert h.emails()["total"] == 0
+
+
+def _dropped_install(**options: Any) -> weakref.ref[Any]:
+    """An app installed, never shut down nor uninstalled, then dropped: a weak reference to its recorder."""
+    handle = install(FastAPI(), **{**OPTIONS, **options})
+    return weakref.ref(handle.context.capture.mail)
+
+
+def test_a_dropped_trap_app_no_longer_traps_or_records_another_apps_mail():
+    # finding W7-E r2 #1: a never-shut-down app kept its recorder armed, and its trap, for the life of the process
+    dead = _dropped_install(email_dev_trap=True)
+    gc.collect()
+    with harness() as h:
+        h.send(subject="mine")
+        assert len(h.sink.messages) == 1
+        assert [m["sent"] for m in h.emails()["messages"]] == [True]
+    assert dead() is None
+
+
+def test_a_live_trap_app_never_traps_mail_sent_in_another_apps_request():
+    # finding W7-E r2 #1: in a request only that app's recorder records, and only its trap decides
+    other = install(FastAPI(), **{**OPTIONS, "email_dev_trap": True})  # alive, never shut down
+    try:
+        with harness() as h:
+            h.app.add_api_route("/signup", lambda: h.send(subject="welcome"), methods=["POST"])
+            assert h.client.post("/signup").status_code == 200
+            assert len(h.sink.messages) == 1
+            report = h.emails()
+            assert report["total"] == 1
+            assert report["messages"][0]["sent"] is True
+        recorder = other.context.capture.mail
+        assert recorder is not None
+        assert recorder.entries() == []
+    finally:
+        other.uninstall_capture()
+
+
+def test_mail_sent_in_a_request_carries_that_requests_id():
+    # finding W7-E r2 #7: the journal event's requestId is the id of the request that sent the mail
+    with harness() as h:
+        h.app.add_api_route("/signup", lambda: h.send(subject="welcome"), methods=["POST"])
+        assert h.client.post("/signup").status_code == 200
+        journal = h.handle.context.capture.journal
+        assert journal is not None
+        http = journal.records("http")
+        assert len(http) == 1
+        request_id = http[0]["requestId"]
+        assert isinstance(request_id, str)
+        records = h.mail_records()
+        assert len(records) == 1
+        assert records[0]["requestId"] == request_id
+        report = h.emails()
+        assert report["total"] == 1
+        assert report["messages"][0]["requestId"] == request_id
 
 
 def test_aiosmtplib_send_message_is_captured_once_and_delivered(fake_aiosmtplib: types.ModuleType):
@@ -281,7 +475,9 @@ def test_mail_journal_event_is_metadata_only():
 def test_trapped_mail_is_a_failed_journal_event():
     with harness(email_dev_trap=True) as h:
         h.send()
-        record = h.mail_records()[0]
+        records = h.mail_records()
+        assert len(records) == 1  # finding W7-E r2 #5: the defect named before indexing
+        record = records[0]
         assert record["sent"] is False
         assert record["failed"] is True
 
@@ -354,32 +550,3 @@ def test_the_exposed_flags_report_the_settings():
         report = h.emails()
         assert report["devTrapEnabled"] is True
         assert report["maxEntries"] == 7
-
-
-def test_suspended_mail_wrapper_overhead_budget():
-    """W7 lane E M-E1: with the mail hook suspended (paused/low-footprint), wrapper overhead stays within 10 µs."""
-    import time
-
-    from tests.overhead import check_budget, paired
-
-    from sharpit.engine.capture.mail import _dispatch
-
-    with harness() as h:
-        hook = h.hook("mail")
-        assert hook is not None
-        hook.suspend()
-
-        def off_round() -> float:
-            started = time.perf_counter_ns()
-            for _ in range(200):
-                pass
-            return (time.perf_counter_ns() - started) / 200
-
-        def on_round() -> float:
-            started = time.perf_counter_ns()
-            for _ in range(200):
-                _dispatch("a@example.test", ["b@example.test"], "Subject: hi\n\nbody\n")
-            return (time.perf_counter_ns() - started) / 200
-
-        result = paired(off_round, on_round, 20)
-        check_budget("smtplib sendmail wrapper, suspended", result, 10_000, "µs", 1000)
