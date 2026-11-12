@@ -108,6 +108,14 @@ JOURNAL_SOURCES = (
     "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client", "cache",
     "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources", "app-event",
     "websocket", "orm", "agent.executors", "agent.caught-exceptions",
+    "processes", "files",
+)  # fmt: skip
+# processes, files: sharpit-only journal sources, the W6 S3 sensors (BootUI keeps them in its Side Effects store)
+
+# AgentSensorSettings.KNOWN_SENSORS: every id is accepted; sharpit builds only processes and files (engine/sensors/)
+AGENT_SENSORS = (
+    "executors", "threads", "inventory", "code-paths", "processes", "network", "files", "environment", "blocking",
+    "thread-activity", "thread-locals", "resources", "caught-exceptions", "security-sinks",
 )  # fmt: skip
 
 
@@ -115,6 +123,13 @@ def _journal_sources(raw: object) -> tuple[str, ...]:
     values = _lower_items(raw)  # JournalSource.parse ignores case
     if any(value not in JOURNAL_SOURCES for value in values):
         raise ValueError(raw)
+    return values
+
+
+def _agent_sensors(raw: object) -> tuple[str, ...]:
+    values = _lower_items(raw)
+    if any(value not in AGENT_SENSORS for value in values):
+        raise ValueError(raw)  # BootUI refuses to start on an unknown sensor id; sharpit takes the fail-safe: none
     return values
 
 
@@ -280,6 +295,7 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "runtime_journal_max_bytes": (_byte_size, 32 * 1024 * 1024),
     "runtime_journal_queue_capacity": (_int, 10_000),
     "runtime_journal_sources": (_journal_sources, None),
+    "agent_sensors": (_agent_sensors, None),
     "runtime_insights_ai_token_threshold": (_int, None),
     "resources_jfr_max_duration": (_jfr_max_duration, None),
     "security_logs_max_logs": (_int, None),
@@ -422,6 +438,7 @@ _NON_CREDENTIAL_FIELDS = {
     "runtime_journal_max_bytes": "Journal byte limit, not a credential.",
     "runtime_journal_queue_capacity": "Journal queue count limit, not a credential.",
     "runtime_journal_sources": "Journal source names, not credentials.",
+    "agent_sensors": "Agent sensor ids, not credentials.",
     "runtime_insights_ai_token_threshold": "Token count threshold, not a credential.",
     "resources_jfr_max_duration": "Profiling duration limit, not a credential.",
     "security_logs_max_logs": "Log count limit, not a credential.",

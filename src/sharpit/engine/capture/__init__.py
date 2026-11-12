@@ -14,6 +14,7 @@ if TYPE_CHECKING:  # later tasks add these modules; the adapter owns the wiring
     from sharpit.engine.capture.logtail import LogTailBuffer
     from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
     from sharpit.engine.capture.streams import ChangeStream, StreamSlots
+    from sharpit.engine.sensors.lane import SensorLane
     from sharpit.engine.sqla import EngineRegistry  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
 
 
@@ -73,6 +74,7 @@ class CaptureState:
     sql_trace: SqlTraceRecorder | None = None
     log_tail: LogTailBuffer | None = None
     journal: RuntimeJournal | None = None
+    sensors: SensorLane | None = None  # W6 S3: the process and file sensors, only when agent_sensors names one
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
     raw_sqlite_seen: bool = False

@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 import re
 import sys
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit import __version__
+
+if TYPE_CHECKING:  # lane imports this module's SWITCHABLE_SENSORS
+    from sharpit.engine.sensors.lane import SensorLane
 
 # JavaAgentService.NOT_ATTACHED_REASON, BootUI -> sharpit and JVM -> process; this version ships no agent to attach
 NOT_ATTACHED_REASON = (
@@ -45,6 +48,11 @@ AGENT_SENSOR_TOOLS: dict[str, str] = {
 }
 # AgentSensorSettings.SWITCHABLE_SENSORS
 SWITCHABLE_SENSORS = ("threads", "files", "environment", "thread-activity", "thread-locals", "security-sinks")
+# AgentSensorSettings.defaultReason("files"), BootUI -> sharpit
+FILES_DEFAULT_REASON = (
+    "On by default: it records the files the application opens, deletes, moves, and copies, as path patterns, never"
+    " their contents. Switch it off to stop recording them."
+)
 _THREADS_AND_LEAKS = "Threads and leaks"
 # SideEffectsCatalog.SENSORS, in tab order: (id, group, label)
 SIDE_EFFECT_SENSORS = (
@@ -125,8 +133,8 @@ def _empty_page(limit: int | None) -> dict[str, Any]:
     return _page(0 if limit is None else max(0, limit))
 
 
-def java_agent_report() -> dict[str, Any]:
-    """``JavaAgentReport`` in state NOT_ATTACHED: no claim, no sensors, nothing to attach."""
+def java_agent_report(lane: SensorLane | None = None) -> dict[str, Any]:
+    """``JavaAgentReport`` in state NOT_ATTACHED: no claim, nothing to attach; the toggles are ``lane``'s switches."""
     return {
         "state": "NOT_ATTACHED",
         "reason": NOT_ATTACHED_REASON,
@@ -141,7 +149,7 @@ def java_agent_report() -> dict[str, Any]:
         "claim": None,
         "heldBy": None,
         "sensors": [],
-        "toggles": [],
+        "toggles": lane.toggles() if lane is not None else [],
         "retransformation": None,
         "counters": None,
         "messages": [],
@@ -150,21 +158,23 @@ def java_agent_report() -> dict[str, Any]:
     }
 
 
-def switch_sensor(sensor_id: str, enabled: object) -> dict[str, Any]:
+def switch_sensor(sensor_id: str, enabled: object, lane: SensorLane | None = None) -> dict[str, Any]:
     """``JavaAgentController.switchSensor``: 400 without ``enabled`` or for an unswitchable id, else 409 not armed."""
     if not isinstance(enabled, bool):
         raise SensorRefusal(400, 'The request body must say {"enabled": true} or {"enabled": false}.')
-    return switch_sensor_for_agents(sensor_id)
+    return switch_sensor_for_agents(sensor_id, enabled, lane)
 
 
-def switch_sensor_for_agents(sensor_id: str) -> dict[str, Any]:
-    """``JavaAgentService.switchSensor``: never switches here, the agent is not attached."""
+def switch_sensor_for_agents(sensor_id: str, enabled: bool = True, lane: SensorLane | None = None) -> dict[str, Any]:
+    """``JavaAgentService.switchSensor``: switches a sensor the context's ``lane`` runs, else 409: not armed."""
     if sensor_id.strip() not in SWITCHABLE_SENSORS:
         raise SensorRefusal(
             400,
             f"'{sensor_id}' cannot be switched at run time: the sensors switched at run time are "
             f"{', '.join(SWITCHABLE_SENSORS)}.",
         )
+    if lane is not None and lane.switch(sensor_id.strip(), enabled):
+        return java_agent_report(lane)
     raise SensorRefusal(
         409,
         "The sharpit agent is not armed for this application, so its sensors cannot be switched: "

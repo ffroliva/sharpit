@@ -172,9 +172,10 @@ def test_an_unconfigured_source_is_dropped_and_counted() -> None:
 
 
 def test_a_new_journal_source_is_refused_by_settings_until_it_is_catalogued() -> None:
-    settings = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_SOURCES": "sql,processes"})
-    assert "Ignoring invalid SHARPIT_RUNTIME_JOURNAL_SOURCES value 'sql,processes'" in settings.warnings
-    assert "processes" not in settings.runtime_journal_sources
+    # "network" is the next sensor source (W6 S5): "processes" and "files" were catalogued by S3
+    settings = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_SOURCES": "sql,network"})
+    assert "Ignoring invalid SHARPIT_RUNTIME_JOURNAL_SOURCES value 'sql,network'" in settings.warnings
+    assert "network" not in settings.runtime_journal_sources
     assert "sql" in settings.runtime_journal_sources
 
 

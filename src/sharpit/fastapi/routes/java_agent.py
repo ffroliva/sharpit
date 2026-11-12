@@ -30,13 +30,15 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
 
     def report(_request: Request) -> Response:
-        return json_response(java_agent_report())
+        return json_response(java_agent_report(ctx.capture.sensors))
 
     async def switch(request: Request) -> Response:
         raw = await read_body(ctx, request)
         if raw is None:
             return error(413, PAYLOAD_TOO_LARGE)
-        return answer(lambda: switch_sensor(request.path_params["sensor"], body_field(raw, "enabled")))
+        return answer(
+            lambda: switch_sensor(request.path_params["sensor"], body_field(raw, "enabled"), ctx.capture.sensors)
+        )
 
     return [
         Route(f"{api}/java-agent", report, methods=["GET"]),
