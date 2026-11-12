@@ -56,7 +56,7 @@ WEIGHTS = json.loads((TESTS / "shard_weights.json").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("platform", ["linux", "win32"])
-@pytest.mark.parametrize("n", [2, 3, 4])
+@pytest.mark.parametrize("n", [2, 3, 4, 5, 6])
 def test_measured_weights_balance_the_shards_within_the_longest_first_bound(platform: str, n: int) -> None:
     weights: dict[str, float] = WEIGHTS[platform]
     splits = split_files(n, platform)
@@ -69,6 +69,20 @@ def test_measured_weights_balance_the_shards_within_the_longest_first_bound(plat
     floor = max(unsplit_max, sum(weights.values()) / n)
     assert loads == pytest.approx(shard_loads(n, platform))
     assert max(loads) <= floor * 4 / 3, f"shard loads {[round(x) for x in loads]}, floor {floor:.0f}"
+
+
+UNWEIGHTED_SHARE = 0.10  # 75 of 396 files unweighted (19%) put one CI shard at 2-4x the planner's prediction
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_stale_weights_are_refreshed_before_unweighted_files_unbalance_the_shards(platform: str) -> None:
+    """A new file goes by hash, unweighted; a few are harmless, many make the planner's loads fiction.
+
+    Refresh: ``gh run download <id> -p 'junit-*' -D <dir> && python scripts/ci/shard_weights.py <dir>``.
+    """
+    sharded = [f for f in FILES if f not in _shard.OWN_JOB]
+    unweighted = sorted(f for f in sharded if f not in WEIGHTS[platform])
+    assert len(unweighted) <= UNWEIGHTED_SHARE * len(sharded), f"{len(unweighted)} unweighted: {unweighted[:10]}"
 
 
 def _file_items(items: set[str], rel: str) -> set[str]:

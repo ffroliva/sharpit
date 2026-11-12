@@ -39,16 +39,17 @@ refresh them with `gh run download <run id> -p 'junit-*' -D <dir> && python scri
 shard runs well past the others. They are not the pytest-speed baseline (`tests/test_durations.json`), which is never
 refreshed to balance shards.
 
-The floor on Windows is one file: `tests/scripts/test_lane_gate.py` takes about 376 s of test time there (0.17 s per
-test on Ubuntu, 2.9 s on Windows), because each test spawns about 63 `git` processes at roughly 0.1 s each on Windows.
-A file is never split, so that shard takes about 95 s of pytest on four workers however many shards the leg has.
+The four files heavier than any shard alone (`tests/_shard.py` `OWN_JOB`: the masking gates and
+`tests/scripts/test_lane_gate.py`) run whole in the `masking gates (os, part)` jobs, never in a shard.
+`tests/test_shard.py` fails when more than 10% of the sharded test files have no weight: refresh the weights then.
 
 | Leg | Shards |
 |---|---|
-| Windows 3.14 | 3 |
-| Ubuntu 3.12 (also lint and pyright, in shard 1), 3.13, 3.14 | 2 each |
-| `lowest` | 2 |
-| `coverage` | 3 |
+| Windows 3.14 (listed first: the long pole) | 6 |
+| Ubuntu 3.12, 3.14 | 4 each |
+| `coverage` (the 3.13 leg) | 5 |
+| `lowest` | 4 |
+| `no-sqlalchemy` | 3 |
 
 Branch protection requires the job names in the first table, so each keeps a job that `needs:` its shards and runs
 `if: always()` (a skipped required check counts as green): it fails unless the whole shard matrix succeeded. `sonar` does the same with `coverage` (it
