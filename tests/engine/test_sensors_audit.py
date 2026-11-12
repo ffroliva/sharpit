@@ -323,7 +323,7 @@ def _processes(event: str, *args: Any) -> list[Mapping[str, object]]:
         ("os.system", (f'"prog --password {CANARY}',), "prog"),  # an unclosed quote: the word after it
         ("os.system", (f"	  tool	--password {CANARY}",), "tool"),
         ("os.system", (f"cmd /c tool --password {CANARY}",), "cmd"),
-        ("os.system", (f'"C:\Program Files\x y\tool.exe" --password {CANARY}',), "tool.exe"),
+        ("os.system", (f'"C:\\Program Files\\x y\\tool.exe" --password {CANARY}',), "tool.exe"),
         ("subprocess.Popen", (f"prog {CANARY}", ["x"], None, None), "prog"),  # POSIX: executable="prog <secret>"
         ("subprocess.Popen", (f"  prog	{CANARY}", ["x"], None, None), "prog"),
         ("subprocess.Popen", (None, [f"prog {CANARY}", "a"], None, None), "prog"),
@@ -489,9 +489,9 @@ def test_a_space_separated_secret_never_reaches_the_journal_even_masked(event: s
     [
         ("/home/bob/secrets.txt", "/home/*/secrets.txt"),
         ("/Users/carol/Documents/x.pdf", "/Users/*/Documents/x.pdf"),
-        ("D:\Users\dave\notes.txt", "D:/Users/*/notes.txt"),
-        ("\\srv\Users\erin\notes.txt", "/srv/Users/*/notes.txt"),
-        ("\\?\D:\Users\frank\notes.txt", "/?/D:/Users/*/notes.txt"),
+        ("D:\\Users\\dave\\notes.txt", "D:/Users/*/notes.txt"),
+        ("\\\\srv\\Users\\erin\\notes.txt", "/srv/Users/*/notes.txt"),
+        ("\\\\?\\D:\\Users\\frank\\notes.txt", "/?/D:/Users/*/notes.txt"),
         ("/var/home/grace/notes.txt", "/var/home/*/notes.txt"),
         ("/export/home/heidi/notes.txt", "/export/home/*/notes.txt"),
         ("/srv/site/home/index.html", "/srv/site/home/index.html"),
