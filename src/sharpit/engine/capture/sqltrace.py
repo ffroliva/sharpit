@@ -212,6 +212,12 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _shaped(masker: Masker, max_sql_length: int, sql: str, dialect: Dialect) -> tuple[Shape, str]:
+    """The statement's shape and its truncated text: both deterministic in the text, so cached together."""
+    shape = sqltext.statement_shape(masker, sql, dialect)
+    return shape, _truncate(shape.text, max_sql_length)
+
+
 @dataclass(eq=False)
 class _Aggregate:
     sql: str
@@ -248,7 +254,7 @@ class SqlTraceRecorder:
     ) -> None:
         self._masker = masker
         # the same statements repeat: per recorder, so one masker's results never reach another's
-        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(sqltext.statement_shape, masker))
+        self._shaped = functools.lru_cache(maxsize=1024)(functools.partial(_shaped, masker, max_sql_length))
         self.max_entries = max_entries
         self.slow_query_threshold_millis = slow_query_threshold_millis
         self._max_sql_length = max_sql_length
@@ -327,12 +333,9 @@ class SqlTraceRecorder:
         if not self.recording:
             return None
         masker = self._masker
-        shape: Shape = self._shape(sql, dialect)
+        shape, text = self._shaped(sql, dialect)  # ``text`` is the journal event's, the row's unless raw
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
-        text = _truncate(
-            shape.text, self._max_sql_length
-        )  # the journal event's text (``journal_text``), the row's unless raw
         stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
         error_message: str | None = None
         if error is not None:
@@ -387,7 +390,7 @@ class SqlTraceRecorder:
 
     def journal_text(self, sql: str, dialect: Dialect) -> str:
         """The literal-free text ``record`` returns, for the journal while the panel is paused (no row is kept)."""
-        return _truncate(self._shape(sql, dialect).text, self._max_sql_length)
+        return self._shaped(sql, dialect)[1]
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
