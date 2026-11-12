@@ -90,7 +90,9 @@ def test_http_journal_event_without_a_template_carries_the_masked_path_label() -
 def test_http_journal_event_not_offered_for_sharpit_routes() -> None:
     client, journal, _ = _world()
     client.get("/sharpit/api/overview")
-    assert journal.records("http") == ()
+    client.get("/api/items/1")  # the control: the producer runs, and only this request is offered
+    assert [r["method"] for r in journal.records("http")] == ["GET"]
+    assert _one(journal)["routeTemplate"] == "/api/items/{item_id}"
     assert journal.status()["dropped"].get("http", 0) == 0
 
 
@@ -102,11 +104,15 @@ def test_http_journal_event_not_offered_when_source_disabled() -> None:
 
 
 def test_http_journal_event_not_offered_when_journal_disabled() -> None:
-    client, _, handle = _world()
-    assert handle.context.capture.journal is journal
-    handle.context.capture.journal = None
-    assert client.get("/api/items/1").status_code == 200
-    assert journal.records("http") == ()
+    app = FastAPI()
+
+    @app.get("/ping")
+    async def ping() -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]
+        return {"ok": True}
+
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, runtime_journal_enabled=False)
+    assert TestClient(app).get("/ping").status_code == 200  # no journal: the request is untouched, nothing raised
+    assert handle.context.capture.journal is None
 
 
 @pytest.mark.parametrize("exposure", ["MASKED", "FULL"])
