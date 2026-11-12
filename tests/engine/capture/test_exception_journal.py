@@ -123,6 +123,8 @@ def test_exception_journal_event_not_offered_for_sharpit_internal_work() -> None
     with internal():
         handle.context.capture.exceptions.record(_raised(Brewing("x")), "handler", None, "t")
     assert _records(handle) == ()
+    handle.context.capture.exceptions.record(_raised(Brewing("y")), "handler", None, "t")  # control: outside, offered
+    assert len(_records(handle)) == 1
 
 
 def test_exception_journal_event_not_offered_when_source_disabled() -> None:
@@ -130,6 +132,7 @@ def test_exception_journal_event_not_offered_when_source_disabled() -> None:
     handle.context.capture.exceptions.record(_raised(Brewing("x")), "handler", None, "t")
     assert _records(handle) == ()
     assert handle.context.capture.exceptions.report()["totalExceptions"] == 1
+    assert handle.context.capture.journal.status()["dropped"] == {"exception": 1}
 
 
 def test_exception_journal_event_carries_the_request_id_of_this_install_only() -> None:
