@@ -182,7 +182,7 @@ def test_w8_slots_registered_unimplemented_with_bootui_rows():
     rows = {p.id: (p.title, p.action_capable, p.api_prefix) for p in PANELS if p.id in expected}
     assert rows == expected
     implemented = {p.id: p.implemented for p in PANELS if p.id in expected}
-    assert implemented == {"cache": True, "dev-services": False}
+    assert implemented == {"cache": False, "dev-services": False}
 
 
 def test_config_read_only_reported_under_global_read_only():

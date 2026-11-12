@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import functools
+import sys
+import threading
+import types
+from typing import Any
+
+import pytest
 
 from sharpit.engine.collectors.cache.clear import (
     MAX_CLEARED_NAMES,
@@ -215,12 +221,14 @@ def test_clear_maps_genuine_eviction_failure_to_500() -> None:
 
 
 def test_cache_clear_never_calls_remote_backend() -> None:
-    class ExplodingRemoteCache:
-        def clear(self) -> None:
-            raise AssertionError("Remote backend clear was called!")
+    def _boom() -> None:
+        raise AssertionError("Remote backend clear was called!")
+
+    remote = _lru()
+    remote.cache_clear = _boom
 
     provider = InProcessCacheProvider()
-    provider.register("redis", "session_cache", ExplodingRemoteCache(), is_remote=True)
+    provider.register("redis", "session_cache", remote, is_remote=True)
 
     service = CacheService(provider)
     # Clear one remote cache refuses with 409 unavailable
@@ -273,8 +281,9 @@ def test_cache_clear_clears_functools_cache() -> None:
     assert fib.cache_info().currsize == 0
 
 
-def test_cache_clear_clears_cachetools_mapping() -> None:
-    cache: dict[str, str] = {"k1": "v1", "k2": "v2"}
+def test_cache_clear_clears_cachetools_mapping(fake_cachetools: type) -> None:
+    cache = fake_cachetools()
+    cache.update({"k1": "v1", "k2": "v2"})
     assert len(cache) == 2
 
     provider = InProcessCacheProvider()
@@ -294,15 +303,220 @@ def test_cache_clear_eviction_error_masked() -> None:
     class SecretError(RuntimeError):
         pass
 
-    class FailingCache:
-        def clear(self) -> None:
-            raise SecretError("boom")
+    def _boom() -> None:
+        raise SecretError("boom")
+
+    failing = _lru()
+    failing.cache_clear = _boom
 
     provider = InProcessCacheProvider()
-    provider.register("in_process", "secret", FailingCache())
+    provider.register("in_process", "secret", failing)
     service = CacheService(provider, masker=MaskerSpy())
 
     resp = service.clear(CacheClearRequest(manager_name="in_process", cache_name="secret", confirm=True))
     assert resp.status == 500
     assert "***REDACTED***" in resp.body.message
     assert "SecretError" not in resp.body.message
+
+
+@pytest.fixture
+def fake_cachetools(monkeypatch: pytest.MonkeyPatch) -> type:
+    """A stand-in ``cachetools`` module in ``sys.modules`` (the library is not a dependency, never imported)."""
+
+    class Cache(dict[str, Any]):
+        pass
+
+    module = types.ModuleType("cachetools")
+    module.Cache = Cache  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "cachetools", module)
+    return Cache
+
+
+def _lru() -> Any:
+    @functools.lru_cache
+    def compute(x: int) -> int:
+        return x
+
+    compute(1)
+    return compute
+
+
+def _service(manager: str = "m", name: str = "c") -> tuple[CacheService, Any]:
+    fn = _lru()
+    provider = InProcessCacheProvider()
+    provider.register(manager, name, fn)
+    return CacheService(provider), fn
+
+
+# finding 2: BootUI Boolean.TRUE.equals, so only JSON true counts
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"all": True, "confirm": "false"},
+        {"all": "no", "confirm": "no"},
+        {"all": True, "confirm": 1},
+        {"all": True, "confirm": "true"},
+    ],
+)
+def test_confirm_must_be_json_true(body: dict[str, Any]) -> None:
+    service, fn = _service()
+    response = service.clear(CacheClearRequest.from_dict(body))
+    assert response.status == 400
+    assert response.body.status == "confirmation_required"
+    assert fn.cache_info().currsize == 1
+
+
+@pytest.mark.parametrize("flag", ["yes", 1, "true", ["x"]])
+def test_all_must_be_json_true(flag: object) -> None:
+    service, fn = _service()
+    response = service.clear(CacheClearRequest.from_dict({"all": flag, "confirm": True}))
+    assert response.status == 400
+    assert response.body.status == "invalid_request"
+    assert fn.cache_info().currsize == 1
+
+
+def _outcome(service: CacheService, body: dict[str, Any]) -> tuple[object, object]:
+    """``(status, result status)``, or ``("raised", ExceptionName)``: a crash must fail an assert, not error."""
+    try:
+        response = service.clear(CacheClearRequest.from_dict(body))
+    except Exception as exc:
+        return "raised", type(exc).__name__
+    return response.status, response.body.status
+
+
+# finding 3: a non-string name is an invalid request, never a crash
+@pytest.mark.parametrize("bad", [5, ["c"], {"a": 1}, True])
+def test_non_string_manager_name_is_invalid_request(bad: object) -> None:
+    service, fn = _service()
+    assert _outcome(service, {"managerName": bad, "cacheName": "c", "confirm": True}) == (400, "invalid_request")
+    assert fn.cache_info().currsize == 1
+
+
+@pytest.mark.parametrize("bad", [5, ["c"], {"a": 1}, True])
+def test_non_string_cache_name_is_invalid_request(bad: object) -> None:
+    service, fn = _service()
+    assert _outcome(service, {"managerName": "m", "cacheName": bad, "confirm": True}) == (400, "invalid_request")
+    assert fn.cache_info().currsize == 1
+
+
+# finding 4: echoed request text is masked and bounded
+def test_echoed_name_is_bounded() -> None:
+    service, _ = _service()
+    name = "x" * 100_000
+    response = service.clear(CacheClearRequest(manager_name=name, cache_name="c", confirm=True))
+    assert response.status == 404
+    assert len(response.body.message) < 500
+
+
+def test_echoed_name_is_masked() -> None:
+    from sharpit.engine.masking import Exposure, Masker
+
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+    service, _ = _service()
+    service.masker = Masker(Exposure.MASKED, True)
+    response = service.clear(CacheClearRequest(manager_name=f"token={secret}", cache_name="c", confirm=True))
+    assert response.status == 404
+    assert secret not in response.body.message
+
+
+# finding 5: BootUI matches names exactly; no whitespace stripping
+def test_names_match_exactly_no_strip() -> None:
+    service, fn = _service()
+    response = service.clear(CacheClearRequest(manager_name=" m ", cache_name=" c ", confirm=True))
+    assert response.status == 404
+    assert response.body.status == "not_found"
+    assert fn.cache_info().currsize == 1
+
+
+def test_blank_names_still_invalid_request() -> None:
+    service, _ = _service()
+    response = service.clear(CacheClearRequest(manager_name="  ", cache_name="c", confirm=True))
+    assert response.status == 400
+    assert response.body.status == "invalid_request"
+
+
+# finding 6: only functools wrappers and cachetools.Cache instances are accepted; host code is never probed
+def test_register_rejects_plain_dict() -> None:
+    provider = InProcessCacheProvider()
+    with pytest.raises(TypeError):
+        provider.register("m", "c", {"k": "v"})
+
+
+def test_register_never_probes_host_getattr() -> None:
+    probed: list[str] = []
+
+    class Hostile:
+        def __getattr__(self, name: str) -> Any:
+            probed.append(name)
+            raise AssertionError(name)
+
+    provider = InProcessCacheProvider()
+    with pytest.raises(TypeError):
+        provider.register("m", "c", Hostile())
+    assert probed == []
+
+
+def test_unsupported_object_clear_never_runs() -> None:
+    cleared: list[str] = []
+
+    class Plain:
+        def clear(self) -> None:
+            cleared.append("clear")
+
+    provider = InProcessCacheProvider()
+    with pytest.raises(TypeError):
+        provider.register("m", "c", Plain())
+    response = CacheService(provider).clear(CacheClearRequest(all=True, confirm=True))
+    assert response.body.cleared_caches == 0
+    assert cleared == []
+
+
+def test_cachetools_instance_is_cleared(fake_cachetools: type) -> None:
+    cache = fake_cachetools()
+    cache["k"] = "v"
+    provider = InProcessCacheProvider()
+    provider.register("m", "c", cache)
+    response = CacheService(provider).clear(CacheClearRequest(all=True, confirm=True))
+    assert response.body.cleared_caches == 1
+    assert len(cache) == 0
+
+
+def test_register_does_not_import_cachetools() -> None:
+    sys.modules.pop("cachetools", None)
+    provider = InProcessCacheProvider()
+    provider.register("m", "c", _lru())
+    assert "cachetools" not in sys.modules
+
+
+# finding 7: clear actions are serialised, so two requests never interleave evictions
+def test_clear_actions_are_serialised(fake_cachetools: type) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    b_cleared = threading.Event()
+
+    class Slow(fake_cachetools):
+        def clear(self) -> None:
+            entered.set()
+            release.wait(5)
+
+    class Fast(fake_cachetools):
+        def clear(self) -> None:
+            b_cleared.set()
+
+    provider = InProcessCacheProvider()
+    provider.register("m", "a", Slow())
+    provider.register("m", "b", Fast())
+    service = CacheService(provider)
+    one = CacheClearRequest(manager_name="m", cache_name="a", confirm=True)
+    two = CacheClearRequest(manager_name="m", cache_name="b", confirm=True)
+    first = threading.Thread(target=lambda: service.clear(one))
+    second = threading.Thread(target=lambda: service.clear(two))
+    first.start()
+    assert entered.wait(5)
+    second.start()
+    ran_while_first_blocked = b_cleared.wait(0.3)
+    release.set()
+    first.join(5)
+    second.join(5)
+    assert not ran_while_first_blocked
+    assert b_cleared.is_set()

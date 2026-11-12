@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -15,17 +16,26 @@ WRITE_ROWS = [("POST", "/sharpit/api/cache/clear")]
 LOCAL = ("127.0.0.1", 50000)
 
 
+def _lru() -> Any:
+    @functools.lru_cache
+    def compute(x: int) -> int:
+        return x
+
+    compute(1)
+    return compute
+
+
 def _client(app: Any, peer: tuple[str, int] = LOCAL) -> TestClient:
     return TestClient(app, base_url="http://localhost", client=peer)
 
 
 def test_cache_clear_refused_read_only_cache_intact() -> None:
-    cache: dict[str, str] = {"key": "value"}
+    cache = _lru()
     provider = InProcessCacheProvider()
     provider.register("in_process", "data", cache)
 
     app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False, read_only=True)
+    handle = install(app, enabled="ON", show_banner=False, read_only=True, cache_clear_enabled=True)
     handle.context.cache_provider = provider  # type: ignore[attr-defined]
 
     with _client(app) as client:
@@ -33,17 +43,18 @@ def test_cache_clear_refused_read_only_cache_intact() -> None:
         assert resp.status_code == 403
         assert resp.json()["error"] == "sharpit panel access denied"
         assert "read-only via SHARPIT_READ_ONLY=true" in resp.json()["reason"]
-        assert len(cache) == 1
-        assert cache["key"] == "value"
+        assert cache.cache_info().currsize == 1
 
 
 def test_cache_clear_refused_when_panel_read_only() -> None:
-    cache: dict[str, str] = {"key": "value"}
+    cache = _lru()
     provider = InProcessCacheProvider()
     provider.register("in_process", "data", cache)
 
     app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False, panels={"cache": {"read_only": True}})
+    handle = install(
+        app, enabled="ON", show_banner=False, panels={"cache": {"read_only": True}}, cache_clear_enabled=True
+    )
     handle.context.cache_provider = provider  # type: ignore[attr-defined]
 
     with _client(app) as client:
@@ -51,7 +62,7 @@ def test_cache_clear_refused_when_panel_read_only() -> None:
         assert resp.status_code == 403
         assert resp.json()["error"] == "sharpit panel access denied"
         assert "Panel is read-only via SHARPIT_PANELS_CACHE_READ_ONLY=true" in resp.json()["reason"]
-        assert len(cache) == 1
+        assert cache.cache_info().currsize == 1
 
 
 def test_cache_clear_refused_when_panel_disabled() -> None:
