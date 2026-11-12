@@ -9,6 +9,7 @@ from pathlib import Path
 from sharpit.engine.advisors.rules import RuleDefinition, RuleResult
 from sharpit.engine.collectors.restapi import (
     rules_dto,
+    rules_errors,
     rules_errors_docs,
     rules_mapping,
     rules_naming,
@@ -16,6 +17,7 @@ from sharpit.engine.collectors.restapi import (
     rules_responses,
     rules_versioning,
 )
+from sharpit.engine.collectors.restapi.error_contract import ErrorContractEntry
 from sharpit.engine.collectors.restapi.rules_common import Violation, shared_is_framework
 from sharpit.engine.spi import ApiRouteInfo
 from sharpit.engine.testsession.swallowed import swallowing_lines
@@ -228,6 +230,72 @@ RULES: tuple[RuleDefinition, ...] = (
         PROBLEM_DETAIL_DOCS,
     ),
     RuleDefinition(
+        "RAPI-ERR-004",
+        "Make error-handler status ownership explicit",
+        ERRORS_DOCS,
+        "MEDIUM",
+        "An @ExceptionHandler that renders a body but neither returns ResponseEntity nor declares @ResponseStatus"
+        " has no explicit status selection visible in the Spring declaration."
+        " Runtime response rewriting is not observed.",
+        "Return ResponseEntity/ProblemDetail or add @ResponseStatus so the handler responds with an error status.",
+        PROBLEM_DETAIL_DOCS,
+    ),
+    RuleDefinition(
+        "RAPI-ERR-005",
+        "Review broad handlers with fixed non-5xx statuses",
+        ERRORS_DOCS,
+        "LOW",
+        "A broad Exception/Throwable handler with a declared fixed non-5xx status warrants review. Dynamic status"
+        " envelopes, imperative response arguments and 5xx fallbacks do not establish that different errors collapse"
+        " to one inappropriate status.",
+        "Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409), and keep any"
+        " Exception/Throwable catch-all as a last-resort fallback mapped to a 5xx status.",
+        PROBLEM_DETAIL_DOCS,
+    ),
+    RuleDefinition(
+        "RAPI-ERR-007",
+        "Consider Retry-After for declared 429/503 statuses",
+        ERRORS_DOCS,
+        "INFO",
+        "A 429/503 status annotation is a Retry-After design-review opportunity. Response headers and the actual"
+        " status are not observed; a missing header is not established.",
+        "Consider a Retry-After header (RFC 9110 §10.2.3) alongside 429 (RFC 6585 §4) or 503 responses so clients"
+        " know when to retry. For quota visibility, RateLimit and RateLimit-Policy are complementary fields from an"
+        " active IETF HTTPAPI Internet-Draft, not an RFC.",
+        REST_GUIDELINES,
+    ),
+    RuleDefinition(
+        "RAPI-ERR-008",
+        "Consider structured error bodies",
+        ERRORS_DOCS,
+        "LOW",
+        "An exception handler that returns a raw String exposes an unstructured error contract with no stable fields"
+        " in its signature. An intentional text error is valid; view names are excluded.",
+        "Consider a typed error DTO or optional RFC 9457 representation if structured metadata benefits clients.",
+        PROBLEM_DETAIL_DOCS,
+    ),
+    RuleDefinition(
+        "RAPI-ERR-010",
+        "Review differing known error contracts",
+        ERRORS_DOCS,
+        "LOW",
+        "Informative exception-handler body declarations differ for compatible media types. Dynamic/unknown shapes"
+        " are not contradictions, and distinct negotiated formats can be intentional.",
+        "Review whether the declared error representations should align for the same media contract. RFC 9457"
+        " adoption is optional.",
+        PROBLEM_DETAIL_DOCS,
+    ),
+    RuleDefinition(
+        "RAPI-ERR-011",
+        "Exception handlers do not expose stack traces",
+        ERRORS_DOCS,
+        "HIGH",
+        "Retired heuristic: stack-trace access or printing does not establish response exposure without data flow.",
+        "Log the failure with a correlation identifier through the logging framework and return only a stable,"
+        " non-revealing error representation to the client.",
+        PROBLEM_DETAIL_DOCS,
+    ),
+    RuleDefinition(
         "RAPI-DOC-001",
         "Consider explicit operation documentation",
         ERRORS_DOCS,
@@ -278,14 +346,8 @@ SKIPPED_RULES: Mapping[str, str] = {
     "RAPI-VER-006": _DEEP,
     "RAPI-ERR-002": "A Java throws-declaration rule; Python has no checked exceptions.",
     "RAPI-ERR-003": _SPRING,
-    "RAPI-ERR-004": _DEEP,
-    "RAPI-ERR-005": _DEEP,
     "RAPI-ERR-006": _SPRING,
-    "RAPI-ERR-007": _DEEP,
-    "RAPI-ERR-008": _DEEP,
     "RAPI-ERR-009": _DEEP,
-    "RAPI-ERR-010": _DEEP,
-    "RAPI-ERR-011": "Needs exception-handler bodies; sharpit never calls or decompiles handlers.",
     "RAPI-DOC-003": _DEEP,
     # BootUI 2.2.0
     "RAPI-RESP-010": "Spring's @ResponseStatus reason discards the body; FastAPI has no such attribute.",
@@ -306,6 +368,7 @@ _CHECKS = {
     **rules_pagination.CHECKS,
     **rules_versioning.CHECKS,
     **rules_errors_docs.CHECKS,
+    **rules_errors.CHECKS,
 }
 
 
@@ -315,7 +378,10 @@ def application_routes(routes: Sequence[ApiRouteInfo]) -> list[ApiRouteInfo]:
 
 
 def evaluate(
-    routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
+    routes: Sequence[ApiRouteInfo],
+    exception_handlers: Sequence[str],
+    *,
+    error_contract: Sequence[ErrorContractEntry] = (),
 ) -> tuple[dict[str, list[Violation]], set[str]]:
     """Every ported rule's violations in ``RULES`` order, and ids that raised (BootUI ``evaluate``)."""
     own = application_routes(routes)
@@ -323,23 +389,39 @@ def evaluate(
     errored: set[str] = set()
     for rule in RULES:
         try:
-            found[rule.id] = _CHECKS[rule.id](own, exception_handlers)
+            if rule.id in rules_errors.CHECKS:
+                found[rule.id] = rules_errors.CHECKS[rule.id](own, exception_handlers, error_contract=error_contract)
+            else:
+                found[rule.id] = _CHECKS[rule.id](own, exception_handlers)
         except Exception:  # a broken model fails its rule, never the scan
             found[rule.id] = []
             errored.add(rule.id)
     return found, errored
 
 
-def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> dict[str, list[str]]:
+def violations(
+    routes: Sequence[ApiRouteInfo],
+    exception_handlers: Sequence[str],
+    *,
+    error_contract: Sequence[ErrorContractEntry] = (),
+) -> dict[str, list[str]]:
     """Every ported rule's violations in ``RULES`` order.
 
     Pure: reads the given metadata only (BootUI ``violations``).
     """
-    return {rule_id: [v.message for v in items] for rule_id, items in evaluate(routes, exception_handlers)[0].items()}
+    return {
+        rule_id: [v.message for v in items]
+        for rule_id, items in evaluate(routes, exception_handlers, error_contract=error_contract)[0].items()
+    }
 
 
-def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> list[RuleResult]:
-    found = violations(routes, exception_handlers)
+def scan(
+    routes: Sequence[ApiRouteInfo],
+    exception_handlers: Sequence[str],
+    *,
+    error_contract: Sequence[ErrorContractEntry] = (),
+) -> list[RuleResult]:
+    found = violations(routes, exception_handlers, error_contract=error_contract)
     return [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES]
 
 

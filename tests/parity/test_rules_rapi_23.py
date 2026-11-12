@@ -10,6 +10,7 @@ from typing import Annotated, Any, ClassVar, Optional
 
 import pytest
 from pydantic import BaseModel
+from starlette.responses import JSONResponse, PlainTextResponse
 
 from fastapi import Body, FastAPI, Response
 from sharpit.engine.advisors.findings import Finding
@@ -667,6 +668,240 @@ def test_rapi_doc_002_passes_operation_tags() -> None:
         return []
 
     assert _findings(app, "RAPI-DOC-002") == []
+
+
+# --- Error handling & documentation (ERR) --------------------------------------------------------------------------
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-001")
+def test_rapi_err_001_fires_without_application_exception_handler() -> None:
+    # ported: RestApiRulesTests.errorHandlingRulesReflectCentralizedHandling
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    finding = _one(app, "RAPI-ERR-001", "INFO")
+    assert finding.target == "application"
+    assert "No application-wide exception handler was registered" in finding.message
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-001")
+def test_rapi_err_001_passes_with_application_exception_handler() -> None:
+    # ported: RestApiRulesTests.errorHandlingRulesReflectCentralizedHandling
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(Exception)
+    async def handle_all(_request: object, _exc: Exception) -> Response:
+        return Response(status_code=500)
+
+    assert _findings(app, "RAPI-ERR-001") == []
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-004")
+def test_rapi_err_004_fires_when_handler_renders_body_without_explicit_status() -> None:
+    # ported: RestApiRulesTests.errorHandlingEdgeRuleFlagsBodyWithoutErrorStatus
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(RuntimeError)
+    def handle_runtime(_request: object, exc: RuntimeError) -> JSONResponse:
+        return JSONResponse({"error": "runtime"})
+
+    finding = _one(app, "RAPI-ERR-004", "MEDIUM")
+    assert "handle_runtime" in finding.target
+    assert "declares a body without explicit status selection" in finding.message
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-004")
+def test_rapi_err_004_passes_when_explicit_status_is_declared() -> None:
+    # ported: RestApiRulesTests.phase3ErrorHandlingRulesFlagAndPass
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(RuntimeError)
+    def handle_runtime(_request: object, exc: RuntimeError) -> JSONResponse:
+        return JSONResponse({"error": "runtime"}, status_code=500)
+
+    assert _findings(app, "RAPI-ERR-004") == []
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-005")
+def test_rapi_err_005_fires_when_broad_handler_declares_fixed_non_5xx_status() -> None:
+    # ported: RestApiRulesTests.broadExceptionHandlerRuleAllowsA500FallbackButFlagsANon5xxCollapse
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(Exception)
+    def handle_all(_request: object, exc: Exception) -> JSONResponse:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+
+    finding = _one(app, "RAPI-ERR-005", "LOW")
+    assert "handle_all" in finding.target
+    assert "catches Exception/Throwable and maps it to a fixed non-5xx status (400)" in finding.message
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-005")
+def test_rapi_err_005_passes_when_broad_handler_uses_500_or_specific_exception() -> None:
+    # ported: RestApiRuleAccuracyTests.errorStatusReviewRequiresObservableFixedNonServerError
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(Exception)
+    def handle_all(_request: object, exc: Exception) -> JSONResponse:
+        return JSONResponse({"error": "server error"}, status_code=500)
+
+    @app.exception_handler(ValueError)
+    def handle_val(_request: object, exc: ValueError) -> JSONResponse:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    assert _findings(app, "RAPI-ERR-005") == []
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-007")
+def test_rapi_err_007_fires_on_throttling_status_without_retry_after() -> None:
+    # ported: RestApiRulesTests.retryAfterRuleFlagsThrottlingResponsesFromHandlersAndExceptionHandlers
+    app = _app()
+
+    @app.get("/rate-limited", status_code=429, summary="s", tags=["t"])
+    def rate_limited() -> Payload:
+        return Payload(id="1", name="slow down")
+
+    @app.exception_handler(RuntimeError)
+    def handle_unavailable(_request: object, exc: RuntimeError) -> JSONResponse:
+        return JSONResponse({"error": "busy"}, status_code=503)
+
+    found = _findings(app, "RAPI-ERR-007")
+    assert len(found) == 2
+    for f in found:
+        assert f.severity == "INFO"
+        assert "review Retry-After policy" in f.message
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-007")
+def test_rapi_err_007_passes_on_non_throttling_responses() -> None:
+    # ported: RestApiRulesTests.retryAfterRuleFlagsThrottlingResponsesFromHandlersAndExceptionHandlers
+    app = _app()
+
+    @app.get("/items", status_code=200, summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(RuntimeError)
+    def handle_runtime(_request: object, exc: RuntimeError) -> JSONResponse:
+        return JSONResponse({"error": "runtime"}, status_code=500)
+
+    assert _findings(app, "RAPI-ERR-007") == []
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-008")
+def test_rapi_err_008_fires_on_raw_string_error_body() -> None:
+    # ported: RestApiRulesTests.headBodyAndRawStringExceptionRulesFireOnSpringAndJaxRs
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(RuntimeError)
+    def handle_runtime(_request: object, exc: RuntimeError) -> PlainTextResponse:
+        return PlainTextResponse("error message", status_code=400)
+
+    finding = _one(app, "RAPI-ERR-008", "LOW")
+    assert "handle_runtime" in finding.target
+    assert "returns a raw String error body" in finding.message
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-008")
+def test_rapi_err_008_passes_on_structured_error_body() -> None:
+    # ported: RestApiRulesTests.headBodyAndRawStringExceptionRulesFireOnSpringAndJaxRs
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(RuntimeError)
+    def handle_runtime(_request: object, exc: RuntimeError) -> JSONResponse:
+        return JSONResponse({"error": "error message"}, status_code=400)
+
+    assert _findings(app, "RAPI-ERR-008") == []
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-010")
+def test_rapi_err_010_fires_on_differing_known_error_categories() -> None:
+    # ported: RestApiRuleAccuracyTests.errorContractsCompareKnownShapesWithoutTreatingNegotiationAsAContradiction
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(ValueError)
+    def handle_problem(_request: object, exc: ValueError) -> JSONResponse:
+        return JSONResponse({"type": "about:blank", "title": "bad", "status": 400}, status_code=400)
+
+    @app.exception_handler(RuntimeError)
+    def handle_text(_request: object, exc: RuntimeError) -> PlainTextResponse:
+        return PlainTextResponse("error", status_code=500)
+
+    finding = _one(app, "RAPI-ERR-010", "LOW")
+    assert finding.target == "application"
+    assert "different error body declaration categories: problem details" in finding.message
+    assert "raw string" in finding.message
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-010")
+def test_rapi_err_010_passes_when_categories_align_or_dynamic() -> None:
+    # ported: RestApiRuleAccuracyTests.errorContractsCompareKnownShapesWithoutTreatingNegotiationAsAContradiction
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(ValueError)
+    def handle_val(_request: object, exc: ValueError) -> JSONResponse:
+        return JSONResponse({"type": "about:blank", "title": "bad", "status": 400}, status_code=400)
+
+    @app.exception_handler(RuntimeError)
+    def handle_run(_request: object, exc: RuntimeError) -> JSONResponse:
+        return JSONResponse({"type": "about:blank", "title": "err", "status": 500}, status_code=500)
+
+    assert _findings(app, "RAPI-ERR-010") == []
+
+
+@pytest.mark.bootui("rule:RAPI-ERR-011")
+def test_rapi_err_011_retired_definition_emits_no_findings() -> None:
+    # ported: RestApiRuleRegistryTests.retiredDefinitionsKeepTheirIdsWithoutEmittingFindings
+    app = _app()
+
+    @app.get("/items", summary="s", tags=["t"])
+    def get_items() -> list[Payload]:
+        return []
+
+    @app.exception_handler(RuntimeError)
+    def handle_stack(_request: object, exc: RuntimeError) -> PlainTextResponse:
+        return PlainTextResponse("traceback", status_code=500)
+
+    assert _findings(app, "RAPI-ERR-011") == []
 
 
 # --- Leak ----------------------------------------------------------------------------------------------------------

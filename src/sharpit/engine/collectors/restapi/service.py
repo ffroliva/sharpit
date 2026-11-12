@@ -18,6 +18,7 @@ from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope, mask
 from sharpit.engine.collectors.restapi import report
+from sharpit.engine.collectors.restapi.error_contract import entries
 from sharpit.engine.collectors.restapi.rules import RULES, application_routes, evaluate
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
@@ -49,7 +50,8 @@ def _evaluate(model: ApiModel, masker: Masker) -> _Evaluation:
     evaluated: list[str] = []
     errored: set[str] = set()
     if routes:  # BootUI: no controllers -> no rule is evaluated
-        raw, errored = evaluate(routes, model.exception_handlers)
+        contract = entries(model) if model.error_handlers else ()
+        raw, errored = evaluate(routes, model.exception_handlers, error_contract=contract)
         for rule in RULES:
             if rule.id in errored:
                 continue

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sharpit.engine.appsource import ModuleInfo, SourceIndex
@@ -77,7 +80,7 @@ def _handler_node(
     module = index.modules.get(module_name)
     if module is None:
         return None, None
-    parts = qualname.split(".")
+    parts = [p for p in qualname.split(".") if p != "<locals>"]
     body = module.tree.body
     node = None
     for part in parts:
@@ -208,8 +211,31 @@ def _rank_group(
     return ranked
 
 
-def entries(model: ApiModel, index: SourceIndex | None) -> list[ErrorContractEntry]:
+def index_for_handlers(handlers: Sequence[ErrorHandlerInfo]) -> SourceIndex:
+    """Build a minimal SourceIndex from the modules defining each handler, read from disk."""
+    modules: dict[str, ModuleInfo] = {}
+    for info in handlers:
+        parts = info.handler.split(".")
+        for i in range(len(parts), 0, -1):
+            mod_name = ".".join(parts[:i])
+            if mod_name in sys.modules:
+                mod = sys.modules[mod_name]
+                filename = getattr(mod, "__file__", None)
+                if isinstance(filename, str) and filename.endswith(".py") and mod_name not in modules:
+                    try:
+                        source = Path(filename).read_text("utf-8")
+                        tree = ast.parse(source)
+                        modules[mod_name] = ModuleInfo(mod_name, Path(filename), tree, (), ())
+                    except (OSError, SyntaxError, ValueError):
+                        pass
+                break
+    return SourceIndex(modules=modules)
+
+
+def entries(model: ApiModel, index: SourceIndex | None = None) -> list[ErrorContractEntry]:
     """One sorted entry per declared key, with all handler details derived from source AST only."""
+    if index is None:
+        index = index_for_handlers(model.error_handlers)
     by_exception: dict[str, list[tuple[ErrorHandlerInfo, str, str, str]]] = {}
     for info in model.error_handlers:
         component, method = _split_handler(info.handler, index)
