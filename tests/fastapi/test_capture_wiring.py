@@ -463,6 +463,7 @@ def test_every_capture_hook_is_registered():
             "capture-middleware",
             "exception-handlers",
             "log-handler",
+            "mail",
             "runtime-journal",
             "security-log",
             "sqla-listeners",

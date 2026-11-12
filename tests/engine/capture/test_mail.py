@@ -353,3 +353,32 @@ def test_the_exposed_flags_report_the_settings():
         report = h.emails()
         assert report["devTrapEnabled"] is True
         assert report["maxEntries"] == 7
+
+
+def test_suspended_mail_wrapper_overhead_budget():
+    """W7 lane E M-E1: with the mail hook suspended (paused/low-footprint), wrapper overhead stays within 10 µs."""
+    import time
+
+    from tests.overhead import check_budget, paired
+
+    from sharpit.engine.capture.mail import _dispatch
+
+    with harness() as h:
+        hook = h.hook("mail")
+        assert hook is not None
+        hook.suspend()
+
+        def off_round() -> float:
+            started = time.perf_counter_ns()
+            for _ in range(200):
+                pass
+            return (time.perf_counter_ns() - started) / 200
+
+        def on_round() -> float:
+            started = time.perf_counter_ns()
+            for _ in range(200):
+                _dispatch("a@example.test", ["b@example.test"], "Subject: hi\n\nbody\n")
+            return (time.perf_counter_ns() - started) / 200
+
+        result = paired(off_round, on_round, 20)
+        check_budget("smtplib sendmail wrapper, suspended", result, 10_000, "µs", 1000)

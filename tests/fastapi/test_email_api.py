@@ -23,10 +23,12 @@ def _mcp(h: Harness, tool: str) -> dict[str, Any]:
 
 
 def test_email_panel_is_registered_and_implemented():
+    from sharpit.engine.panels import panel_for_api_path
+
     with harness() as h:
         panels = {p["id"]: p for p in h.client.get(f"{API}/panels").json()["panels"]}
         assert panels["email"]["title"] == "Email"
-        assert panels["email"]["actionCapable"] is True
+        assert panel_for_api_path("/email").action_capable is True
 
 
 def test_list_has_every_report_key_in_bootui_order():
@@ -133,11 +135,16 @@ def test_clear_from_an_untrusted_source_is_refused():
 
 
 def test_reads_have_no_side_effects(no_side_effects: SideEffectGuard):
-    with harness() as h:
-        h.send(subject="quiet")
-        h.client.get(f"{API}/email")
-        h.client.get(f"{API}/email/email-1")
-        h.client.get(f"{API}/email/email-1/eml")
+    no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
+    with harness() as h, h.client as client:
+        recorder = h.handle.context.capture.mail
+        assert recorder is not None
+        recorder.record("a@example.test", ["b@example.test"], "Subject: quiet\n\nbody\n")  # no socket
+        client.get(f"{API}/panels")
+        no_side_effects.block_network()
+        client.get(f"{API}/email")
+        client.get(f"{API}/email/email-1")
+        client.get(f"{API}/email/email-1/eml")
 
 
 def test_get_emails_tool_answers_the_report_over_mcp():

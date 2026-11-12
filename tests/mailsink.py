@@ -76,7 +76,12 @@ def smtp_sink() -> Iterator[SmtpSink]:
 
 API = "/sharpit/api"
 LOCAL = ("127.0.0.1", 50000)
-OPTIONS: dict[str, Any] = {"enabled": "ON", "show_banner": False, "config_scan": False}
+OPTIONS: dict[str, Any] = {
+    "enabled": "ON",
+    "show_banner": False,
+    "config_scan": False,
+    "authentication_token": "console-token-secret-123",
+}
 
 
 class Harness:
