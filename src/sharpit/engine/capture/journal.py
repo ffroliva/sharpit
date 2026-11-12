@@ -48,6 +48,10 @@ class JournalSink(Protocol):
 
     def records(self, source: str) -> tuple[dict[str, object], ...]: ...
 
+    def accepts(self, source: str) -> bool: ...
+
+    def count_dropped(self, key: str) -> None: ...
+
 
 class _NullSink:
     def offer(self, event: Event) -> bool:
@@ -57,6 +61,13 @@ class _NullSink:
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         del source  # the port's signature; the null sink holds nothing
         return ()
+
+    def accepts(self, source: str) -> bool:
+        del source  # the port's signature; the null sink takes nothing
+        return False
+
+    def count_dropped(self, key: str) -> None:
+        del key  # the port's signature; the null sink counts nothing
 
 
 NULL_SINK: JournalSink = _NullSink()
@@ -222,7 +233,7 @@ class RuntimeJournal:
         self._evicted = 0
         self._binding_bound: str | None = None
         self._accepting = True
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._busy = threading.local()
 
     def offer(self, event: Event) -> bool:
@@ -278,6 +289,12 @@ class RuntimeJournal:
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
         return self._accepting and (self.sources is None or source in self.sources)
+
+    def count_dropped(self, key: str) -> None:
+        """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
+        event). Under the lock the other writers hold, which is reentrant: a producer may call it inside ``offer``."""
+        with self._lock:
+            self._dropped[key] += 1
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:

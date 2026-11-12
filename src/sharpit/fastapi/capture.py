@@ -58,7 +58,10 @@ CAPTURE_PANELS = (
     "activity",
     "security-logs",
 )  # any implemented, enabled request-capture panel needs the middleware
-LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
+LOG_PANELS = (
+    "log-tail",
+    "exceptions",
+)  # either enabled needs the log handler (spec §6.1 step 3), as does a journal listing `log`
 LOG_TAIL_DETACHED_REASON = (
     "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "
     "basicConfig(force=True)) after startup, or the app has not started"
@@ -223,6 +226,12 @@ def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: Ex
     return wrapper
 
 
+def _needs_log_handler(ctx: SharpitContext, journal: RuntimeJournal | None) -> bool:
+    """A log panel enabled, or a journal that lists ``log``: BootUI installs its journal appender whenever the journal
+    records it (BootUiEngineConfiguration), though no log panel is enabled."""
+    return any(_panel_enabled(ctx, p) for p in LOG_PANELS) or (journal is not None and journal.accepts("log"))
+
+
 class WrappingHandlers(dict[Any, Any]):
     """``app.exception_handlers`` while sharpit is installed: handlers set later (``@app.exception_handler``) are
     wrapped too. Reads return the stored value, so a wrapped handler reads as its wrapper."""
@@ -364,10 +373,12 @@ class CaptureWiring:
             self._arm_sensors(ctx, journal)
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
-        if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
+        journal = ctx.capture.journal
+        if _needs_log_handler(ctx, journal):
             self.log_handler = SharpitLogHandler(
                 ctx.masker, ctx.capture.log_tail, application=lambda: application_family(ctx)
             )
+            self.log_handler.journal, self.log_handler.context_id = journal, ctx.context_id
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
