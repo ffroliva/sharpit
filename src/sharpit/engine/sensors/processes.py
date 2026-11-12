@@ -24,9 +24,9 @@ _QUOTE = re.compile("[\"']")
 # cmd.exe has no backslash escape: on a Windows-shaped command a word ends at a blank outside quotes
 _WIN_WORD = re.compile(r"""\s*((?:'[^']*'|"[^"]*"|[^\s'"])++)(?=\s|$)""")
 _WINDOWS = re.compile(r"""\s*["']?(?:[A-Za-z]:|\\\\|[\w.-]+\\[\w.-])""")
-_META = ";|&<>#`()$"  # a shell metacharacter ends the program word; one that starts it is no program at all
+_META = ";|&<>#`()$,"  # a shell metacharacter ends the program word; one that starts it is no program at all
 _AT_META = re.compile(f"[{re.escape(_META)}]")
-_PLAIN = re.compile(r"[^\s'\"\\=;|&<>#`()$]+")  # one word with no quote, escape or '=': a path to basename as it is
+_PLAIN = re.compile(r"[^\s'\"\\=;|&<>#`()$,]+")  # one word with no quote, escape or '=': a path to basename as it is
 
 
 def _text(value: object) -> str | None:
