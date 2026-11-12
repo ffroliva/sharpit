@@ -121,6 +121,11 @@ def test_resource_profile_without_the_resources_source_names_the_setting() -> No
     assert client.get(PROFILE).json()["reason"] == profile.RESOURCES_OFF
 
 
+def _started_since(before: set[int | None]) -> list[str]:
+    """Threads started since ``before``, except AnyIO's worker pool, which grows on demand to run sync routes."""
+    return [t.name for t in threading.enumerate() if t.ident not in before and t.name != "AnyIO worker thread"]
+
+
 @pytest.mark.parametrize("suffix", ["", "/stop"])
 def test_resource_profile_post_answers_the_floor_and_starts_nothing(suffix: str) -> None:
     client, _ = _client(runtime_journal_sources="http,sql,resources", resources_jfr_max_duration="45s")
@@ -132,7 +137,7 @@ def test_resource_profile_post_answers_the_floor_and_starts_nothing(suffix: str)
     assert response.json()["reason"] == profile.NO_SAMPLER
     assert response.json()["maxDurationSeconds"] == 45
     # a thread that ends meanwhile is fine; a thread the POST started is not (a count equality flaked both ways on CI)
-    assert [t.name for t in threading.enumerate() if t.ident not in before] == []
+    assert _started_since(before) == []
 
 
 @pytest.fixture
@@ -199,7 +204,7 @@ def test_no_read_starts_anything(no_side_effects: SideEffectGuard) -> None:
         assert client.get(PROFILE).status_code == 200
         assert _mcp(client, "get_runtime_insights").get("isError") is False
         assert _mcp(client, "get_runtime_insight", id=observation["id"]).get("isError") is False
-        assert [t.name for t in threading.enumerate() if t.ident not in before] == []
+        assert _started_since(before) == []
     assert no_side_effects.violations == []
 
 
