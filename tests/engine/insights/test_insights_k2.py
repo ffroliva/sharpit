@@ -263,15 +263,3 @@ def test_unproduced_source_kinds_answer_not_applicable(kind: str, source: str, m
         check["reason"] == f"The runtime journal does not record the {source} source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
     )
     assert run.rows(kind) == []
-
-
-def test_errors_behind_2xx_real_install_evaluates_over_the_produced_log_source_alone(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES - {"exception"})
-    assert "log" in REAL_PRODUCED_SOURCES  # W5a P-log
-    run = Run()
-    run.request(200, log("ERROR"))
-    check = run.check()
-    assert check["status"] == "EVALUATED"
-    assert len(run.rows()) == 1

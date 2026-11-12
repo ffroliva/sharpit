@@ -20,6 +20,7 @@ from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
+from sharpit.settings_registry import JOURNAL_SOURCES
 
 
 def _log_handlers() -> list[logging.Handler]:
@@ -63,8 +64,25 @@ HOOKS: list[Any] = [
 def _started(disabled: tuple[str, ...]) -> tuple[FastAPI, SharpitHandle]:
     app = FastAPI()
     app.get("/host")(lambda: {})
-    options: dict[str, Any] = {"panels": {p: {"enabled": False} for p in disabled}}
+    # `log` is not an enabled journal source here: with it enabled the handler is installed for the journal alone
+    # (test_log_source_installs_the_handler_with_both_log_panels_disabled), so a disabled panel installs no hook only
+    # when nothing else needs it
+    sources = tuple(s for s in JOURNAL_SOURCES if s != "log")
+    options: dict[str, Any] = {"panels": {p: {"enabled": False} for p in disabled}, "runtime_journal_sources": sources}
     return app, install(app, enabled="ON", show_banner=False, **options)
+
+
+def test_log_source_installs_the_handler_with_both_log_panels_disabled():
+    before = _log_handlers()
+    app = FastAPI()
+    app.get("/host")(lambda: {})
+    panels = {p: {"enabled": False} for p in LOG_PANELS}
+    handle = install(app, enabled="ON", show_banner=False, panels=panels)  # `log` is a default journal source
+    with TestClient(app) as client:
+        client.get("/host")
+        assert _log_handler_present(handle)
+    handle.uninstall_capture()
+    assert _log_handlers() == before
 
 
 @pytest.mark.parametrize(("disabled", "hook", "present"), HOOKS, ids=["log", "handlers", "sql-4a", "sql-4b"])

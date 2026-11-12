@@ -11,12 +11,16 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import otel
+from sharpit.engine.capture import logtail
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.collectors.insights import snapshot as snapshot_module
+from sharpit.engine.collectors.insights.service import InsightsService
 
 ARG_CANARY = "zq-arg-canary-31"
 OBJECT_CANARY = "zq-object-canary-43"
@@ -138,6 +142,17 @@ def test_log_journal_template_is_the_unformatted_msg_and_an_argument_canary_neve
     withheld = exposure == "METADATA_ONLY"  # the text is withheld, as the log tail's messageOmitted
     assert offered[1]["template"] == (None if withheld else "Opaque")
     assert offered[0]["template"] == (None if withheld else "retry %s for %s")
+
+
+@pytest.mark.parametrize("exposure", ["MASKED", "FULL", "METADATA_ONLY"])
+def test_log_journal_an_f_string_message_is_the_template_shown_masked_or_full_and_withheld_at_metadata_only(
+    exposure: str, installed: list[Any]
+) -> None:
+    handle = _install(installed, expose_values=exposure)
+    _emit(handle, f"retry for {ARG_CANARY}")  # an f-string is msg: its formatted text IS the template (LogPayload)
+    (event,) = _records(handle)
+    assert (ARG_CANARY in str(event["template"])) == (exposure != "METADATA_ONLY")
+    assert (event["template"] is None) == (exposure == "METADATA_ONLY")
 
 
 def test_log_journal_template_secret_is_masked_before_offer(
@@ -315,3 +330,193 @@ def test_log_journal_a_real_logger_call_is_offered_once(installed: list[Any]) ->
     handle.context.capture.wiring._attach_logging()  # pyright: ignore[reportPrivateUsage]
     logging.getLogger("com.example.real").warning("real %s", ARG_CANARY)
     assert [(r["logger"], r["template"]) for r in _records(handle)] == [("com.example.real", "real %s")]
+
+
+class _Calls:
+    """The texts that go through ``logtail.error_text``, the masking the log tail and the template share."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.texts: list[str] = []
+        real = logtail.error_text
+
+        def counting(masker: Any, text: Any, dialect: Any) -> Any:
+            self.texts.append(str(text))
+            return real(masker, text, dialect)
+
+        monkeypatch.setattr(logtail, "error_text", counting)
+
+
+def _cache_size(handle: Any) -> int:
+    cache = getattr(_handler(handle), "template_cache", None)
+    assert cache is not None, "the handler has no template cache"
+    return cache.cache_info().currsize
+
+
+def _journal_only(installed: list[Any], **options: Any) -> Any:
+    """Both log panels off: only the journal's ``log`` source needs the handler, so no tail line is built."""
+    return _install(installed, panels={"log-tail": {"enabled": False}, "exceptions": {"enabled": False}}, **options)
+
+
+def test_log_journal_handler_is_installed_for_the_log_source_with_both_log_panels_off(installed: list[Any]) -> None:
+    handle = _journal_only(installed)
+    assert handle.context.capture.log_tail is None
+    _emit(handle, "warned with no log panel enabled")
+    assert [r["template"] for r in _records(handle)] == ["warned with no log panel enabled"]
+
+
+def test_log_journal_no_handler_when_log_is_not_an_enabled_source_and_both_log_panels_are_off(
+    installed: list[Any],
+) -> None:
+    handle = _journal_only(installed, sources=("http",))
+    assert handle.context.capture.wiring.log_handler is None
+    kept = _install(installed, sources=("http",), panels={"exceptions": {"enabled": False}})  # a log panel: installed
+    assert kept.context.capture.wiring.log_handler is not None
+
+
+def test_errors_behind_2xx_real_install_with_both_log_panels_off_finds_a_logged_error(installed: list[Any]) -> None:
+    assert "log" in snapshot_module.PRODUCED_SOURCES  # W5a P-log
+    app = FastAPI()
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        panels={"log-tail": {"enabled": False}, "exceptions": {"enabled": False}},
+    )
+    installed.append(handle)
+
+    @app.get("/pay")
+    def pay() -> dict[str, bool]:  # the 2xx hides a logged ERROR
+        logging.getLogger(ORDERS).error("payment failed for %s", ARG_CANARY)
+        return {"ok": True}
+
+    handle.context.capture.wiring._attach_logging()  # pyright: ignore[reportPrivateUsage]
+    with TestClient(app) as client:
+        for _ in range(3):
+            assert client.get("/pay").status_code == 200
+    report = InsightsService(handle.context.capture.journal).report()
+    check = next(c for c in report["checks"] if c["kind"] == "errors-behind-2xx")
+    assert check["status"] == "EVALUATED"
+    observations = [o for o in report["observations"] if o["kind"] == "errors-behind-2xx"]
+    assert len(observations) == 1
+    assert "ERROR log" in str(observations[0]["sentence"])
+    assert ARG_CANARY not in json.dumps(report)
+
+
+def test_log_journal_a_record_of_a_source_not_accepted_is_counted_without_masking_or_building(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _install(installed, sources=("http",))  # the log tail stays on: the handler is installed for it
+    handler = _handler(handle)
+    built: list[bool] = []
+    real_build = handler._journal_event  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(handler, "_journal_event", lambda record: built.append(True) or real_build(record))
+    calls = _Calls(monkeypatch)
+    _emit(handle, "not accepted %s", 1)
+    assert built == []
+    assert len(calls.texts) == 1  # the log tail line only
+    assert handle.context.capture.journal.status()["dropped"] == {"log": 1}
+
+
+def test_log_journal_a_16_kb_message_masks_only_the_head(monkeypatch: pytest.MonkeyPatch, installed: list[Any]) -> None:
+    handle = _journal_only(installed)
+    calls = _Calls(monkeypatch)
+    _emit(handle, "x" * 16_000)
+    (event,) = _records(handle)
+    assert event["template"] == "x" * 500
+    assert [len(t) <= 500 + 4_096 for t in calls.texts] == [True]
+
+
+@pytest.mark.parametrize("secret_at", [470, 485, 495, 499])
+def test_log_journal_a_secret_straddling_the_cut_is_masked(secret_at: int, installed: list[Any]) -> None:
+    handle = _journal_only(installed)
+    _emit(handle, "a" * secret_at + f" password={SECRET_CANARY}-{'z' * 600}")
+    (event,) = _records(handle)
+    assert len(str(event["template"])) <= 500
+    assert SECRET_CANARY[:8] not in str(event["template"])
+
+
+def test_log_journal_a_warn_logged_inside_the_build_is_one_event_and_one_counted_drop(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _journal_only(installed)
+    handler = _handler(handle)
+    real_build = handler._journal_event  # pyright: ignore[reportPrivateUsage]
+    built: list[str] = []
+
+    def logging_build(record: logging.LogRecord) -> Any:
+        built.append(str(record.msg))
+        if len(built) == 1:
+            _emit(handle, "logged from inside the build")
+        return real_build(record)
+
+    monkeypatch.setattr(handler, "_journal_event", logging_build)
+    _emit(handle, "outer")
+    assert built == ["outer"]  # the nested record was not built
+    assert [r["template"] for r in _records(handle)] == ["outer"]
+    assert handle.context.capture.journal.status()["dropped"] == {"reentrant": 1}
+
+
+def test_log_journal_a_nested_record_is_counted_without_building_an_event(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _journal_only(installed)
+    journal = handle.context.capture.journal
+    handler = _handler(handle)
+    real_build = handler._journal_event  # pyright: ignore[reportPrivateUsage]
+    real_append = journal._append  # pyright: ignore[reportPrivateUsage]
+    built: list[str] = []
+
+    def logging_append(event: Any, store: Any) -> bool:
+        _emit(handle, "from inside the offer")
+        return real_append(event, store)
+
+    monkeypatch.setattr(handler, "_journal_event", lambda r: built.append(str(r.msg)) or real_build(r))
+    monkeypatch.setattr(journal, "_append", logging_append)
+    _emit(handle, "outer")
+    assert built == ["outer"]
+    assert journal.status()["dropped"] == {"reentrant": 1}
+
+
+def test_log_journal_a_template_with_arguments_is_masked_once(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _journal_only(installed)
+    calls = _Calls(monkeypatch)
+    for number in range(3):
+        _emit(handle, "Payment for order %s retried", number)
+    assert calls.texts == ["Payment for order %s retried"]  # a hit masks nothing new
+    assert [r["template"] for r in _records(handle)] == ["Payment for order %s retried"] * 3
+
+
+def test_log_journal_a_template_without_arguments_is_never_cached(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _journal_only(installed)
+    calls = _Calls(monkeypatch)
+    for _ in range(2):
+        _emit(handle, f"order {ARG_CANARY} failed")  # an f-string: unmasked text must not be held in memory
+    assert len(calls.texts) == 2
+    assert _cache_size(handle) == 0
+
+
+def test_log_journal_the_template_cache_is_capped(installed: list[Any]) -> None:
+    handle = _journal_only(installed)
+    for number in range(300):
+        _emit(handle, f"call site {number} failed with %s", 1)
+    assert len(_records(handle)) == 300
+    assert _cache_size(handle) <= 256
+
+
+def test_log_journal_a_cached_template_follows_the_maskers_never_shown_set(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _journal_only(installed)
+    offered = _offered_by(handle, monkeypatch)  # as built: the journal masks again at read time
+    template = "found zq-identity-key-text-61 in %s"
+    _emit(handle, template, 1)
+    handle.context.masker.identity_key = b"zq-identity-key-text-61"  # set after install, as install() does
+    _emit(handle, template, 1)
+    shown, hidden = offered
+    assert shown["template"] == template
+    assert "zq-identity-key-text-61" not in str(hidden["template"])
