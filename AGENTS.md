@@ -136,6 +136,12 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 ## Workflow
 
+- **Port BootUI, do not reinvent** (owner, 2026-11-12: "whatever we can directly port from BootUI we should; we don't
+  need to recreate anything, just rewrite and adapt"). Before writing any code for a feature, read BootUI's own source
+  for it at the pinned tag (`git show v2.3.0:<path>` for 0.6.0; `v2.4.0` for 0.7.0) and translate it: same structure,
+  order of checks, thresholds, user-facing texts (env names adapted) and tests (`# ported:`). Adapt only where
+  Python/FastAPI/SQLAlchemy forces it or an owner ruling differs; each adaptation is one deviation row in the lane's
+  matrix fragment with its reason. Never design from a summary of BootUI: read the lines.
 - **CI and sbx run in 3-5 minutes on average** (owner, top priority). When a PR's CI run or an sbx full-suite run
   averages above 5 minutes, fixing that comes before other work: refresh the shard weights, rebalance shards, cut
   setup, optimize slow tests. Never by skipping, deselecting or weakening a test or raising a budget. Numbers and how
