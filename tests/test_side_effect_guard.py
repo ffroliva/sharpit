@@ -313,3 +313,34 @@ def test_a_left_behind_monitoring_spy_is_reported(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(sys.monitoring, "set_events", lambda *_args: None)
 
     assert leaked_runtime_spies() == ["sys.monitoring.set_events"]
+
+
+def test_another_workers_pytest_cache_staging_dir_is_not_a_side_effect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # sbx K9 and P-http: a parallel xdist worker's cache writer staged pytest-cache-files-* in the shared cwd mid-test
+    def stage(_guard: SideEffectGuard) -> None:
+        staged = Path.cwd() / "pytest-cache-files-a9zm7kpp"
+        staged.mkdir()
+        (staged / "lastfailed").write_text("{}", encoding="utf-8")
+
+    assert _sweep_error(stage, tmp_path, monkeypatch) is None
+
+
+def test_a_file_written_in_the_cwd_is_still_a_side_effect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # the control: only pytest's own staging dir is ignored, never a write the code under test makes
+    error = _sweep_error(
+        lambda _guard: (Path.cwd() / "pytest-cache.json").write_text("{}", encoding="utf-8"), tmp_path, monkeypatch
+    )
+    assert error is not None
+    assert "cwd changed" in error
+
+
+@pytest.mark.parametrize("name", ["pytest-cache-other-x", "nested/pytest-cache-files-x"])
+def test_a_directory_made_in_the_cwd_is_still_a_side_effect(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the skip is exactly pytest's staging prefix at the top of the cwd, nothing near it
+    error = _sweep_error(lambda _guard: (Path.cwd() / name).mkdir(parents=True), tmp_path, monkeypatch)
+    assert error is not None
+    assert "cwd changed" in error
