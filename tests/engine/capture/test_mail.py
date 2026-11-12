@@ -11,7 +11,7 @@ import sys
 import types
 import weakref
 from email.message import EmailMessage
-from typing import Any, NamedTuple
+from typing import Any, ClassVar, NamedTuple
 
 import pytest
 
@@ -223,59 +223,60 @@ class _Response(NamedTuple):  # aiosmtplib.SMTPResponse
     message: str
 
 
-@pytest.fixture
-def fake_aiosmtplib(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+class _AsyncSMTP:
     """aiosmtplib's shape (5.1.3, smtp.py): ``connect`` opens the transport in ``_create_connection``, and every
     command after it (login, quit) runs through ``self.protocol``; no server is reachable here."""
+
+    attempts: ClassVar[list[object]] = []
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, Any, Any]] = []
+        self.protocol: Any = None
+
+    async def _create_connection(self, timeout: float | None) -> _Response:
+        self.attempts.append(timeout)
+        raise ConnectionRefusedError("no SMTP server reachable")
+
+    async def connect(self) -> _Response:
+        return await self._create_connection(timeout=None)
+
+    async def execute_command(self, *args: bytes, timeout: float | None = None) -> _Response:
+        if self.protocol is None:
+            raise ConnectionError("Server not connected")
+        return await self.protocol.execute_command(*args, timeout=timeout)
+
+    async def login(self, username: str, password: str) -> _Response:
+        response = await self.execute_command(b"AUTH", b"PLAIN", f"{username}:{password}".encode())
+        assert response.code == 235
+        return response
+
+    async def quit(self) -> _Response:
+        response = await self.execute_command(b"QUIT")
+        self.protocol = None
+        return response
+
+    async def __aenter__(self) -> _AsyncSMTP:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.quit()
+
+    async def sendmail(self, sender: str, recipients: Any, message: Any, **_options: Any) -> tuple[dict[str, Any], str]:
+        self.sent.append((sender, recipients, message))
+        return {}, "OK"
+
+    async def send_message(self, message: Any) -> tuple[dict[str, Any], str]:
+        return await self.sendmail(message["From"], [message["To"]], message.as_bytes())
+
+
+@pytest.fixture
+def fake_aiosmtplib(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     module = types.ModuleType("aiosmtplib")
-    attempts: list[object] = []
-
-    class SMTP:
-        def __init__(self) -> None:
-            self.sent: list[tuple[str, Any, Any]] = []
-            self.protocol: Any = None
-
-        async def _create_connection(self, timeout: float | None) -> _Response:
-            attempts.append(timeout)
-            raise ConnectionRefusedError("no SMTP server reachable")
-
-        async def connect(self) -> _Response:
-            return await self._create_connection(timeout=None)
-
-        async def execute_command(self, *args: bytes, timeout: float | None = None) -> _Response:
-            if self.protocol is None:
-                raise ConnectionError("Server not connected")
-            return await self.protocol.execute_command(*args, timeout=timeout)
-
-        async def login(self, username: str, password: str) -> _Response:
-            response = await self.execute_command(b"AUTH", b"PLAIN", f"{username}:{password}".encode())
-            assert response.code == 235
-            return response
-
-        async def quit(self) -> _Response:
-            response = await self.execute_command(b"QUIT")
-            self.protocol = None
-            return response
-
-        async def __aenter__(self) -> SMTP:
-            await self.connect()
-            return self
-
-        async def __aexit__(self, *_exc: object) -> None:
-            await self.quit()
-
-        async def sendmail(
-            self, sender: str, recipients: Any, message: Any, **_options: Any
-        ) -> tuple[dict[str, Any], str]:
-            self.sent.append((sender, recipients, message))
-            return {}, "OK"
-
-        async def send_message(self, message: Any) -> tuple[dict[str, Any], str]:
-            return await self.sendmail(message["From"], [message["To"]], message.as_bytes())
-
-    module.SMTP = SMTP  # type: ignore[attr-defined]
+    monkeypatch.setattr(_AsyncSMTP, "attempts", [])
+    module.SMTP = _AsyncSMTP  # type: ignore[attr-defined]
     module.SMTPResponse = _Response  # type: ignore[attr-defined]
-    module.attempts = attempts  # type: ignore[attr-defined]
+    module.attempts = _AsyncSMTP.attempts  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "aiosmtplib", module)
     return module
 
