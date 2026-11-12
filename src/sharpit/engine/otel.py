@@ -48,6 +48,18 @@ def _sdk_provider() -> Any | None:
     return provider if callable(getattr(provider, "add_span_processor", None)) else None
 
 
+def current_trace_id() -> str | None:
+    """The trace id (32 lower-case hex) of the span in flight in this context, else ``None``; never imports OTel."""
+    trace = sys.modules.get("opentelemetry.trace")
+    if trace is None:
+        return None
+    try:
+        context = trace.get_current_span().get_span_context()
+        return f"{context.trace_id:032x}" if context.is_valid else None
+    except Exception:  # noqa: BLE001 - a host's tracing never changes a query
+        return None
+
+
 def unavailable_reason() -> str | None:
     if otel_sdk() is None:
         return NO_SDK

@@ -35,7 +35,7 @@ from sharpit.engine.sqltext import Dialect
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 REENTRANT, FAILED = "reentrant", "failed"  # the dropped keys of offers without a readable source
 _MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
-_SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
+SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
 _COUNTS = {"ai": frozenset({"inputTokens", "outputTokens"})}  # AiPayload's Long token counts: numbers, not secrets
 
 Event = Mapping[str, object]
@@ -87,13 +87,13 @@ def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
     if isinstance(plain, list | tuple):
         items = [_snapshot(item, depth + 1) for item in cast("Sequence[object]", plain)]
         return [item for item, _ in items], sum(size for _, size in items)
-    return plain, _SCALAR_BYTES
+    return plain, SCALAR_BYTES
 
 
 def _flat(event: Event) -> tuple[object, int]:
     """``_snapshot``'s size for a flat event of scalars, without the copy: the caller handed the event over."""
     return event, sum(
-        len(key) + (len(value) if isinstance(value, str) else _SCALAR_BYTES) for key, value in event.items()
+        len(key) + (len(value) if isinstance(value, str) else SCALAR_BYTES) for key, value in event.items()
     )
 
 
@@ -228,9 +228,15 @@ class RuntimeJournal:
     def offer(self, event: Event) -> bool:
         return self._offer(event, _snapshot)
 
-    def offer_flat(self, event: dict[str, str | int | bool | None]) -> bool:
-        """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy."""
-        return self._offer(event, _flat)
+    def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None) -> bool:
+        """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy.
+
+        A per-statement producer passes ``size``, which must equal what ``_flat`` charges (its test proves it); a size
+        below 1 is not trusted, and the event is walked instead, so it never bypasses ``max_bytes``.
+        """
+        if size is None or size < 1:
+            return self._offer(event, _flat)
+        return self._offer(event, lambda stored: (stored, size))
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
@@ -269,31 +275,54 @@ class RuntimeJournal:
         self._accepted[source] += 1
         return True
 
+    def accepts(self, source: str) -> bool:
+        """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
+        return self._accepting and (self.sources is None or source in self.sources)
+
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
             events = tuple(event for event, _, _ in self._events if event.get("source") == source)
         return self._masked(source, events)
 
-    def _masked(self, source: str, events: Iterable[dict[str, object]]) -> tuple[dict[str, object], ...]:
+    def _masked(
+        self, source: str, events: Iterable[dict[str, object]], memo: dict[tuple[str, str | None], object] | None = None
+    ) -> tuple[dict[str, object], ...]:
         counts = _COUNTS.get(source, frozenset())
-        return tuple(
-            {
-                key: value if key in counts and _count(value) else _mask(value, key, self.masker)
-                for key, value in event.items()
-            }
-            for event in events
-        )
+        masker = self.masker
+        # one read sees the same texts over and over (a statement's shape, a thread name, a request's id on each of its
+        # events): each is masked once. Only text and None are kept, whose result is immutable and depends on nothing
+        # but (key, value) during one read; ``view`` shares one memo across its sources.
+        memo = {} if memo is None else memo
+
+        def shown(key: str, value: object) -> object:
+            if key in counts and _count(value):
+                return value
+            kind = type(value)
+            if kind is int or kind is bool or kind is float:
+                return masker.mask(key, value)[0]  # what ``_mask`` answers for a plain number, without its walk
+            if value is not None and kind is not str:
+                return _mask(value, key, masker)
+            entry = (key, cast("str | None", value))
+            if entry not in memo:
+                memo[entry] = _mask(value, key, masker)
+            return memo[entry]
+
+        return tuple({key: shown(key, value) for key, value in event.items()} for event in events)
 
     def view(
         self, sources: Iterable[str]
     ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None]:
         """``status()``, ``records(s)`` per source and the newest event's epoch ms from ONE lock acquisition."""
-        wanted = tuple(sources)
+        held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
         with self._lock:
             status = self._status()
-            held = {s: tuple(e for e, _, _ in self._events if e.get("source") == s) for s in wanted}
-            newest = max((stamp for _, _, stamp in self._events), default=None)  # BootUI takes the max epoch
-        return status, {s: self._masked(s, events) for s, events in held.items()}, newest
+            newest = None
+            for event, _, stamp in self._events:  # one pass, whatever the number of sources read
+                if (bucket := held.get(cast("str", event.get("source")))) is not None:
+                    bucket.append(event)
+                newest = stamp if newest is None or stamp > newest else newest  # BootUI takes the max epoch
+        memo: dict[tuple[str, str | None], object] = {}
+        return status, {s: self._masked(s, events, memo) for s, events in held.items()}, newest
 
     def suspend(self) -> None:
         with self._lock:

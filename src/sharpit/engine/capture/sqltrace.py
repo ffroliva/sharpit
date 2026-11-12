@@ -268,15 +268,21 @@ class SqlTraceRecorder:
         request_id: str | None = None,
         call_site: str | None = None,
         batch_size: int | None = None,
-    ) -> None:
-        """Build the masked row once, at capture time; a paused recorder returns before any work."""
+    ) -> str | None:
+        """Build the masked row once, at capture time; a paused recorder returns before any work.
+
+        Returns the literal-free statement text (never the raw SQL), which the journal event carries; ``None`` paused.
+        """
         if not self.recording:
-            return
+            return None
         masker = self._masker
         shape: Shape = self._shape(sql, dialect)
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
-        stored = (masker.mask_text(sql) or "") if raw else shape.text
+        text = _truncate(
+            shape.text, self._max_sql_length
+        )  # the journal event's text (``journal_text``), the row's unless raw
+        stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
         error_message: str | None = None
         if error is not None:
             masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")
@@ -288,7 +294,7 @@ class SqlTraceRecorder:
         row = {
             "id": 0,
             "timestamp": time.time_ns(),  # epoch ns, for ordering; entry_dto converts to the contract's epoch ms
-            "sql": _truncate(stored, self._max_sql_length),
+            "sql": stored,
             "statementType": "PREPARED" if has_parameters else "STATEMENT",
             "category": category,
             "durationMicros": duration_ns // 1_000,
@@ -338,6 +344,11 @@ class SqlTraceRecorder:
                 if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
                     aggregate.call_sites[site] = None
         self.changes.signal()
+        return text
+
+    def journal_text(self, sql: str, dialect: Dialect) -> str:
+        """The literal-free text ``record`` returns, for the journal while the panel is paused (no row is kept)."""
+        return _truncate(self._shape(sql, dialect).text, self._max_sql_length)
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
