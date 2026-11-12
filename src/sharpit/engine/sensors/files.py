@@ -9,12 +9,13 @@ Imports (the interpreter's own prefixes) and sharpit's own state are left out an
 
 from __future__ import annotations
 
+import inspect
 import os
 import posixpath
 import re
+import shutil
 import sys
 import tempfile
-import threading
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -33,6 +34,11 @@ _DIGITS = re.compile(r"\d+")
 _COLLAPSIBLE = re.compile(r"\d|eyJ|[A-Za-z]{24}")  # nothing else can collapse: most paths stop here, after one scan
 _SEEN = 256  # distinct paths remembered per sensor, cleared when full (BootUI's Seen cache)
 _HEX_LETTERS = frozenset("abcdefABCDEF")
+_WRITE_MODE = frozenset("wax+")
+_MISS = ("", "")  # a cache miss; no path resolves to it
+_PENDING = 64  # announced copy paths remembered, cleared when full (a copy that failed before opening leaves two)
+_COPYFILE = shutil.copyfile.__code__
+_COPY_DEPTH = 12  # frames from the sensor up to the copyfile that opened the file: dispatcher, sensor, a few more
 _DRIVE = re.compile(r"[A-Za-z]:/")
 _SYSTEM = (
     "/etc", "/usr", "/proc", "/sys", "/dev", "/bin", "/sbin", "/lib", "/var", "/boot", "/opt",
@@ -136,7 +142,7 @@ class FilesSensor:
         self._skip = tuple(_fold(_slashes(os.path.abspath(path)).rstrip("/") + "/") for path in skipped if path)
         self._system = tuple(_fold(prefix + "/") for prefix in _SYSTEM)
         self._seen: dict[str, tuple[str, str] | None] = {}  # raw path -> (pattern, location); None: left out
-        self._copying = threading.local()  # the two paths a copyfile is about to open itself, per thread
+        self._pending: set[str | None] = set()  # paths a copyfile announced and has not opened yet
         self.ignored = 0
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -151,14 +157,13 @@ class FilesSensor:
     def _open(self, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
         if len(args) < 3:
             return ()
-        path, mode, flags = args[:3]
-        if self._is_inner_copy_open(path):
+        path, mode, flags = args[0], args[1], args[2]
+        if self._pending and self._is_inner_copy_open(path):
             return ()
-        wrote = (
-            any(c in mode for c in "wax+")
-            if isinstance(mode, str)
-            else bool(isinstance(flags, int) and flags & _WRITE_FLAGS)
-        )
+        if type(mode) is str:
+            wrote = not _WRITE_MODE.isdisjoint(mode)
+        else:
+            wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
         return self._row("write" if wrote else "read", path)
 
     def _pair(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -166,29 +171,37 @@ class FilesSensor:
         if len(args) < 2:
             return ()
         if verb == "copy":
-            self._copying.paths = {_text(args[0]), _text(args[1])}
+            if len(self._pending) >= _PENDING:
+                self._pending.clear()
+            self._pending.update((_text(args[0]), _text(args[1])))
         return (*self._row(f"{verb} from", args[0]), *self._row(f"{verb} to", args[1]))
 
     def _is_inner_copy_open(self, path: object) -> bool:
-        """The open ``shutil.copyfile`` makes of a path it just announced is the copy's own: BootUI records it once."""
-        pending: set[str | None] | None = getattr(self._copying, "paths", None)
-        if not pending:
-            return False
+        """The open ``shutil.copyfile`` makes of a path it announced is the copy's own: BootUI records it once.
+
+        Only an open made from inside ``copyfile`` is: a copy that failed after its event (``SameFileError``) opened
+        nothing, so the application's next open of that path is its own and is recorded.
+        """
         text = _text(path)
-        if text in pending:
-            pending.discard(text)
-            return True
-        pending.clear()  # the next open is not the copy's: nothing is held over
+        if text not in self._pending:
+            return False
+        self._pending.discard(text)
+        frame = inspect.currentframe()
+        for _ in range(_COPY_DEPTH):
+            if frame is None:
+                return False
+            if frame.f_code is _COPYFILE:
+                return True
+            frame = frame.f_back
         return False
 
     def _row(self, kind: str, path: object) -> tuple[Mapping[str, object], ...]:
-        text = _text(path)
+        text = path if type(path) is str else _text(path)
         if not text:
             return ()  # a file descriptor names no file, nor does an empty name
         seen = self._seen
-        if text in seen:
-            found = seen[text]
-        else:
+        found = seen.get(text, _MISS)  # one lookup: another thread may clear the cache between two
+        if found is _MISS:
             if len(seen) >= _SEEN:
                 seen.clear()
             found = seen[text] = self._resolve(_slashes(text))
