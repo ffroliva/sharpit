@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import sys
 import threading
 import time
 import weakref
@@ -556,7 +557,12 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
             if journal is None and not recorder.recording:
                 continue  # paused, and nothing for the journal: BootUI records nothing (-1)
             parent = parents.get(id(recorder))
-            method = call_site(None) if ctx.settings.sql_trace_capture_call_site else "unknown"
+            # the walk starts at the listener's caller (tx_begin's or tx_savepoint's): the frames below are sharpit's
+            method = (
+                call_site(sys._getframe(2))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+                if ctx.settings.sql_trace_capture_call_site
+                else "unknown"
+            )
             entry_id = recorder.begin(
                 id(conn),
                 parent=parent,
