@@ -356,3 +356,17 @@ def test_a_suspended_journal_accepts_no_source() -> None:
     assert journal.accepts("sql") is True
     journal.suspend()
     assert journal.accepts("sql") is False
+
+
+def test_count_dropped_takes_the_lock_the_other_writers_hold() -> None:
+    from sharpit.engine.capture.journal import RuntimeJournal
+
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, queue_capacity=10)
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (journal.count_dropped("log"), done.set()))
+    with journal._lock:
+        worker.start()
+        blocked = not done.wait(0.3)
+    worker.join(5)
+    assert blocked
+    assert done.is_set()

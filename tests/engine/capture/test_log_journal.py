@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import tracemalloc
 from collections.abc import Iterator
 from typing import Any
 
@@ -19,6 +20,7 @@ from sharpit.engine import otel
 from sharpit.engine.capture import logtail
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.masking import Masker
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.service import InsightsService
 
@@ -523,3 +525,20 @@ def test_log_journal_a_cached_template_follows_the_maskers_never_shown_set(
     shown, hidden = offered
     assert shown["template"] == template
     assert "zq-identity-key-text-61" not in str(hidden["template"])
+
+
+def test_log_journal_the_template_cache_does_not_keep_the_whole_text_alive(installed: list[Any]) -> None:
+    handle = _journal_only(installed)
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for number in range(256):
+            _emit(handle, f"call site {number:04d} " + "x" * 1_000_000 + " %s", 1)
+        retained = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+    assert retained < 20_000_000  # the masked window of 256 templates, not 256 one-megabyte texts
+
+
+def test_masker_has_no_public_exposure_property() -> None:
+    assert not hasattr(Masker, "exposure")
