@@ -16,6 +16,7 @@ from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
 from sharpit.engine.collectors.insights.sqlcapture import DISABLED as SQL_CAPTURE_DISABLED
 from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
+from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 from sharpit.engine.sqla import TRACING_DISABLED, sql_trace_unavailable_reason
 
@@ -249,10 +250,11 @@ class InsightsService:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
         snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
+        capture = self._capture()
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
         for observation in self.observations:
-            check, rows = self._evaluate(observation, snapshot)
+            check, rows = self._evaluate(observation, snapshot, capture)
             checks.append(check)
             found += rows
         found.sort(
@@ -263,7 +265,16 @@ class InsightsService:
             str(row["id"]): (row, finding) for row, finding in found
         }
 
-    def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[tuple[Row, Finding]]]:
+    def _capture(self) -> SqlCapture:
+        """RuntimeInsightsService.sqlCapture: asked once per report; null is capturing, a failure is not recorded."""
+        try:
+            return self.sql_capture() or SqlCapture.capturing()
+        except Exception as error:  # noqa: BLE001 - the report never fails over this question
+            return SqlCapture.not_recorded(SQL_CAPTURE_UNREADABLE.format(type(error).__name__))
+
+    def _evaluate(
+        self, observation: Observation, snapshot: Snapshot, capture: SqlCapture
+    ) -> tuple[Row, list[tuple[Row, Finding]]]:
         missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
         if missing is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, _missing(snapshot, missing)), []
@@ -276,7 +287,6 @@ class InsightsService:
         evaluate = observation.evaluate
         if evaluate is None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, NOT_IMPLEMENTED), []
-        capture = self.sql_capture()
         reads_sql = bool(observation.reads & SQL_SOURCES)
         if not capture.recorded and reads_sql:
             return _check(observation, "UNAVAILABLE", 0, 0, capture.reason), []
@@ -327,10 +337,11 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         panel = ctx.settings.panels.get(panel_id)
         return panel is None or panel.enabled
 
-    def sql_capture() -> SqlCapture:  # the capture layer's own answer, asked per report
-        if sql_trace_unavailable_reason(ctx) == TRACING_DISABLED:
-            return SqlCapture.not_recorded(SQL_CAPTURE_DISABLED)
-        return SqlCapture.capturing()
+    def sql_capture() -> SqlCapture:  # SqlCapture.of: switched off, no recorder (neither source in use), or capturing
+        reason = sql_trace_unavailable_reason(ctx)
+        if reason is None:
+            return SqlCapture.capturing()
+        return SqlCapture.not_recorded(SQL_CAPTURE_DISABLED if reason == TRACING_DISABLED else None)
 
     return ctx.lazy(
         "runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, sql_capture)
