@@ -378,7 +378,7 @@ def test_framework_warnings_by_route_a_clean_run_is_evaluated_and_clean() -> Non
 
 def test_framework_warnings_by_route_without_requests_is_insufficient_not_clean() -> None:
     run = Run()
-    run.unowned(log(POOL, ERROR, LEAK))
+    run.unowned(log(POOL, "WARN", LEAK))
     assert run.check(WARNINGS)["status"] == "INSUFFICIENT"
 
 
@@ -509,7 +509,8 @@ def test_framework_warnings_by_route_leaks_that_differ_only_by_address_are_one_g
         run.request(200, log(POOL, ERROR, f"{LEAK} <connection object at {address}>"))
     run.unowned(*[log(POOL, ERROR, f"{LEAK} <connection object at 0x7f3a1c2b{n}>") for n in ("0001", "0002")])
     findings = run.evaluate(WARNINGS).findings
-    (grouped,) = by_subject(findings, ORDERS)
+    assert len(by_subject(findings, ORDERS)) == 1
+    grouped = by_subject(findings, ORDERS)[0]
     assert grouped.affected == 2
     assert grouped.sentence.endswith('<connection object at <addr>>".')
     (unowned,) = by_subject(findings, "No request")
