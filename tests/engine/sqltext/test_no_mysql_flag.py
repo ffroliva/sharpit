@@ -323,14 +323,14 @@ def test_no_internal_key_reaches_an_entry(surface: str) -> None:
 @pytest.mark.parametrize("surface", SURFACES)
 def test_a_planted_row_key_reaches_an_entry(surface: str, monkeypatch: pytest.MonkeyPatch) -> None:
     # the check above needs teeth: a key the row gains and ``entry_dto`` does not pop shows on all three; every read
-    # builds its rows through ``materialize``, so the key is planted there
+    # builds its rows through ``compact_dto``, so the key is planted there
     ctx = _ctx()
-    real = sqltrace.materialize
+    real = sqltrace.compact_dto
 
     def planted(*args: Any) -> dict[str, Any]:
         return {**real(*args), "dialect": Dialect.UNSUPPORTED}
 
-    monkeypatch.setattr(sqltrace, "materialize", planted)
+    monkeypatch.setattr(sqltrace, "compact_dto", planted)
 
     entries = SURFACES[surface](ctx)
 

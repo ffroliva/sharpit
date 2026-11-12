@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
-from sharpit.engine.capture.sqltrace import SqlTraceRecorder, entry_dto  # noqa: E402
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.engine.testsession.sink import report_masker  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -150,6 +150,6 @@ def test_a_request_statement_during_startup_is_not_labelled() -> None:
     recorder.record("select 1", duration_ns=1, thread="t", connection_id=None, dialect=Dialect.SQLITE, request_id="r1")
     recorder.record("select 2", duration_ns=1, thread="t", connection_id=None, dialect=Dialect.SQLITE)
 
-    request, outside = (entry_dto(row) for row in recorder.rows())
+    request, outside = recorder.report([])["entries"][::-1]
     assert request["requestPhase"] is None
     assert outside["requestPhase"] == "STARTUP"

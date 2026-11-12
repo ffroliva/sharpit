@@ -343,7 +343,6 @@ def insights_report(
     if recorder is None or reason is not None:
         return unavailable_report(reason or "SQL tracing is not active, so there are no retained statements to rank.")
     rows = recorder.rows()
-    counters = recorder.report([])  # the ring's public counters: captured, evicted
     groups: dict[str, Group] = {}
     for row in rows:
         _add(groups, row)
@@ -351,7 +350,7 @@ def insights_report(
     statements = rank(list(groups.values()), total)
     truncated = len(groups) > len(statements)
     stamps = [row["timestamp"] // 1_000_000 for row in rows]  # epoch ns -> ms
-    evicted = counters["stats"]["evicted"]
+    captured, evicted = recorder.counters()
     notes = [
         f"Rankings cover the {len(rows)} statement executions currently retained in the SQL Trace buffer of "
         f"{recorder.max_entries}. They are diagnostic evidence for this window, not lifetime metrics."
@@ -380,7 +379,7 @@ def insights_report(
             "retainedStatements": len(rows),
             "bufferSize": recorder.max_entries,
             "evicted": evicted,
-            "totalCaptured": counters["totalCaptured"],
+            "totalCaptured": captured,
             "oldestTimestamp": min(stamps, default=None),
             "newestTimestamp": max(stamps, default=None),
             "totalDurationMillis": total,

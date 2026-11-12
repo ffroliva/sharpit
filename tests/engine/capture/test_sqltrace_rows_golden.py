@@ -14,13 +14,14 @@ import json
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from sharpit.engine import sqla
 from sharpit.engine.activation import ActivationStatus
-from sharpit.engine.capture import activity, sqlinsights, transactions
+from sharpit.engine.capture import activity, sqlinsights, sqltrace, transactions
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer, exchange_row
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.collectors import sqlastats
@@ -165,7 +166,8 @@ def _json(value: object) -> str:
 
 def _case(exposure: str, capture: bool, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     clock = _Clock()
-    monkeypatch.setattr("time.time_ns", clock)
+    # only the recorder's clock: a new ``time_ns`` call elsewhere must not shift every golden timestamp
+    monkeypatch.setattr(sqltrace, "time", SimpleNamespace(time_ns=clock))
     monkeypatch.setattr(sqla, "unavailable_reason", lambda: None)
     ctx = _ctx(exposure, capture)
     recorder = ctx.capture.sql_trace
