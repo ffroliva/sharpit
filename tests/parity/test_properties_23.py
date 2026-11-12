@@ -28,7 +28,6 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.allow-non-localhost"),
     pytest.mark.bootui("prop:bootui.allowed-hosts"),
     pytest.mark.bootui("prop:bootui.authentication.token"),
-    pytest.mark.bootui("prop:bootui.cache.clear-enabled"),
     pytest.mark.bootui("prop:bootui.claude-code.allow-raw-reveal"),
     pytest.mark.bootui("prop:bootui.claude-code.enabled"),
     pytest.mark.bootui("prop:bootui.claude-code.max-events-per-session"),
