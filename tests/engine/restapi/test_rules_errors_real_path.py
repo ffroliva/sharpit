@@ -75,6 +75,30 @@ def throttle_dynamic_header(_request: object, _exc: RuntimeError) -> JSONRespons
     return JSONResponse({"a": 1}, status_code=503, headers=_hdrs())
 
 
+def branchy_retry_first(_request: object, _exc: ValueError) -> JSONResponse:
+    if _compute():
+        return JSONResponse({"a": 1}, status_code=429, headers={"Retry-After": "5"})
+    return JSONResponse({"a": 1}, status_code=429)
+
+
+def branchy_retry_last(_request: object, _exc: KeyError) -> JSONResponse:
+    if _compute():
+        return JSONResponse({"a": 1}, status_code=429)
+    return JSONResponse({"a": 1}, status_code=429, headers={"Retry-After": "5"})
+
+
+def branchy_status_first(_request: object, _exc: LookupError) -> JSONResponse:
+    if _compute():
+        return JSONResponse({"a": 1}, status_code=400)
+    return JSONResponse({"a": 1})
+
+
+def branchy_status_last(_request: object, _exc: OSError) -> JSONResponse:
+    if _compute():
+        return JSONResponse({"a": 1})
+    return JSONResponse({"a": 1}, status_code=400)
+
+
 def _app(*handlers: object) -> FastAPI:
     app = FastAPI(openapi_url=None)
 
@@ -192,3 +216,16 @@ def test_scan_and_panel_resolve_the_same_handlers(tmp_path: Path) -> None:
         assert "RAPI-ERR-004" not in {r["id"] for r in scan["results"]}  # the scan lists violating rules only
     finally:
         handle.uninstall_capture()
+
+
+# --- round 3: branches that disagree are unknown, whatever their order ---------------------------------------------
+
+
+def test_err007_branches_that_disagree_on_retry_after_are_unknown_in_either_order() -> None:
+    app = _app(branchy_retry_first, branchy_retry_last)
+    assert _targets(app, "RAPI-ERR-007") == []
+
+
+def test_err004_branches_that_disagree_on_status_are_unknown_in_either_order() -> None:
+    app = _app(branchy_status_first, branchy_status_last)
+    assert _targets(app, "RAPI-ERR-004") == []
