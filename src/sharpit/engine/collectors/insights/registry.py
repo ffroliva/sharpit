@@ -45,6 +45,11 @@ class KindSpec:
         return getattr(self.module, "evaluate", None)
 
     @property
+    def not_applicable(self) -> Callable[[Snapshot], str | None] | None:
+        """BootUI ``Observation.notApplicable``: why the kind cannot run on this snapshot, else ``None``."""
+        return getattr(self.module, "not_applicable", None)
+
+    @property
     def implemented(self) -> bool:
         """Read from the kind module at call time: a flip or a monkeypatch is seen everywhere."""
         return bool(self.module.IMPLEMENTED)

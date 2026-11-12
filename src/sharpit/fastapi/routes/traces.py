@@ -24,7 +24,7 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     journal = ctx.capture.journal
     if journal is not None and (journal.sources is None or "ai" in journal.sources):
         # set on the shared buffer whichever route made it; the hook first, as add() checks the journal first
-        buffer.ai_event = ai_journal_event
+        buffer.ai_event = lambda span: ai_journal_event(span, ctx.context_id)  # not another install's request
         buffer.journal = journal
     if settings.panels["traces"].enabled:
         # armed at lifespan startup (or the first request without a lifespan), disarmed by its teardown at shutdown;
