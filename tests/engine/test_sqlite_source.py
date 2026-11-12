@@ -311,16 +311,17 @@ def test_preexisting_connections_counted():
 
 
 def _owner_in(module: str, *, slots: bool = False) -> Any:
-    """An instance of a class defined in ``module`` holding a fresh connection in ``con`` (``__slots__`` or ``__dict__``)."""
+    """An instance of a class from ``module`` holding a fresh connection in ``con`` (``__slots__`` or ``__dict__``)."""
     namespace: dict[str, Any] = {"__name__": module}
     body = "    __slots__ = ('con',)\n" if slots else ""
-    source = f"import sqlite3\nclass Owner:\n{body}    def __init__(self):\n        self.con = sqlite3.connect(':memory:')\n"
+    init = "    def __init__(self):\n        self.con = sqlite3.connect(':memory:')\n"
+    source = f"import sqlite3\nclass Owner:\n{body}{init}"
     exec(source, namespace)  # noqa: S102
     return namespace["Owner"]()
 
 
 def _fresh_count() -> int:
-    """Pre-existing connections as a new scan sees them: ``detach`` alone keeps the 60 s scan cache, ``detach_all`` not."""
+    """Pre-existing connections as a new scan sees them (``detach`` alone keeps the 60 s scan cache)."""
     sqlite.detach_all()
     gc.collect()  # garbage from earlier tests must not leave between the two scans a test compares
     sqlite.attach(HOLDER)
