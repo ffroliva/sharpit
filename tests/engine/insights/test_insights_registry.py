@@ -18,7 +18,7 @@ BOOTUI_KINDS = (
      {"sql", "connection", "rest-client", "authorization", "ai", "orm", "messaging"}),
     ("exception-hotspots", "Exception hotspots", REQ, {"exception"}, set()),
     ("errors-behind-2xx", "Errors behind 2xx responses", REQ, {"http"},
-     {"transaction", "exception", "log", "rest-client", "fault-tolerance"}),
+     {"transaction", "exception", "log", "rest-client"}),  # BootUI also lists fault-tolerance: never read here
     ("repeated-selects", "Repeated SELECTs", REQ, {"sql"}, {"transaction"}),
     ("connections-per-request", "Connections held together", REQ, {"connection"}, set()),
     ("safe-method-dml", "Writes in GET requests", REQ, {"http", "sql"}, set()),
