@@ -542,8 +542,10 @@ def _upgrade(ctx: SharpitContext, ini: Path, target: str, run: Runner) -> tuple[
 
 def _requested(given: object) -> str | None:
     """``FlywayService.requestedBeanName``: blank is None; a JSON scalar reads as its text (Jackson coerces it)."""
-    text = given if isinstance(given, str) else None if given is None else json.dumps(given)
-    return text if text is not None and text.strip() else None
+    if given is None:
+        return None
+    text = given if isinstance(given, str) else json.dumps(given)
+    return text if text.strip() else None
 
 
 def _target(requested: str | None, targets: list[str]) -> str | None:
