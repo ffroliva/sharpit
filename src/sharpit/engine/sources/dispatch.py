@@ -176,6 +176,31 @@ def _journal_event(
     )
 
 
+def _trace_text(
+    ctx: SharpitContext, recorder: SqlTraceRecorder, event: SqlEvent, info: RequestInfo | None, thread: str,
+    site: str | None,
+) -> str | None:  # fmt: skip
+    """The statement's literal-free text: recorded as a trace row, or only shaped for the journal while paused."""
+    dialect = event_dialect(event, lambda ctx=ctx: application_family(ctx))
+    if not recorder.recording:
+        return recorder.journal_text(event.sql, dialect)
+    return recorder.record(
+        event.sql,
+        duration_ns=event.duration_ns,
+        thread=thread,
+        connection_id=event.connection_id,
+        parameters=event.parameters,
+        executemany=event.executemany,
+        success=event.error is None,
+        error=event.error,
+        rowcount=event.rowcount,
+        request_id=info.id if info is not None else None,
+        call_site=site,
+        batch_size=event.batch_size,
+        dialect=dialect,
+    )
+
+
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
     info = REQUEST.get()
     site = (
@@ -187,26 +212,7 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
         if recorder is None:
             continue
         try:
-            dialect = event_dialect(event, lambda ctx=ctx: application_family(ctx))
-            text = (
-                recorder.journal_text(event.sql, dialect)
-                if not recorder.recording
-                else recorder.record(
-                    event.sql,
-                    duration_ns=event.duration_ns,
-                    thread=thread,
-                    connection_id=event.connection_id,
-                    parameters=event.parameters,
-                    executemany=event.executemany,
-                    success=event.error is None,
-                    error=event.error,
-                    rowcount=event.rowcount,
-                    request_id=info.id if info is not None else None,
-                    call_site=site,
-                    batch_size=event.batch_size,
-                    dialect=dialect,
-                )
-            )
+            text = _trace_text(ctx, recorder, event, info, thread, site)
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)
             continue
