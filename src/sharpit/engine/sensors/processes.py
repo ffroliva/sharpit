@@ -21,7 +21,12 @@ _ASSIGNMENT = re.compile(rf"""\s*[A-Za-z_]\w*=(?:{_PIECE}|\$\([^()]*\)|`[^`]*`|\
 _NAMED = re.compile(r"\s*[A-Za-z_]\w*=")  # an assignment, whether its value parses or not
 _WORD = re.compile(rf"""\s*((?:{_PIECE}|[^\s'"\\])++)(?=\s|$)""")
 _QUOTE = re.compile("[\"']")
-_PLAIN = re.compile(r"[^\s'\"\\=]+")  # one word with no quote, escape or '=': a path to basename as it is
+# cmd.exe has no backslash escape: on a Windows-shaped command a word ends at a blank outside quotes
+_WIN_WORD = re.compile(r"""\s*((?:'[^']*'|"[^"]*"|[^\s'"])++)(?=\s|$)""")
+_WINDOWS = re.compile(r"""\s*["']?(?:[A-Za-z]:|\\\\|[\w.-]+\\[\w.-])""")
+_META = ";|&<>#`()$"  # a shell metacharacter ends the program word; one that starts it is no program at all
+_AT_META = re.compile(f"[{re.escape(_META)}]")
+_PLAIN = re.compile(r"[^\s'\"\\=;|&<>#`()$]+")  # one word with no quote, escape or '=': a path to basename as it is
 
 
 def _text(value: object) -> str | None:
@@ -47,12 +52,17 @@ def _program(command: str) -> str | None:
         return UNKNOWN
     if not command[end:].strip():
         return None
-    word = _WORD.match(command, end)
+    word = (_WIN_WORD if _WINDOWS.match(command, end) else _WORD).match(command, end)
     if word is None:
         return UNKNOWN
     token = word[1]
     # a quoted program is its quoted text (a Windows path with blanks); otherwise never past an inner quote (BootUI)
-    program = token[1 : token.index(token[0], 1)] if token[0] in "\"'" else _QUOTE.split(token, 1)[0]
+    if token[0] in "\"'":
+        program = token[1 : token.index(token[0], 1)]
+    elif token[0] in _META:
+        return UNKNOWN
+    else:
+        program = _AT_META.split(_QUOTE.split(token, 1)[0], 1)[0]
     # never past an '=' (BootUI, a start that may have failed), then the file name of this one word only
     name = program.partition("=")[0].replace("\\", "/").rpartition("/")[2].strip()
     return name[:_MAX] or UNKNOWN

@@ -82,18 +82,21 @@ class AuditHub:
         self._by_event = {event: tuple(subs) for event, subs in by_event.items()}
 
     def _dispatch(self, event: str, args: tuple[Any, ...]) -> None:
-        subs = self._by_event.get(event)
-        if subs is None:
-            return
-        busy = self._busy
-        if getattr(busy, "active", False):
-            return
-        busy.active = True
-        try:
-            for sub in subs:
-                self._deliver(sub, event, args)
-        finally:
-            busy.active = False
+        try:  # no line of an audit hook runs unguarded: at interpreter shutdown even the thread-local can fail
+            subs = self._by_event.get(event)
+            if subs is None:
+                return
+            busy = self._busy
+            if getattr(busy, "active", False):
+                return
+            busy.active = True
+            try:
+                for sub in subs:
+                    self._deliver(sub, event, args)
+            finally:
+                busy.active = False
+        except BaseException:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
+            pass
 
     @staticmethod
     def _deliver(sub: _Subscription, event: str, args: tuple[Any, ...]) -> None:
