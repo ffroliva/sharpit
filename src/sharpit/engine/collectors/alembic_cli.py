@@ -17,6 +17,8 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -24,7 +26,6 @@ from typing import Any
 TIMEOUT = 600.0  # hard cap, no setting (plan DEFAULT TAKEN 3)
 MAX_OUTPUT_BYTES = 1024 * 1024  # kept from the end; the caller masks, then caps the response at 4 KiB
 _REAP = 5.0  # seconds to collect output after a kill
-_POPEN = subprocess.Popen  # the real class, bound at import: a patched subprocess.Popen must not break isinstance
 
 
 @dataclass(frozen=True)
@@ -34,16 +35,39 @@ class RunResult:
     failure: str | None  # None, "timeout" or "error"
 
 
-def _text(raw: bytes | None) -> str:
-    data = (raw or b"")[-MAX_OUTPUT_BYTES:]
-    text = data.decode("utf-8", "replace")
-    if len(raw or b"") > MAX_OUTPUT_BYTES:
-        text = text.partition("\n")[2]  # drop the partial first line: a cut secret must not survive
-    return text
+class _Tail:
+    """Reads a pipe on a thread, keeping only the last ``MAX_OUTPUT_BYTES``: a chatty child cannot grow memory."""
+
+    def __init__(self, stream: Any) -> None:
+        self._parts: deque[bytes] = deque()
+        self._size = 0
+        self._total = 0
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(target=self._pump, args=(stream,), daemon=True)
+        self._thread.start()
+
+    def _pump(self, stream: Any) -> None:
+        with contextlib.suppress(OSError, ValueError):
+            while chunk := stream.read1(65536):
+                with self._lock:
+                    self._parts.append(chunk)
+                    self._size += len(chunk)
+                    self._total += len(chunk)
+                    while self._size - len(self._parts[0]) >= MAX_OUTPUT_BYTES:
+                        self._size -= len(self._parts.popleft())
+
+    def text(self, wait: float) -> str:
+        """The kept tail once the pipe closed (or after ``wait`` seconds: a grandchild may still hold it)."""
+        self._thread.join(wait)
+        with self._lock:
+            data = b"".join(self._parts)
+            cut = self._total > MAX_OUTPUT_BYTES
+        text = data[-MAX_OUTPUT_BYTES:].decode("utf-8", "replace")
+        return text.partition("\n")[2] if cut else text  # drop the partial first line: a cut secret must not survive
 
 
 def _kill_tree(proc: Any) -> None:
-    pid = int(proc.pid) if isinstance(proc, _POPEN) else None
+    pid = proc.pid
     if pid is not None:
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             if sys.platform != "win32":
@@ -62,11 +86,9 @@ def _kill_tree(proc: Any) -> None:
         proc.kill()
 
 
-def _drain(proc: Any) -> bytes | None:
-    try:
-        return proc.communicate(timeout=_REAP)[0]
-    except (subprocess.TimeoutExpired, OSError, ValueError):
-        return None  # a grandchild still holds the pipe: give up on the output, never hang
+def _reap(proc: Any) -> None:
+    with contextlib.suppress(subprocess.SubprocessError, OSError, ValueError):
+        proc.wait(timeout=_REAP)  # collect the killed child so no zombie remains on POSIX
 
 
 def run_alembic(
@@ -91,12 +113,15 @@ def run_alembic(
         )
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
+    tail = _Tail(proc.stdout)
     try:
-        raw = proc.communicate(timeout=limit)[0]
+        proc.wait(timeout=limit)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
-        return RunResult(None, _text(_drain(proc)), "timeout")
+        _reap(proc)
+        return RunResult(None, tail.text(_REAP), "timeout")
     except (OSError, ValueError) as exc:
         _kill_tree(proc)
+        _reap(proc)
         return RunResult(None, f"{type(exc).__name__}: {exc}", "error")
-    return RunResult(proc.returncode, _text(raw), None)
+    return RunResult(proc.returncode, tail.text(_REAP), None)

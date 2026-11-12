@@ -422,6 +422,8 @@ def _alembic_migrate_handler(ctx: SharpitContext) -> Any:
         body = _probe_request_body(raw)
         if isinstance(body, Response):
             return body
+        if isinstance(body.get("beanName"), list | dict):  # Jackson cannot read a String from these
+            return error(400, "beanName must be a string")
         try:  # the runner is read off the module per request: the one seam tests replace
             status, result = await run_in_threadpool(alembic.migrate, ctx, body, alembic_cli.run_alembic)
         except ActionBusy as exc:

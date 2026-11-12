@@ -12,6 +12,7 @@ import configparser
 import functools
 import heapq
 import importlib.metadata
+import json
 import os
 import re
 import sys
@@ -484,18 +485,6 @@ def _migrate_reason(ctx: SharpitContext, has_engines: bool) -> str | None:
     return None if has_engines else NO_ENGINE
 
 
-def _section(ini: Path, target: str) -> str | None:
-    """``-n <target>`` only when the ini has a plain-identifier section of that name (a multi-database project)."""
-    if target == "alembic" or not _IDENTIFIER.fullmatch(target):
-        return None
-    parser = configparser.ConfigParser(interpolation=None)
-    try:
-        parser.read_string(ini.read_text("utf-8"))
-    except (configparser.Error, OSError, UnicodeDecodeError):
-        return None
-    return target if parser.has_section(target) else None
-
-
 def _answer(status: int, result: str, message: str, name: str | None, executed: int | None = None) -> tuple[int, Any]:
     return status, {
         "status": result,
@@ -531,8 +520,7 @@ def _failure(ctx: SharpitContext, result: ProcessResult) -> str:
 
 
 def _upgrade(ctx: SharpitContext, ini: Path, target: str, run: Runner) -> tuple[int, Any]:
-    section = _section(ini, target)
-    argv = [sys.executable, "-m", "alembic", "-c", str(ini), *(["-n", section] if section else []), "upgrade", "heads"]
+    argv = [sys.executable, "-m", "alembic", "-c", str(ini), "upgrade", "heads"]
     try:
         result = run(argv, str(ini.parent))
     except Exception as exc:  # noqa: BLE001 - the action answers 500; SingleFlight.run releases the lock
@@ -549,24 +537,31 @@ def _upgrade(ctx: SharpitContext, ini: Path, target: str, run: Runner) -> tuple[
     return _answer(200, "success", message, target, executed)
 
 
+def _requested(given: object) -> str | None:
+    """``FlywayService.requestedBeanName``: blank is None; a JSON scalar reads as its text (Jackson coerces it)."""
+    text = given if isinstance(given, str) else None if given is None else json.dumps(given)
+    return text if text is not None and text.strip() else None
+
+
+def _target(requested: str | None, targets: list[str]) -> str | None:
+    """The engine to migrate, or None. One ``alembic.ini`` drives one database (it runs ``env.py``'s), so with
+    several engines registered no name can be mapped to it: answering "migrated engine #2" would be false."""
+    if len(targets) != 1:
+        return None
+    return targets[0] if requested is None or requested == targets[0] else None
+
+
 def migrate(ctx: SharpitContext, body: dict[str, Any], run: Runner) -> tuple[int, Any]:
-    """``FlywayService.migrate``: blocked, target, confirmation, single-flight, then run. Returns (status, DTO).
+    """``FlywayService.migrate``: target, blocked, confirmation, single-flight, then run. Returns (status, DTO).
 
     The target is one of the engine names sharpit itself reports, never the request string; the argv holds no request
-    text. ``confirm`` must be JSON ``true`` exactly.
+    text. ``confirm`` must be JSON ``true`` exactly. A non-installed Alembic is BootUI's missing provider: 404.
     """
-    given = body.get("beanName")
-    requested = given if isinstance(given, str) and given.strip() else None
-    if not _installed():
-        return _answer(403, "blocked", NOT_INSTALLED, requested)
+    requested = _requested(body.get("beanName"))
     registry = ctx.capture.engine_registry
-    targets = registry.names() if registry is not None else []
     ini = _ini_file(ctx)
-    if requested is None:
-        target = targets[0] if len(targets) == 1 else None
-    else:
-        target = requested if requested in targets else None
-    if ini is None or target is None:
+    target = _target(requested, registry.names() if registry is not None else [])
+    if not _installed() or ini is None or target is None:
         return _answer(404, "unavailable", NO_TARGET, None)
     if body.get("confirm") is not True:
         return _answer(400, "blocked", CONFIRMATION_REQUIRED, target)
