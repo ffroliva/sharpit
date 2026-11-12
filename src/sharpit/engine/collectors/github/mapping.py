@@ -42,8 +42,9 @@ def text(node: Json, name: str) -> str | None:
 
 _LONG = (-(2**63), 2**63 - 1)
 _INT = (-(2**31), 2**31 - 1)
-_INTEGER = re.compile(r"[+-]?[0-9]+")  # ASCII digits only: Jackson gives the default for any other digit
+_INTEGER = re.compile(r"[+-]?\d+", re.ASCII)  # ASCII digits only: Jackson gives the default for any other digit
 _LONG_DIGITS = 19
+_COPILOT_USAGE = "Copilot usage"
 
 
 def _coerce(value: object, bounds: tuple[int, int]) -> int | None:
@@ -402,10 +403,10 @@ def _copilot_metric(usage: dict[str, Any]) -> dict[str, Any]:
     if usage["status"] == "AVAILABLE":
         start, end = usage["reportStartDay"], usage["reportEndDay"]
         detail = "Organization report links available" if start is None or end is None else f"{start} to {end}"
-        return metric("Copilot usage", "Available", detail, "info")
+        return metric(_COPILOT_USAGE, "Available", detail, "info")
     if usage["status"] == "NO_DATA":
-        return metric("Copilot usage", "No data", usage["summary"], "secondary")
-    return metric("Copilot usage", "Unavailable", usage["summary"], "secondary")
+        return metric(_COPILOT_USAGE, "No data", usage["summary"], "secondary")
+    return metric(_COPILOT_USAGE, "Unavailable", usage["summary"], "secondary")
 
 
 def metric(label: str, value: str, detail: str | None, tone: str) -> dict[str, Any]:

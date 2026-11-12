@@ -159,7 +159,7 @@ if sys.platform == "win32":
             return  # out of budget: never overrun the lookup's bound
         system = os.environ.get("SYSTEMROOT", "C:\\Windows")
         taskkill = os.path.join(system, "System32", "taskkill.exe")  # absolute: never a planted taskkill
-        subprocess.run(  # noqa: S603 (absolute system taskkill, fixed arguments)
+        subprocess.run(  # noqa: S603  # absolute system taskkill, fixed arguments
             [taskkill, "/T", "/F", "/PID", str(pid)],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
