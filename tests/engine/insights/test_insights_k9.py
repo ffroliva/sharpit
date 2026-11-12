@@ -22,6 +22,7 @@ from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.service import InsightsService, insights_service
 from sharpit.engine.collectors.insights.snapshot import project
 from sharpit.engine.collectors.insights.text import unit
+from sharpit.engine.masking import Exposure, Masker
 
 MS = 1_000_000
 KIND = "ai-usage-by-route"
@@ -297,3 +298,15 @@ def test_requests_are_projected_once_per_snapshot_with_the_full_http_fields() ->
 @pytest.mark.parametrize("route", ["@Scheduled com.x.Job.run", "consume orders"])
 def test_unit_has_no_java_route_prefixes_no_sharpit_producer_writes(route: str) -> None:
     assert unit(route) == "request"
+
+
+def test_http_ids_withheld_by_metadata_only_exposure_are_not_a_clean_nothing_found() -> None:
+    run = Run(masker=Masker(Exposure.METADATA_ONLY, True))
+    run.request(ASSISTANT, 1, chat(100, 10), chat(100, 10), chat(100, 10))
+    run.request(ASSISTANT, 2, chat(100, 10))
+    check = run.check()
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == (
+        "Request and trace ids are withheld at METADATA_ONLY exposure, so AI operations cannot be placed on a route "
+        "(SHARPIT_EXPOSE_VALUES)."
+    )

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.capture.correlation import REQUEST
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo
 from sharpit.engine.capture.traces import span_buffer
 
 
@@ -157,3 +157,16 @@ def test_a_span_ended_inside_a_request_carries_that_request_id():
     assert journal is not None
     assert seen[0] is not None
     assert journal.records("ai")[0].get("requestId") == seen[0]
+
+
+def test_a_span_ended_in_another_installs_request_carries_no_request_id():
+    ours = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, runtime_journal_sources=("ai",))
+    theirs = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, runtime_journal_sources=("ai",))
+    token = REQUEST.set(RequestInfo("r-theirs", theirs.context.context_id, "GET", "/x", None, 0, None))
+    try:
+        span_buffer(ours.context).add(_span())
+    finally:
+        REQUEST.reset(token)
+    journal = ours.context.capture.journal
+    assert journal is not None
+    assert journal.records("ai")[0].get("requestId") is None
