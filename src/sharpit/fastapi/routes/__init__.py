@@ -427,6 +427,10 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
+    def alembic_migrate(_request: Request) -> Response:  # skeleton: replaced by the feature commit
+        keys = ("status", "message", "beanName", "migrationsExecuted", "schemasCleaned", "schemasDropped")
+        return json_response({**dict.fromkeys(keys, "stub"), "migrationPath": None, "warnings": []}, 404)
+
     def health(_request: Request) -> Response:
         return json_response(health_service(ctx).report())
 
@@ -439,6 +443,7 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
     return [
         Route(f"{api}/alembic/migrations", alembic_migrations, methods=["GET"]),
         Route(f"{api}/alembic/refresh", alembic_refresh, methods=["POST"]),
+        Route(f"{api}/alembic/migrate", alembic_migrate, methods=["POST"]),
         Route(f"{api}/health", health, methods=["GET"]),
         Route(f"{api}/health/check", health_check, methods=["POST"]),
     ]

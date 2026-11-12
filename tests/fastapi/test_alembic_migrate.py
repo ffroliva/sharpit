@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.collectors import alembic_cli
+from sharpit.engine.collectors import alembic, alembic_cli
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
@@ -297,7 +297,8 @@ def test_alembic_argv_is_fixed_and_shell_free(ini: Path, monkeypatch: pytest.Mon
     client = _client(ini)
     name = _name(client)
     _post(client, {"beanName": name, "confirm": True})
-    (call,) = seen
+    assert len(seen) == 1
+    call = seen[0]
     assert call["argv"] == [sys.executable, "-m", "alembic", "-c", str(ini), "upgrade", "heads"]
     assert call["shell"] is False
     assert call["stdin"] is alembic_cli.subprocess.DEVNULL
@@ -312,7 +313,8 @@ def test_alembic_request_text_never_reaches_argv(ini: Path, spy: Spy):
     assert resp.status_code == 404
     assert spy.calls == []
     _post(client, {"beanName": _name(client), "confirm": True, "command": "downgrade", "ini": "evil.ini"})
-    (argv, _cwd) = spy.calls[0]
+    assert len(spy.calls) == 1
+    argv = spy.calls[0][0]
     assert argv[-2:] == ["upgrade", "heads"]
     assert "evil.ini" not in argv
 
@@ -327,7 +329,7 @@ def test_alembic_output_masked_and_capped(ini: Path, spy: Spy):
     assert resp.json()["status"] == "failed"
     assert "s3cret" not in resp.text
     assert "could not connect" in resp.json()["message"]
-    assert len(resp.json()["message"].encode()) <= alembic_cli.MAX_ERROR_BYTES
+    assert len(resp.json()["message"].encode()) <= alembic.MAX_ERROR_BYTES
 
 
 def test_alembic_failure_without_output_names_the_exit_code(ini: Path, spy: Spy):

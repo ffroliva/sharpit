@@ -35,6 +35,7 @@ NEVER_RUNS = "sharpit never runs migrations"
 NOT_SET = "No Alembic configuration: SHARPIT_ALEMBIC_CONFIG is not set"
 NO_ENGINE = "No database engine is registered yet: pass engines=[...] to install(), or let the app run a query first"
 MAX_REVISION_BYTES = 1024 * 1024
+MAX_ERROR_BYTES = 4096
 DEFAULT_VERSION_TABLE = "alembic_version"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}")
 _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 TIMEOUT = 600.0
-MAX_ERROR_BYTES = 4096
 
 
 @dataclass(frozen=True)

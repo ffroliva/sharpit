@@ -85,4 +85,3 @@ def test_runner_spawn_arguments_are_shell_free(tmp_path: Path, monkeypatch: Any)
 
 def test_runner_has_a_hard_cap_of_ten_minutes():
     assert alembic_cli.TIMEOUT == 600.0
-    assert alembic_cli.MAX_ERROR_BYTES == 4096
