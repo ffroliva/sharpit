@@ -1,0 +1,1 @@
+journal-source:sql	partial	One literal- and parameter-free event per executed statement from the SQLAlchemy listener (SqlTraceRecorder.publish, SqlPayload.java); dataSource, codePathStamp (always 0) and onEventLoop (K4) are not stamped; no event while the SQL Trace panel is paused

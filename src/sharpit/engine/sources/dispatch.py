@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import weakref
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
-from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST
+from sharpit.engine import otel
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.context import application_family
 from sharpit.engine.sqla.dialect_source import event_dialect
@@ -106,6 +108,35 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
     return targets
 
 
+def _journal_event(
+    ctx: SharpitContext, event: SqlEvent, text: str, info: RequestInfo | None, thread: str, site: str | None
+) -> dict[str, str | int | bool | None]:
+    """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope): the literal-free text, never a parameter."""
+    recorder = ctx.capture.sql_trace
+    duration_ms = event.duration_ns // 1_000_000
+    if event.executemany:  # SqlPayload.batchSize: 1 for an ordinary execution, N for a batch
+        size = event.batch_size if event.batch_size is not None else len(event.parameters or ())  # type: ignore[arg-type]
+    else:
+        size = 1
+    return {
+        "source": "sql",
+        "sql": text,
+        "traceId": otel.current_trace_id(),
+        "requestId": info.id if info is not None and info.context_id == ctx.context_id else None,
+        "thread": thread,
+        "durationNanos": event.duration_ns,
+        "startedAt": time.time_ns() // 1_000_000 - duration_ms,
+        "dataSource": None,
+        "failed": event.error is not None,
+        "phase": recorder.lifespan_phase if info is None and recorder is not None else None,
+        "completedNanos": time.perf_counter_ns(),
+        "codePathStamp": 0,
+        "provenance": "EXECUTION",
+        "batchSize": max(size, 1),
+        "callSite": site,
+    }
+
+
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
     info = REQUEST.get()
     site = (
@@ -117,7 +148,7 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
         if recorder is None:
             continue
         try:
-            recorder.record(
+            text = recorder.record(
                 event.sql,
                 duration_ns=event.duration_ns,
                 thread=thread,
@@ -132,6 +163,11 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
                 batch_size=event.batch_size,
                 dialect=event_dialect(event, lambda ctx=ctx: application_family(ctx)),
             )
+            journal = ctx.capture.journal
+            if journal is not None and text is not None:
+                journal.offer_flat(
+                    _journal_event(ctx, event, text, info, thread, site if recorder.capture_call_site else None)
+                )
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)
 

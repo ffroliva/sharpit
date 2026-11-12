@@ -139,7 +139,7 @@ def test_sql_journal_error_statement_offered_with_its_outcome():
     assert records[0]["provenance"] == "EXECUTION"
 
 
-# ported: SqlTraceRecorderTests.thePublishedBatchSizeIsOneForAnOrdinaryExecutionTheSubmittedCountForABatchAndUnknownForAPreparation
+# ported: SqlTraceRecorderTests.thePublishedBatchSizeIsOneForAnOrdinaryExecutionTheSubmittedCountForABatchAndUnknownForAPreparation  # noqa: E501
 def test_sql_journal_executemany_records_its_batch_size():
     handle, engine = _install()
     with engine.begin() as conn:

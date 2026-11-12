@@ -268,10 +268,13 @@ class SqlTraceRecorder:
         request_id: str | None = None,
         call_site: str | None = None,
         batch_size: int | None = None,
-    ) -> None:
-        """Build the masked row once, at capture time; a paused recorder returns before any work."""
+    ) -> str | None:
+        """Build the masked row once, at capture time; a paused recorder returns before any work.
+
+        Returns the literal-free statement text (never the raw SQL), which the journal event carries; ``None`` paused.
+        """
         if not self.recording:
-            return
+            return None
         masker = self._masker
         shape: Shape = self._shape(sql, dialect)
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
@@ -338,6 +341,7 @@ class SqlTraceRecorder:
                 if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
                     aggregate.call_sites[site] = None
         self.changes.signal()
+        return _truncate(shape.text, self._max_sql_length)
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
