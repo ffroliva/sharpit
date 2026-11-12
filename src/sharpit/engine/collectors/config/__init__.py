@@ -10,6 +10,7 @@ from typing import Any
 
 from sharpit.engine import appsource
 from sharpit.engine.appsource import GetenvFinding, scan_packages
+from sharpit.engine.collectors.config.overrides import override_service
 from sharpit.engine.collectors.config.settings_source import ConfigEntry, settings_entries
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import MASK, Exposure
@@ -97,6 +98,7 @@ def config_report(
         entries.setdefault(name, ConfigEntry(name, value, SYSTEM_ENVIRONMENT, location, default, False))
     sources = list(dict.fromkeys([*sources, SYSTEM_ENVIRONMENT, *(e.source for e in entries.values())]))
 
+    overridden = override_service(ctx).has_override
     properties: list[dict[str, Any]] = []
     for entry in sorted(entries.values(), key=lambda e: e.name):
         value, value_masked = _display(ctx, entry.name, entry.value, entry.secret_typed)
@@ -108,7 +110,7 @@ def config_report(
                 "source": entry.source,
                 "origin": None,
                 "masked": value_masked,  # the value only (contract 3); a masked default shows ****** on its own
-                "override": False,
+                "override": overridden(entry.name),
                 "description": entry.description,
                 "defaultValue": default,
             }

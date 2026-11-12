@@ -291,6 +291,8 @@ def test_ungated_paths_ignore_panel_flags():
 
 # (panel, method, path, body): every state-changing panel route (test_write_route_table_is_complete keeps it whole)
 WRITES = [
+    ("config", "POST", "/sharpit/api/config/overrides", {"name": "MATRIX_KEY", "value": "x"}),
+    ("config", "DELETE", "/sharpit/api/config/overrides/sharpit.matrix", None),
     ("loggers", "POST", "/sharpit/api/loggers/sharpit.matrix", {"level": "DEBUG"}),
     ("vulnerabilities", "POST", "/sharpit/api/vulnerabilities/scan", None),
     ("mcp-server", "POST", "/sharpit/api/mcp-server/toggle", {"enabled": True}),

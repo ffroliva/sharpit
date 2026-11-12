@@ -1,0 +1,2 @@
+route:POST /config/overrides	partial	POST {api}/config/overrides: strict JSON body, refusals are 400 with fixed messages, write failure 500; REST only. Pending deviation P-O3: BootUI answers an invalid or blank name with a Spring 500, has no name regex or refusals, and Jackson coerces name 5 to "5"
+route:DELETE /config/overrides/{name}	partial	DELETE restores the pre-override value; idempotent; REST only. Pending deviation P-O3: BootUI has no name regex or refusals (an invalid name is a Spring 500)
