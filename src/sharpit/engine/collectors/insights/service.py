@@ -26,6 +26,7 @@ NOT_IMPLEMENTED = "sharpit has not implemented this observation yet."
 NOT_EVALUATED = "This observation could not be evaluated."
 UNKNOWN_PREFIX = "No observation "
 UNKNOWN_SUFFIX = " in this run's retained events: it may have been evicted or cleared."
+UNCOUNTED_WITHHELD = "Some recorded work was not counted; the detail is withheld under METADATA_ONLY exposure."
 TEXT_OMITTED = "The text of this observation is withheld under METADATA_ONLY exposure: counts, ids and statuses only."
 MAX_EXEMPLARS, MAX_EVIDENCE_ROWS = 3, 20  # RuntimeInsightsService.MAX_EXEMPLARS, MAX_EVIDENCE_ROWS
 
@@ -243,7 +244,9 @@ class InsightsService:
             return _check(observation, "UNAVAILABLE", 0, 0, NOT_EVALUATED), []
         reasons = [partial] if partial else list(unseen)
         if evaluation.uncounted:
-            reasons.append(self._mask(evaluation.uncounted) or "")
+            reasons.append(
+                self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
+            )  # masked away: still say work went uncounted
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
         status = _check_status(evaluation.worked, partial)

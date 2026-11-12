@@ -1,6 +1,6 @@
 """Requests projected from the journal's ``http`` records, with the events of other sources joined to them.
 
-The http record shape is a contract the W5a http producer meets (self-declared here; no producer is merged yet):
+The http record shape is PROPOSED for the W5a http producer (not yet in the W5a plan; no producer is merged yet):
 ``requestId`` (str), ``traceId`` (str, lower-case 32 hex as ``capture/exchanges.trace_id`` writes it), ``method`` (str),
 ``route`` (the label, ``"GET /api/x"``), ``status`` (int), ``durationNanos`` (int), ``startedAt`` (epoch ms). Only
 ``requestId`` is required; a missing field reads as ``None``.
