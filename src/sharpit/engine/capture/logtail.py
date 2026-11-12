@@ -272,8 +272,12 @@ class SharpitLogHandler(logging.Handler):
         text = msg if type(msg) is str else type(msg).__name__
         engine_log, dialect, masker = record.name.startswith("sqlalchemy.engine"), self._dialect(), self.masker
         if record.args:  # a call site's template, not an f-string's text: the same masked result every time
+            # keyed on the head masking reads, never the whole text: a megabyte template is not kept alive
             template = self.template_cache(
-                text, engine_log, dialect, (masker.exposure, masker.identity_key, masker.capture_parameters)
+                text[: MAX_TEMPLATE + TEMPLATE_MARGIN],
+                engine_log,
+                dialect,
+                (masker.identity_key, masker.capture_parameters),
             )
         else:
             template = self._template(text, engine_log, dialect)
@@ -298,7 +302,9 @@ class SharpitLogHandler(logging.Handler):
         return None if masked is None else masked[:MAX_TEMPLATE]
 
     def _cached_template(self, text: str, engine_log: bool, dialect: Dialect, masker_state: object) -> str | None:
-        del masker_state  # part of the cache key only: what the masker hides changes when its exposure or key does
+        del (
+            masker_state
+        )  # part of the cache key only: what the masker hides changes when its key or capture setting does
         return self._template(text, engine_log, dialect)
 
     def _forward_to_last_resort(self, record: logging.LogRecord) -> None:

@@ -20,8 +20,8 @@ from sharpit import install
 from sharpit.fastapi.adapter import SharpitHandle
 
 # set from the paired runs (hit 13 to 44 µs, miss 76 to 103 µs; the numbers and the machine load are in
-# docs/development/overhead-budgets.md): the miss at about 2x its largest run, the hit at 60 µs, under the cost of a
-# miss so a lost cache is still caught. Never raised.
+# docs/development/overhead-budgets.md): the miss at about 2x its largest run, the hit at 60 µs. A lost cache is guarded
+# by test_log_journal_a_template_with_arguments_is_masked_once, not by these budgets. Never raised.
 HIT_BUDGET_NS = 60_000
 MISS_BUDGET_NS = 200_000
 ROUNDS, PER_ROUND = 45, 300

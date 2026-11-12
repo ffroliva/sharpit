@@ -233,7 +233,7 @@ class RuntimeJournal:
         self._evicted = 0
         self._binding_bound: str | None = None
         self._accepting = True
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._busy = threading.local()
 
     def offer(self, event: Event) -> bool:
@@ -292,8 +292,9 @@ class RuntimeJournal:
 
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
-        event). No lock: a producer may call it from inside ``offer``, which holds the lock."""
-        self._dropped[key] += 1
+        event). Under the lock the other writers hold, which is reentrant: a producer may call it inside ``offer``."""
+        with self._lock:
+            self._dropped[key] += 1
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:

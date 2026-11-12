@@ -226,6 +226,12 @@ def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: Ex
     return wrapper
 
 
+def _needs_log_handler(ctx: SharpitContext, journal: RuntimeJournal | None) -> bool:
+    """A log panel enabled, or a journal that lists ``log``: BootUI installs its journal appender whenever the journal
+    records it (BootUiEngineConfiguration), though no log panel is enabled."""
+    return any(_panel_enabled(ctx, p) for p in LOG_PANELS) or (journal is not None and journal.accepts("log"))
+
+
 class WrappingHandlers(dict[Any, Any]):
     """``app.exception_handlers`` while sharpit is installed: handlers set later (``@app.exception_handler``) are
     wrapped too. Reads return the stored value, so a wrapped handler reads as its wrapper."""
@@ -368,9 +374,7 @@ class CaptureWiring:
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         journal = ctx.capture.journal
-        # BootUI installs its journal appender whenever the journal records ``log`` (BootUiEngineConfiguration): a
-        # journal that lists the source needs the handler though no log panel is enabled
-        if any(_panel_enabled(ctx, p) for p in LOG_PANELS) or (journal is not None and journal.accepts("log")):
+        if _needs_log_handler(ctx, journal):
             self.log_handler = SharpitLogHandler(
                 ctx.masker, ctx.capture.log_tail, application=lambda: application_family(ctx)
             )

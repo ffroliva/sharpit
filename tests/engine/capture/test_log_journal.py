@@ -20,9 +20,9 @@ from sharpit.engine import otel
 from sharpit.engine.capture import logtail
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 from sharpit.engine.capture.logtail import SharpitLogHandler
-from sharpit.engine.masking import Masker
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.masking import Masker
 
 ARG_CANARY = "zq-arg-canary-31"
 OBJECT_CANARY = "zq-object-canary-43"
