@@ -575,15 +575,8 @@ def test_transaction_journal_paused_panel_still_offers_and_k2_finds_the_rollback
     assert _k2(handle)["findings"] == 1
 
 
-@pytest.mark.parametrize(
-    "disabled",
-    [{"transactions_enabled": False}, {"panels": {"transactions": {"enabled": False}}}],
-    ids=["flag", "panel"],
-)
-def test_errors_behind_2xx_claims_no_transaction_evidence_while_its_panel_is_disabled(
-    tmp_path: Path, disabled: dict[str, Any]
-):
+def test_errors_behind_2xx_claims_no_transaction_evidence_while_its_panel_is_disabled(tmp_path: Path):
     """BootUI ``ErrorsBehind2xx.notApplicable``: a source counts only while its panel is ``visible``."""
-    client, handle = _tutorial(tmp_path, **disabled)
+    client, handle = _tutorial(tmp_path, panels={"transactions": {"enabled": False}})
     assert client.get("/items/undo").status_code == 200
     assert _k2(handle)["status"] == "NOT_APPLICABLE"

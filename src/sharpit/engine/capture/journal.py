@@ -39,6 +39,7 @@ SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field l
 _COUNTS = {"ai": frozenset({"inputTokens", "outputTokens"})}  # AiPayload's Long token counts: numbers, not secrets
 
 Event = Mapping[str, object]
+Store = Callable[[Event], tuple[object, int]] | int  # a copier-and-sizer, or the size of an event kept as handed over
 
 
 class JournalSink(Protocol):
@@ -47,6 +48,10 @@ class JournalSink(Protocol):
     def offer(self, event: Event) -> bool: ...
 
     def records(self, source: str) -> tuple[dict[str, object], ...]: ...
+
+    def accepts(self, source: str) -> bool: ...
+
+    def count_dropped(self, key: str) -> None: ...
 
 
 class _NullSink:
@@ -57,6 +62,13 @@ class _NullSink:
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         del source  # the port's signature; the null sink holds nothing
         return ()
+
+    def accepts(self, source: str) -> bool:
+        del source  # the port's signature; the null sink takes nothing
+        return False
+
+    def count_dropped(self, key: str) -> None:
+        del key  # the port's signature; the null sink counts nothing
 
 
 NULL_SINK: JournalSink = _NullSink()
@@ -222,7 +234,7 @@ class RuntimeJournal:
         self._evicted = 0
         self._binding_bound: str | None = None
         self._accepting = True
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._busy = threading.local()
 
     def offer(self, event: Event) -> bool:
@@ -236,24 +248,24 @@ class RuntimeJournal:
         """
         if size is None or size < 1:
             return self._offer(event, _flat)
-        return self._offer(event, None, size)  # the caller's size as is: no closure built per offer
+        return self._offer(event, size)  # the caller's size as is: no closure built per offer
 
-    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]] | None, size: int = 0) -> bool:
-        """``store`` copies and sizes the event; ``None`` keeps the event as handed over, charged ``size``."""
+    def _offer(self, event: Event, store: Store) -> bool:
+        """``store`` copies and sizes the event; an ``int`` keeps the event as handed over, charged that size."""
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
             self._dropped[REENTRANT] += 1
             return False
         with self._lock:
             self._busy.active = True
             try:
-                return self._append(event, store, size)
+                return self._append(event, store)
             except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
                 self._dropped[FAILED] += 1
                 return False
             finally:
                 self._busy.active = False
 
-    def _append(self, event: Event, store: Callable[[Event], tuple[object, int]] | None, size: int) -> bool:
+    def _append(self, event: Event, store: Store) -> bool:
         source = event.get("source")
         if not isinstance(source, str):
             self._dropped[FAILED] += 1
@@ -261,7 +273,7 @@ class RuntimeJournal:
         if not self._accepting or (self.sources is not None and source not in self.sources):
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
-        stored, size = (event, size) if store is None else store(event)
+        stored, size = (event, store) if isinstance(store, int) else store(event)
         if size > self.max_bytes:
             self._dropped[source] += 1  # one event larger than the whole byte bound
             return False
@@ -276,14 +288,15 @@ class RuntimeJournal:
         self._accepted[source] += 1
         return True
 
-    def drop(self, source: str) -> None:
-        """Count one ``source`` event its producer never built: the source is not configured, or the build failed."""
-        with self._lock:
-            self._dropped[source] += 1
-
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
         return self._accepting and (self.sources is None or source in self.sources)
+
+    def count_dropped(self, key: str) -> None:
+        """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
+        event). Under the lock the other writers hold, which is reentrant: a producer may call it inside ``offer``."""
+        with self._lock:
+            self._dropped[key] += 1
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:

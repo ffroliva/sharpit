@@ -61,6 +61,13 @@ class Sink:
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         return tuple(dict(row) for row in self.rows if row.get("source") == source)
 
+    def accepts(self, source: str) -> bool:
+        del source  # a stand-in takes every source
+        return True
+
+    def count_dropped(self, key: str) -> None:
+        del key  # a stand-in counts nothing
+
 
 class Probe:
     """A sensor that records which events it saw and what it was told to do."""

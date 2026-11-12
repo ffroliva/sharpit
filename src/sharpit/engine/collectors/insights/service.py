@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
-from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, Snapshot, project
+from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 
 if TYPE_CHECKING:
@@ -59,6 +59,33 @@ def _not_recorded(source: str) -> str:
     return f"The runtime journal does not record the {source} source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
 
 
+def _panels_label(panels: Sequence[str]) -> str:
+    """``The sql-trace panel`` / ``The a, b and c panels`` (``RuntimeInsightsService.panelsLabel``)."""
+    if len(panels) == 1:
+        return f"The {panels[0]} panel"
+    return f"The {', '.join(panels[:-1])} and {panels[-1]} panels"
+
+
+def _verb(panels: Sequence[str]) -> str:
+    return "is" if len(panels) == 1 else "are"
+
+
+def _missing(snapshot: Snapshot, source: str) -> str:
+    """Why a required source is absent (``missingSource``): not journaled, else its disabled panel is named."""
+    if not snapshot.journaled(source):
+        return _not_recorded(source)
+    panels = snapshot.hidden[source]
+    return f"{_panels_label(panels)}, whose evidence this reads, {_verb(panels)} disabled."
+
+
+def _requests_hidden(observation: Observation, snapshot: Snapshot) -> str | None:
+    """``missingSource``'s last rule (v2.3.0 :1362-1368): the http panel is off, so no request is visible to a kind
+    that examines requests."""
+    if not getattr(observation, "uses_requests", True) or not (panels := snapshot.hidden.get("http")):
+        return None
+    return f"{_panels_label(panels)} {_verb(panels)} disabled, so its unit-of-work evidence cannot be evaluated."
+
+
 def _check(observation: Observation, status: str, eligible: int, findings: int, reason: str | None) -> Row:
     return {
         "kind": observation.kind, "title": observation.title, "status": status, "eligibleRequests": eligible,
@@ -67,7 +94,7 @@ def _check(observation: Observation, status: str, eligible: int, findings: int, 
 
 
 def _partial(observation: Observation, snapshot: Snapshot) -> str | None:
-    sources = observation.reads | {s for s in observation.optional_reads if snapshot.recorded(s)}
+    sources = observation.reads | {s for s in observation.optional_reads if snapshot.available(s)}
     dropped = sum(snapshot.dropped(source) for source in sources)
     if not dropped:
         return None
@@ -78,11 +105,15 @@ def _partial(observation: Observation, snapshot: Snapshot) -> str | None:
 
 
 def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
-    return [
-        f"Without the {source} source, which the runtime journal does not record, its evidence is not counted."
-        for source in sorted(observation.optional_reads)
-        if not snapshot.recorded(source)
-    ]
+    unseen: list[str] = []
+    for source in sorted(observation.optional_reads):
+        if panels := snapshot.hidden.get(source):
+            unseen.append(f"{_panels_label(panels)} {_verb(panels)} disabled, so its evidence is not counted.")
+        elif not snapshot.journaled(source):
+            unseen.append(
+                f"Without the {source} source, which the runtime journal does not record, its evidence is not counted."
+            )
+    return unseen
 
 
 def _row_status(sufficient: bool, partial: str | None) -> str:
@@ -181,10 +212,10 @@ class InsightsService:
         journal: Any,
         observations: Sequence[Observation] | None = None,
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
-        hidden: Callable[[], frozenset[str]] = frozenset,
+        panel_enabled: PanelEnabled | None = None,
     ) -> None:
         self.journal = journal
-        self.hidden = hidden  # read per report: the sources whose panel is disabled (``project``)
+        self.panel_enabled = panel_enabled  # None: every panel counts as enabled
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
         self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
@@ -212,7 +243,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold, self.hidden())
+        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
         for observation in self.observations:
@@ -228,9 +259,11 @@ class InsightsService:
         }
 
     def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[tuple[Row, Finding]]]:
-        missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)
+        missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
         if missing is not None:
-            return _check(observation, "NOT_APPLICABLE", 0, 0, _not_recorded(missing)), []
+            return _check(observation, "NOT_APPLICABLE", 0, 0, _missing(snapshot, missing)), []
+        if (hidden := _requests_hidden(observation, snapshot)) is not None:
+            return _check(observation, "NOT_APPLICABLE", 0, 0, hidden), []
         gate = getattr(observation, "not_applicable", None)  # BootUI Observation.notApplicable; a stub has none
         reason = gate(snapshot) if gate else None
         if reason is not None:
@@ -274,15 +307,9 @@ def _detail(
 def insights_service(ctx: SharpitContext) -> InsightsService:
     """The install's service over its journal, shared by the routes and the tools (a test seeds it through ``lazy``)."""
     threshold = ctx.settings.runtime_insights_ai_token_threshold
-    return ctx.lazy(
-        "runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, lambda: _hidden(ctx))
-    )
 
+    def panel_enabled(panel_id: str) -> bool:  # settings only: a panel sharpit has not shipped yet is not "disabled"
+        panel = ctx.settings.panels.get(panel_id)
+        return panel is None or panel.enabled
 
-def _hidden(ctx: SharpitContext) -> frozenset[str]:
-    """BootUI ``ErrorsBehind2xx.java:112,157`` reads a source only while its panel is ``visible``: no transactions
-    recorder (the flag or the panel off) leaves ``transaction`` absent, not empty."""
-    return _NO_TRANSACTIONS if ctx.capture.transactions is None else frozenset()
-
-
-_NO_TRANSACTIONS = frozenset({"transaction"})
+    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled))

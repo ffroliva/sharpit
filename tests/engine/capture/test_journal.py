@@ -356,13 +356,13 @@ def test_offer_flat_with_a_size_builds_no_store_per_call(monkeypatch: Any) -> No
     stores: list[object] = []
     append = journal._append
 
-    def spy(event: Any, store: object, *rest: Any) -> bool:
+    def spy(event: Any, store: object) -> bool:
         stores.append(store)
-        return append(event, store, *rest)
+        return append(event, store)
 
     monkeypatch.setattr(journal, "_append", spy)
     assert journal.offer_flat({"source": "sql", "sql": "select 1"}, size=30) is True
-    assert stores == [None]
+    assert stores == [30]  # the size itself, not a closure
     assert journal.status()["retainedBytes"] == 30
 
 
@@ -372,3 +372,17 @@ def test_a_suspended_journal_accepts_no_source() -> None:
     assert journal.accepts("sql") is True
     journal.suspend()
     assert journal.accepts("sql") is False
+
+
+def test_count_dropped_takes_the_lock_the_other_writers_hold() -> None:
+    from sharpit.engine.capture.journal import RuntimeJournal
+
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, queue_capacity=10)
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (journal.count_dropped("log"), done.set()))
+    with journal._lock:
+        worker.start()
+        blocked = not done.wait(0.3)
+    worker.join(5)
+    assert blocked
+    assert done.is_set()

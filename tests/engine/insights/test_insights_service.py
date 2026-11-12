@@ -72,7 +72,7 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
     assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
-    assert {"ai", "sql", "exception", "transaction"} <= snapshot_module.PRODUCED_SOURCES
+    assert {"ai", "sql", "exception", "log", "transaction"} <= snapshot_module.PRODUCED_SOURCES
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
@@ -90,6 +90,10 @@ def test_every_produced_source_has_a_producer_test() -> None:
         "transaction": (
             "tests/engine/capture/test_transaction_journal.py",
             "test_transaction_journal_event_offered_once_per_commit_with_bootui_fields",
+        ),
+        "log": (
+            "tests/engine/capture/test_log_journal.py",
+            "test_log_journal_event_offered_once_per_record_with_bootui_fields",
         ),
         "http": (
             "tests/fastapi/test_http_journal.py",
@@ -375,8 +379,8 @@ def test_the_sql_source_is_recorded_only_when_enabled() -> None:
     enabled, disabled = _journal(["sql"]), _journal(["http"])
     enabled.offer(sql)
     disabled.offer(sql)
-    assert snapshot_module.project(enabled).recorded("sql")
-    assert not snapshot_module.project(disabled).recorded("sql")
+    assert snapshot_module.project(enabled).journaled("sql")
+    assert not snapshot_module.project(disabled).journaled("sql")
 
 
 def test_the_exception_source_is_recorded_only_when_enabled() -> None:
@@ -384,8 +388,8 @@ def test_the_exception_source_is_recorded_only_when_enabled() -> None:
     enabled, disabled = _journal(["exception"]), _journal(["http"])
     enabled.offer(event)
     disabled.offer(event)
-    assert snapshot_module.project(enabled).recorded("exception")
-    assert not snapshot_module.project(disabled).recorded("exception")
+    assert snapshot_module.project(enabled).journaled("exception")
+    assert not snapshot_module.project(disabled).journaled("exception")
 
 
 def test_the_transaction_source_is_recorded_only_when_enabled() -> None:
@@ -393,5 +397,14 @@ def test_the_transaction_source_is_recorded_only_when_enabled() -> None:
     enabled, disabled = _journal(["transaction"]), _journal(["http"])
     enabled.offer(transaction)
     disabled.offer(transaction)
-    assert snapshot_module.project(enabled).recorded("transaction")
-    assert not snapshot_module.project(disabled).recorded("transaction")
+    assert snapshot_module.project(enabled).journaled("transaction")
+    assert not snapshot_module.project(disabled).journaled("transaction")
+
+
+def test_the_log_source_is_recorded_only_when_enabled() -> None:
+    event = {"source": "log", "logger": "org.hibernate.x", "level": "WARN", "template": "t", "requestId": "r1"}
+    enabled, disabled = _journal(["log"]), _journal(["http"])
+    enabled.offer(event)
+    disabled.offer(event)
+    assert snapshot_module.project(enabled).journaled("log")
+    assert not snapshot_module.project(disabled).journaled("log")

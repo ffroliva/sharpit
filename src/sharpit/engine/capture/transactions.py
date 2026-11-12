@@ -146,7 +146,7 @@ def _journal_start(
         return None
     if not journal.accepts(JOURNAL_SOURCE):
         if recording:  # a paused panel offers nothing then (BootUI ``TransactionRecorder.java:208-211``)
-            journal.drop(JOURNAL_SOURCE)
+            journal.count_dropped(JOURNAL_SOURCE)
         return None
     if not facts:
         facts.append(_facts(conn, conn_info, savepoint=savepoint))
@@ -206,7 +206,7 @@ def _publish(row: dict[str, Any], error: BaseException | None = None, writes: in
     try:
         start[0].offer_flat(*transaction_event(row, start, error, writes))
     except Exception as exc:  # noqa: BLE001 - publishing never disturbs the transaction it observes
-        start[0].drop(JOURNAL_SOURCE)
+        start[0].count_dropped(JOURNAL_SOURCE)
         dispatch.routing_failed(exc)
 
 
