@@ -110,7 +110,11 @@ def _validate_value(value: object) -> str:
 
 def validate_entry(name: object, value: object, profile_vars: Iterable[str] = ()) -> tuple[str, str]:
     """The one check for an override entry, used by ``put`` and by the startup/constructor loader."""
-    return _validate_name(name, profile_vars), _validate_value(value)
+    checked = _validate_name(name, profile_vars), _validate_value(value)
+    # Windows caps the whole ``name=value`` string at 32767 UTF-16 code units, not the value alone
+    if os.name == "nt" and len(checked[0]) + 1 + len(checked[1].encode("utf-16-le")) // 2 > _MAX_VALUE_CHARS:
+        raise ValueError(f"Property name and value must not exceed {_MAX_VALUE_CHARS} UTF-16 units together")
+    return checked
 
 
 def _restore_env(name: str, prior: str | None) -> None:
