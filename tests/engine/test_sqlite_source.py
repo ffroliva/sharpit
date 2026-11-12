@@ -6,6 +6,7 @@ Every case is derived: BootUI wraps a JDBC ``DataSource``, so there is no BootUI
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import re
 import sqlite3
@@ -309,20 +310,86 @@ def test_preexisting_connections_counted():
     early.close()
 
 
-def test_preexisting_count_excludes_coverage_owned_connection():
-    """A coverage data file opened before attach is not an early application connection."""
+def _owner_in(module: str, *, slots: bool = False) -> Any:
+    """An instance of a class from ``module`` holding a fresh connection in ``con`` (``__slots__`` or ``__dict__``)."""
+    namespace: dict[str, Any] = {"__name__": module}
+    body = "    __slots__ = ('con',)\n" if slots else ""
+    init = "    def __init__(self):\n        self.con = sqlite3.connect(':memory:')\n"
+    source = f"import sqlite3\nclass Owner:\n{body}{init}"
+    exec(source, namespace)  # noqa: S102
+    return namespace["Owner"]()
+
+
+def _fresh_count() -> int:
+    """Pre-existing connections as a new scan sees them (``detach`` alone keeps the 60 s scan cache)."""
+    sqlite.detach_all()
+    gc.collect()  # garbage from earlier tests must not leave between the two scans a test compares
     sqlite.attach(HOLDER)
-    baseline = sqlite.preexisting_connections()
-    sqlite.detach(HOLDER)
-    namespace: dict[str, Any] = {"__name__": "coverage.sqlitedb"}
-    exec(  # noqa: S102
-        "import sqlite3\nclass SqliteDb:\n    def __init__(self):\n        self.con = sqlite3.connect(':memory:')\n",
-        namespace,
-    )
-    owner = namespace["SqliteDb"]()
+    return sqlite.preexisting_connections()
+
+
+@pytest.mark.parametrize(("module", "slots"), [("coverage.sqlitedb", False), ("aiosqlite.core", True)])
+def test_preexisting_count_excludes_owned_connection_and_counts_the_app_one(module: str, slots: bool):
+    """An owner's connection (in its ``__dict__`` or ``__slots__``) is not early; an app connection beside it is.
+
+    Council finding: these tests compared the cached scan with itself, so they passed with no owner rule at all.
+    """
+    baseline = _fresh_count()
+    owner = _owner_in(module, slots=slots)
+    app = REAL_CONNECT(":memory:")
+    assert _fresh_count() == baseline + 1
+    app.close()
+    owner.con.close()
+
+
+class _HostileSlots:
+    """Holds a connection directly and raises on ``__class__``, as a proxy can."""
+
+    __slots__ = ("con",)
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        raise RuntimeError("hostile proxy")
+
+
+def test_preexisting_count_excludes_an_owned_connection_a_hostile_object_also_holds():
+    """Council finding: a hostile holder beside the owner no longer decides the count (the old walk raised on it)."""
+    baseline = _fresh_count()
+    owner = _owner_in("coverage.sqlitedb")
+    hostile = _HostileSlots()
+    hostile.con = owner.con
+    assert _fresh_count() == baseline
+    owner.con.close()
+    del hostile
+
+
+def _referrer_walks(monkeypatch: pytest.MonkeyPatch, connections: int) -> int:
+    """How many ``gc.get_referrers`` heap walks one attach makes with ``connections`` early connections alive.
+
+    Each connection sits in its own dict, so the ``__dict__`` level is exercised with ``connections`` dicts too.
+    """
+    early = [{"con": REAL_CONNECT(":memory:")} for _ in range(connections)]
+    calls = 0
+    real = gc.get_referrers
+
+    def counting(*objs: object) -> list[object]:
+        nonlocal calls
+        calls += 1
+        return real(*objs)
+
+    sqlite.detach_all()  # clears the rescan cache: this attach must scan
+    monkeypatch.setattr(gc, "get_referrers", counting)
     sqlite.attach(HOLDER)
-    assert sqlite.preexisting_connections() == baseline
-    del owner
+    monkeypatch.setattr(gc, "get_referrers", real)
+    sqlite.detach_all()
+    for holder in early:
+        holder["con"].close()
+    return calls
+
+
+def test_preexisting_count_walks_the_heap_a_fixed_number_of_times(monkeypatch: pytest.MonkeyPatch):
+    """CI finding: one ``get_referrers`` heap walk per live connection made each attach cost heap x connections."""
+    assert _referrer_walks(monkeypatch, 50) <= 2
 
 
 def test_early_alias_detected(monkeypatch: pytest.MonkeyPatch):

@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import types
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Container, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports engine.sqla, which imports us
@@ -252,25 +252,41 @@ def _make_connect(real: Callable[..., sqlite3.Connection]) -> Callable[..., sqli
 
 def _count_preexisting() -> int:
     """Connections that already exist, minus those owned by coverage, pytest, aiosqlite or SQLAlchemy."""
-    count = 0
+    conns: list[object] = []
     for obj in gc.get_objects():
         kind = cast("type[object]", type(obj))  # never isinstance: a proxy's __class__ would run its own code
         if issubclass(kind, sqlite3.Connection) and not issubclass(kind, _TracedConnectionMixin):
-            count += not _owned_elsewhere(obj)
-    return count
+            conns.append(obj)
+    if not conns:  # gc.get_referrers() with no arguments would still walk the whole heap
+        return 0
+    owned = _owned_elsewhere(conns)
+    return sum(id(conn) not in owned for conn in conns)
 
 
-def _owned_elsewhere(conn: object) -> bool:
+def _owned_elsewhere(conns: list[object]) -> set[int]:
+    """Ids of ``conns`` an owner holds directly or through an instance ``__dict__``; two heap walks for any count."""
+    wanted = {id(conn) for conn in conns}
+    holders = gc.get_referrers(*conns)  # one walk for all: a walk per connection cost heap x connections
+    owned = {held for holder in holders for held in _owner_holds(holder, wanted)}
+    dicts = [holder for holder in holders if issubclass(type(holder), dict)]  # maybe a __dict__: owner one level up
+    if dicts:
+        via_dict = {id(found): _referenced(found, wanted) for found in dicts}
+        for owner in gc.get_referrers(*dicts):  # our own lists show up here too; their module is never an owner
+            owned.update(*(via_dict[found] for found in _owner_holds(owner, via_dict.keys())))
+    return owned
+
+
+def _owner_holds(obj: object, ids: Container[int]) -> set[int]:
+    """The ``ids`` that ``obj`` refers to when its type is an owner's; empty when it is not, or the lookup fails."""
     try:
-        for holder in gc.get_referrers(conn):
-            candidates = gc.get_referrers(holder) if isinstance(holder, dict) else [holder]  # an instance's __dict__
-            for owner in candidates:
-                module = getattr(type(cast("object", owner)), "__module__", "") or ""
-                if module.partition(".")[0] in _OWNERS_NOT_EARLY:
-                    return True
-    except Exception:  # noqa: BLE001 - counting is best effort
-        return False
-    return False
+        module = getattr(type(obj), "__module__", "") or ""
+        return _referenced(obj, ids) if module.partition(".")[0] in _OWNERS_NOT_EARLY else set()
+    except Exception:  # noqa: BLE001 - counting is best effort; one odd holder never fails the count
+        return set()
+
+
+def _referenced(obj: object, ids: Container[int]) -> set[int]:
+    return {id(ref) for ref in gc.get_referents(obj) if id(ref) in ids}
 
 
 def _scan() -> tuple[int, bool, list[str]]:
