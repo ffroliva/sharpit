@@ -1,3 +1,5 @@
+import pytest
+from scripts.ci import sonar_ratchet
 from scripts.ci.sonar_ratchet import verdict
 
 
@@ -16,3 +18,19 @@ def test_main_below_the_baseline_fails_until_the_baseline_is_lowered():
     ok, message = verdict(9, 10)
     assert ok is False
     assert "lower sonar-baseline.txt to 9" in message
+
+
+def test_a_release_branch_push_is_not_held_to_mains_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """sonar-baseline.txt counts main's open issues; a release/** push only refreshes the base analysis."""
+    queried: list[dict[str, str]] = []
+
+    def spy(scope: dict[str, str]) -> int:
+        queried.append(scope)
+        return 0
+
+    monkeypatch.setattr(sonar_ratchet, "open_issue_count", spy)
+
+    rc = sonar_ratchet.main(["--branch", "release/0.6.0"])
+
+    assert queried == []
+    assert rc == 0
