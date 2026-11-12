@@ -292,7 +292,7 @@ def test_live_runs_one_job_per_server() -> None:
     assert "--health-interval" in live
     assert "--health-retries" in live
     assert "matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized'" in live
-    assert 'pytest tests/live --live -n auto --dist worksteal -k "$LIVE_FILTER"' in live
+    assert 'pytest tests/live --live -n auto -k "$LIVE_FILTER"' in live
 
 
 @pytest.mark.parametrize("job", ["ui", "vitest"])
@@ -596,15 +596,6 @@ def _matrix_jobs(body: str) -> int:
     for size in lists:
         product *= size
     return product + sum(1 for line in block if line.startswith("          - "))
-
-
-def test_every_parallel_pytest_step_steals_work_at_the_tail() -> None:
-    """`--dist load` pre-assigns tests: one worker kept a 3-minute queue after the other three went idle (run
-    43183266267, ubuntu 3.14 3/4, 98% -> 100%). `worksteal` hands an idle worker part of a busy one's queue."""
-    parallel = [line for line in CI.splitlines() if re.search(r"\bpytest\b.* -n auto", line)]
-    assert len(parallel) == 6, parallel
-    for line in parallel:
-        assert " -n auto --dist worksteal " in line, line
 
 
 def test_the_job_count_never_rises() -> None:
