@@ -365,6 +365,7 @@ class CaptureWiring:
             self.log_handler = SharpitLogHandler(
                 ctx.masker, ctx.capture.log_tail, application=lambda: application_family(ctx)
             )
+            self.log_handler.journal, self.log_handler.context_id = ctx.capture.journal, ctx.context_id
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works

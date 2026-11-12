@@ -15,12 +15,16 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from typing import Any, cast
 
+from sharpit.engine import otel
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST
+from sharpit.engine.capture.journal import JournalSink
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, log_statement
 
 LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
+MAX_TEMPLATE = 500  # LogPayload.MAX_TEMPLATE_LENGTH
 _FAILED = "sharpit log capture failed (%s); log capture continues"
 
 
@@ -95,6 +99,18 @@ def _is_classified_exc(value: object) -> bool:
     return issubclass(type(value), BaseException) and is_database_exception(cast(BaseException, value))
 
 
+def _class_name(cls: type) -> str:
+    return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _exception_class(record: logging.LogRecord) -> str | None:
+    info = record.exc_info
+    if not isinstance(info, tuple):
+        return None
+    cls = type(info[1]) if isinstance(info[1], BaseException) else info[0]
+    return _class_name(cls) if isinstance(cls, type) else None
+
+
 def _substitute_arg(value: object, masker: Masker, dialect: Dialect) -> object:
     if not _is_classified_exc(value):
         return value
@@ -160,6 +176,8 @@ class SharpitLogHandler(logging.Handler):
         self.log_tail = log_tail
         self.application = application
         self.on_exc_info: Callable[[logging.LogRecord], None] | None = None  # Exceptions (Task 4)
+        self.journal: JournalSink | None = None  # set by the wiring: the runtime journal, when it is on
+        self.context_id: str | None = None  # the installed context a request's id must belong to to be offered
         self._local = threading.local()
         self._failed = False
 
@@ -169,12 +187,15 @@ class SharpitLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         local = self._local
         if getattr(local, "busy", False):  # a record raised while this thread is already in emit()
+            if getattr(local, "offering", False) and not _own(record.name):
+                self._offer_journal(record)  # inside the journal's own append: it counts the nested offer as dropped
             return
         local.busy = True
         try:
             self._forward_to_last_resort(record)
             if _own(record.name):
                 return
+            self._offer_journal(record)
             if record.exc_info and self.on_exc_info is not None:
                 self.on_exc_info(record)
             if self.log_tail is not None:
@@ -193,14 +214,8 @@ class SharpitLogHandler(logging.Handler):
         # and a row's repr is no statement: read as one on SQLite its escaped quote closes early and a value shows
         if engine_log and not self.masker.capture_parameters and (_is_parameter_line(record) or record.args):
             return None
-        family = self.application()
-        dialect = Dialect.UNSUPPORTED if family is None else family
-        message = _record_message(record, self.masker, dialect)
-        # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
-        shown = message[: 4 * MAX_MESSAGE]
-        # capture on shows a known dialect's raw text, but never one sharpit cannot read (owner, item 7)
-        statement = engine_log and (not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED)
-        masked = log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
+        dialect = self._dialect()
+        masked = self._masked(record, _record_message(record, self.masker, dialect), dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {
@@ -210,6 +225,56 @@ class SharpitLogHandler(logging.Handler):
             "message": masked,
             "thread": record.threadName,
             "messageOmitted": masked is None,  # METADATA_ONLY withheld it: distinguishable from an empty message
+        }
+
+    def _dialect(self) -> Dialect:
+        family = self.application()
+        return Dialect.UNSUPPORTED if family is None else family
+
+    def _masked(self, record: logging.LogRecord, message: str, dialect: Dialect) -> str | None:
+        # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
+        shown = message[: 4 * MAX_MESSAGE]
+        # capture on shows a known dialect's raw text, but never one sharpit cannot read (owner, item 7)
+        statement = record.name.startswith("sqlalchemy.engine") and (
+            not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED
+        )
+        return log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
+
+    def _offer_journal(self, record: logging.LogRecord) -> None:
+        """BootUI ``RuntimeJournalLogAppender.append``: a WARN-or-above record becomes one ``log`` event. Built here,
+        inside the guard and only when a journal is set, so a failing build or offer never reaches the host's call."""
+        journal = self.journal
+        if journal is None or record.levelno < logging.WARNING or INTERNAL.get():
+            return
+        local = self._local
+        outer = getattr(local, "offering", False)
+        try:
+            with contextlib.suppress(Exception):  # publishing never disturbs the application's logging
+                event = self._journal_event(record)
+                local.offering = True
+                journal.offer(event)
+        finally:
+            local.offering = outer
+
+    def _journal_event(self, record: logging.LogRecord) -> dict[str, object]:
+        """BootUI's ``log`` event (``LogPayload`` and its envelope): the unformatted ``msg`` (a template, never
+        ``getMessage()`` or an argument; an object gives its class name), masked, cut at ``MAX_TEMPLATE``."""
+        msg = record.msg
+        template = self._masked(record, msg if type(msg) is str else type(msg).__name__, self._dialect())
+        request = REQUEST.get()
+        owned = request is not None and request.context_id == self.context_id  # another install's request is not ours
+        return {
+            "source": "log",
+            "epochMillis": int(record.created * 1000),
+            "durationNanos": -1,
+            "traceId": otel.current_trace_id(),
+            "thread": record.threadName,
+            "requestId": request.id if request is not None and owned else None,
+            "failedOrSlow": record.levelno >= logging.ERROR,
+            "logger": record.name,
+            "level": "ERROR" if record.levelno >= logging.ERROR else "WARN",
+            "template": None if template is None else template[:MAX_TEMPLATE],
+            "exceptionClass": _exception_class(record),
         }
 
     def _forward_to_last_resort(self, record: logging.LogRecord) -> None:
