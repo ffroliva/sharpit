@@ -37,11 +37,17 @@ def _world(**options: Any) -> tuple[TestClient, RuntimeJournal, Any]:
     return TestClient(app), journal, handle
 
 
+def _one(journal: RuntimeJournal) -> dict[str, object]:
+    records = journal.records("http")
+    assert len(records) == 1
+    return records[0]
+
+
 # ported: RequestCorrelationFilterTests (the HttpPayload fields: method, path, routeTemplate, operation, status)
 def test_http_journal_event_offered_once_per_request_with_bootui_fields() -> None:
     client, journal, _ = _world()
     assert client.get("/api/items/42").status_code == 200
-    (record,) = journal.records("http")
+    record = _one(journal)
     assert set(record) == ENVELOPE | PAYLOAD | {"route"}
     assert record["method"] == "GET"
     assert record["status"] == 200
@@ -58,7 +64,7 @@ def test_http_journal_event_request_id_is_the_exchange_id() -> None:
     exchanges = handle.context.capture.exchanges
     assert exchanges is not None
     (row,) = exchanges.rows()
-    (record,) = journal.records("http")
+    record = _one(journal)
     assert record["requestId"] == row["id"]
     assert record["traceId"] == row["traceId"]
 
@@ -66,7 +72,7 @@ def test_http_journal_event_request_id_is_the_exchange_id() -> None:
 def test_http_journal_event_route_is_the_template_label() -> None:
     client, journal, _ = _world()
     client.get("/api/items/9f3a")
-    (record,) = journal.records("http")
+    record = _one(journal)
     assert record["routeTemplate"] == "/api/items/{item_id}"
     assert record["route"] == "GET /api/items/{item_id}"
     assert "9f3a" not in str(record["route"])
@@ -75,7 +81,7 @@ def test_http_journal_event_route_is_the_template_label() -> None:
 def test_http_journal_event_without_a_template_carries_the_masked_path_label() -> None:
     client, journal, _ = _world()
     client.get("/nowhere/0123456789abcdef0123")
-    (record,) = journal.records("http")
+    record = _one(journal)
     assert record["routeTemplate"] is None
     assert "0123456789abcdef0123" not in str(record["route"])
     assert str(record["route"]).startswith("GET /nowhere/")
@@ -92,13 +98,15 @@ def test_http_journal_event_not_offered_when_source_disabled() -> None:
     client, journal, _ = _world(runtime_journal_sources=("ai",))
     assert client.get("/api/items/1").status_code == 200
     assert journal.records("http") == ()
-    assert journal.status()["dropped"]["http"] == 1  # counted, never raised
+    assert journal.status()["dropped"].get("http") == 1  # counted, never raised
 
 
 def test_http_journal_event_not_offered_when_journal_disabled() -> None:
     client, _, handle = _world()
+    assert handle.context.capture.journal is journal
     handle.context.capture.journal = None
     assert client.get("/api/items/1").status_code == 200
+    assert journal.records("http") == ()
 
 
 @pytest.mark.parametrize("exposure", ["MASKED", "FULL"])
@@ -155,8 +163,8 @@ def test_ai_operation_in_a_real_request_is_joined_by_request_id() -> None:
     journal = handle.context.capture.journal
     assert journal is not None
     assert TestClient(app).get("/api/assistant").status_code == 200
-    (http,) = journal.records("http")
+    http = _one(journal)
     (ai,) = journal.records("ai")
     assert ai["requestId"] == http["requestId"]
-    coverage = {c["source"]: c for c in insights_service(handle.context).report()["coverage"]}
+    coverage = {c["source"]: c for c in insights_service(handle.context).report()["coverage"]}  # type: ignore[attr-defined]
     assert coverage["ai"]["byRequestId"] == 1
