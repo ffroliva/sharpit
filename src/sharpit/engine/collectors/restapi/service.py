@@ -17,9 +17,10 @@ from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope, mask
+from sharpit.engine.appsource import SourceIndex
 from sharpit.engine.collectors.restapi import report
 from sharpit.engine.collectors.restapi.error_contract import entries
-from sharpit.engine.collectors.restapi.rules import RULES, application_routes, evaluate
+from sharpit.engine.collectors.restapi.rules import RETIRED_RULES, RULES, application_routes, evaluate
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import ApiModel
@@ -42,7 +43,7 @@ class _Evaluation:
     evidence: dict[str, Any]
 
 
-def _evaluate(model: ApiModel, masker: Masker) -> _Evaluation:
+def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None) -> _Evaluation:
     routes = application_routes(model.routes)
     limitations = [mask(masker, item) for item in model.limitations]
     modules = sorted({r.handler.partition(":")[0] for r in routes})
@@ -50,10 +51,10 @@ def _evaluate(model: ApiModel, masker: Masker) -> _Evaluation:
     evaluated: list[str] = []
     errored: set[str] = set()
     if routes:  # BootUI: no controllers -> no rule is evaluated
-        contract = entries(model) if model.error_handlers else ()
+        contract = entries(model, index) if model.error_handlers else ()
         raw, errored = evaluate(routes, model.exception_handlers, error_contract=contract)
         for rule in RULES:
-            if rule.id in errored:
+            if rule.id in errored or rule.id in RETIRED_RULES:
                 continue
             evaluated.append(rule.id)
             findings.extend(
@@ -116,9 +117,10 @@ def assess(
     dismissed: Collection[str] = (),
     dismissed_pairs: Collection[tuple[str, str]] = (),
     baseline: Mapping[str, int | None] | None = None,
+    index: SourceIndex | None = None,
 ) -> AdvisorRun:
     """Pure: the REST API rules over ``model`` as an ``AdvisorRun`` (no lock, no cache; used by the pytest plugin)."""
-    return _run(_evaluate(model, masker), dismissed, fail_on, app, dismissed_pairs, baseline)
+    return _run(_evaluate(model, masker, index), dismissed, fail_on, app, dismissed_pairs, baseline)
 
 
 def _scope(done: Evaluation | None) -> Scope:
@@ -130,8 +132,8 @@ def _scope(done: Evaluation | None) -> Scope:
     )
 
 
-def _scan_evaluation(model: ApiModel, masker: Masker) -> Evaluation:
-    done = _evaluate(model, masker)
+def _scan_evaluation(model: ApiModel, masker: Masker, index: SourceIndex | None) -> Evaluation:
+    done = _evaluate(model, masker, index)
     if done.limitations:
         message = report.incomplete_message(done.limitations)
     elif done.routes:
@@ -155,11 +157,12 @@ class RestApiService(AdvisorScan):
         single_flight: SingleFlight,
         *,
         max_retained: int,
+        index: Callable[[], SourceIndex | None] = lambda: None,
     ) -> None:
         super().__init__(
             SPEC,
             RULES,
-            lambda _request: _scan_evaluation(model(), masker),
+            lambda _request: _scan_evaluation(model(), masker, index()),
             scope=_scope,
             dismissals=dismissals,
             masker=masker,

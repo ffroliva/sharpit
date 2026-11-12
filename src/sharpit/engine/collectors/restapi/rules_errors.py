@@ -13,7 +13,7 @@ from sharpit.engine.collectors.restapi.rules_common import (
 )
 from sharpit.engine.spi import ApiRouteInfo
 
-_BODY_RENDERING = frozenset({"PROBLEM_DETAIL", "CUSTOM_OBJECT", "STRING"})
+_BODY_RENDERING = frozenset({"CUSTOM_OBJECT", "STRING"})  # a problem-detail body carries its own status
 _SERVER_ERROR_CODES = frozenset(range(500, 600))
 _THROTTLING_STATUSES = frozenset({"429", "503"})
 
@@ -26,11 +26,12 @@ def _err004(
 ) -> list[Violation]:
     """RAPI-ERR-004: Make error-handler status ownership explicit.
 
-    A handler that renders a body with no literal status_code (defaults to 200).
+    A handler that renders a non-problem-detail body with no status visible (defaults to 200). A status built at
+    runtime (DYNAMIC) is unknown, not missing.
     """
     violations: list[Violation] = []
     for entry in error_contract:
-        if entry.body_category in _BODY_RENDERING and entry.status is None:
+        if entry.body_category in _BODY_RENDERING and entry.status is None and entry.status_source != "DYNAMIC":
             target = f"{entry.component}#{entry.method}"
             msg = (
                 f"{entry.component_simple_name}#{entry.method} declares a body without explicit status selection; "
@@ -48,12 +49,13 @@ def _err005(
 ) -> list[Violation]:
     """RAPI-ERR-005: Review broad handlers with fixed non-5xx statuses.
 
-    A handler keyed Exception or BaseException returning a literal status below 500.
+    A handler keyed Exception or BaseException returning a literal status below 500 (problem-detail bodies skipped).
     """
     violations: list[Violation] = []
     for entry in error_contract:
         if (
             entry.exception_simple_name in ("Exception", "BaseException")
+            and entry.body_category != "PROBLEM_DETAIL"
             and entry.status is not None
             and entry.status.isdigit()
         ):
@@ -61,7 +63,7 @@ def _err005(
             if code not in _SERVER_ERROR_CODES:
                 target = f"{entry.component}#{entry.method}"
                 msg = (
-                    f"{entry.component_simple_name}#{entry.method} catches Exception/Throwable and "
+                    f"{entry.component_simple_name}#{entry.method} catches Exception/BaseException and "
                     f"maps it to a fixed non-5xx status ({entry.status})"
                 )
                 violations.append(Violation(target, msg))
@@ -76,18 +78,19 @@ def _err007(
 ) -> list[Violation]:
     """RAPI-ERR-007: Consider Retry-After for declared 429/503 statuses.
 
-    A literal 429/503 on a handler or route without a Retry-After in its headers.
+    A literal 429/503 on a route, or on an exception handler with no literal Retry-After header; a handler whose
+    headers are built at runtime is unknown and skipped. Routes carry no header evidence.
     """
     violations: list[Violation] = [
         Violation(
             shared_route_target(route),
-            shared_describe(route, f"declares {route.status_code}; optionally review Retry-After policy"),
+            f"{shared_describe(route)} declares {route.status_code}; optionally review Retry-After policy",
         )
         for route in routes
         if route.status_code in (429, 503)
     ]
     for entry in error_contract:
-        if entry.status in _THROTTLING_STATUSES:
+        if entry.status in _THROTTLING_STATUSES and entry.retry_after is False:
             target = f"{entry.component}#{entry.method}"
             msg = (
                 f"{entry.component_simple_name}#{entry.method} declares {entry.status}; "
@@ -123,35 +126,6 @@ _CATEGORY_DISPLAY = {
 }
 
 
-def _unspecified_conflict(
-    handler: ErrorContractEntry,
-    cat_handler: str,
-    cat_first: str,
-    first: ErrorContractEntry,
-    different: ErrorContractEntry | None,
-) -> Violation | None:
-    if cat_first != cat_handler:
-        return _disagreement(first, handler)
-    if different is not None:
-        return _disagreement(different, handler)
-    return None
-
-
-def _check_media_produces(
-    handler: ErrorContractEntry,
-    cat_handler: str,
-    first_by_media: dict[str, ErrorContractEntry],
-) -> Violation | None:
-    for media in handler.produces:
-        media_norm = media.strip().lower()
-        if media_norm.startswith("!") or "*" in media_norm:
-            continue
-        other = first_by_media.setdefault(media_norm, handler)
-        if other is not handler and _CATEGORY_DISPLAY[other.body_category] != cat_handler:
-            return _disagreement(other, handler)
-    return None
-
-
 def _err010(
     _routes: Sequence[ApiRouteInfo],
     _handlers: Sequence[str],
@@ -160,36 +134,15 @@ def _err010(
 ) -> list[Violation]:
     """RAPI-ERR-010: Review differing known error contracts.
 
-    At least two handlers with different known body categories for the same media type.
-    DYNAMIC and UNRESOLVED are ignored.
+    At least two handlers with different known body categories. DYNAMIC and UNRESOLVED are ignored. BootUI also
+    compares per media type; the model has no ``produces`` yet (always empty), so every handler is unspecified.
     """
     rendering = [entry for entry in error_contract if entry.body_category in _CATEGORY_DISPLAY]
-    if len(rendering) < 2:
+    if not rendering:
         return []
-
-    first_by_media: dict[str, ErrorContractEntry] = {}
     first = rendering[0]
-    different: ErrorContractEntry | None = None
-    unspecified: ErrorContractEntry | None = None
-
-    for handler in rendering:
-        cat_handler = _CATEGORY_DISPLAY[handler.body_category]
-        cat_first = _CATEGORY_DISPLAY[first.body_category]
-        if different is None and cat_first != cat_handler:
-            different = handler
-
-        if not handler.produces:
-            conflict = _unspecified_conflict(handler, cat_handler, cat_first, first, different)
-            if conflict is not None:
-                return [conflict]
-            unspecified = handler
-        else:
-            if unspecified is not None and _CATEGORY_DISPLAY[unspecified.body_category] != cat_handler:
-                return [_disagreement(unspecified, handler)]
-            conflict = _check_media_produces(handler, cat_handler, first_by_media)
-            if conflict is not None:
-                return [conflict]
-    return []
+    other = next((e for e in rendering if e.body_category != first.body_category), None)
+    return [_disagreement(first, other)] if other else []
 
 
 def _disagreement(first: ErrorContractEntry, second: ErrorContractEntry) -> Violation:

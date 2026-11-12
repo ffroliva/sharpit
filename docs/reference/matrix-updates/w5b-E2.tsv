@@ -1,7 +1,7 @@
 rule:RAPI-ERR-001	matched	Centralized error handling verified across routes and exception handlers; parity test ported from RestApiRulesTests.errorHandlingRulesReflectCentralizedHandling
-rule:RAPI-ERR-004	matched	D2: flags body responses without declared status; ported from RestApiRulesTests.errorHandlingEdgeRuleFlagsBodyWithoutErrorStatus
-rule:RAPI-ERR-005	matched	D2: broad handler with declared non-5xx status; ported from RestApiRulesTests.broadExceptionHandlerRuleAllowsA500FallbackButFlagsANon5xxCollapse
-rule:RAPI-ERR-007	matched	D2: throttling response without Retry-After header; ported from RestApiRulesTests.retryAfterRuleFlagsThrottlingResponsesFromHandlersAndExceptionHandlers
+rule:RAPI-ERR-004	matched	D2: flags non-problem-detail body responses with no visible status (dynamic status unknown, skipped); ported from RestApiRulesTests.errorHandlingEdgeRuleFlagsBodyWithoutErrorStatus
+rule:RAPI-ERR-005	matched	D2: broad Exception/BaseException handler with declared non-5xx status, problem-detail bodies skipped; ported from RestApiRulesTests.broadExceptionHandlerRuleAllowsA500FallbackButFlagsANon5xxCollapse
+rule:RAPI-ERR-007	matched	D2: literal 429/503 on a route or on an exception handler with no literal Retry-After header (dynamic headers unknown, skipped); ported from RestApiRulesTests.retryAfterRuleFlagsThrottlingResponsesFromHandlersAndExceptionHandlers
 rule:RAPI-ERR-008	matched	Raw string exception responses; ported from RestApiRulesTests.headBodyAndRawStringExceptionRulesFireOnSpringAndJaxRs
 rule:RAPI-ERR-010	matched	Different known error categories for same media type; ported from RestApiRuleAccuracyTests.errorContractsCompareKnownShapesWithoutTreatingNegotiationAsAContradiction
-rule:RAPI-ERR-011	matched	Retired in BootUI 2.3.0; keeps id without emitting findings; ported from RestApiRuleRegistryTests.retiredDefinitionsKeepTheirIdsWithoutEmittingFindings
+rule:RAPI-ERR-011	matched	Retired in BootUI 2.3.0; keeps its id, is SKIPPED (not evaluated, absent from results); ported from RestApiRuleRegistryTests.retiredDefinitionsKeepTheirIdsWithoutEmittingFindings

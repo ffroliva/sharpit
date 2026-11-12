@@ -33,6 +33,7 @@ ERRORS_DOCS = "Error handling & documentation"
 REST_GUIDELINES = "https://www.rfc-editor.org/rfc/rfc9110.html"
 CREATED_DOCS = "https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2"
 PROBLEM_DETAIL_DOCS = "https://www.rfc-editor.org/rfc/rfc9457.html"
+EXCEPTION_HANDLER_DOCS = "https://fastapi.tiangolo.com/tutorial/handling-errors/"  # BootUI: ann-exceptionhandler
 _FASTAPI = "https://fastapi.tiangolo.com/tutorial/"
 
 RULES: tuple[RuleDefinition, ...] = (
@@ -238,27 +239,27 @@ RULES: tuple[RuleDefinition, ...] = (
         " has no explicit status selection. Runtime response rewriting is not observed.",
         "Return a response with an explicit status_code or specify an error status so the handler responds with an"
         " error status.",
-        PROBLEM_DETAIL_DOCS,
+        EXCEPTION_HANDLER_DOCS,
     ),
     RuleDefinition(
         "RAPI-ERR-005",
         "Review broad handlers with fixed non-5xx statuses",
         ERRORS_DOCS,
         "LOW",
-        "A broad Exception/Throwable handler with a declared fixed non-5xx status warrants review. Dynamic status"
+        "A broad Exception/BaseException handler with a declared fixed non-5xx status warrants review. Dynamic status"
         " envelopes, imperative response arguments and 5xx fallbacks do not establish that different errors collapse"
         " to one inappropriate status.",
         "Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409), and keep any"
-        " Exception/Throwable catch-all as a last-resort fallback mapped to a 5xx status.",
-        PROBLEM_DETAIL_DOCS,
+        " Exception/BaseException catch-all as a last-resort fallback mapped to a 5xx status.",
+        EXCEPTION_HANDLER_DOCS,
     ),
     RuleDefinition(
         "RAPI-ERR-007",
         "Consider Retry-After for declared 429/503 statuses",
         ERRORS_DOCS,
         "INFO",
-        "A 429/503 status annotation is a Retry-After design-review opportunity. Response headers and the actual"
-        " status are not observed; a missing header is not established.",
+        "A 429/503 status annotation is a Retry-After design-review opportunity. Literal response headers on"
+        " exception handlers are read; headers built at runtime and the actual status are not observed.",
         "Consider a Retry-After header (RFC 9110 §10.2.3) alongside 429 (RFC 6585 §4) or 503 responses so clients"
         " know when to retry. For quota visibility, RateLimit and RateLimit-Policy are complementary fields from an"
         " active IETF HTTPAPI Internet-Draft, not an RFC.",
@@ -356,6 +357,7 @@ SKIPPED_RULES: Mapping[str, str] = {
     " Content-Type (a body on GET/HEAD/DELETE is RAPI-MAP-007).",
 }
 RULE_IDS = frozenset(r.id for r in RULES)
+RETIRED_RULES = frozenset({"RAPI-ERR-011"})  # BootUI 2.3.0 keeps the id but the rule is SKIPPED: never evaluated
 
 # --- heuristics (RestApiRules constants) ----------------------------------------------------------------------------
 
