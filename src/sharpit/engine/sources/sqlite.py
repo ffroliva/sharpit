@@ -257,7 +257,7 @@ def _count_preexisting() -> int:
         kind = cast("type[object]", type(obj))  # never isinstance: a proxy's __class__ would run its own code
         if issubclass(kind, sqlite3.Connection) and not issubclass(kind, _TracedConnectionMixin):
             conns.append(obj)
-    if not conns:
+    if not conns:  # gc.get_referrers() with no arguments would still walk the whole heap
         return 0
     owned = _owned_elsewhere(conns)
     return sum(id(conn) not in owned for conn in conns)
