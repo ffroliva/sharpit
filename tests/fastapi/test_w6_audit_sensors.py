@@ -142,13 +142,63 @@ def test_the_switch_action_turns_the_files_sensor_off_and_on(
     handle.uninstall_capture()
 
 
-def test_a_sensor_that_is_not_configured_is_not_armed(tmp_path: Path, hook: Hook) -> None:
+def test_a_switchable_sensor_that_is_not_configured_switches_on_once_the_lane_exists(
+    tmp_path: Path, hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BootUI's switchSensor only refuses when the agent is not armed: a sensor bootui.agent.sensors does not ask for
+    # switches on all the same (toggle: configured false, enabled true, overridden true)
+    monkeypatch.setenv("SHARPIT_PANELS_JAVA_AGENT_READ_ONLY", "false")
     app, handle = _app(tmp_path, agent_sensors=("processes",))
+    with _client(app) as client:
+        hook.fire("os.remove", "a.txt", None)
+        assert _rows(handle, "files") == 0  # configured off: nothing recorded yet
+        switched = client.post(f"{SWITCH}/files", json={"enabled": True})
+        hook.fire("os.remove", "a.txt", None)
+    assert switched.status_code == 200
+    assert _rows(handle, "files") == 1
+    assert len(hook.hooks) == 1
+    handle.uninstall_capture()
+
+
+def test_the_switch_is_not_armed_when_no_sensor_is_configured(tmp_path: Path, hook: Hook) -> None:
+    app, handle = _app(tmp_path)
     with _client(app) as client:
         refused = client.post(f"{SWITCH}/files", json={"enabled": True})
     assert refused.status_code == 409
     assert "not armed" in refused.json()["error"]
-    assert len(hook.hooks) == 1  # the switch never installs anything
+    assert hook.hooks == []  # the switch never installs anything
+    handle.uninstall_capture()
+
+
+def test_a_switch_returns_the_report_a_read_returns_with_the_sensors_toggle(
+    tmp_path: Path, hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BootUI's switchSensor returns report(): the same DTO the GET answers, now with the switched toggle
+    monkeypatch.setenv("SHARPIT_PANELS_JAVA_AGENT_READ_ONLY", "false")
+    app, handle = _app(tmp_path, agent_sensors=("files",))
+    with _client(app) as client:
+        before = client.get(f"{API}/java-agent").json()["toggles"]
+        switched = client.post(f"{SWITCH}/files", json={"enabled": False}).json()
+        after = client.get(f"{API}/java-agent").json()
+    handle.uninstall_capture()
+    assert [(t["id"], t["configured"], t["enabled"], t["overridden"]) for t in before] == [("files", True, True, False)]
+    assert [(t["id"], t["configured"], t["enabled"], t["overridden"]) for t in switched["toggles"]] == [
+        ("files", True, False, True)
+    ]
+    assert after == switched
+
+
+def test_a_copy_records_one_row_per_side_not_the_files_copyfile_opens(tmp_path: Path, hook: Hook) -> None:
+    # BootUI hooks the copy once (copy from, copy to); the opens shutil makes inside it are the copy's own
+    app, handle = _app(tmp_path, agent_sensors=("files",))
+    source, target = tmp_path / "a.txt", tmp_path / "b.txt"
+    source.write_text("x", encoding="utf-8")
+    with _client(app):
+        hook.fire("shutil.copyfile", str(source), str(target))
+        hook.fire("open", str(source), "rb", 0)  # shutil's own inner opens, as the real hook would deliver them
+        hook.fire("open", str(target), "wb", 0)
+    kinds = [row["kind"] for row in handle.context.capture.journal.records("files")]  # pyright: ignore[reportOptionalMemberAccess]
+    assert kinds == ["copy from", "copy to"]
     handle.uninstall_capture()
 
 
