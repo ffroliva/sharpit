@@ -16,7 +16,7 @@ from tests.overhead import check_wall_budget
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
-from sharpit.engine.collectors.insights.registry import KindSpec
+from sharpit.engine.collectors.insights.registry import KINDS, KindSpec
 from sharpit.engine.collectors.insights.service import DISABLED, InsightsService, id_of
 from sharpit.settings_registry import JOURNAL_SOURCES
 
@@ -103,6 +103,18 @@ def test_a_recorded_kind_without_an_evaluator_is_not_applicable_yet() -> None:
     assert check["reason"] == "sharpit has not implemented this observation yet."
 
 
+def test_a_recorded_kind_without_an_evaluator_in_the_real_registry_is_not_applicable_yet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset(JOURNAL_SOURCES))
+    stub = next(spec for spec in KINDS if spec.evaluate is None)
+    journal = _journal()
+    check = InsightsService(journal, [stub]).report()["checks"][0]
+    assert check["kind"] == stub.kind
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == "sharpit has not implemented this observation yet."
+
+
 def test_a_finding_makes_the_check_evaluated_and_the_row_carries_the_listing() -> None:
     finding = Finding("k1", "GET /x", True, "3 of 4 requests.", 4, 3, ["look"], ["r1", "r2", "r3", "r4"], [], [], [])
     kind = FakeKind(kind="errors-behind-2xx", evaluate=lambda _s: Evaluation(4, [finding]))
@@ -132,8 +144,10 @@ def test_coverage_counts_events_by_how_they_link() -> None:
     for extra in ({"requestId": "r"}, {"requestId": "r"}, {"executionId": "e"}, {"traceId": "t"}, {}):
         journal.offer({**AI, **extra})
     row = InsightsService(journal).report()["coverage"][0]
+    # InsightsSnapshot.java:171-220: a trace-only event is byTraceId only when a retained request owns the trace; no
+    # http request is retained here, so it is unlinked with the event that links to nothing
     assert row == {
-        "source": "ai", "events": 5, "byRequestId": 2, "byExecutionId": 1, "byTraceId": 1, "unlinked": 1, "dropped": 0,
+        "source": "ai", "events": 5, "byRequestId": 2, "byExecutionId": 1, "byTraceId": 0, "unlinked": 2, "dropped": 0,
     }  # fmt: skip
 
 
