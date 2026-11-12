@@ -6,6 +6,7 @@ Contract: ``docs/superpowers/plans/2026-11-09-sharpit-0.6.0/W8-write-actions.md`
 
 from __future__ import annotations
 
+import io
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -181,11 +182,50 @@ def test_migrate_confirm_must_be_json_true_exactly(ini: Path, spy: Spy, confirm:
     assert spy.calls == []
 
 
+# ported: FlywayService.migrate (provider == null: 404 unavailable)
+def test_migrate_without_alembic_installed_is_404_unavailable(ini: Path, spy: Spy, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(alembic, "_installed", lambda: False)
+    client = _client(ini)
+    resp = _post(client, {"beanName": _name(client), "confirm": True})
+    assert resp.status_code == 404
+    assert resp.json()["status"] == "unavailable"
+    assert resp.json()["message"] == NO_TARGET
+    assert resp.json()["beanName"] is None
+    assert spy.calls == []
+
+
+@pytest.mark.parametrize("name", [123, True, 1.5])
+def test_migrate_scalar_bean_name_is_not_found_not_blank(ini: Path, spy: Spy, name: Any):
+    resp = _post(_client(ini), {"beanName": name, "confirm": True})
+    assert resp.status_code == 404
+    assert spy.calls == []
+
+
+@pytest.mark.parametrize("name", [["x"], {"a": 1}])
+def test_migrate_structured_bean_name_is_400(ini: Path, spy: Spy, name: Any):
+    resp = _post(_client(ini), {"beanName": name, "confirm": True})
+    assert resp.status_code == 400
+    assert spy.calls == []
+
+
 # ported: FlywayServiceTests.migrateUnknownNameIsNotFound
 def test_migrate_unknown_name_is_not_found(ini: Path, spy: Spy):
     resp = _post(_client(ini), {"beanName": "nope", "confirm": True})
     assert resp.status_code == 404
     assert resp.json()["status"] == "unavailable"
+    assert resp.json()["message"] == NO_TARGET
+    assert resp.json()["beanName"] is None
+    assert spy.calls == []
+
+
+def test_migrate_naming_one_of_several_engines_is_not_found_and_spawns_nothing(ini: Path, spy: Spy):
+    # a single-database Alembic project cannot target engine #2: it must not run upgrade against env.py's database
+    client = _client(ini, [_engine(ini), _engine(ini, suffix="other.db")])
+    client.post("/sharpit/api/alembic/refresh")
+    names = [d["name"] for d in client.get(REPORT).json()["databases"]]
+    resp = _post(client, {"beanName": names[1], "confirm": True})
+    assert len(names) == 2
+    assert resp.status_code == 404
     assert resp.json()["message"] == NO_TARGET
     assert resp.json()["beanName"] is None
     assert spy.calls == []
@@ -280,11 +320,15 @@ def test_alembic_argv_is_fixed_and_shell_free(ini: Path, monkeypatch: pytest.Mon
     seen: list[dict[str, Any]] = []
 
     class Proc:
-        pid = 0
+        pid = None
         returncode = 0
+        stdout = io.BytesIO(b"")
 
         def communicate(self, timeout: float | None = None) -> tuple[bytes, None]:
             return b"", None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
 
         def poll(self) -> int:
             return 0
