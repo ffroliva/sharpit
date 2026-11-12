@@ -159,10 +159,6 @@ def _feed(recorder: SqlTraceRecorder) -> list[str | None]:
     return returned
 
 
-def _no_reason(_ctx: SharpitContext) -> None:
-    return None
-
-
 def _json(value: object) -> str:
     return json.dumps(value, default=repr, ensure_ascii=False)  # key order too: a JSON body keeps the dict order
 
@@ -171,7 +167,6 @@ def _case(exposure: str, capture: bool, monkeypatch: pytest.MonkeyPatch) -> dict
     clock = _Clock()
     monkeypatch.setattr("time.time_ns", clock)
     monkeypatch.setattr(sqla, "unavailable_reason", lambda: None)
-    monkeypatch.setattr(sqla, "sql_trace_unavailable_reason", _no_reason)
     ctx = _ctx(exposure, capture)
     recorder = ctx.capture.sql_trace
     assert recorder is not None
