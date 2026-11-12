@@ -291,12 +291,8 @@ class InsightsService:
         if not capture.recorded and reads_sql:
             return _check(observation, "UNAVAILABLE", 0, 0, capture.reason), []
         partial, unseen = _partial(observation, snapshot), _unseen(observation, snapshot)
-        if (
-            capture.reason is not None
-            and any(snapshot.journaled(s) for s in SQL_SOURCES)
-            and (reads_sql or observation.optional_reads & SQL_SOURCES)
-        ):
-            unseen.append(capture.reason if capture.recorded else capture.reason + NOT_RECORDED_SUFFIX)
+        if caveat := _sql_capture_caveat(observation, snapshot, capture):
+            unseen.append(caveat)
         try:
             evaluation: Evaluation = evaluate(snapshot)
         except Exception:  # noqa: BLE001 - a kind never crashes the host or the other kinds
@@ -313,6 +309,15 @@ class InsightsService:
         reason = " ".join(r for r in reasons if r) or None
         check = _check(observation, status, evaluation.eligible, len(evaluation.findings), reason)
         return check, [_row(observation, f, partial, unseen, self._mask) for f in evaluation.findings]
+
+
+def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: SqlCapture) -> str | None:
+    """The SQL-capture caveat for a read of SQL (required or optional) once statements were journaled, else None."""
+    if capture.reason is None or not any(snapshot.journaled(s) for s in SQL_SOURCES):
+        return None
+    if not (observation.reads | observation.optional_reads) & SQL_SOURCES:
+        return None
+    return capture.reason if capture.recorded else capture.reason + NOT_RECORDED_SUFFIX
 
 
 def _detail(
