@@ -33,8 +33,8 @@ _LOCK = threading.RLock()
 
 
 def _descriptor(entry: Any) -> bool:
-    kind: Any = type(entry)  # identity only: `in (staticmethod, classmethod)` would run a metaclass __eq__
-    return kind is staticmethod or kind is classmethod
+    # identity only: `type(entry) in (staticmethod, classmethod)` would run a metaclass __eq__
+    return type(entry) is staticmethod or type(entry) is classmethod
 
 
 def _inner(entry: Any) -> types.FunctionType | None:
