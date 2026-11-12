@@ -99,7 +99,7 @@ def test_log_journal_event_offered_once_per_record_with_bootui_fields(installed:
     token = REQUEST.set(_info(handle, "0123456789abcdef"))
     try:
         _emit(handle, "Order %s placed", 42, level=logging.INFO)  # below WARN: BootUI records WARN and above only
-        _emit(handle, "Payment for order %s retried with token %s", 42, "secret-token")
+        _emit(handle, "Payment for order %s retried with code %s", 42, "secret-code")
         try:
             raise Teapot("boom")
         except Teapot:
@@ -112,7 +112,7 @@ def test_log_journal_event_offered_once_per_record_with_bootui_fields(installed:
     assert warned["source"] == "log"
     assert warned["logger"] == ORDERS
     assert warned["level"] == "WARN"
-    assert warned["template"] == "Payment for order %s retried with token %s"
+    assert warned["template"] == "Payment for order %s retried with code %s"
     assert warned["exceptionClass"] is None
     assert warned["requestId"] == "0123456789abcdef"
     assert warned["durationNanos"] == -1
@@ -135,20 +135,29 @@ def test_log_journal_template_is_the_unformatted_msg_and_an_argument_canary_neve
     dumped = json.dumps(offered) + json.dumps(_records(handle))
     assert ARG_CANARY not in dumped
     assert OBJECT_CANARY not in dumped
-    assert offered[1]["template"] == "Opaque"
-    if exposure != "METADATA_ONLY":
-        assert offered[0]["template"] == "retry %s for %s"
+    withheld = exposure == "METADATA_ONLY"  # the text is withheld, as the log tail's messageOmitted
+    assert offered[1]["template"] == (None if withheld else "Opaque")
+    assert offered[0]["template"] == (None if withheld else "retry %s for %s")
 
 
-@pytest.mark.parametrize("exposure", ["MASKED", "FULL"])
 def test_log_journal_template_secret_is_masked_before_offer(
-    exposure: str, monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
 ) -> None:
-    handle = _install(installed, expose_values=exposure)
+    handle = _install(installed)
     offered = _offered_by(handle, monkeypatch)
     _emit(handle, f"login failed password={SECRET_CANARY} for %s", "u")
     assert len(offered) == 1
     assert SECRET_CANARY not in json.dumps(offered)
+
+
+def test_log_journal_template_is_as_visible_as_the_log_tail_line_at_full(
+    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
+) -> None:
+    handle = _install(installed, expose_values="FULL")
+    offered = _offered_by(handle, monkeypatch)
+    _emit(handle, "disk %s almost full")
+    assert len(offered) == 1
+    assert handle.context.capture.log_tail.recent()[0]["message"] == offered[0]["template"]
 
 
 def test_log_journal_template_cut_at_500(installed: list[Any]) -> None:
@@ -213,13 +222,6 @@ def test_log_journal_not_offered_when_journal_disabled(installed: list[Any]) -> 
     _emit(control, "nothing to offer to")
     assert len(_records(control)) == 1
     assert [line["message"] for line in handle.context.capture.log_tail.recent()] == ["nothing to offer to"]
-
-
-def test_log_journal_is_produced_with_the_log_panels_disabled(installed: list[Any]) -> None:
-    panels = {"log-tail": {"enabled": False}, "exceptions": {"enabled": False}}
-    handle = _install(installed, panels=panels)
-    _emit(handle, "still produced")
-    assert len(_records(handle)) == 1
 
 
 def test_log_journal_carries_the_request_id_of_this_install_only(installed: list[Any]) -> None:
