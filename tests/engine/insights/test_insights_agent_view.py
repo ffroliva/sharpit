@@ -147,3 +147,9 @@ def test_detail_of_an_unlisted_observation_says_why_first_among_its_limitations(
     assert shown["whatToCheck"] == ["Check the call site.", "Then."]
     assert shown["truncated"] == 4
     assert shown["observation"]["exemplarRequestId"] == "r-1"
+
+
+def test_an_empty_subject_omits_the_query_argument_of_the_next_steps() -> None:
+    row = _observation(1, "route-time-breakdown", "", "")
+    steps = agent_list(_report([row]), None, None, STEPS)["next"]
+    assert [s for s in steps if s["arguments"].get("query") == ""] == []

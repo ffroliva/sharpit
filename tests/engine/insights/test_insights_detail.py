@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from sharpit.engine.capture.journal import RuntimeJournal
+from sharpit.engine.collectors.insights.agent_view import UNDER_DEFAULT_FLOOR
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.service import InsightsService, id_of
 from sharpit.engine.masking import Exposure, Masker
@@ -127,3 +128,16 @@ def test_after_commit_writes_not_applicable_without_app_event() -> None:
     check = _check("after-commit-writes")
     assert check["status"] == "NOT_APPLICABLE"
     assert check["reason"] == APP_EVENT
+
+
+def test_a_masker_returning_the_empty_string_never_lets_a_raw_exemplar_id_through() -> None:
+    service = _service()
+    service._mask = lambda _text: ""  # type: ignore[method-assign]  # a fake masker that blanks everything
+    row = service.report()["observations"][0]
+    assert row["exemplarRequestIds"] == [""]
+
+
+def test_metadata_only_still_carries_the_under_floor_decision() -> None:
+    finding = _finding(limitations=[UNDER_DEFAULT_FLOOR])
+    row = _service(Exposure.METADATA_ONLY, finding).report()["observations"][0]
+    assert UNDER_DEFAULT_FLOOR in row["limitations"]  # type: ignore[operator]
