@@ -246,7 +246,8 @@ def test_sql_journal_paused_panel_and_sql_not_a_journal_source_records_nothing()
     handle, engine = _install(sources=("http",))
     handle.context.capture.sql_trace.set_recording(False)
     _run(engine)
-    assert handle.context.capture.journal.status()["dropped"] == {}
+    # the statement is not offered at all; its transaction is, and counted dropped (W5a P-transaction, as sql is)
+    assert "sql" not in handle.context.capture.journal.status()["dropped"]
 
 
 def test_sql_journal_phase_is_null_outside_a_request_even_in_the_lifespan():

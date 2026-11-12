@@ -8,10 +8,12 @@ import time
 import weakref
 from collections import deque
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
-from sharpit.engine import sqla
+from sharpit.engine import otel, sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
+from sharpit.engine.capture.journal import SCALAR_BYTES
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
@@ -21,6 +23,7 @@ from sharpit.engine.sqla.events import add_pool_listener
 from sharpit.engine.sqltext import Dialect, error_text
 
 if TYPE_CHECKING:
+    from sharpit.engine.capture.journal import RuntimeJournal
     from sharpit.engine.context import SharpitContext
 
 PAUSED = "Recording is paused. Resume it to capture new transactions."
@@ -70,6 +73,119 @@ ENTRY_KEYS = (
     "connectionHeld",
     "errorMessage",
 )
+
+JOURNAL_SOURCE = "transaction"
+_TX_KEYS = (
+    "source", "epochMillis", "durationNanos", "traceId", "requestId", "thread", "method", "rolledBack", "nested",
+    "savepoint", "startNanos", "readOnly", "isolation", "rollbackOnly", "failureClass", "ormStatements", "ormFlushes",
+    "ormDirtyEntities",
+)  # fmt: skip
+# every key's length, the source's text and the eleven number or bool fields: what the journal's ``_flat`` charges
+_TX_EVENT_BYTES = sum(map(len, _TX_KEYS)) + len(JOURNAL_SOURCE) + 11 * SCALAR_BYTES
+
+type JournalEvent = dict[str, str | int | bool | None]
+
+
+class JournalStart(NamedTuple):
+    """What a transaction's journal event keeps from its begin; only a begin with a journal to offer to has one."""
+
+    journal: RuntimeJournal
+    request_id: str | None  # only this install's request
+    started_ns: int  # perf_counter, as P-sql's ``completedNanos``: BootUI's ``startNanos``
+    trace_id: str | None
+    nested: bool
+    savepoint: bool
+    read_only: bool
+    isolation: str | None
+
+
+type _Facts = tuple[int, str | None, bool, bool, bool, str | None]  # JournalStart after ``request_id``
+
+# the connections whose transaction began in this context: BootUI's thread stack, so ``nested`` is "another one is
+# still open here" (REQUIRES_NEW). Weak: a connection dropped without an end event stops counting once collected.
+_OPEN: ContextVar[tuple[weakref.ref[Any], ...]] = ContextVar("sharpit_open_transactions", default=())
+
+
+def _nests(conn: Any) -> bool:
+    live = tuple(r for r in _OPEN.get() if (other := r()) is not None and other is not conn and other.in_transaction())
+    _OPEN.set((*live, weakref.ref(conn)))
+    return bool(live)
+
+
+def _facts(conn: Any, *, savepoint: bool) -> _Facts | None:
+    """The begin's journal facts, the same for every context; ``None`` under AUTOCOMMIT, where each statement commits
+    itself and there is no physical transaction for BootUI to record."""
+    autocommit = getattr(conn, "_is_autocommit_isolation", None)  # SQLAlchemy 2.0+: the option or the engine's level
+    if callable(autocommit) and autocommit():
+        return None
+    options = conn.get_execution_options()
+    level = options.get("isolation_level")
+    isolation = str(level).upper().replace(" ", "_") if level else None
+    nested = savepoint or _nests(conn)
+    return (
+        time.perf_counter_ns(),
+        otel.current_trace_id(),
+        nested,
+        savepoint,
+        bool(options.get("postgresql_readonly")),
+        isolation,
+    )
+
+
+def _class_name(error: BaseException | None) -> str | None:
+    if error is None:
+        return None
+    cls = type(error)
+    return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _text_bytes(value: str | None) -> int:
+    return SCALAR_BYTES if value is None else len(value)
+
+
+def transaction_event(
+    row: dict[str, Any], start: JournalStart, error: BaseException | None
+) -> tuple[JournalEvent, int]:
+    """BootUI's ``transaction`` journal event (``TransactionPayload`` and its envelope, ``TransactionRecorder.java``
+    315-336) from the panel's completed row, and its charged size: metadata only, never SQL text or a parameter.
+
+    ``method`` is the row's call site (BootUI's ``@Transactional`` method has no Python twin); ``rollbackOnly`` and the
+    ORM counts are unknown (``False``, ``-1``); ``failureClass`` names the error that failed the DBAPI commit."""
+    failure = _class_name(error)
+    record: JournalEvent = {
+        "source": JOURNAL_SOURCE,
+        "epochMillis": row["startTimestamp"],
+        "durationNanos": max(0, time.perf_counter_ns() - start.started_ns),
+        "traceId": start.trace_id,
+        "requestId": start.request_id,
+        "thread": row["thread"],
+        "method": row["methodName"],
+        "rolledBack": row["status"] == "ROLLED_BACK",  # BootUI: status == ROLLED_BACK; a failed commit is UNKNOWN
+        "nested": start.nested,
+        "savepoint": start.savepoint,
+        "startNanos": start.started_ns,
+        "readOnly": start.read_only,
+        "isolation": start.isolation,
+        "rollbackOnly": False,
+        "failureClass": failure,
+        "ormStatements": -1,
+        "ormFlushes": -1,
+        "ormDirtyEntities": -1,
+    }
+    texts = (start.trace_id, start.request_id, row["thread"], row["methodName"], start.isolation, failure)
+    return record, _TX_EVENT_BYTES + sum(map(_text_bytes, texts))
+
+
+def _publish(row: dict[str, Any], error: BaseException | None = None) -> None:
+    """Offer the row's journal event, built here inside the guard: a failing build or offer costs only this event,
+    never the panel's row or another context's event. The journal counts a source it does not record as dropped."""
+    start: JournalStart | None = row.get("_journal")
+    if start is None:
+        return
+    try:
+        start.journal.offer_flat(*transaction_event(row, start, error))
+    except Exception as exc:  # noqa: BLE001 - publishing never disturbs the transaction it observes
+        dispatch.routing_failed(exc)
 
 
 def _empty_stats() -> dict[str, int | float]:
@@ -144,6 +260,7 @@ class TransactionRecorder:
         thread: str,
         trace_id: str | None,
         connection_id: str | None,
+        journal: JournalStart | None = None,
     ) -> int:
         if not self.recording:
             return -1
@@ -181,6 +298,7 @@ class TransactionRecorder:
                 "_startedNs": now,
                 "_connectionId": connection_id,
                 "_key": key,
+                "_journal": journal,
             }
             self._entries.append(row)
             self._open[entry_id] = row
@@ -202,6 +320,8 @@ class TransactionRecorder:
                 if not self._evict_completed_locked():
                     break
         self.changes.signal()
+        if not settle:  # a commit is offered once its DBAPI commit has returned or failed (``settle``)
+            _publish(row, error)
 
     def settle(self, entry_id: int, error: BaseException | None = None) -> None:
         """The DBAPI commit returned (``error`` None) or failed: re-close the row so its duration includes it."""
@@ -211,6 +331,7 @@ class TransactionRecorder:
                 return
             self._close_locked(row, "COMMITTED" if error is None else "UNKNOWN", error)
         self.changes.signal()
+        _publish(row, error)
 
     def _close_locked(self, row: dict[str, Any], status: str, error: BaseException | None) -> None:
         now = time.time_ns()
@@ -351,12 +472,12 @@ def _savepoints(info: dict[str, Any]) -> list[tuple[str | None, list[Tracked]]]:
     return info.setdefault("sharpit_tx_savepoints", [])
 
 
-def _close(items: list[Tracked], status: str) -> None:
+def _close(items: list[Tracked], status: str, *, settle: bool = False) -> None:
     for ref, entry_id in items:
         recorder = ref()
         if recorder is not None:
             try:
-                recorder.end(entry_id, status, settle=status == "COMMITTED")
+                recorder.end(entry_id, status, settle=settle)
             except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
                 dispatch.routing_failed(exc)
 
@@ -378,6 +499,7 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
     parents = parent_ids or {}
     info = REQUEST.get()
     connection_id = _connection_id(conn)
+    facts: _Facts | None = None  # read once, at the first context with a journal
     for ctx in _targets(conn):
         recorder = _enabled(ctx)
         if recorder is None:
@@ -385,13 +507,18 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
         try:
             parent = parents.get(id(recorder))
             method = call_site(None) if ctx.settings.sql_trace_capture_call_site else "unknown"
+            request_id = info.id if info is not None and info.context_id == ctx.context_id else None
+            journal = getattr(ctx.capture, "journal", None)  # a capture state without the journal lane has none
+            if journal is not None and facts is None:
+                facts = _facts(conn, savepoint=parent_ids is not None)
             entry_id = recorder.begin(
                 id(conn),
                 parent=parent,
                 method=method or "unknown",
                 thread=threading.current_thread().name,
-                trace_id=info.id if info is not None and info.context_id == ctx.context_id else None,
+                trace_id=request_id,
                 connection_id=connection_id,
+                journal=None if journal is None or facts is None else JournalStart(journal, request_id, *facts),
             )
             if entry_id >= 0:
                 stack.append((weakref.ref(recorder), entry_id))
@@ -399,11 +526,11 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
             dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
 
 
-def _end(info: dict[str, Any], status: str) -> None:
+def _end(info: dict[str, Any], status: str, *, settle: bool = False) -> None:
     stack = _stack(info)
     closing, stack[:] = stack[:], []
     _savepoints(info).clear()
-    _close(closing, status)
+    _close(closing, status, settle=settle)
 
 
 def _end_savepoint(conn: Any, name: str, status: str) -> None:
@@ -434,7 +561,7 @@ def tx_commit(conn: Any) -> None:
     try:
         info = conn.info  # a property chain: one read per listener
         info[PENDING_COMMIT] = list(_stack(info))
-        _end(info, "COMMITTED")
+        _end(info, "COMMITTED", settle=True)
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 
@@ -567,11 +694,3 @@ def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
                     _contexts.pop(ctx.context_id, None)
 
     return remove
-
-
-def transaction_event(
-    row: dict[str, Any], start: object, error: BaseException | None
-) -> tuple[dict[str, str | int | bool | None], int]:
-    """Wrong-value stub: the recorder offers no ``transaction`` journal event yet."""
-    del row, start, error
-    return {}, 0

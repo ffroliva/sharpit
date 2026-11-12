@@ -16,7 +16,6 @@ from sharpit.engine.capture.correlation import INTERNAL, REQUEST
 from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports this package
 from sharpit.engine.sqla import _lock
 from sharpit.engine.sqla import orm as _orm
-from sharpit.engine.sqla import transactions as _transactions
 from sharpit.engine.sqla.dialect_source import engine_dialect
 from sharpit.engine.sqla.orm import (
     _eager_relationship_batches,
@@ -185,7 +184,6 @@ _LISTENERS: dict[str, Callable[..., None]] = {
     "before_cursor_execute": before_cursor_execute,
     "after_cursor_execute": after_cursor_execute,
     "handle_error": handle_error,
-    **{name: getattr(_transactions, name) for name in _transactions.TRANSACTION_EVENTS},
 }
 
 
@@ -199,7 +197,7 @@ def _sync_listeners() -> None:
         return
     wanted = {
         DISCOVERY_EVENT: bool(_discovery_contexts),
-        **dict.fromkeys((*STATEMENT_EVENTS, *_transactions.TRANSACTION_EVENTS), bool(_statement_contexts) or _session),
+        **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts) or _session),
     }
     for name, fn in _LISTENERS.items():
         present = sa.event.contains(sa.engine.Engine, name, fn)

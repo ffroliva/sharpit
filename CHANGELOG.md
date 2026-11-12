@@ -7,7 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Runtime journal `transaction` source: one metadata-only event per completed database transaction or savepoint (BootUI `TransactionPayload`: rolled back, nested, savepoint, isolation, start and duration; `method` is the application frame that began it), from SQLAlchemy `Connection` events, so `errors-behind-2xx` sees rolled-back transactions; a connection closed without a commit is `completion: CLOSE`, not a rollback.
+- Runtime journal `transaction` source: the transactions panel's recorder offers one metadata-only event per completed database transaction or savepoint (BootUI `TransactionPayload`: rolled back, nested, savepoint, isolation, failure class, start and duration; `method` is the call site that began it), independent of SQL Trace, so `errors-behind-2xx` sees rolled-back transactions; a failed DBAPI commit is not a commit, and an AUTOCOMMIT connection offers none.
 - Internal: a shared class-method wrap helper for capture integrations (`engine/capture/wraps.py`).
 - Runtime journal `sql` source: one literal- and parameter-free event per executed statement (BootUI `SqlPayload`), joined to its request by `requestId` or `traceId`; the runtime insights now treat `sql` as recorded when enabled.
 - Agent sensors `processes` and `files` (`SHARPIT_AGENT_SENSORS`, off by default): one resident, inert `sys.addaudithook` dispatcher records the commands the app starts (file name only) and the files it opens, deletes, moves and copies (path patterns only) into the runtime journal; the `files` sensor switches through the Java Agent sensor action.

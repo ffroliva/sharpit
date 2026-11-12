@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 import weakref
-from collections.abc import Callable, Sized
+from collections.abc import Sized
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
@@ -86,32 +86,6 @@ def _targets(engine: object | None) -> list[SharpitContext]:
         else []
     )
     return held or (contexts if len(contexts) == 1 else [])
-
-
-def journal_targets(engine: object | None, source: str) -> list[SharpitContext]:
-    """The contexts whose journal records ``source`` for work on ``engine``: routed, and the source configured."""
-    contexts = [c for r in _refs if (c := r()) is not None]
-    info = REQUEST.get()
-    if info is not None:
-        targets = [c for c in contexts if c.context_id == info.context_id]
-    else:
-        held = (
-            [c for c in contexts if c.capture.engine_registry is not None and c.capture.engine_registry.holds(engine)]
-            if engine is not None
-            else []
-        )
-        targets = held or (contexts if len(contexts) == 1 else [])
-    return [c for c in targets if c.capture.journal is not None and c.capture.journal.accepts(source)]
-
-
-def offer_journal(ctx: SharpitContext, build: Callable[[], dict[str, str | int | bool | None]], hook: str) -> None:
-    """Build and offer one journal event inside one guard: a failure of either is reported, never raised."""
-    try:
-        journal = ctx.capture.journal
-        if journal is not None:
-            journal.offer_flat(build())
-    except Exception as exc:  # noqa: BLE001 - a journal failure never reaches the host's work
-        _context_failed(ctx, exc, hook)
 
 
 def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
