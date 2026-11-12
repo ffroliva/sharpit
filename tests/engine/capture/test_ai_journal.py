@@ -4,9 +4,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo
 from sharpit.engine.capture.traces import span_buffer
 
 
@@ -57,6 +59,9 @@ def test_ai_journal_event_is_metadata_only():
     assert record["source"] == "ai"
     assert set(record) - {"source"} == {
         "operation",
+        "traceId",
+        "requestId",
+        "durationNanos",
         "provider",
         "model",
         "inputTokens",
@@ -115,3 +120,53 @@ def test_ai_journal_finish_reason_never_shows_the_authentication_token(exposure:
     records = _records(("ai",), span=span, authentication_token=AUTH_TOKEN, expose_values=exposure)
     assert len(records) == 1
     assert AUTH_TOKEN.lower() not in str(records).lower()
+
+
+def test_ai_journal_event_carries_the_trace_id_of_its_span_in_the_http_format():
+    # the http producer's ids are lower-case 32-hex (capture/exchanges.trace_id), so the two join
+    record = _records(("ai",))[0]
+    assert record.get("traceId") == "0" * 31 + "1"
+
+
+def test_ai_journal_event_carries_its_duration():
+    record = _records(("ai",))[0]
+    assert record.get("durationNanos") == 1_000_000_000
+
+
+def test_ai_journal_event_has_a_request_id_key_that_is_empty_outside_a_request():
+    record = _records(("ai",))[0]
+    assert "requestId" in record
+    assert record["requestId"] is None
+
+
+def test_a_span_ended_inside_a_request_carries_that_request_id():
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, runtime_journal_sources=("ai",))
+    seen: list[str | None] = []
+
+    @app.get("/ended-in-request")
+    def ended_in_request() -> dict[str, bool]:
+        info = REQUEST.get()
+        seen.append(info.id if info else None)
+        span_buffer(handle.context).add(_span())
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        client.get("/ended-in-request")
+    journal = handle.context.capture.journal
+    assert journal is not None
+    assert seen[0] is not None
+    assert journal.records("ai")[0].get("requestId") == seen[0]
+
+
+def test_a_span_ended_in_another_installs_request_carries_no_request_id():
+    ours = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, runtime_journal_sources=("ai",))
+    theirs = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, runtime_journal_sources=("ai",))
+    token = REQUEST.set(RequestInfo("r-theirs", theirs.context.context_id, "GET", "/x", None, 0, None))
+    try:
+        span_buffer(ours.context).add(_span())
+    finally:
+        REQUEST.reset(token)
+    journal = ours.context.capture.journal
+    assert journal is not None
+    assert journal.records("ai")[0].get("requestId") is None

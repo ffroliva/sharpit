@@ -16,6 +16,7 @@ from sharpit.settings_registry import JOURNAL_SOURCES
 
 AI = {"source": "ai", "operation": "chat", "inputTokens": 5, "outputTokens": 7}
 UNKNOWN = "No observation {} in this run's retained events: it may have been evicted or cleared."
+UNCOUNTED_WITHHELD = "Some recorded work was not counted; the detail is withheld under METADATA_ONLY exposure."
 OMITTED = "The text of this observation is withheld under METADATA_ONLY exposure: counts, ids and statuses only."
 APP_EVENT = "The runtime journal does not record the app-event source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
 
@@ -141,3 +142,12 @@ def test_metadata_only_still_carries_the_under_floor_decision() -> None:
     finding = _finding(limitations=[UNDER_DEFAULT_FLOOR])
     row = _service(Exposure.METADATA_ONLY, finding).report()["observations"][0]
     assert UNDER_DEFAULT_FLOOR in row["limitations"]  # type: ignore[operator]
+
+
+def test_metadata_only_keeps_a_check_with_uncounted_work_from_reading_clean() -> None:
+    # the kind's uncounted sentence is masked away under METADATA_ONLY; the check must still say work went uncounted
+    journal = RuntimeJournal(sources=JOURNAL_SOURCES, masker=Masker(Exposure.METADATA_ONLY, True))
+    journal.offer(AI)
+    kind = FakeKind(evaluate=lambda _s: Evaluation(1, [], "3 AI operations joined no retained request."))
+    check = InsightsService(journal, [kind]).report()["checks"][0]
+    assert check["reason"] == UNCOUNTED_WITHHELD

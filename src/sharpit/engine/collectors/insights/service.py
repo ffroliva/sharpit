@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
-from sharpit.engine.collectors.insights.snapshot import Snapshot, project
+from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, Snapshot, project
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 
 if TYPE_CHECKING:
@@ -26,9 +26,9 @@ NOT_IMPLEMENTED = "sharpit has not implemented this observation yet."
 NOT_EVALUATED = "This observation could not be evaluated."
 UNKNOWN_PREFIX = "No observation "
 UNKNOWN_SUFFIX = " in this run's retained events: it may have been evicted or cleared."
+UNCOUNTED_WITHHELD = "Some recorded work was not counted; the detail is withheld under METADATA_ONLY exposure."
 TEXT_OMITTED = "The text of this observation is withheld under METADATA_ONLY exposure: counts, ids and statuses only."
 MAX_EXEMPLARS, MAX_EVIDENCE_ROWS = 3, 20  # RuntimeInsightsService.MAX_EXEMPLARS, MAX_EVIDENCE_ROWS
-_LINKS = ("requestId", "executionId", "traceId")
 
 Row = dict[str, object]
 Mask = Callable[[str], str | None]  # None: METADATA_ONLY shows no text
@@ -123,12 +123,21 @@ def _row(
     }, finding  # fmt: skip
 
 
+def _link(snapshot: Snapshot, event: Row) -> int:
+    """``InsightsSnapshot.java:171-220``: a request or execution id links by itself, a trace id only to an owner."""
+    if event.get("requestId"):
+        return 0
+    if event.get("executionId"):
+        return 1
+    return 2 if snapshot.request_index.owner(event) is not None else 3
+
+
 def _coverage(snapshot: Snapshot) -> list[Row]:
     rows: list[Row] = []
     for source, events in snapshot.records.items():
         if not events:
             continue
-        linked = [next((i for i, key in enumerate(_LINKS) if event.get(key)), 3) for event in events]
+        linked = [_link(snapshot, event) for event in events]
         rows.append({
             "source": source, "events": len(events), "byRequestId": linked.count(0), "byExecutionId": linked.count(1),
             "byTraceId": linked.count(2), "unlinked": linked.count(3), "dropped": snapshot.dropped(source),
@@ -167,8 +176,15 @@ def _report(
 
 
 class InsightsService:
-    def __init__(self, journal: Any, observations: Sequence[Observation] | None = None) -> None:
+    def __init__(
+        self,
+        journal: Any,
+        observations: Sequence[Observation] | None = None,
+        ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
+    ) -> None:
         self.journal = journal
+        # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
+        self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
         masker = getattr(journal, "masker", None)
         self._mask: Mask = masker.mask_text if masker else str
@@ -194,7 +210,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal)
+        snapshot = project(self.journal, self.ai_token_threshold)
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
         for observation in self.observations:
@@ -213,6 +229,10 @@ class InsightsService:
         missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)
         if missing is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, _not_recorded(missing)), []
+        gate = getattr(observation, "not_applicable", None)  # BootUI Observation.notApplicable; a stub has none
+        reason = gate(snapshot) if gate else None
+        if reason is not None:
+            return _check(observation, "NOT_APPLICABLE", 0, 0, reason), []
         evaluate = observation.evaluate
         if evaluate is None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, NOT_IMPLEMENTED), []
@@ -224,7 +244,9 @@ class InsightsService:
             return _check(observation, "UNAVAILABLE", 0, 0, NOT_EVALUATED), []
         reasons = [partial] if partial else list(unseen)
         if evaluation.uncounted:
-            reasons.append(self._mask(evaluation.uncounted) or "")
+            reasons.append(
+                self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
+            )  # masked away: still say work went uncounted
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
         status = _check_status(evaluation.worked, partial)
@@ -249,4 +271,5 @@ def _detail(
 
 def insights_service(ctx: SharpitContext) -> InsightsService:
     """The install's service over its journal, shared by the routes and the tools (a test seeds it through ``lazy``)."""
-    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal))
+    threshold = ctx.settings.runtime_insights_ai_token_threshold
+    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold))
