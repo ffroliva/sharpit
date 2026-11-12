@@ -93,9 +93,6 @@ PARTIAL_TOOLS = (
     "get_vulnerabilities_report",
 )
 MISSING_TOOLS = (
-    "disable_agent_sensor",
-    "enable_agent_sensor",
-    "get_agent_status",
     "get_cache_stats",
     "get_code_inventory",
     "get_code_paths",
@@ -157,6 +154,9 @@ MISSING_TOOLS = (
     "get_thread_detail",
     "get_websockets",
 )
+# W6 floor (DEFAULT TAKEN 2): registered with BootUI's schema, action flag and panel, but the matrix row stays partial
+# because sharpit has no agent sensors yet, so they carry no bootui mark
+FLOOR_TOOLS = ("get_agent_status", "enable_agent_sensor", "disable_agent_sensor")
 SHARPIT_ONLY = (
     "fastapi_scan",
     "get_data_repositories",
@@ -287,6 +287,16 @@ def test_tool_catalogue_matches_bootui_23(name: str) -> None:
     assert local.panel == oracle["panel"]
 
 
+@pytest.mark.parametrize("name", FLOOR_TOOLS, ids=lambda name: f"tool:{name}")
+def test_floor_tool_catalogue_matches_bootui_23(name: str) -> None:
+    local, oracle = SHARPIT[name], BOOTUI[name]
+    assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
+    assert local.default_limit == oracle.get("defaultLimit")
+    assert local.action is oracle["action"]
+    assert local.panel == oracle["panel"]
+    assert COMMANDS[name] == oracle["command"]
+
+
 @pytest.mark.parametrize("name", PARTIAL_TOOLS, ids=lambda name: f"tool:{name}")
 def test_partial_tool_catalogue_difference_is_known(name: str) -> None:
     local, oracle = SHARPIT[name], BOOTUI[name]
@@ -301,12 +311,14 @@ def test_partial_tool_catalogue_difference_is_known(name: str) -> None:
 
 
 def test_tool_coverage_matches_fixture() -> None:
-    classified = set(MATCHED_TOOLS) | set(PARTIAL_TOOLS) | set(MISSING_TOOLS)
+    classified = set(MATCHED_TOOLS) | set(PARTIAL_TOOLS) | set(MISSING_TOOLS) | set(FLOOR_TOOLS)
     assert classified == set(BOOTUI)
     assert len(BOOTUI_TOOLS) == 116
     assert set(SHARPIT) - set(BOOTUI) == set(SHARPIT_ONLY)
     assert set(COMMANDS) - set(BOOTUI) == set(SHARPIT_ONLY)
-    cli_paths = {(BOOTUI[name]["command"], name) for name in (*MATCHED_TOOLS, *PARTIAL_TOOLS, *MISSING_TOOLS)}
+    cli_paths = {
+        (BOOTUI[name]["command"], name) for name in (*MATCHED_TOOLS, *PARTIAL_TOOLS, *MISSING_TOOLS, *FLOOR_TOOLS)
+    }
     assert cli_paths == {(tool["command"], tool["name"]) for tool in BOOTUI_TOOLS}
     assert len(cli_paths) == 116
     assert {(COMMANDS[name], name) for name in SHARPIT_ONLY} == {

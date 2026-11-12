@@ -61,6 +61,7 @@ TOOL_TIMEOUT = -32002
 RESPONSE_TOO_LARGE = -32003
 INTERNAL_ERROR_MESSAGE = "Internal error"
 UNKNOWN_TOOL_PREFIX = "Unknown tool: "
+UNAVAILABLE_TOOL_PREFIX = "Tool not available in this application: "  # McpProtocol.UNAVAILABLE_TOOL_PREFIX
 
 SERVER_NAME = "sharpit"
 CLI_DISABLED_MESSAGE = "sharpit CLI endpoint is disabled. Set SHARPIT_CLI_ENABLED=true to allow command-line access."
@@ -128,6 +129,11 @@ _QUERY_LIMIT: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
+_QUERY: dict[str, Any] = {
+    "type": "object",
+    "properties": {"query": _QUERY_LIMIT["properties"]["query"]},
+    "additionalProperties": False,
+}
 _LIMIT_ONLY: dict[str, Any] = {"type": "object", "properties": {"limit": _LIMIT}, "additionalProperties": False}
 _ID: dict[str, Any] = {
     "type": "object",
@@ -158,6 +164,7 @@ _RULE_VIOLATIONS: dict[str, Any] = {  # BootUiMcpService.schema RULE_VIOLATIONS
 _SCHEMA_NAMES = {
     (): "NONE",
     ("limit",): "LIMIT",
+    ("query",): "QUERY",
     ("query", "limit"): "QUERY_LIMIT",
     ("id",): "ID",
     ("id", "scanId", "offset", "limit"): "RULE_VIOLATIONS",

@@ -1,0 +1,37 @@
+tool:get_agent_status	partial	W6 floor: NOT_ATTACHED report, BootUI schema QUERY; no agent sensors yet (DEFAULT TAKEN 2); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:enable_agent_sensor	partial	W6 floor: refused 400 unswitchable / 409 not armed as BootUI without the agent; CLI only (sharpit serves no action over MCP); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:disable_agent_sensor	partial	W6 floor: refused 400 unswitchable / 409 not armed as BootUI without the agent; CLI only; tests/fastapi/test_w6_sensor_floor_tools.py
+tool:get_code_inventory	partial	W6 floor: not advertised (JavaAgentPresence.AGENT_SENSOR_TOOLS); a call answers "Tool not available in this application" with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:get_code_paths	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:get_method_probe	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:start_method_probe	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:get_side_effects	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
+cli:agent/status	partial	W6 floor: listed, answers NOT_ATTACHED; tests/fastapi/test_w6_sensor_floor_tools.py
+cli:agent/sensor/enable	partial	W6 floor: listed; 400 missing/unswitchable id, 409 not armed; tests/fastapi/test_w6_sensor_floor_tools.py
+cli:agent/sensor/disable	partial	W6 floor: listed; 400 missing/unswitchable id, 409 not armed; tests/fastapi/test_w6_sensor_floor_tools.py
+cli:code/inventory	partial	W6 floor: not listed, 404 naming the tool (AbstractCliConformanceTest); tests/fastapi/test_w6_sensor_floor_tools.py
+cli:code/paths	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
+cli:probe/show	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
+cli:probe/start	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
+cli:side-effects	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
+route:GET /side-effects	partial	W6 floor: every sensor listed unavailable with the reason; golden keys; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /side-effects/sensor?sensor=processes	partial	W6 floor: SideEffectsSensorReport unavailable; unknown or missing sensor 400; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-inventory	partial	W6 floor: CodeInventoryReport.unavailable, golden keys; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-inventory/changes	partial	W6 floor: unavailable, empty page echoing limit; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-inventory/methods?status=never-executed	partial	W6 floor: unavailable, empty page; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-inventory/dependencies	partial	W6 floor: unavailable, empty page; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-paths	partial	W6 floor: CodePathsReport.unavailable; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-paths/route?route=GET%20%2Fnot-a-route	partial	W6 floor: empty route tree with BootUI's depth/limit bounds; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-paths/beans	partial	W6 floor: CodePathsBeansReport.unavailable; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-paths/requests/0000000000000000	partial	W6 floor: empty request tree echoing the id; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-paths/probes	partial	W6 floor: no probes, shapes unavailable for the same reason; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /code-paths/probes/{id}	partial	W6 floor: 400 for an id Long.parseLong rejects, else 404 "This run has no method probe N." (the panel is shown, no run); tests/fastapi/test_w6_sensor_floor_api.py
+op:code-paths.probe.start	partial	W6 floor: 400 without a method, else 409 with Code Paths' reason; read-only refusal tested; tests/fastapi/test_w6_sensor_floor_api.py
+op:code-paths.probe.stop	partial	W6 floor: 400 non-numeric id, else 404 no such probe; tests/fastapi/test_w6_sensor_floor_api.py
+op:code-paths.probe.delete	partial	W6 floor: as stop; tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /java-agent	partial	W6 floor: JavaAgentReport NOT_ATTACHED with golden keys; tests/fastapi/test_w6_sensor_floor_api.py
+op:java-agent.sensor.switch	partial	W6 floor: 400 without enabled / unswitchable id, 409 not armed; read-only refusal tested; tests/fastapi/test_w6_sensor_floor_api.py
+panel:java-agent	partial	W6 floor: registered, available (BootUI lists it available without the agent)
+panel:code-inventory	partial	W6 floor: registered, unavailable with the inventory-sensor reason
+panel:code-paths	partial	W6 floor: registered, unavailable with the code-paths-sensor reason
+panel:side-effects	partial	W6 floor: registered, unavailable with the agent reason

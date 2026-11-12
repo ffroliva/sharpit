@@ -678,6 +678,7 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
 ADVISOR_VIOLATIONS = re.compile(r"/sharpit/api/[^/]+/rules/[^/]+/violations")
 METRICS_DETAIL = "/sharpit/api/metrics/detail"
 NO_SCAN_ID = {"error": "Advisor scan ID must not be blank."}  # contract: the 400 of a violations read without scanId
+SIDE_EFFECTS_SENSOR = "/sharpit/api/side-effects/sensor"  # SideEffectsService.sensor: no sensor named, 400 (W6 floor)
 NO_METRIC_NAME = {
     "error": "Metric name must not be blank"
 }  # BootUI MetricsControllerTests.missingDetailNameIsMappedToCanonicalBadRequest
@@ -687,6 +688,8 @@ def _get_problem(path: str, resp: httpx.Response) -> str | None:
     """Why a swept GET's answer is wrong, or None."""
     if ADVISOR_VIOLATIONS.fullmatch(path):  # any advisor's violations route needs a scanId: without one, 400, no scan
         ok = resp.status_code == 400 and resp.json() == NO_SCAN_ID
+    elif path == SIDE_EFFECTS_SENSOR:
+        ok = resp.status_code == 400 and resp.json()["error"].startswith("Unknown Side Effects sensor 'null'")
     elif path == METRICS_DETAIL:  # BootUI requires a nonblank name; this error is returned before registry access
         ok = resp.status_code == 400 and resp.json() == NO_METRIC_NAME
     else:
