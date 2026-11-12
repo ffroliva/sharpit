@@ -1,0 +1,1967 @@
+{
+ "MASKED": {
+  "records": {
+   "ai": [
+    {
+     "source": "ai",
+     "operation": "chat",
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "requestId": "req-1",
+     "durationNanos": 2000000,
+     "provider": "openai",
+     "model": "gpt-example",
+     "inputTokens": 9000,
+     "outputTokens": 7,
+     "finishReason": "stop",
+     "failed": false,
+     "spanId": "00f067aa0ba902b7",
+     "completedNanos": 9300000,
+     "codePathStamp": 0
+    }
+   ],
+   "exception": [
+    {
+     "source": "exception",
+     "epochMillis": 1700000000300,
+     "durationNanos": -1,
+     "traceId": null,
+     "thread": "MainThread",
+     "requestId": "req-2",
+     "failedOrSlow": true,
+     "groupId": "0123456789abcdef",
+     "exceptionClass": "builtins.KeyError",
+     "signature": "fedcba9876543210",
+     "types": [
+      "builtins.KeyError",
+      "builtins.LookupError"
+     ],
+     "logged": false
+    }
+   ],
+   "http": [
+    {
+     "source": "http",
+     "epochMillis": 1700000000000,
+     "durationNanos": 1500000,
+     "startNanos": 9000000,
+     "traceId": null,
+     "thread": "AnyIO worker thread",
+     "requestId": "req-0",
+     "method": "GET",
+     "path": "******",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 200,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "epochMillis": 1700000000001,
+     "durationNanos": 3000000,
+     "startNanos": 9000001,
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "thread": "AnyIO worker thread",
+     "requestId": "req-1",
+     "method": "GET",
+     "path": "******",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 200,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "epochMillis": 1700000000002,
+     "durationNanos": 4500000,
+     "startNanos": 9000002,
+     "traceId": null,
+     "thread": "AnyIO worker thread",
+     "requestId": "req-2",
+     "method": "GET",
+     "path": "******",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 500,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "epochMillis": 1700000000003,
+     "durationNanos": 6000000,
+     "startNanos": 9000003,
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "thread": "AnyIO worker thread",
+     "requestId": "req-3",
+     "method": "GET",
+     "path": "******",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 200,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "message": "******",
+     "headers": {
+      "Authorization": "******",
+      "Accept": [
+       "a",
+       [
+        "b",
+        1.5
+       ]
+      ]
+     },
+     "password": "******",
+     "raw": "******",
+     "tags": [
+      "a",
+      "b"
+     ],
+     "count": 3,
+     "ratio": 0.25,
+     "ok": true
+    }
+   ],
+   "log": [
+    {
+     "source": "log",
+     "epochMillis": 1700000000200,
+     "durationNanos": -1,
+     "traceId": null,
+     "thread": "MainThread",
+     "requestId": "req-2",
+     "failedOrSlow": true,
+     "logger": "app.pets",
+     "level": "ERROR",
+     "template": "******",
+     "exceptionClass": "builtins.KeyError"
+    },
+    {
+     "source": "log",
+     "epochMillis": 1700000000201,
+     "durationNanos": -1,
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "thread": "worker-1",
+     "requestId": null,
+     "failedOrSlow": false,
+     "logger": "app.pets",
+     "level": "WARN",
+     "template": null,
+     "exceptionClass": null
+    }
+   ],
+   "mail": [
+    {
+     "source": "mail",
+     "recipients": 3,
+     "attachments": 1,
+     "sent": true,
+     "failed": false,
+     "traceId": null,
+     "requestId": "req-1",
+     "thread": "MainThread",
+     "durationNanos": -1,
+     "completedNanos": 9200000,
+     "codePathStamp": 0
+    }
+   ],
+   "sql": [
+    {
+     "source": "sql",
+     "sql": "select * from pets where id = ?",
+     "traceId": null,
+     "requestId": "req-0",
+     "thread": "MainThread",
+     "durationNanos": 42000,
+     "startedAt": 1700000000100,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100000,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": null
+    },
+    {
+     "source": "sql",
+     "sql": "******",
+     "traceId": null,
+     "requestId": "req-1",
+     "thread": "MainThread",
+     "durationNanos": 42001,
+     "startedAt": 1700000000101,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100001,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": "app/pets.py:12"
+    },
+    {
+     "source": "sql",
+     "sql": "******",
+     "traceId": null,
+     "requestId": "req-2",
+     "thread": "MainThread",
+     "durationNanos": 42002,
+     "startedAt": 1700000000102,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100002,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": null
+    },
+    {
+     "source": "sql",
+     "sql": "select * from pets where id = ?",
+     "traceId": null,
+     "requestId": "req-3",
+     "thread": "MainThread",
+     "durationNanos": 42003,
+     "startedAt": 1700000000103,
+     "dataSource": null,
+     "failed": true,
+     "phase": null,
+     "completedNanos": 9100003,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": "app/pets.py:12"
+    }
+   ]
+  },
+  "status": {
+   "enabled": true,
+   "runId": "golden00",
+   "retainedEvents": 14,
+   "retainedBytes": 3605,
+   "maxEvents": 50000,
+   "maxBytes": 33554432,
+   "reservedEvents": 0,
+   "reservedCapacity": 5000,
+   "evictedEvents": 0,
+   "bindingBound": null,
+   "oldestRetainedAt": 1700000001000,
+   "queueDepth": 0,
+   "queueCapacity": 10000,
+   "recorded": {
+    "http": 5,
+    "log": 2,
+    "mail": 1,
+    "ai": 1,
+    "sql": 4,
+    "exception": 1
+   },
+   "dropped": {
+    "network": 1,
+    "failed": 1
+   },
+   "droppedEvents": 2,
+   "previousRuns": [],
+   "previousRunsUnavailable": null,
+   "agentEvidence": null
+  },
+  "snapshot": {
+   "status": {
+    "enabled": true,
+    "runId": "golden00",
+    "retainedEvents": 14,
+    "retainedBytes": 3605,
+    "maxEvents": 50000,
+    "maxBytes": 33554432,
+    "reservedEvents": 0,
+    "reservedCapacity": 5000,
+    "evictedEvents": 0,
+    "bindingBound": null,
+    "oldestRetainedAt": 1700000001000,
+    "queueDepth": 0,
+    "queueCapacity": 10000,
+    "recorded": {
+     "http": 5,
+     "log": 2,
+     "mail": 1,
+     "ai": 1,
+     "sql": 4,
+     "exception": 1
+    },
+    "dropped": {
+     "network": 1,
+     "failed": 1
+    },
+    "droppedEvents": 2,
+    "previousRuns": [],
+    "previousRunsUnavailable": null,
+    "agentEvidence": null
+   },
+   "records": {
+    "ai": [
+     {
+      "source": "ai",
+      "operation": "chat",
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "requestId": "req-1",
+      "durationNanos": 2000000,
+      "provider": "openai",
+      "model": "gpt-example",
+      "inputTokens": 9000,
+      "outputTokens": 7,
+      "finishReason": "stop",
+      "failed": false,
+      "spanId": "00f067aa0ba902b7",
+      "completedNanos": 9300000,
+      "codePathStamp": 0
+     }
+    ],
+    "exception": [
+     {
+      "source": "exception",
+      "epochMillis": 1700000000300,
+      "durationNanos": -1,
+      "traceId": null,
+      "thread": "MainThread",
+      "requestId": "req-2",
+      "failedOrSlow": true,
+      "groupId": "0123456789abcdef",
+      "exceptionClass": "builtins.KeyError",
+      "signature": "fedcba9876543210",
+      "types": [
+       "builtins.KeyError",
+       "builtins.LookupError"
+      ],
+      "logged": false
+     }
+    ],
+    "http": [
+     {
+      "source": "http",
+      "epochMillis": 1700000000000,
+      "durationNanos": 1500000,
+      "startNanos": 9000000,
+      "traceId": null,
+      "thread": "AnyIO worker thread",
+      "requestId": "req-0",
+      "method": "GET",
+      "path": "******",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 200,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "epochMillis": 1700000000001,
+      "durationNanos": 3000000,
+      "startNanos": 9000001,
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "thread": "AnyIO worker thread",
+      "requestId": "req-1",
+      "method": "GET",
+      "path": "******",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 200,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "epochMillis": 1700000000002,
+      "durationNanos": 4500000,
+      "startNanos": 9000002,
+      "traceId": null,
+      "thread": "AnyIO worker thread",
+      "requestId": "req-2",
+      "method": "GET",
+      "path": "******",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 500,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "epochMillis": 1700000000003,
+      "durationNanos": 6000000,
+      "startNanos": 9000003,
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "thread": "AnyIO worker thread",
+      "requestId": "req-3",
+      "method": "GET",
+      "path": "******",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 200,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "message": "******",
+      "headers": {
+       "Authorization": "******",
+       "Accept": [
+        "a",
+        [
+         "b",
+         1.5
+        ]
+       ]
+      },
+      "password": "******",
+      "raw": "******",
+      "tags": [
+       "a",
+       "b"
+      ],
+      "count": 3,
+      "ratio": 0.25,
+      "ok": true
+     }
+    ],
+    "log": [
+     {
+      "source": "log",
+      "epochMillis": 1700000000200,
+      "durationNanos": -1,
+      "traceId": null,
+      "thread": "MainThread",
+      "requestId": "req-2",
+      "failedOrSlow": true,
+      "logger": "app.pets",
+      "level": "ERROR",
+      "template": "******",
+      "exceptionClass": "builtins.KeyError"
+     },
+     {
+      "source": "log",
+      "epochMillis": 1700000000201,
+      "durationNanos": -1,
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "thread": "worker-1",
+      "requestId": null,
+      "failedOrSlow": false,
+      "logger": "app.pets",
+      "level": "WARN",
+      "template": null,
+      "exceptionClass": null
+     }
+    ],
+    "mail": [
+     {
+      "source": "mail",
+      "recipients": 3,
+      "attachments": 1,
+      "sent": true,
+      "failed": false,
+      "traceId": null,
+      "requestId": "req-1",
+      "thread": "MainThread",
+      "durationNanos": -1,
+      "completedNanos": 9200000,
+      "codePathStamp": 0
+     }
+    ],
+    "sql": [
+     {
+      "source": "sql",
+      "sql": "select * from pets where id = ?",
+      "traceId": null,
+      "requestId": "req-0",
+      "thread": "MainThread",
+      "durationNanos": 42000,
+      "startedAt": 1700000000100,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100000,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": null
+     },
+     {
+      "source": "sql",
+      "sql": "******",
+      "traceId": null,
+      "requestId": "req-1",
+      "thread": "MainThread",
+      "durationNanos": 42001,
+      "startedAt": 1700000000101,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100001,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": "app/pets.py:12"
+     },
+     {
+      "source": "sql",
+      "sql": "******",
+      "traceId": null,
+      "requestId": "req-2",
+      "thread": "MainThread",
+      "durationNanos": 42002,
+      "startedAt": 1700000000102,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100002,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": null
+     },
+     {
+      "source": "sql",
+      "sql": "select * from pets where id = ?",
+      "traceId": null,
+      "requestId": "req-3",
+      "thread": "MainThread",
+      "durationNanos": 42003,
+      "startedAt": 1700000000103,
+      "dataSource": null,
+      "failed": true,
+      "phase": null,
+      "completedNanos": 9100003,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": "app/pets.py:12"
+     }
+    ]
+   },
+   "newestAt": 1700000001013
+  }
+ },
+ "METADATA_ONLY": {
+  "records": {
+   "ai": [
+    {
+     "source": null,
+     "operation": null,
+     "traceId": null,
+     "requestId": null,
+     "durationNanos": null,
+     "provider": null,
+     "model": null,
+     "inputTokens": 9000,
+     "outputTokens": 7,
+     "finishReason": null,
+     "failed": null,
+     "spanId": null,
+     "completedNanos": null,
+     "codePathStamp": null
+    }
+   ],
+   "exception": [
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "failedOrSlow": null,
+     "groupId": null,
+     "exceptionClass": null,
+     "signature": null,
+     "types": null,
+     "logged": null
+    }
+   ],
+   "http": [
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "startNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "method": null,
+     "path": null,
+     "routeTemplate": null,
+     "operation": null,
+     "status": null,
+     "route": null
+    },
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "startNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "method": null,
+     "path": null,
+     "routeTemplate": null,
+     "operation": null,
+     "status": null,
+     "route": null
+    },
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "startNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "method": null,
+     "path": null,
+     "routeTemplate": null,
+     "operation": null,
+     "status": null,
+     "route": null
+    },
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "startNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "method": null,
+     "path": null,
+     "routeTemplate": null,
+     "operation": null,
+     "status": null,
+     "route": null
+    },
+    {
+     "source": null,
+     "message": null,
+     "headers": null,
+     "password": null,
+     "raw": null,
+     "tags": null,
+     "count": null,
+     "ratio": null,
+     "ok": null
+    }
+   ],
+   "log": [
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "failedOrSlow": null,
+     "logger": null,
+     "level": null,
+     "template": null,
+     "exceptionClass": null
+    },
+    {
+     "source": null,
+     "epochMillis": null,
+     "durationNanos": null,
+     "traceId": null,
+     "thread": null,
+     "requestId": null,
+     "failedOrSlow": null,
+     "logger": null,
+     "level": null,
+     "template": null,
+     "exceptionClass": null
+    }
+   ],
+   "mail": [
+    {
+     "source": null,
+     "recipients": null,
+     "attachments": null,
+     "sent": null,
+     "failed": null,
+     "traceId": null,
+     "requestId": null,
+     "thread": null,
+     "durationNanos": null,
+     "completedNanos": null,
+     "codePathStamp": null
+    }
+   ],
+   "sql": [
+    {
+     "source": null,
+     "sql": null,
+     "traceId": null,
+     "requestId": null,
+     "thread": null,
+     "durationNanos": null,
+     "startedAt": null,
+     "dataSource": null,
+     "failed": null,
+     "phase": null,
+     "completedNanos": null,
+     "codePathStamp": null,
+     "provenance": null,
+     "batchSize": null,
+     "callSite": null
+    },
+    {
+     "source": null,
+     "sql": null,
+     "traceId": null,
+     "requestId": null,
+     "thread": null,
+     "durationNanos": null,
+     "startedAt": null,
+     "dataSource": null,
+     "failed": null,
+     "phase": null,
+     "completedNanos": null,
+     "codePathStamp": null,
+     "provenance": null,
+     "batchSize": null,
+     "callSite": null
+    },
+    {
+     "source": null,
+     "sql": null,
+     "traceId": null,
+     "requestId": null,
+     "thread": null,
+     "durationNanos": null,
+     "startedAt": null,
+     "dataSource": null,
+     "failed": null,
+     "phase": null,
+     "completedNanos": null,
+     "codePathStamp": null,
+     "provenance": null,
+     "batchSize": null,
+     "callSite": null
+    },
+    {
+     "source": null,
+     "sql": null,
+     "traceId": null,
+     "requestId": null,
+     "thread": null,
+     "durationNanos": null,
+     "startedAt": null,
+     "dataSource": null,
+     "failed": null,
+     "phase": null,
+     "completedNanos": null,
+     "codePathStamp": null,
+     "provenance": null,
+     "batchSize": null,
+     "callSite": null
+    }
+   ]
+  },
+  "status": {
+   "enabled": true,
+   "runId": "golden00",
+   "retainedEvents": 14,
+   "retainedBytes": 3605,
+   "maxEvents": 50000,
+   "maxBytes": 33554432,
+   "reservedEvents": 0,
+   "reservedCapacity": 5000,
+   "evictedEvents": 0,
+   "bindingBound": null,
+   "oldestRetainedAt": 1700000001014,
+   "queueDepth": 0,
+   "queueCapacity": 10000,
+   "recorded": {
+    "http": 5,
+    "log": 2,
+    "mail": 1,
+    "ai": 1,
+    "sql": 4,
+    "exception": 1
+   },
+   "dropped": {
+    "network": 1,
+    "failed": 1
+   },
+   "droppedEvents": 2,
+   "previousRuns": [],
+   "previousRunsUnavailable": null,
+   "agentEvidence": null
+  },
+  "snapshot": {
+   "status": {
+    "enabled": true,
+    "runId": "golden00",
+    "retainedEvents": 14,
+    "retainedBytes": 3605,
+    "maxEvents": 50000,
+    "maxBytes": 33554432,
+    "reservedEvents": 0,
+    "reservedCapacity": 5000,
+    "evictedEvents": 0,
+    "bindingBound": null,
+    "oldestRetainedAt": 1700000001014,
+    "queueDepth": 0,
+    "queueCapacity": 10000,
+    "recorded": {
+     "http": 5,
+     "log": 2,
+     "mail": 1,
+     "ai": 1,
+     "sql": 4,
+     "exception": 1
+    },
+    "dropped": {
+     "network": 1,
+     "failed": 1
+    },
+    "droppedEvents": 2,
+    "previousRuns": [],
+    "previousRunsUnavailable": null,
+    "agentEvidence": null
+   },
+   "records": {
+    "ai": [
+     {
+      "source": null,
+      "operation": null,
+      "traceId": null,
+      "requestId": null,
+      "durationNanos": null,
+      "provider": null,
+      "model": null,
+      "inputTokens": 9000,
+      "outputTokens": 7,
+      "finishReason": null,
+      "failed": null,
+      "spanId": null,
+      "completedNanos": null,
+      "codePathStamp": null
+     }
+    ],
+    "exception": [
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "failedOrSlow": null,
+      "groupId": null,
+      "exceptionClass": null,
+      "signature": null,
+      "types": null,
+      "logged": null
+     }
+    ],
+    "http": [
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "startNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "method": null,
+      "path": null,
+      "routeTemplate": null,
+      "operation": null,
+      "status": null,
+      "route": null
+     },
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "startNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "method": null,
+      "path": null,
+      "routeTemplate": null,
+      "operation": null,
+      "status": null,
+      "route": null
+     },
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "startNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "method": null,
+      "path": null,
+      "routeTemplate": null,
+      "operation": null,
+      "status": null,
+      "route": null
+     },
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "startNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "method": null,
+      "path": null,
+      "routeTemplate": null,
+      "operation": null,
+      "status": null,
+      "route": null
+     },
+     {
+      "source": null,
+      "message": null,
+      "headers": null,
+      "password": null,
+      "raw": null,
+      "tags": null,
+      "count": null,
+      "ratio": null,
+      "ok": null
+     }
+    ],
+    "log": [
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "failedOrSlow": null,
+      "logger": null,
+      "level": null,
+      "template": null,
+      "exceptionClass": null
+     },
+     {
+      "source": null,
+      "epochMillis": null,
+      "durationNanos": null,
+      "traceId": null,
+      "thread": null,
+      "requestId": null,
+      "failedOrSlow": null,
+      "logger": null,
+      "level": null,
+      "template": null,
+      "exceptionClass": null
+     }
+    ],
+    "mail": [
+     {
+      "source": null,
+      "recipients": null,
+      "attachments": null,
+      "sent": null,
+      "failed": null,
+      "traceId": null,
+      "requestId": null,
+      "thread": null,
+      "durationNanos": null,
+      "completedNanos": null,
+      "codePathStamp": null
+     }
+    ],
+    "sql": [
+     {
+      "source": null,
+      "sql": null,
+      "traceId": null,
+      "requestId": null,
+      "thread": null,
+      "durationNanos": null,
+      "startedAt": null,
+      "dataSource": null,
+      "failed": null,
+      "phase": null,
+      "completedNanos": null,
+      "codePathStamp": null,
+      "provenance": null,
+      "batchSize": null,
+      "callSite": null
+     },
+     {
+      "source": null,
+      "sql": null,
+      "traceId": null,
+      "requestId": null,
+      "thread": null,
+      "durationNanos": null,
+      "startedAt": null,
+      "dataSource": null,
+      "failed": null,
+      "phase": null,
+      "completedNanos": null,
+      "codePathStamp": null,
+      "provenance": null,
+      "batchSize": null,
+      "callSite": null
+     },
+     {
+      "source": null,
+      "sql": null,
+      "traceId": null,
+      "requestId": null,
+      "thread": null,
+      "durationNanos": null,
+      "startedAt": null,
+      "dataSource": null,
+      "failed": null,
+      "phase": null,
+      "completedNanos": null,
+      "codePathStamp": null,
+      "provenance": null,
+      "batchSize": null,
+      "callSite": null
+     },
+     {
+      "source": null,
+      "sql": null,
+      "traceId": null,
+      "requestId": null,
+      "thread": null,
+      "durationNanos": null,
+      "startedAt": null,
+      "dataSource": null,
+      "failed": null,
+      "phase": null,
+      "completedNanos": null,
+      "codePathStamp": null,
+      "provenance": null,
+      "batchSize": null,
+      "callSite": null
+     }
+    ]
+   },
+   "newestAt": 1700000001027
+  }
+ },
+ "FULL": {
+  "records": {
+   "ai": [
+    {
+     "source": "ai",
+     "operation": "chat",
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "requestId": "req-1",
+     "durationNanos": 2000000,
+     "provider": "openai",
+     "model": "gpt-example",
+     "inputTokens": 9000,
+     "outputTokens": 7,
+     "finishReason": "stop",
+     "failed": false,
+     "spanId": "00f067aa0ba902b7",
+     "completedNanos": 9300000,
+     "codePathStamp": 0
+    }
+   ],
+   "exception": [
+    {
+     "source": "exception",
+     "epochMillis": 1700000000300,
+     "durationNanos": -1,
+     "traceId": null,
+     "thread": "MainThread",
+     "requestId": "req-2",
+     "failedOrSlow": true,
+     "groupId": "0123456789abcdef",
+     "exceptionClass": "builtins.KeyError",
+     "signature": "fedcba9876543210",
+     "types": [
+      "builtins.KeyError",
+      "builtins.LookupError"
+     ],
+     "logged": false
+    }
+   ],
+   "http": [
+    {
+     "source": "http",
+     "epochMillis": 1700000000000,
+     "durationNanos": 1500000,
+     "startNanos": 9000000,
+     "traceId": null,
+     "thread": "AnyIO worker thread",
+     "requestId": "req-0",
+     "method": "GET",
+     "path": "/pets/0;jsessionid=<canary>",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 200,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "epochMillis": 1700000000001,
+     "durationNanos": 3000000,
+     "startNanos": 9000001,
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "thread": "AnyIO worker thread",
+     "requestId": "req-1",
+     "method": "GET",
+     "path": "/pets/1;jsessionid=<canary>",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 200,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "epochMillis": 1700000000002,
+     "durationNanos": 4500000,
+     "startNanos": 9000002,
+     "traceId": null,
+     "thread": "AnyIO worker thread",
+     "requestId": "req-2",
+     "method": "GET",
+     "path": "/pets/2;jsessionid=<canary>",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 500,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "epochMillis": 1700000000003,
+     "durationNanos": 6000000,
+     "startNanos": 9000003,
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "thread": "AnyIO worker thread",
+     "requestId": "req-3",
+     "method": "GET",
+     "path": "/pets/3;jsessionid=<canary>",
+     "routeTemplate": "/pets/{pet_id}",
+     "operation": null,
+     "status": 200,
+     "route": "GET /pets/{pet_id}"
+    },
+    {
+     "source": "http",
+     "message": "login password=<canary>",
+     "headers": {
+      "Authorization": "Bearer <canary>",
+      "Accept": [
+       "a",
+       [
+        "b",
+        1.5
+       ]
+      ]
+     },
+     "password": "<canary>",
+     "raw": "token=<canary>",
+     "tags": [
+      "a",
+      "b"
+     ],
+     "count": 3,
+     "ratio": 0.25,
+     "ok": true
+    }
+   ],
+   "log": [
+    {
+     "source": "log",
+     "epochMillis": 1700000000200,
+     "durationNanos": -1,
+     "traceId": null,
+     "thread": "MainThread",
+     "requestId": "req-2",
+     "failedOrSlow": true,
+     "logger": "app.pets",
+     "level": "ERROR",
+     "template": "lookup failed password=<canary> for %s",
+     "exceptionClass": "builtins.KeyError"
+    },
+    {
+     "source": "log",
+     "epochMillis": 1700000000201,
+     "durationNanos": -1,
+     "traceId": "0af7651916cd43dd8448eb211c80319c",
+     "thread": "worker-1",
+     "requestId": null,
+     "failedOrSlow": false,
+     "logger": "app.pets",
+     "level": "WARN",
+     "template": null,
+     "exceptionClass": null
+    }
+   ],
+   "mail": [
+    {
+     "source": "mail",
+     "recipients": 3,
+     "attachments": 1,
+     "sent": true,
+     "failed": false,
+     "traceId": null,
+     "requestId": "req-1",
+     "thread": "MainThread",
+     "durationNanos": -1,
+     "completedNanos": 9200000,
+     "codePathStamp": 0
+    }
+   ],
+   "sql": [
+    {
+     "source": "sql",
+     "sql": "select * from pets where id = ?",
+     "traceId": null,
+     "requestId": "req-0",
+     "thread": "MainThread",
+     "durationNanos": 42000,
+     "startedAt": 1700000000100,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100000,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": null
+    },
+    {
+     "source": "sql",
+     "sql": "select * from api_keys where credential = '<canary>'",
+     "traceId": null,
+     "requestId": "req-1",
+     "thread": "MainThread",
+     "durationNanos": 42001,
+     "startedAt": 1700000000101,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100001,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": "app/pets.py:12"
+    },
+    {
+     "source": "sql",
+     "sql": "select \"name\" from pets where token = \"<canary>\" # tail",
+     "traceId": null,
+     "requestId": "req-2",
+     "thread": "MainThread",
+     "durationNanos": 42002,
+     "startedAt": 1700000000102,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100002,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": null
+    },
+    {
+     "source": "sql",
+     "sql": "select * from pets where id = ?",
+     "traceId": null,
+     "requestId": "req-3",
+     "thread": "MainThread",
+     "durationNanos": 42003,
+     "startedAt": 1700000000103,
+     "dataSource": null,
+     "failed": true,
+     "phase": null,
+     "completedNanos": 9100003,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": "app/pets.py:12"
+    }
+   ]
+  },
+  "status": {
+   "enabled": true,
+   "runId": "golden00",
+   "retainedEvents": 14,
+   "retainedBytes": 3605,
+   "maxEvents": 50000,
+   "maxBytes": 33554432,
+   "reservedEvents": 0,
+   "reservedCapacity": 5000,
+   "evictedEvents": 0,
+   "bindingBound": null,
+   "oldestRetainedAt": 1700000001028,
+   "queueDepth": 0,
+   "queueCapacity": 10000,
+   "recorded": {
+    "http": 5,
+    "log": 2,
+    "mail": 1,
+    "ai": 1,
+    "sql": 4,
+    "exception": 1
+   },
+   "dropped": {
+    "network": 1,
+    "failed": 1
+   },
+   "droppedEvents": 2,
+   "previousRuns": [],
+   "previousRunsUnavailable": null,
+   "agentEvidence": null
+  },
+  "snapshot": {
+   "status": {
+    "enabled": true,
+    "runId": "golden00",
+    "retainedEvents": 14,
+    "retainedBytes": 3605,
+    "maxEvents": 50000,
+    "maxBytes": 33554432,
+    "reservedEvents": 0,
+    "reservedCapacity": 5000,
+    "evictedEvents": 0,
+    "bindingBound": null,
+    "oldestRetainedAt": 1700000001028,
+    "queueDepth": 0,
+    "queueCapacity": 10000,
+    "recorded": {
+     "http": 5,
+     "log": 2,
+     "mail": 1,
+     "ai": 1,
+     "sql": 4,
+     "exception": 1
+    },
+    "dropped": {
+     "network": 1,
+     "failed": 1
+    },
+    "droppedEvents": 2,
+    "previousRuns": [],
+    "previousRunsUnavailable": null,
+    "agentEvidence": null
+   },
+   "records": {
+    "ai": [
+     {
+      "source": "ai",
+      "operation": "chat",
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "requestId": "req-1",
+      "durationNanos": 2000000,
+      "provider": "openai",
+      "model": "gpt-example",
+      "inputTokens": 9000,
+      "outputTokens": 7,
+      "finishReason": "stop",
+      "failed": false,
+      "spanId": "00f067aa0ba902b7",
+      "completedNanos": 9300000,
+      "codePathStamp": 0
+     }
+    ],
+    "exception": [
+     {
+      "source": "exception",
+      "epochMillis": 1700000000300,
+      "durationNanos": -1,
+      "traceId": null,
+      "thread": "MainThread",
+      "requestId": "req-2",
+      "failedOrSlow": true,
+      "groupId": "0123456789abcdef",
+      "exceptionClass": "builtins.KeyError",
+      "signature": "fedcba9876543210",
+      "types": [
+       "builtins.KeyError",
+       "builtins.LookupError"
+      ],
+      "logged": false
+     }
+    ],
+    "http": [
+     {
+      "source": "http",
+      "epochMillis": 1700000000000,
+      "durationNanos": 1500000,
+      "startNanos": 9000000,
+      "traceId": null,
+      "thread": "AnyIO worker thread",
+      "requestId": "req-0",
+      "method": "GET",
+      "path": "/pets/0;jsessionid=<canary>",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 200,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "epochMillis": 1700000000001,
+      "durationNanos": 3000000,
+      "startNanos": 9000001,
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "thread": "AnyIO worker thread",
+      "requestId": "req-1",
+      "method": "GET",
+      "path": "/pets/1;jsessionid=<canary>",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 200,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "epochMillis": 1700000000002,
+      "durationNanos": 4500000,
+      "startNanos": 9000002,
+      "traceId": null,
+      "thread": "AnyIO worker thread",
+      "requestId": "req-2",
+      "method": "GET",
+      "path": "/pets/2;jsessionid=<canary>",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 500,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "epochMillis": 1700000000003,
+      "durationNanos": 6000000,
+      "startNanos": 9000003,
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "thread": "AnyIO worker thread",
+      "requestId": "req-3",
+      "method": "GET",
+      "path": "/pets/3;jsessionid=<canary>",
+      "routeTemplate": "/pets/{pet_id}",
+      "operation": null,
+      "status": 200,
+      "route": "GET /pets/{pet_id}"
+     },
+     {
+      "source": "http",
+      "message": "login password=<canary>",
+      "headers": {
+       "Authorization": "Bearer <canary>",
+       "Accept": [
+        "a",
+        [
+         "b",
+         1.5
+        ]
+       ]
+      },
+      "password": "<canary>",
+      "raw": "token=<canary>",
+      "tags": [
+       "a",
+       "b"
+      ],
+      "count": 3,
+      "ratio": 0.25,
+      "ok": true
+     }
+    ],
+    "log": [
+     {
+      "source": "log",
+      "epochMillis": 1700000000200,
+      "durationNanos": -1,
+      "traceId": null,
+      "thread": "MainThread",
+      "requestId": "req-2",
+      "failedOrSlow": true,
+      "logger": "app.pets",
+      "level": "ERROR",
+      "template": "lookup failed password=<canary> for %s",
+      "exceptionClass": "builtins.KeyError"
+     },
+     {
+      "source": "log",
+      "epochMillis": 1700000000201,
+      "durationNanos": -1,
+      "traceId": "0af7651916cd43dd8448eb211c80319c",
+      "thread": "worker-1",
+      "requestId": null,
+      "failedOrSlow": false,
+      "logger": "app.pets",
+      "level": "WARN",
+      "template": null,
+      "exceptionClass": null
+     }
+    ],
+    "mail": [
+     {
+      "source": "mail",
+      "recipients": 3,
+      "attachments": 1,
+      "sent": true,
+      "failed": false,
+      "traceId": null,
+      "requestId": "req-1",
+      "thread": "MainThread",
+      "durationNanos": -1,
+      "completedNanos": 9200000,
+      "codePathStamp": 0
+     }
+    ],
+    "sql": [
+     {
+      "source": "sql",
+      "sql": "select * from pets where id = ?",
+      "traceId": null,
+      "requestId": "req-0",
+      "thread": "MainThread",
+      "durationNanos": 42000,
+      "startedAt": 1700000000100,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100000,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": null
+     },
+     {
+      "source": "sql",
+      "sql": "select * from api_keys where credential = '<canary>'",
+      "traceId": null,
+      "requestId": "req-1",
+      "thread": "MainThread",
+      "durationNanos": 42001,
+      "startedAt": 1700000000101,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100001,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": "app/pets.py:12"
+     },
+     {
+      "source": "sql",
+      "sql": "select \"name\" from pets where token = \"<canary>\" # tail",
+      "traceId": null,
+      "requestId": "req-2",
+      "thread": "MainThread",
+      "durationNanos": 42002,
+      "startedAt": 1700000000102,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100002,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": null
+     },
+     {
+      "source": "sql",
+      "sql": "select * from pets where id = ?",
+      "traceId": null,
+      "requestId": "req-3",
+      "thread": "MainThread",
+      "durationNanos": 42003,
+      "startedAt": 1700000000103,
+      "dataSource": null,
+      "failed": true,
+      "phase": null,
+      "completedNanos": 9100003,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": "app/pets.py:12"
+     }
+    ]
+   },
+   "newestAt": 1700000001041
+  }
+ },
+ "ring": {
+  "records": {
+   "ai": [],
+   "exception": [
+    {
+     "source": "exception",
+     "epochMillis": 1700000000300,
+     "durationNanos": -1,
+     "traceId": null,
+     "thread": "MainThread",
+     "requestId": "req-2",
+     "failedOrSlow": true,
+     "groupId": "0123456789abcdef",
+     "exceptionClass": "builtins.KeyError",
+     "signature": "fedcba9876543210",
+     "types": [
+      "builtins.KeyError",
+      "builtins.LookupError"
+     ],
+     "logged": false
+    }
+   ],
+   "http": [
+    {
+     "source": "http",
+     "message": "******",
+     "headers": {
+      "Authorization": "******",
+      "Accept": [
+       "a",
+       [
+        "b",
+        1.5
+       ]
+      ]
+     },
+     "password": "******",
+     "raw": "******",
+     "tags": [
+      "a",
+      "b"
+     ],
+     "count": 3,
+     "ratio": 0.25,
+     "ok": true
+    }
+   ],
+   "log": [],
+   "mail": [],
+   "sql": [
+    {
+     "source": "sql",
+     "sql": "******",
+     "traceId": null,
+     "requestId": "req-1",
+     "thread": "MainThread",
+     "durationNanos": 42001,
+     "startedAt": 1700000000101,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100001,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": "app/pets.py:12"
+    },
+    {
+     "source": "sql",
+     "sql": "******",
+     "traceId": null,
+     "requestId": "req-2",
+     "thread": "MainThread",
+     "durationNanos": 42002,
+     "startedAt": 1700000000102,
+     "dataSource": null,
+     "failed": false,
+     "phase": null,
+     "completedNanos": 9100002,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": null
+    },
+    {
+     "source": "sql",
+     "sql": "select * from pets where id = ?",
+     "traceId": null,
+     "requestId": "req-3",
+     "thread": "MainThread",
+     "durationNanos": 42003,
+     "startedAt": 1700000000103,
+     "dataSource": null,
+     "failed": true,
+     "phase": null,
+     "completedNanos": 9100003,
+     "codePathStamp": 0,
+     "provenance": "EXECUTION",
+     "batchSize": 1,
+     "callSite": "app/pets.py:12"
+    }
+   ]
+  },
+  "status": {
+   "enabled": true,
+   "runId": "golden00",
+   "retainedEvents": 5,
+   "retainedBytes": 1378,
+   "maxEvents": 5,
+   "maxBytes": 2000,
+   "reservedEvents": 0,
+   "reservedCapacity": 0,
+   "evictedEvents": 9,
+   "bindingBound": "COUNT",
+   "oldestRetainedAt": 1700000001051,
+   "queueDepth": 0,
+   "queueCapacity": 10000,
+   "recorded": {
+    "http": 5,
+    "log": 2,
+    "mail": 1,
+    "ai": 1,
+    "sql": 4,
+    "exception": 1
+   },
+   "dropped": {
+    "network": 1,
+    "failed": 1
+   },
+   "droppedEvents": 2,
+   "previousRuns": [],
+   "previousRunsUnavailable": null,
+   "agentEvidence": null
+  },
+  "snapshot": {
+   "status": {
+    "enabled": true,
+    "runId": "golden00",
+    "retainedEvents": 5,
+    "retainedBytes": 1378,
+    "maxEvents": 5,
+    "maxBytes": 2000,
+    "reservedEvents": 0,
+    "reservedCapacity": 0,
+    "evictedEvents": 9,
+    "bindingBound": "COUNT",
+    "oldestRetainedAt": 1700000001051,
+    "queueDepth": 0,
+    "queueCapacity": 10000,
+    "recorded": {
+     "http": 5,
+     "log": 2,
+     "mail": 1,
+     "ai": 1,
+     "sql": 4,
+     "exception": 1
+    },
+    "dropped": {
+     "network": 1,
+     "failed": 1
+    },
+    "droppedEvents": 2,
+    "previousRuns": [],
+    "previousRunsUnavailable": null,
+    "agentEvidence": null
+   },
+   "records": {
+    "ai": [],
+    "exception": [
+     {
+      "source": "exception",
+      "epochMillis": 1700000000300,
+      "durationNanos": -1,
+      "traceId": null,
+      "thread": "MainThread",
+      "requestId": "req-2",
+      "failedOrSlow": true,
+      "groupId": "0123456789abcdef",
+      "exceptionClass": "builtins.KeyError",
+      "signature": "fedcba9876543210",
+      "types": [
+       "builtins.KeyError",
+       "builtins.LookupError"
+      ],
+      "logged": false
+     }
+    ],
+    "http": [
+     {
+      "source": "http",
+      "message": "******",
+      "headers": {
+       "Authorization": "******",
+       "Accept": [
+        "a",
+        [
+         "b",
+         1.5
+        ]
+       ]
+      },
+      "password": "******",
+      "raw": "******",
+      "tags": [
+       "a",
+       "b"
+      ],
+      "count": 3,
+      "ratio": 0.25,
+      "ok": true
+     }
+    ],
+    "log": [],
+    "mail": [],
+    "sql": [
+     {
+      "source": "sql",
+      "sql": "******",
+      "traceId": null,
+      "requestId": "req-1",
+      "thread": "MainThread",
+      "durationNanos": 42001,
+      "startedAt": 1700000000101,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100001,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": "app/pets.py:12"
+     },
+     {
+      "source": "sql",
+      "sql": "******",
+      "traceId": null,
+      "requestId": "req-2",
+      "thread": "MainThread",
+      "durationNanos": 42002,
+      "startedAt": 1700000000102,
+      "dataSource": null,
+      "failed": false,
+      "phase": null,
+      "completedNanos": 9100002,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": null
+     },
+     {
+      "source": "sql",
+      "sql": "select * from pets where id = ?",
+      "traceId": null,
+      "requestId": "req-3",
+      "thread": "MainThread",
+      "durationNanos": 42003,
+      "startedAt": 1700000000103,
+      "dataSource": null,
+      "failed": true,
+      "phase": null,
+      "completedNanos": 9100003,
+      "codePathStamp": 0,
+      "provenance": "EXECUTION",
+      "batchSize": 1,
+      "callSite": "app/pets.py:12"
+     }
+    ]
+   },
+   "newestAt": 1700000001055
+  }
+ },
+ "api": {
+  "/activity/journal": {
+   "enabled": true,
+   "runId": "golden00",
+   "retainedEvents": 14,
+   "retainedBytes": 3605,
+   "maxEvents": 50000,
+   "maxBytes": 33554432,
+   "reservedEvents": 0,
+   "reservedCapacity": 5000,
+   "evictedEvents": 0,
+   "bindingBound": null,
+   "oldestRetainedAt": 1700000001056,
+   "queueDepth": 0,
+   "queueCapacity": 10000,
+   "recorded": {
+    "http": 5,
+    "log": 2,
+    "mail": 1,
+    "ai": 1,
+    "sql": 4,
+    "exception": 1
+   },
+   "dropped": {
+    "network": 1,
+    "failed": 1
+   },
+   "droppedEvents": 2,
+   "previousRuns": [],
+   "previousRunsUnavailable": null,
+   "agentEvidence": null
+  },
+  "/runtime-insights": {
+   "available": true,
+   "window": {
+    "runId": "golden00",
+    "firstEventAt": 1700000001056,
+    "lastEventAt": 1700000001069,
+    "retainedEvents": 14,
+    "requests": 5,
+    "evictedEvents": 0,
+    "droppedEvents": 2
+   },
+   "coverage": [
+    {
+     "source": "http",
+     "events": 5,
+     "byRequestId": 4,
+     "byExecutionId": 0,
+     "byTraceId": 0,
+     "unlinked": 1,
+     "dropped": 0
+    },
+    {
+     "source": "sql",
+     "events": 4,
+     "byRequestId": 4,
+     "byExecutionId": 0,
+     "byTraceId": 0,
+     "unlinked": 0,
+     "dropped": 0
+    },
+    {
+     "source": "exception",
+     "events": 1,
+     "byRequestId": 1,
+     "byExecutionId": 0,
+     "byTraceId": 0,
+     "unlinked": 0,
+     "dropped": 0
+    },
+    {
+     "source": "log",
+     "events": 2,
+     "byRequestId": 1,
+     "byExecutionId": 0,
+     "byTraceId": 1,
+     "unlinked": 0,
+     "dropped": 0
+    },
+    {
+     "source": "mail",
+     "events": 1,
+     "byRequestId": 1,
+     "byExecutionId": 0,
+     "byTraceId": 0,
+     "unlinked": 0,
+     "dropped": 0
+    },
+    {
+     "source": "ai",
+     "events": 1,
+     "byRequestId": 1,
+     "byExecutionId": 0,
+     "byTraceId": 0,
+     "unlinked": 0,
+     "dropped": 0
+    }
+   ]
+  }
+ }
+}
