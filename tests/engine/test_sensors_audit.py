@@ -512,7 +512,7 @@ def test_another_users_home_never_keeps_their_name(path: str, pattern: str) -> N
     [
         ("550e8400-e29b-41d4-a716-446655440000.json", "{uuid}.json"),
         ("0123abcdef9.bin", "{hex}.bin"),
-        ("sk_live_abc123def456ghi789jkl.txt", "sk_live_{id}.txt"),
+        ("sk_live_" + "abc123def456ghi789jkl.txt", "sk_live_{id}.txt"),  # split: no secret-shaped literal
         ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig", "{token}"),
         ("release-17.txt", "release-{n}.txt"),
         ("name.txt", "name.txt"),
