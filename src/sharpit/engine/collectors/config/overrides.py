@@ -22,6 +22,7 @@ logger = logging.getLogger("sharpit.config.overrides")
 _HEADER = "# sharpit local runtime overrides - do not commit.\n"
 _NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,255}$")
 _MAX_VALUE_BYTES = 64 * 1024
+_MAX_VALUE_CHARS = 32767  # the Windows environment value limit; one cap for every platform
 _MAX_FILE_BYTES = 1024 * 1024
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
@@ -54,6 +55,8 @@ _REFUSED_EXACT = frozenset(
 _REFUSED_PREFIXES = ("LD_", "DYLD_", "PYTHON")
 _DEFAULT_PROFILE_VARS: tuple[str, ...] = SharpitSettings().profile_vars
 
+# Saved pre-override environment values. Module-level on purpose: one ConfigOverrideService exists per process
+# (install() builds it), so two instances overriding the same name is not supported.
 _ORIGINAL_ENVIRON: dict[str, str | None] = {}
 _LOCK = threading.Lock()
 
@@ -91,7 +94,14 @@ def _validate_name(name: object, profile_vars: Iterable[str] = ()) -> str:
 def _validate_value(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("Property value must be a string")
-    if len(value.encode("utf-8", errors="replace")) > _MAX_VALUE_BYTES:
+    if len(value) > _MAX_VALUE_CHARS:
+        raise ValueError(f"Property value must not exceed {_MAX_VALUE_CHARS} characters")
+    try:
+        encoded = value.encode("utf-8")  # strict: refuses a lone surrogate on every platform
+        os.fsencode(value)
+    except UnicodeEncodeError as e:
+        raise ValueError("Property value cannot be stored in the environment") from e
+    if len(encoded) > _MAX_VALUE_BYTES:
         raise ValueError("Property value must not exceed 64 KiB")
     if _CONTROL_CHARS.search(value):
         raise ValueError("Property value must not contain control characters or newlines")
@@ -101,6 +111,14 @@ def _validate_value(value: object) -> str:
 def validate_entry(name: object, value: object, profile_vars: Iterable[str] = ()) -> tuple[str, str]:
     """The one check for an override entry, used by ``put`` and by the startup/constructor loader."""
     return _validate_name(name, profile_vars), _validate_value(value)
+
+
+def _restore_env(name: str, prior: str | None) -> None:
+    with contextlib.suppress(Exception):
+        if prior is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = prior
 
 
 def _env_key(name: str) -> str:
@@ -218,6 +236,7 @@ def load_overrides(path: str | Path, profile_vars: Iterable[str] = ()) -> tuple[
         return {}, [f"Ignoring malformed overrides file {file_path}: {e}"]
     extra = tuple(profile_vars)
     entries: dict[str, str] = {}
+    keys: set[str] = set()
     skipped: list[str] = []
     for name, value in raw.items():
         try:
@@ -227,6 +246,9 @@ def load_overrides(path: str | Path, profile_vars: Iterable[str] = ()) -> tuple[
         except ValueError as e:
             return {}, [f"Ignoring overrides file {file_path}: entry '{name}': {e}"]
         else:
+            if _env_key(valid_name) in keys:
+                return {}, [f"Ignoring overrides file {file_path}: entry '{name}': duplicate name"]
+            keys.add(_env_key(valid_name))
             entries[valid_name] = valid_value
     warnings = [f"Overrides file {file_path}: refused names skipped: {', '.join(skipped)}"] if skipped else []
     return entries, warnings
@@ -318,9 +340,21 @@ class ConfigOverrideService:
             if alias is not None and alias != validated_name:
                 del self._overrides[alias]
             self._overrides[validated_name] = validated_value
-            self._save_or_rollback(snapshot)
-            _ORIGINAL_ENVIRON.setdefault(_env_key(validated_name), os.environ.get(validated_name))
-            os.environ[validated_name] = validated_value
+            key = _env_key(validated_name)
+            had_original = key in _ORIGINAL_ENVIRON
+            prior = os.environ.get(validated_name)
+            try:
+                _ORIGINAL_ENVIRON.setdefault(key, prior)
+                os.environ[validated_name] = validated_value
+                self._store.save(self._overrides)
+            except Exception as e:
+                self._overrides = snapshot
+                _restore_env(validated_name, prior)
+                if not had_original:
+                    _ORIGINAL_ENVIRON.pop(key, None)
+                if isinstance(e, RuntimeError):
+                    raise
+                raise RuntimeError(f"Unable to write sharpit overrides file: {self._file}") from e
         return ConfigOverrideResult(
             name=validated_name,
             value=self._display_value(validated_name, validated_value),
@@ -376,8 +410,19 @@ class ConfigOverrideService:
 def apply_overrides_file(path: str | Path, profile_vars: Iterable[str] = ()) -> list[str]:
     """Apply the file's entries to ``os.environ`` at startup, all or nothing; never raises. Returns warnings."""
     entries, warnings = load_overrides(path, profile_vars)
+    applied: list[tuple[str, str | None, bool]] = []
     with _LOCK:
-        for name, value in entries.items():
-            _ORIGINAL_ENVIRON.setdefault(_env_key(name), os.environ.get(name))
-            os.environ[name] = value
+        try:
+            for name, value in entries.items():
+                key = _env_key(name)
+                prior = os.environ.get(name)
+                applied.append((name, prior, key in _ORIGINAL_ENVIRON))
+                _ORIGINAL_ENVIRON.setdefault(key, prior)
+                os.environ[name] = value
+        except Exception:
+            for name, prior, had_original in reversed(applied):
+                _restore_env(name, prior)
+                if not had_original:
+                    _ORIGINAL_ENVIRON.pop(_env_key(name), None)
+            warnings.append(f"Ignoring overrides file {path}: the environment refused an entry; nothing applied")
     return warnings

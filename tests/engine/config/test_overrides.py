@@ -682,7 +682,7 @@ def test_failing_env_write_in_put_restores_file_map_and_originals(
     assert "E1" not in os.environ
     assert service.overrides() == {"keep.me": "1"}
     assert file.read_bytes() == before
-    assert overrides_mod._ORIGINAL_ENVIRON == originals
+    assert originals == overrides_mod._ORIGINAL_ENVIRON
 
 
 @pytest.mark.skipif(os.name != "nt", reason="env names are case-insensitive on Windows only")
