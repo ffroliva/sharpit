@@ -246,12 +246,18 @@ def test_a_finalizer_that_offers_during_the_append_is_dropped_and_the_ring_stays
     assert journal.offer({"source": "log", "level": "INFO"}) is True  # nothing is left marked busy or appending
 
 
+def _raised(read: Any) -> str | None:
+    """What a read raised, as text: the defect is an exception where an answer is due, so it is asserted on."""
+    try:
+        read()
+    except (ValueError, RuntimeError) as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def _read_never_raises(journal: RuntimeJournal, *sources: str) -> None:
     for read in (lambda: journal.records(sources[0]), lambda: journal.view(sources), journal.status):
-        try:
-            read()
-        except (ValueError, RuntimeError) as exc:  # the defect: an exception where a read is answered
-            pytest.fail(f"a read raised {type(exc).__name__}: {exc}")
+        assert _raised(read) is None
 
 
 def test_a_flat_event_whose_keys_and_values_disagree_is_stored_consistently_and_reads_still_work() -> None:
@@ -312,10 +318,7 @@ def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_cou
 
 def _read_never_raises_one(journal: RuntimeJournal, read: str) -> None:
     reads = {"records": lambda: journal.records("sql"), "view": lambda: journal.view(["sql"]), "status": journal.status}
-    try:
-        reads[read]()
-    except (ValueError, RuntimeError) as exc:
-        pytest.fail(f"{read} raised {type(exc).__name__}: {exc}")
+    assert _raised(reads[read]) is None
 
 
 def test_a_compact_offer_of_a_list_is_refused_even_with_the_producers_size() -> None:
