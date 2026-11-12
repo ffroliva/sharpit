@@ -7,7 +7,8 @@ imported here: it is wrapped when the host has already imported it (the attacher
 request). The wrap is process-wide and holds every armed recorder (one per ``install()``) by a weak reference, so an app
 dropped without shutting down stops capturing once it is garbage-collected; the last one out restores the originals.
 In a request, only that app's recorder records the message and only its trap decides; outside a request (a worker
-thread, startup, a script) the message is no app's, so every live recorder records it and any trap among them holds it.
+thread, a websocket handler, startup, a script) the message is no app's, so every live recorder records it and the trap
+holds it only when every live armed app has the trap on (a non-trap app's real mail is never swallowed).
 
 Delivery is never affected: a capture that raises, a paused recorder and a disabled panel all leave the host's call
 as it was. The one deliberate change is the dev trap (``email_dev_trap``), which, like BootUI's
@@ -20,7 +21,8 @@ while paused, as BootUI's does. A capture that fails under the trap lets the mes
 stored (proposed deviation D-E2).
 
 Shortcut: only ``sendmail`` is captured, so a host that talks to a server through its own socket code is not seen;
-``SMTP_SSL`` and ``LMTP`` inherit ``sendmail`` and are (an ``LMTP`` unix socket is not trapped).
+``SMTP_SSL`` and ``LMTP`` inherit ``sendmail`` and are (an ``LMTP`` unix socket is not trapped, nor is a subclass whose
+own ``connect`` opens its own socket).
 """
 
 from __future__ import annotations
@@ -190,13 +192,14 @@ class MailRecorder:
 
     # --- capture ------------------------------------------------------------------------------------------------------
 
-    def record(self, sender: str, recipients: object, message: object, sent: bool | None = None) -> None:
-        """Store one outgoing message as ``sent`` (whether it reaches the transport; this recorder's own trap decides
-        when not given)."""
+    def capture(self, sender: str, recipients: object, message: object) -> MailMessage | None:
+        """The message as stored, or ``None`` when this recorder keeps nothing (paused, or not a string)."""
         if self.paused or not isinstance(message, str | bytes):
-            return
-        send = not self.dev_trap if sent is None else sent
-        parsed = parse(sender, recipients, message, self._strict, self.max_body_length)
+            return None
+        return parse(sender, recipients, message, self._strict, self.max_body_length)
+
+    def store(self, parsed: MailMessage, sent: bool) -> None:
+        """Keep one captured message as ``sent`` (whether it reached the transport)."""
         info = REQUEST.get()
         with self._lock:
             self._sequence += 1
@@ -204,13 +207,19 @@ class MailRecorder:
                 f"email-{self._sequence}",
                 time.time_ns() // 1_000_000,
                 parsed,
-                send,
+                sent,
                 otel.current_trace_id(),
                 threading.current_thread().name,
                 info.id if info is not None and info.context_id == self.context_id else None,
             )
             self._entries.appendleft(entry)
         self._publish(entry)
+
+    def record(self, sender: str, recipients: object, message: object, sent: bool | None = None) -> None:
+        """Capture and store one message as ``sent`` (this recorder's own trap decides when not given)."""
+        parsed = self.capture(sender, recipients, message)
+        if parsed is not None:
+            self.store(parsed, not self.dev_trap if sent is None else sent)
 
     def _publish(self, entry: MailEntry) -> None:
         journal = self._capture.journal
@@ -267,42 +276,59 @@ class MailRecorder:
         """Wrap what can be wrapped now; ``True`` when nothing more can come (``aiosmtplib`` absent or wrapped)."""
         global _refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free by the wrappers
         with _LOCK:
-            live = [ref for ref in _refs if ref() is not None]  # also prunes what a skipped ``_forget`` left
+            _prune()  # also drops what a skipped ``_forget`` left
             me = cast("MailRecorder", self)
-            mine = [] if any(ref() is me for ref in live) else [weakref.ref(me, _forget)]
-            _refs = (*live, *mine)
+            if not any(r is me for r in _live()):
+                _refs = (*_refs, weakref.ref(me, _forget))
             _wrap_senders(trap=any(r.dev_trap for r in _live()))
             return "smtplib" in _WRAPPED and not _aiosmtplib_pending()
 
     def disarm(self) -> None:
-        global _refs  # noqa: PLW0603
         self.teardown_registered = False
         with _LOCK:
-            _refs = tuple(ref for ref in _refs if ref() not in (None, self))
-            if not _refs:
-                _unwrap_senders()
+            _prune(drop=self)
 
 
 # --- the process-wide wrap, shared by every armed recorder -----------------------------------------------------
 
-_LOCK = threading.RLock()
+# A plain lock, not an RLock: a GC callback that fires on the thread inside ``arm`` or ``disarm`` must not re-enter and
+# rewrite ``_refs`` mid-update, and ``_forget`` only ever tries it without blocking.
+_LOCK = threading.Lock()
 _refs: tuple[weakref.ref[MailRecorder], ...] = ()  # every armed recorder, held weakly
 _WRAPPED: dict[str, Callable[[], bool]] = {}  # wrapped method -> its remover, in wrap order
+_TRAP_WRAPS = ("smtplib.connect", "smtplib.starttls", "aiosmtplib.connect")  # in place only while a trap is on
 
 
 def _live() -> list[MailRecorder]:
     return [r for ref in _refs if (r := ref()) is not None]
 
 
-def _forget(dead: weakref.ref[MailRecorder]) -> None:
-    """A recorder's app was garbage-collected without shutting down: drop it, and unwrap when it was the last."""
+def _unwrap(families: Sequence[str]) -> None:
+    for family in families:
+        if remover := _WRAPPED.pop(family, None):
+            remover()
+
+
+def _prune(*, dead: weakref.ref[MailRecorder] | None = None, drop: MailRecorder | None = None) -> None:
+    """Under ``_LOCK``: forget the collected, ``dead`` and ``drop``; restore every wrap once no recorder is left, and
+    the trap's once none has the trap on."""
     global _refs  # noqa: PLW0603
-    if not _LOCK.acquire(blocking=False):  # collected inside another thread's locked section: the next arm prunes it
+    _refs = tuple(ref for ref in _refs if ref is not dead and (r := ref()) is not None and r is not drop)
+    live = _live()
+    if not live:
+        _unwrap(list(reversed(_WRAPPED)))  # the newest wrap first
+    elif not any(r.dev_trap for r in live):
+        _unwrap(_TRAP_WRAPS)
+
+
+def _forget(dead: weakref.ref[MailRecorder]) -> None:
+    """A recorder's app was garbage-collected without shutting down. Never blocks and never touches the registry while
+    this thread (or another) is updating it: the dead reference is then pruned by the next ``arm`` or ``disarm``, and
+    the wrappers already skip it."""
+    if not _LOCK.acquire(blocking=False):
         return
     try:
-        _refs = tuple(ref for ref in _refs if ref is not dead and ref() is not None)
-        if not _refs:
-            _unwrap_senders()
+        _prune(dead=dead)
     finally:
         _LOCK.release()
 
@@ -314,34 +340,48 @@ def _targets() -> list[MailRecorder]:
     return live if info is None else [r for r in live if r.context_id == info.context_id]
 
 
+def _traps(targets: list[MailRecorder]) -> bool:
+    """Whether the dev trap holds for these recorders: all of them have it on. In a request that is its own app's
+    trap; outside one it is every live armed app's (BootUI's trap belongs to one app's sender, a mail no app owns is
+    never swallowed on one app's say-so)."""
+    return bool(targets) and all(r.dev_trap for r in targets)
+
+
 def _trapping() -> bool:
-    """Whether a session opened now is trapped: a targeted recorder has the dev trap on."""
+    """Whether a session opened now is trapped."""
     try:
-        return any(r.dev_trap for r in _targets())
+        return _traps(_targets())
     except Exception:  # noqa: BLE001 - never an error into the host's connect
         return False
 
 
 def _dispatch(sender: str, recipients: object, message: object, trapped: bool) -> bool:
-    """Record on every targeted recorder; ``True`` when a trap holds the real send back. A trap whose capture failed
-    lets the message through, as BootUI's ``captureMime`` answers ``true`` when it cannot capture. A ``trapped``
-    session (opened under a trap) has no server behind it, so it is always held, even once its trap is gone."""
+    """Capture on every targeted recorder; ``True`` when the real send is held back. A trap whose capture failed lets
+    the message through, as BootUI's ``captureMime`` answers ``true`` when it cannot capture; a ``trapped`` session
+    (opened under a trap) has no server behind it, so it is always held, even once its trap is gone. ``sent`` is worked
+    out here, once, before anything is stored."""
     try:
         targets = _targets()
+        want = _traps(targets)
     except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
         return trapped
-    sent = not (trapped or any(r.dev_trap for r in targets))
-    held = [_held(recorder, sender, recipients, message, sent) for recorder in targets]  # every one records
-    return trapped or any(held)
-
-
-def _held(recorder: MailRecorder, sender: str, recipients: object, message: object, sent: bool) -> bool:
-    """Whether this recorder's trap holds the message back: only when its capture succeeded."""
-    try:
-        recorder.record(sender, recipients, message, sent)
-    except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
-        return False
-    return recorder.dev_trap
+    captured: list[tuple[MailRecorder, MailMessage]] = []
+    complete = True
+    for recorder in targets:
+        try:
+            parsed = recorder.capture(sender, recipients, message)
+        except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
+            complete = False
+            continue
+        if parsed is not None:
+            captured.append((recorder, parsed))
+    held = trapped or (want and complete)
+    for recorder, parsed in captured:
+        try:
+            recorder.store(parsed, not held)
+        except Exception:  # noqa: BLE001, S112 - storing never disturbs the application's mail
+            continue
+    return held
 
 
 def _sync_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
@@ -506,12 +546,6 @@ def _wrap_senders(*, trap: bool) -> None:
     response = getattr(module, "SMTPResponse", None)
     if trap and callable(response):  # without it the trap stays sendmail-only for this aiosmtplib
         _wrap_one("aiosmtplib.connect", owner, "_create_connection", _async_create_connection(response))
-
-
-def _unwrap_senders() -> None:
-    while _WRAPPED:
-        _, remover = _WRAPPED.popitem()  # LIFO: the newest wrap first
-        remover()
 
 
 def attach(ctx: Any) -> Callable[[], None] | None:

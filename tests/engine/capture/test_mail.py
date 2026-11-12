@@ -8,14 +8,16 @@ import gc
 import smtplib
 import socket
 import sys
+import threading
 import types
 import weakref
+from collections.abc import Callable
 from email.message import EmailMessage
 from typing import Any, ClassVar, NamedTuple
 
 import pytest
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from mailsink import API, OPTIONS, Harness, harness, smtp_sink
 from sharpit import install
 from sharpit.engine.panels import PANELS
@@ -164,11 +166,11 @@ def test_capture_raising_never_affects_delivery(monkeypatch: pytest.MonkeyPatch)
     from sharpit.engine.capture import mail
 
     with harness() as h:
-        real = mail.MailRecorder.record
-        monkeypatch.setattr(mail.MailRecorder, "record", _boom)
+        real = mail.parse
+        monkeypatch.setattr(mail, "parse", _boom)
         h.send(subject="lost to the capture")
         assert len(h.sink.messages) == 1
-        monkeypatch.setattr(mail.MailRecorder, "record", real)
+        monkeypatch.setattr(mail, "parse", real)
         h.send(subject="captured again")
         assert [m["subject"] for m in h.emails()["messages"]] == ["captured again"]
         assert len(h.sink.messages) == 2
@@ -357,7 +359,7 @@ def test_a_capture_failure_under_the_trap_still_sends_a_connected_session(monkey
         smtp = smtplib.SMTP("127.0.0.1", sink.port)  # connected before the trap armed: a real session
         h = Harness(sink, email_dev_trap=True)
         try:
-            monkeypatch.setattr(mail.MailRecorder, "record", _boom)
+            monkeypatch.setattr(mail, "parse", _boom)
             answer = smtp.sendmail("app@example.test", ["b@example.test"], "Subject: kept\r\n\r\nbody\r\n")
             smtp.quit()
         finally:
@@ -373,7 +375,7 @@ def test_a_capture_failure_on_a_trapped_session_is_not_sent(
     from sharpit.engine.capture import mail
 
     with harness(email_dev_trap=True) as h:
-        monkeypatch.setattr(mail.MailRecorder, "record", _boom)
+        monkeypatch.setattr(mail, "parse", _boom)
         answer = _host_session("lost")
         assert no_smtp_server == []
         assert answer == {}
@@ -426,6 +428,104 @@ def test_a_live_trap_app_never_traps_mail_sent_in_another_apps_request():
         assert recorder.entries() == []
     finally:
         other.uninstall_capture()
+
+
+def _from_a_plain_thread(h: Harness) -> None:
+    worker = threading.Thread(target=h.send, kwargs={"subject": "from a thread"})
+    worker.start()
+    worker.join()
+
+
+def _from_a_websocket(h: Harness) -> None:
+    @h.app.websocket("/ws")
+    async def ws(socket: WebSocket) -> None:  # the capture middleware sets no request for a websocket scope
+        await socket.accept()
+        h.send(subject="from a websocket")
+        await socket.close()
+
+    with h.client.websocket_connect("/ws"):
+        pass
+
+
+@pytest.mark.parametrize("outside", [_from_a_plain_thread, _from_a_websocket])
+def test_outside_a_request_a_live_trap_app_never_traps_a_non_trap_apps_mail(outside: Callable[[Harness], None]):
+    # finding W7-E r3 #1: outside a request the trap applies only when every live armed app has it on
+    other = install(FastAPI(), **{**OPTIONS, "email_dev_trap": True})  # alive, never shut down
+    try:
+        with harness() as h:
+            outside(h)
+            assert len(h.sink.messages) == 1
+            assert [m["sent"] for m in h.emails()["messages"]] == [True]
+    finally:
+        other.uninstall_capture()
+
+
+def test_outside_a_request_the_trap_holds_when_every_live_app_has_it():
+    with harness(email_dev_trap=True) as h:
+        _from_a_plain_thread(h)
+        assert h.sink.messages == []
+        assert [m["sent"] for m in h.emails()["messages"]] == [False]
+
+
+def test_the_trap_wraps_are_restored_once_no_live_app_has_the_trap_on():
+    # finding W7-E r3 #2 (mutant M3): the connect, starttls wraps outlived the trap app while a non-trap app was alive
+    originals = {name: smtplib.SMTP.__dict__[name] for name in ("connect", "starttls")}
+    with harness() as h:
+        trap = install(FastAPI(), **{**OPTIONS, "email_dev_trap": True})
+        assert hasattr(smtplib.SMTP.__dict__["connect"], "__sharpit_original__")
+        trap.uninstall_capture()
+        assert smtplib.SMTP.__dict__["connect"] is originals["connect"]
+        assert smtplib.SMTP.__dict__["starttls"] is originals["starttls"]
+        h.send()
+        assert len(h.sink.messages) == 1
+
+
+def test_a_garbage_collector_callback_never_mutates_the_registry_while_it_is_being_updated():
+    # finding W7-E r3 #3: _forget re-entered an RLock held by its own thread and rewrote _refs mid-update
+    from sharpit.engine.capture import mail
+
+    with harness() as h:
+        recorder = h.handle.context.capture.mail
+        assert recorder is not None
+        before = mail._refs  # pyright: ignore[reportPrivateUsage]
+        ref = next(r for r in before if r() is recorder)
+        with mail._LOCK:  # pyright: ignore[reportPrivateUsage]
+            mail._forget(ref)  # pyright: ignore[reportPrivateUsage]
+            assert mail._refs is before  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_failed_capture_outside_a_request_leaves_the_message_sent_and_recorded_as_sent(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # finding W7-E r3 #5: another app recorded sent=False for a message the failed trap let through
+    from sharpit.engine.capture import mail
+
+    with smtp_sink() as sink:
+        smtp = smtplib.SMTP("127.0.0.1", sink.port)  # connected before the traps armed: a real session
+        failing = install(FastAPI(), **{**OPTIONS, "email_dev_trap": True})
+        h = Harness(sink, email_dev_trap=True)
+        try:
+            recorder = failing.context.capture.mail
+            assert recorder is not None
+            real = mail.parse
+
+            def parse(sender: str, recipients: object, raw: object, strict: Any, limit: int) -> Any:
+                if strict is recorder._strict:  # pyright: ignore[reportPrivateUsage]
+                    raise RuntimeError("capture failed")
+                return real(sender, recipients, raw, strict, limit)  # type: ignore[arg-type]
+
+            monkeypatch.setattr(mail, "parse", parse)
+            worker = threading.Thread(
+                target=smtp.sendmail, args=("app@example.test", ["b@example.test"], "Subject: kept\r\n\r\nbody\r\n")
+            )
+            worker.start()
+            worker.join()
+            smtp.quit()
+            assert len(sink.messages) == 1
+            assert [m["sent"] for m in h.emails()["messages"]] == [True]
+        finally:
+            h.handle.uninstall_capture()
+            failing.uninstall_capture()
 
 
 def test_mail_sent_in_a_request_carries_that_requests_id():
