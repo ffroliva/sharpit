@@ -167,8 +167,11 @@ def _report(
 
 
 class InsightsService:
-    def __init__(self, journal: Any, observations: Sequence[Observation] | None = None) -> None:
+    def __init__(
+        self, journal: Any, observations: Sequence[Observation] | None = None, ai_token_threshold: int = 8000
+    ) -> None:
         self.journal = journal
+        self.ai_token_threshold = ai_token_threshold  # stub: the setting is wired and validated in the feat commit
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
         masker = getattr(journal, "masker", None)
         self._mask: Mask = masker.mask_text if masker else str
