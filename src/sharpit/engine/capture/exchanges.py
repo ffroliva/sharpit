@@ -61,15 +61,20 @@ def _headers(masker: Masker, raw: RawHeaders) -> list[dict[str, Any]]:
     return rows
 
 
-def trace_id(request_headers: RawHeaders, request_id: str) -> str:
-    """The trace id of a valid W3C ``traceparent`` (non-zero), else the request id."""
+def traceparent_id(request_headers: RawHeaders) -> str | None:
+    """The trace id of a valid W3C ``traceparent`` (non-zero), else ``None``."""
     for name, value in request_headers:
         if name == b"traceparent":
             match = _TRACEPARENT.fullmatch(value.decode("latin-1").strip())
             if match and match.group(1).strip("0"):
                 return match.group(1).lower()
             break
-    return request_id
+    return None
+
+
+def trace_id(request_headers: RawHeaders, request_id: str) -> str:
+    """The exchange row's trace id: the ``traceparent``'s, else the request id."""
+    return traceparent_id(request_headers) or request_id
 
 
 def exchange_row(
@@ -134,17 +139,22 @@ def http_event(
 ) -> dict[str, str | int | bool | None]:
     """The ``http`` journal event of one finished request (BootUI ``RequestCorrelationFilter.publish``): the envelope
     and ``HttpPayload`` fields plus the route label the insights read. Metadata only: no header, query, body or
-    client; ``path`` is the already-masked path. ``started_ns`` and ``finished_ns`` are monotonic."""
+    client; ``path`` is the already-masked path, cut to ``MAX_PATH`` like the exchange row. ``traceId`` is the
+    ``traceparent``'s only (BootUI's MDC trace id is null without tracing). Deviations from BootUI: the envelope's
+    ``executionId``, ``threadKind`` and ``failedOrSlow`` are absent; ``HttpPayload``'s ``resources``, ``timing`` and
+    ``asyncStarted`` are not ported; ``route`` is an extra label (BootUI derives it at read time with
+    ``RouteLabel.of``); ``operation`` is null; ``path`` carries path-parameter values as ``HttpPayload.path`` does
+    (masked at read). ``started_ns`` and ``finished_ns`` are monotonic."""
     route, _ = route_of(template, info.path)
     return {
         "source": "http",
         "epochMillis": started_epoch_ns // 1_000_000,
         "durationNanos": max(0, (info.finished_ns or info.started_ns) - info.started_ns),
-        "traceId": trace_id(request_headers, info.id),
+        "traceId": traceparent_id(request_headers),
         "thread": threading.current_thread().name,
         "requestId": info.id,
         "method": info.method,
-        "path": info.path,
+        "path": _cut(info.path, MAX_PATH),
         "routeTemplate": template,
         "operation": None,
         "status": status,

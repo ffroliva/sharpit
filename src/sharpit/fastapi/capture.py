@@ -15,7 +15,7 @@ import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]  # Starlette's own dispatch test
@@ -154,6 +154,25 @@ def _route_template(scope: Scope, root_path: str, app: object) -> str | None:
         return None if prefix is None or _template_regex(template).match(below) is None else prefix + template
     except Exception:  # noqa: BLE001 - a drifted router or a custom route degrades to the masked path; the row stays
         return None
+
+
+def _outcome(status: int | None, failed: bool, cancelled: bool, disconnected: bool) -> tuple[int, bool]:
+    """The recorded status and error flag of a finished request."""
+    if status is not None:  # the status that went out is the status; anything after is an error
+        return status, failed or cancelled or disconnected
+    if failed:  # ServerErrorMiddleware sends the 500 after us
+        return 500, True
+    if disconnected or cancelled:  # nginx's "client closed request"
+        return 499, False
+    return 500, True  # returned without a response: the server answers 500
+
+
+@contextlib.contextmanager
+def _request_end_guard(wiring: CaptureWiring) -> Generator[None]:
+    try:
+        yield
+    except Exception as exc:  # noqa: BLE001
+        wiring.hook_failed("request end", exc)
 
 
 def _wrapped_key(key: object) -> bool:
@@ -667,38 +686,36 @@ class CaptureMiddleware:
                     if raised is not None:
                         store.record(raised, "request", info, threading.current_thread().name)
                     store.forget_request(info.id)
-                if status is not None:  # the status that went out is the status; anything after is an error
-                    recorded, error = status, failed or cancelled or disconnected
-                elif failed:  # ServerErrorMiddleware sends the 500 after us
-                    recorded, error = 500, True
-                elif disconnected or cancelled:  # nginx's "client closed request"
-                    recorded, error = 499, False
-                else:  # returned without a response: the server answers 500
-                    recorded, error = 500, True
-                template = _route_template(scope, root_path, wiring.app)
+                recorded, error = _outcome(status, failed, cancelled, disconnected)
+                journal = self.ctx.capture.journal
+                template = (
+                    _route_template(scope, root_path, wiring.app) if buffer is not None or journal is not None else None
+                )
                 if buffer is not None:
-                    buffer.add(
-                        exchange_row(
-                            self.ctx.masker,
-                            request_id=info.id,
-                            started_epoch_ns=started_epoch_ns,
-                            method=info.method,
-                            path=scope["path"],
-                            query_string=scope.get("query_string", b""),
-                            status=recorded,
-                            duration_ms=(finished - info.started_ns) // 1_000_000,
-                            size=size,
-                            client=scope.get("client"),
-                            user=scope.get("user"),
-                            request_headers=scope["headers"],
-                            response_headers=response_headers,
-                            error=error,
-                            endpoint=info.endpoint,
-                            finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
-                            route=template,
+                    with _request_end_guard(wiring):  # a failing row must not lose the journal event
+                        buffer.add(
+                            exchange_row(
+                                self.ctx.masker,
+                                request_id=info.id,
+                                started_epoch_ns=started_epoch_ns,
+                                method=info.method,
+                                path=scope["path"],
+                                query_string=scope.get("query_string", b""),
+                                status=recorded,
+                                duration_ms=(finished - info.started_ns) // 1_000_000,
+                                size=size,
+                                client=scope.get("client"),
+                                user=scope.get("user"),
+                                request_headers=scope["headers"],
+                                response_headers=response_headers,
+                                error=error,
+                                endpoint=info.endpoint,
+                                finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
+                                route=template,
+                            )
                         )
-                    )
-                if (journal := self.ctx.capture.journal) is not None:
-                    journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
+                if journal is not None:
+                    with _request_end_guard(wiring):
+                        journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
             except Exception as exc:  # noqa: BLE001
                 wiring.hook_failed("request end", exc)
