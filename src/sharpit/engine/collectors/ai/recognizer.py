@@ -4,6 +4,8 @@ import time
 from collections.abc import Mapping
 from typing import Any, cast
 
+from sharpit.engine.capture.correlation import REQUEST
+
 _GEN_AI_OPERATION = "gen_ai.operation.name"
 _DB_OPERATION = "db.operation.name"
 _TOOL_SPAN_PREFIXES = ("spring.ai.tool", "execute_tool")
@@ -134,11 +136,18 @@ def ai_journal_event(span: Any) -> dict[str, str | int | bool | None]:
     operation_name = operation(attributes, name)
     if operation_name is None:
         return {}
-    span_id = getattr(getattr(span, "context", None), "span_id", None)
+    context = getattr(span, "context", None)
+    span_id, trace_id = getattr(context, "span_id", None), getattr(context, "trace_id", None)
+    started, ended = getattr(span, "start_time", None), getattr(span, "end_time", None)
+    request = REQUEST.get()  # the span ends in the caller's context: a request in flight owns it
     status = getattr(getattr(getattr(span, "status", None), "status_code", None), "name", None)
     return {
         "source": "ai",
         "operation": operation_name,
+        # journal-only envelope fields (BootUI keeps them on RuntimeEvent, not AiPayload): the insights join reads them
+        "traceId": f"{trace_id:032x}" if isinstance(trace_id, int) else None,  # the http producer's format
+        "requestId": request.id if request is not None else None,
+        "durationNanos": ended - started if isinstance(started, int) and isinstance(ended, int) else None,
         "provider": provider(attributes),
         "model": response_model(attributes) or request_model(attributes),
         "inputTokens": input_tokens(attributes),
