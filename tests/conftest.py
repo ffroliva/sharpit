@@ -134,6 +134,7 @@ TIMING_MODULES = (
     "test_sql_journal_overhead.py",  # lane W5a P-sql: journal on vs off per statement
     "test_sensors_overhead.py",  # lane W6-S3: the audit hook and processes sensor, per event
     "test_http_journal_overhead.py",  # lane W5a P-http: journal on vs off per request
+    "test_mail_overhead.py",  # lane W7 E: the sendmail wrapper, suspended
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 

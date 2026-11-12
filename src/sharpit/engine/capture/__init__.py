@@ -83,6 +83,7 @@ class CaptureState:
     hooks: HookRegistry = field(default_factory=HookRegistry)
     suspended_sources: set[str] = field(default_factory=set[str])  # SQL sources a suspended hook stops routing here
     activity_changes: ChangeStream | None = None
+    mail: Any | None = None  # W7 E: the outgoing-mail recorder (engine/capture/mail.py), whatever the panel says
     # 0.4.0 slots (lane F), inert until their lanes fill them
     security_logs: Any | None = None  # B-security-logs' bounded audit buffer
     transactions: object | None = None  # A-transactions' recorder

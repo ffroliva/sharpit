@@ -91,6 +91,7 @@ def test_every_produced_source_has_a_producer_test() -> None:
             "tests/fastapi/test_http_journal.py",
             "test_http_journal_event_offered_once_per_request_with_bootui_fields",
         ),
+        "mail": ("tests/engine/capture/test_mail.py", "test_mail_journal_event_is_metadata_only"),
     }
     assert set(producer_tests) == snapshot_module.PRODUCED_SOURCES
     root = Path(__file__).resolve().parents[3]
