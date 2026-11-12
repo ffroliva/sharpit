@@ -8,7 +8,7 @@ shape is the contract in ``insights/requests.py``, for the W5a producer to meet.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -37,9 +37,8 @@ def trace_id(trace: int | None) -> str | None:
 
 
 @pytest.fixture(autouse=True)
-def http_recorded(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def http_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset({"ai", "http"}))
-    yield
 
 
 def span(trace: int, attributes: dict[str, object], name: str = "chat") -> object:
