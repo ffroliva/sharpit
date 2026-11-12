@@ -1,7 +1,8 @@
 """The processes sensor (W6 lane S3): which commands the application starts, by file name only.
 
-Minimisation: a row is ``{source, kind, target}``. The target is the base name of the program. Arguments, the
-environment, the working directory and a shell's ``NAME=value`` prefixes are never read into a row.
+Minimisation: a row is ``{source, kind, target}``. The target is the base name of the program, or BootUI's
+``(unknown)`` when the program cannot be told apart from what follows it. Arguments, the environment, the working
+directory and a shell's ``NAME=value`` prefixes are never read into a row.
 """
 
 from __future__ import annotations
@@ -12,8 +13,14 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 SOURCE = "processes"
+UNKNOWN = "(unknown)"  # SideEffects.commandName's marker for a command it cannot name
 _MAX = 128
-_ASSIGNMENT = re.compile(r"""\s*[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)""")  # FOO=bar, FOO='a b': a shell's env prefix
+# a shell word's quoted run or escaped character; an assignment's value also takes an unnested $(...) or `...`
+_PIECE = r"""'[^']*'|"(?:[^"\\]|\\.)*"|\\."""
+_ASSIGNMENT = re.compile(rf"""\s*[A-Za-z_]\w*=(?:{_PIECE}|\$\([^()]*\)|`[^`]*`|\$(?!\()|[^\s'"\\$`()])*+(?=\s|$)""")
+_NAMED = re.compile(r"\s*[A-Za-z_]\w*=")  # an assignment, whether its value parses or not
+_WORD = re.compile(rf"""\s*((?:{_PIECE}|[^\s'"\\])++)(?=\s|$)""")
+_QUOTE = re.compile("[\"']")
 
 
 def _text(value: object) -> str | None:
@@ -25,45 +32,38 @@ def _text(value: object) -> str | None:
     return None
 
 
-def _base(program: str) -> str | None:
-    """The file name of ``program``, cut at its first blank: whatever follows is an argument, never a name."""
-    parts = program.split(None, 1)
-    if not parts:
+def _program(command: str) -> str | None:
+    """The file name of ``command``'s program: its first word after complete ``NAME=value`` prefixes, basenamed alone.
+
+    Fails closed: a value or a quote that does not parse gives ``(unknown)``, never a fragment of what follows.
+    """
+    end = 0
+    while match := _ASSIGNMENT.match(command, end):
+        end = match.end()
+    if _NAMED.match(command, end):
+        return UNKNOWN
+    if not command[end:].strip():
         return None
-    head = parts[0]
-    if len(parts) == 2 and "/" not in head and "\\" not in head:
-        return head[:_MAX]  # ``prog --password x``: no separator before the blank, so nothing after it is a name
-    # shortcut: an unquoted path with blanks and a later ``/`` argument yields that segment
-    name = (head if len(parts) == 1 else program).replace("\\", "/").rpartition("/")[2].split(None, 1)
-    return name[0][:_MAX] if name else None
-
-
-def _first_word(command: str) -> str | None:
-    """The program of a command line: a quoted path up to its closing quote, else up to the first blank."""
-    command = command.lstrip()
-    if command[:1] in ("'", '"'):
-        end = command.find(command[0], 1)
-        return command[1 : end if end > 0 else None].lstrip()  # an unclosed quote: the text after it, cut by the caller
-    return command.split(None, 1)[0] if command else None
-
-
-def _shell_target(command: str) -> str | None:
-    while match := _ASSIGNMENT.match(command):
-        command = command[match.end() :]
-    word = _first_word(command)
-    return _base(word) if word else None
+    word = _WORD.match(command, end)
+    if word is None:
+        return UNKNOWN
+    token = word[1]
+    # a quoted program is its quoted text (a Windows path with blanks); otherwise never past an inner quote (BootUI)
+    program = token[1 : token.index(token[0], 1)] if token[0] in "\"'" else _QUOTE.split(token, 1)[0]
+    # never past an '=' (BootUI, a start that may have failed), then the file name of this one word only
+    name = program.partition("=")[0].replace("\\", "/").rpartition("/")[2].strip()
+    return name[:_MAX] or UNKNOWN
 
 
 def _argv_target(program: object, argv: object) -> str | None:
     named = _text(program)
     if named:
-        return _base(named)
+        return _program(named)
     if isinstance(argv, (list, tuple)) and argv:
-        return _base(_text(cast("list[object]", argv)[0]) or "")
-    if isinstance(argv, (str, bytes)):
-        line = _text(argv)
-        return _base(_first_word(line) or "") if line else None
-    return None
+        first = _text(cast("list[object]", argv)[0])
+        return _program(first) if first else None
+    line = _text(argv) if isinstance(argv, (str, bytes)) else None
+    return _program(line) if line else None
 
 
 _ARGV_AT = {
@@ -86,6 +86,6 @@ class ProcessesSensor:
     def _target(event: str, args: tuple[Any, ...]) -> str | None:
         if event == "os.system":
             command = _text(args[0]) if args else None
-            return _shell_target(command) if command else None
+            return _program(command) if command else None
         where = _ARGV_AT.get(event)
         return _argv_target(args[where[0]], args[where[1]]) if where and len(args) > where[1] else None
