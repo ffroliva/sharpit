@@ -63,7 +63,9 @@ def _message(ctx: SharpitContext, entry: MailEntry) -> dict[str, Any]:
     hidden = ctx.settings.email_mask_content and ctx.settings.expose_values is not Exposure.FULL
 
     def field(text: str | None) -> str | None:
-        return (MASK if text is not None else None) if hidden else scrub(text)
+        if not hidden:
+            return scrub(text)
+        return None if text is None else MASK
 
     def each(values: tuple[str, ...]) -> list[str]:
         return [MASK if hidden else (scrub(value) or MASK) for value in values]
