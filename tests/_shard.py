@@ -36,12 +36,12 @@ OWN_JOB = (  # each heavier than a shard ceiling alone (487, 386, 418 s): the CI
     "tests/scripts/test_lane_gate.py",
     "tests/masking/test_gates_bite.py",
 )
-_TIMING_CALL = re.compile(r"^\s+check_budget\(", re.MULTILINE)
+_TIMING_CALL = re.compile(r"^\s+check_(?:wall_)?budget\(", re.MULTILINE)
 
 
 @cache
 def timing_files() -> frozenset[str]:
-    """The files holding an overhead budget test (a paired on/off timing): a busy runner fails them."""
+    """The files holding a budget test (a paired on/off timing or a wall-clock budget): a busy runner fails them."""
     tests = Path(__file__).parent
     return frozenset(
         p.relative_to(tests.parent).as_posix()

@@ -74,6 +74,25 @@ def check_budget(name: str, result: Paired, budget: float, unit: str, scale: flo
     )
 
 
+def check_wall_budget(name: str, seconds: float, budget: float) -> None:
+    """Assert an absolute wall time is within ``budget`` seconds; ``tests/_shard.py`` runs its file with the budgets.
+
+    A wall time is meaningless under the coverage tracer (as for ``paired``) and beside busy xdist workers, so the file
+    runs alone in each leg's ``-n 0`` budget step and the coverage leg skips the assertion.
+    """
+    coverage = sys.modules.get("coverage")
+    if coverage is not None and coverage.Coverage.current() is not None:
+        pytest.skip("wall-time budgets are meaningless under the coverage tracer; the plain test jobs enforce them")
+    verdict = "ok" if seconds <= budget else "OVER"
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write(f"| wall budget | {name} | {verdict} | {seconds * 1000:.0f} ms | {budget * 1000:.0f} ms | |\n")
+    assert seconds <= budget, (
+        f"{name}: {seconds * 1000:.0f} ms against {budget * 1000:.0f} ms. "
+        "Never raise the budget to pass: docs/development/overhead-budgets.md"
+    )
+
+
 def paired(off: Callable[[], float], on: Callable[[], float], rounds: int) -> Paired:
     """Time ``rounds`` rounds of each side; each callable runs one round and returns its time per operation.
 
