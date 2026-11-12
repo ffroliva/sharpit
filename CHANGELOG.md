@@ -7,10 +7,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- GitHub dashboard (`GET /github`, `get_github_dashboard`, CLI `github`): local repository identity and cached report, read without network access.
+- GitHub refresh action (`POST /github/refresh`, REST only): calls the GitHub REST API with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`, never follows redirects, refused when the panel is read-only.
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - SQL Trace `requestPhase` is `STARTUP` or `SHUTDOWN` for statements outside a request while sharpit observes the host's lifespan in that phase; null (unknown) otherwise.
 - `pytest --sharpit-sarif=PATH` (ini `sharpit_sarif`) writes the findings as SARIF 2.1.0: masked text, root-relative URIs, location-free fingerprints, baselined findings as suppressions; written by the xdist controller only.
 - REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
 - Runtime Insights panel slot (`runtime-insights`, not yet served), the registry of BootUI's 28 insight kinds as stubs, and SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD and SHARPIT_RESOURCES_JFR_MAX_DURATION.
+- Runtime Insights engine: the journal projected into a snapshot, a report of per-kind checks, coverage and window over the sources a merged producer publishes (a kind reading an unproduced source is not applicable), and BootUI's per-kind default-listing outcomes. No route or tool yet.
 - Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
 - Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
@@ -19,8 +23,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
 - Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
 - Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
+- Metrics panel (GET /metrics, /metrics/detail, get_metrics, CLI metrics) over the host's prometheus_client registry, label values masked.
 - W8 action groundwork: the Configuration panel is action-capable as in BootUI (read-only now reports and refuses its writes), Cache and Dev Services panel slots, and SHARPIT_OVERRIDES_FILE, SHARPIT_ALEMBIC_CLEAN_ENABLED, SHARPIT_DEV_SERVICES_RESTART_ENABLED, SHARPIT_CACHE_CLEAR_ENABLED.
-
 - BootUI 2.3.0 parity tests for the security advisor rules with location-only assertions and leak prevention.
 - Production-gated the five security rules BootUI suppresses outside production and added a partial local JWT audience check.
 - BootUI 2.3.0 parity tests and tracker markers for architecture advisor rules (`ARCH-*`) in `tests/parity/test_rules_architecture_23.py`.
@@ -76,6 +80,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - `transactions` panel: SQLAlchemy transactions per request (status, duration, savepoint depth, connection hold time) in a bounded ring, with slow-transaction and connection-hold thresholds; error messages masked; MCP read tool. Settings `transactions_*`.
 - `mysql` panel: MySQL and MariaDB vital signs, sessions, statements, indexes, tables, lock waits, replication and settings, read on an explicit `POST {api}/mysql/read` through a verified read-only session with statement and lock timeouts and row limits; statement text normalised, masked and truncated at 400 characters. Settings `mysql_max_*`. `asyncmy` and `mysqlclient` are untested.
 - `security-logs` panel: 401 and 403 responses recorded as `AUTHENTICATION_FAILURE` / `AUTHORIZATION_FAILURE`, filterable by principal, type and time, with a stream and MCP `get_security_logs`. Needs the capture middleware.
@@ -177,6 +182,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - `traces` panel: OpenTelemetry spans from the application's own SDK `TracerProvider`, with SQL literals in `db.statement` normalised and masked; MCP `get_traces`. sharpit never imports OpenTelemetry or installs a provider, it attaches one span processor to the provider the app already set up.
 - `data` panel: SQLAlchemy 2.0 mapped classes (table, primary-key type, relationships) from the new `install(models=...)` keyword (a declarative base, registry, or a list of them or of mapped classes); MCP `get_data_repositories`. sharpit never configures mappers or runs SQL to read them.
 - `postgresql` panel: vital signs, sessions, statements, indexes, tables, vacuum, replication and settings, read on an explicit `POST {api}/postgresql/read` in one read-only transaction with statement and lock timeouts, a read budget and row limits; query text masked (numbers and comments too). `GET` returns the last read; MCP `get_postgresql_report`. `pg_stat_statements` created but not preloaded makes that section `SKIPPED`.
@@ -210,6 +216,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - Finding contract (`Finding`, `AdvisorRun`) and advisor registry with pass/fail/unknown status semantics (#19).
 - `pytest --sharpit` plugin with test-id tagging, unattributed bucket, phase split, xdist merge, and JSON (`sharpit-report/1`) and JUnit reports (#20). Count gates (queries per test with `--sharpit-max-queries`, N+1, swallowed exceptions) fail the test; advisor findings at or above `--sharpit-fail-on` fail the run; `unknown` fails it unless `--sharpit-allow-unknown` (limit for unattributed SQL: `--sharpit-max-unattributed`).
 - Per-test budget marker `@pytest.mark.sharpit(max_queries=..., allow_n_plus_one=..., max_exceptions=...)` (#21).
@@ -230,6 +237,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - F1 (HTTP Exchanges): `http-exchanges` panel and endpoint with a ring buffer of recent HTTP requests, duration, headers, status code, and path masking.
 - F2 (Exceptions): `exceptions` panel and endpoints capturing unhandled errors from middleware, wrapped handlers, and log records, grouped by class and innermost application frame.
 - F3 (SQL Trace): `sql-trace` panel, endpoints, and live SSE stream capturing SQLAlchemy queries via class-level events with statement categorization, normalized SQL, and slow query alerts.
@@ -270,6 +278,7 @@ First release: an embedded, local-only developer console for FastAPI apps, porte
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - `sharpit.install(app, settings=..., **options)` mounts the console at `/sharpit` and a BootUI-compatible JSON API at
   `/sharpit/api`. `settings=` takes pydantic-settings instances so the Config panel can show each value's source.
 - Panels: Overview, Configuration (environment, `.env`, pydantic-settings and `os.getenv` keys, masked), Mappings,
