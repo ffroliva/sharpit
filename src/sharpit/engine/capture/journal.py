@@ -35,7 +35,7 @@ from sharpit.engine.sqltext import Dialect
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 REENTRANT, FAILED = "reentrant", "failed"  # the dropped keys of offers without a readable source
 _MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
-_SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
+SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
 _COUNTS = {"ai": frozenset({"inputTokens", "outputTokens"})}  # AiPayload's Long token counts: numbers, not secrets
 
 Event = Mapping[str, object]
@@ -87,13 +87,13 @@ def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
     if isinstance(plain, list | tuple):
         items = [_snapshot(item, depth + 1) for item in cast("Sequence[object]", plain)]
         return [item for item, _ in items], sum(size for _, size in items)
-    return plain, _SCALAR_BYTES
+    return plain, SCALAR_BYTES
 
 
 def _flat(event: Event) -> tuple[object, int]:
     """``_snapshot``'s size for a flat event of scalars, without the copy: the caller handed the event over."""
     return event, sum(
-        len(key) + (len(value) if isinstance(value, str) else _SCALAR_BYTES) for key, value in event.items()
+        len(key) + (len(value) if isinstance(value, str) else SCALAR_BYTES) for key, value in event.items()
     )
 
 
@@ -228,9 +228,12 @@ class RuntimeJournal:
     def offer(self, event: Event) -> bool:
         return self._offer(event, _snapshot)
 
-    def offer_flat(self, event: dict[str, str | int | bool | None]) -> bool:
-        """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy."""
-        return self._offer(event, _flat)
+    def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None) -> bool:
+        """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy.
+
+        A per-statement producer passes ``size``, which must equal what ``_flat`` charges (its test proves it).
+        """
+        return self._offer(event, _flat if size is None else lambda stored: (stored, size))
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse

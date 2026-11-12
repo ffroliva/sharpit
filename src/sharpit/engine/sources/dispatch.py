@@ -10,12 +10,14 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
+from sharpit.engine.capture.journal import SCALAR_BYTES
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.context import application_family
 from sharpit.engine.sqla.dialect_source import event_dialect
 from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
+    from sharpit.engine.capture.sqltrace import SqlTraceRecorder
     from sharpit.engine.context import SharpitContext
 
 
@@ -108,33 +110,68 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
     return targets
 
 
+# every key's length, the two constant texts ("sql", "EXECUTION") and the seven scalar fields: what ``_flat`` charges
+_SQL_EVENT_BYTES = (
+    sum(
+        map(
+            len,
+            (
+                "source", "sql", "traceId", "requestId", "thread", "durationNanos", "startedAt", "dataSource",
+                "failed", "phase", "completedNanos", "codePathStamp", "provenance", "batchSize", "callSite",
+            ),
+        )
+    )
+    + len("sql")
+    + len("EXECUTION")
+    + 7 * SCALAR_BYTES
+)  # fmt: skip
+
+
 def _journal_event(
-    ctx: SharpitContext, event: SqlEvent, text: str, info: RequestInfo | None, thread: str, site: str | None
-) -> dict[str, str | int | bool | None]:
-    """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope): the literal-free text, never a parameter."""
-    recorder = ctx.capture.sql_trace
-    duration_ms = event.duration_ns // 1_000_000
+    ctx: SharpitContext,
+    recorder: SqlTraceRecorder,
+    event: SqlEvent,
+    text: str,
+    info: RequestInfo | None,
+    thread: str,
+    site: str | None,
+) -> tuple[dict[str, str | int | bool | None], int]:
+    """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope) and its charged size, computed here per
+    statement instead of by walking the event: the literal-free text, never a parameter."""
     if event.executemany:  # SqlPayload.batchSize: 1 for an ordinary execution, N for a batch
         size = event.batch_size if event.batch_size is not None else len(event.parameters or ())  # type: ignore[arg-type]
+        batch = max(size, 1)
     else:
-        size = 1
-    return {
+        batch = 1
+    trace_id = otel.current_trace_id()
+    request_id = info.id if info is not None and info.context_id == ctx.context_id else None
+    phase = recorder.lifespan_phase if info is None else None
+    record: dict[str, str | int | bool | None] = {
         "source": "sql",
         "sql": text,
-        "traceId": otel.current_trace_id(),
-        "requestId": info.id if info is not None and info.context_id == ctx.context_id else None,
+        "traceId": trace_id,
+        "requestId": request_id,
         "thread": thread,
         "durationNanos": event.duration_ns,
-        "startedAt": time.time_ns() // 1_000_000 - duration_ms,
+        "startedAt": time.time_ns() // 1_000_000 - event.duration_ns // 1_000_000,
         "dataSource": None,
         "failed": event.error is not None,
-        "phase": recorder.lifespan_phase if info is None and recorder is not None else None,
+        "phase": phase,
         "completedNanos": time.perf_counter_ns(),
         "codePathStamp": 0,
         "provenance": "EXECUTION",
-        "batchSize": max(size, 1),
+        "batchSize": batch,
         "callSite": site,
     }
+    return record, (
+        _SQL_EVENT_BYTES
+        + len(text)
+        + len(thread)
+        + (SCALAR_BYTES if trace_id is None else len(trace_id))
+        + (SCALAR_BYTES if request_id is None else len(request_id))
+        + (SCALAR_BYTES if phase is None else len(phase))
+        + (SCALAR_BYTES if site is None else len(site))
+    )
 
 
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
@@ -166,7 +203,9 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
             journal = ctx.capture.journal
             if journal is not None and text is not None:
                 journal.offer_flat(
-                    _journal_event(ctx, event, text, info, thread, site if recorder.capture_call_site else None)
+                    *_journal_event(
+                        ctx, recorder, event, text, info, thread, site if recorder.capture_call_site else None
+                    )
                 )
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)
