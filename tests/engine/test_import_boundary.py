@@ -36,10 +36,19 @@ GATEKEEPERS: dict[str, set[str]] = {
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
     "dotenv": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
-    "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
-    "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
+    "prometheus_client": {"sharpit/engine/collectors/metrics/prometheus.py"},
+    "urllib.request": {
+        "sharpit/engine/collectors/vulns/osv.py",
+        "sharpit/engine/collectors/vulns/epss.py",
+        "sharpit/engine/collectors/github/client.py",
+    },
+    "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
+    "subprocess": {"sharpit/engine/collectors/github/token.py"},  # gh auth token, the GitHub refresh action only
     "socket": set(),
     "ssl": set(),
+    "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
+    "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
+    "arq": {"sharpit/engine/collectors/scheduled/arq.py"},
     "pytest": {"sharpit/pytest_plugin"},
     "_pytest": {"sharpit/pytest_plugin"},
 }
@@ -418,6 +427,49 @@ def test_opentelemetry_import_is_confined_to_engine_otel(tmp_path: Path, monkeyp
     ]
 
 
+def test_subprocess_import_is_confined_to_github_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    github = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "github"
+    github.mkdir(parents=True)
+    (github / "token.py").write_text("import subprocess\n", encoding="utf-8")
+    (github / "dashboard.py").write_text("from subprocess import run\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/github/dashboard.py imports subprocess"
+    ]
+
+
+def test_github_network_imports_are_confined_to_github_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    github = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "github"
+    github.mkdir(parents=True)
+    (github / "client.py").write_text("import http.client\nimport urllib.request\n", encoding="utf-8")
+    (github / "dashboard.py").write_text("import urllib.request\n", encoding="utf-8")
+    (github / "token.py").write_text("from http import client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/github/dashboard.py imports urllib.request",
+        "sharpit/engine/collectors/github/token.py imports http.client",
+    ]
+
+
+def test_prometheus_client_import_is_confined_to_metrics_gatekeeper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "src"
+    engine = source / "sharpit" / "engine"
+    collectors = engine / "collectors" / "metrics"
+    collectors.mkdir(parents=True)
+    (collectors / "prometheus.py").write_text("import prometheus_client\n", encoding="utf-8")
+    (engine / "tools.py").write_text("import prometheus_client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    allowed = "only ['sharpit/engine/collectors/metrics/prometheus.py'] may import prometheus_client"
+    assert violations == [f"sharpit/engine/tools.py imports prometheus_client: {allowed}"]
+
+
 def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each rule fails on a planted import, so a green run means the boundaries hold, not that the scan saw nothing."""
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
@@ -705,6 +757,26 @@ def test_planted_sqlalchemy_import_outside_package_fails(tmp_path: Path, monkeyp
     assert violations == [
         "sharpit/engine/models.py imports sqlalchemy.engine",
         "sharpit/engine/sqla_extra.py imports sqlalchemy.orm",
+    ]
+
+
+def test_scheduler_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5b lane C: APScheduler, Celery and arq each have one gatekeeper module under ``collectors/scheduled/``."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    scheduled = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "scheduled"
+    scheduled.mkdir(parents=True)
+    for lib in ("apscheduler", "arq", "celery"):
+        (scheduled / f"{lib}.py").write_text(f"import {lib}\n", encoding="utf-8")
+    (scheduled / "__init__.py").write_text(
+        "import apscheduler.job\nimport celery.schedules\nimport arq.cron\n", "utf-8"
+    )
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/collectors/scheduled/__init__.py imports apscheduler.job",
+        "sharpit/engine/collectors/scheduled/__init__.py imports celery.schedules",
+        "sharpit/engine/collectors/scheduled/__init__.py imports arq.cron",
     ]
 
 

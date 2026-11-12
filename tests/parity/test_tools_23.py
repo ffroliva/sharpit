@@ -50,6 +50,7 @@ MATCHED_TOOLS = (
     "get_exceptions",
     "get_exception_detail",
     "get_health",
+    "get_metrics",
     "get_overview",
     "get_request_profile",
     "get_rest_api_report",
@@ -67,8 +68,10 @@ MATCHED_TOOLS = (
     "resume_transaction_recording",
     "vulnerabilities_scan",
     "get_startup_timeline",
+    "get_scheduled_tasks",
     "get_copilot_sessions",
     "get_claude_code_sessions",
+    "get_github_dashboard",
 )
 PARTIAL_TOOLS = (
     "get_live_activity",
@@ -90,9 +93,6 @@ PARTIAL_TOOLS = (
     "get_vulnerabilities_report",
 )
 MISSING_TOOLS = (
-    "disable_agent_sensor",
-    "enable_agent_sensor",
-    "get_agent_status",
     "get_cache_stats",
     "get_code_inventory",
     "get_code_paths",
@@ -105,7 +105,6 @@ MISSING_TOOLS = (
     "trigger_devtools_livereload",
     "get_devtools_status",
     "get_fault_tolerance",
-    "get_github_dashboard",
     "get_graalvm_report",
     "graalvm_scan",
     "get_hibernate_report",
@@ -130,7 +129,6 @@ MISSING_TOOLS = (
     "get_memory_report",
     "memory_scan",
     "get_memory_rule_violations",
-    "get_metrics",
     "get_pentest_report",
     "pentest_scan",
     "get_method_probe",
@@ -141,7 +139,6 @@ MISSING_TOOLS = (
     "pause_rest_client_recording",
     "resume_rest_client_recording",
     "get_rest_client_traces",
-    "get_scheduled_tasks",
     "get_spring_security",
     "get_side_effects",
     "get_spring_report",
@@ -157,6 +154,9 @@ MISSING_TOOLS = (
     "get_thread_detail",
     "get_websockets",
 )
+# W6 floor (DEFAULT TAKEN 2): registered with BootUI's schema, action flag and panel, but the matrix row stays partial
+# because sharpit has no agent sensors yet, so they carry no bootui mark
+FLOOR_TOOLS = ("get_agent_status", "enable_agent_sensor", "disable_agent_sensor")
 SHARPIT_ONLY = (
     "fastapi_scan",
     "get_data_repositories",
@@ -191,6 +191,8 @@ pytestmark = [
     pytest.mark.bootui("cli:exceptions clear"),
     pytest.mark.bootui("cli:exceptions list"),
     pytest.mark.bootui("cli:exceptions show"),
+    pytest.mark.bootui("cli:github"),
+    pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:health"),
     pytest.mark.bootui("cli:overview"),
     pytest.mark.bootui("cli:profile diff"),
@@ -202,6 +204,7 @@ pytestmark = [
     pytest.mark.bootui("cli:sessions copilot"),
     pytest.mark.bootui("cli:sql clear"),
     pytest.mark.bootui("cli:startup"),
+    pytest.mark.bootui("cli:scheduled"),
     pytest.mark.bootui("cli:sql pause"),
     pytest.mark.bootui("cli:sql resume"),
     pytest.mark.bootui("cli:traces clear"),
@@ -221,6 +224,8 @@ pytestmark = [
     pytest.mark.bootui("tool:get_exception_detail"),
     pytest.mark.bootui("tool:get_exceptions"),
     pytest.mark.bootui("tool:get_health"),
+    pytest.mark.bootui("tool:get_github_dashboard"),
+    pytest.mark.bootui("tool:get_metrics"),
     pytest.mark.bootui("tool:get_mysql_report"),
     pytest.mark.bootui("tool:get_overview"),
     pytest.mark.bootui("tool:get_postgresql_report"),
@@ -229,6 +234,7 @@ pytestmark = [
     pytest.mark.bootui("tool:get_rest_api_report"),
     pytest.mark.bootui("tool:get_security_report"),
     pytest.mark.bootui("tool:get_startup_timeline"),
+    pytest.mark.bootui("tool:get_scheduled_tasks"),
     pytest.mark.bootui("tool:get_transactions"),
     pytest.mark.bootui("tool:mysql_read"),
     pytest.mark.bootui("tool:pause_sql_trace_recording"),
@@ -281,6 +287,16 @@ def test_tool_catalogue_matches_bootui_23(name: str) -> None:
     assert local.panel == oracle["panel"]
 
 
+@pytest.mark.parametrize("name", FLOOR_TOOLS, ids=lambda name: f"tool:{name}")
+def test_floor_tool_catalogue_matches_bootui_23(name: str) -> None:
+    local, oracle = SHARPIT[name], BOOTUI[name]
+    assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
+    assert local.default_limit == oracle.get("defaultLimit")
+    assert local.action is oracle["action"]
+    assert local.panel == oracle["panel"]
+    assert COMMANDS[name] == oracle["command"]
+
+
 @pytest.mark.parametrize("name", PARTIAL_TOOLS, ids=lambda name: f"tool:{name}")
 def test_partial_tool_catalogue_difference_is_known(name: str) -> None:
     local, oracle = SHARPIT[name], BOOTUI[name]
@@ -295,12 +311,14 @@ def test_partial_tool_catalogue_difference_is_known(name: str) -> None:
 
 
 def test_tool_coverage_matches_fixture() -> None:
-    classified = set(MATCHED_TOOLS) | set(PARTIAL_TOOLS) | set(MISSING_TOOLS)
+    classified = set(MATCHED_TOOLS) | set(PARTIAL_TOOLS) | set(MISSING_TOOLS) | set(FLOOR_TOOLS)
     assert classified == set(BOOTUI)
     assert len(BOOTUI_TOOLS) == 116
     assert set(SHARPIT) - set(BOOTUI) == set(SHARPIT_ONLY)
     assert set(COMMANDS) - set(BOOTUI) == set(SHARPIT_ONLY)
-    cli_paths = {(BOOTUI[name]["command"], name) for name in (*MATCHED_TOOLS, *PARTIAL_TOOLS, *MISSING_TOOLS)}
+    cli_paths = {
+        (BOOTUI[name]["command"], name) for name in (*MATCHED_TOOLS, *PARTIAL_TOOLS, *MISSING_TOOLS, *FLOOR_TOOLS)
+    }
     assert cli_paths == {(tool["command"], tool["name"]) for tool in BOOTUI_TOOLS}
     assert len(cli_paths) == 116
     assert {(COMMANDS[name], name) for name in SHARPIT_ONLY} == {
