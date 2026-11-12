@@ -9,7 +9,7 @@ import weakref
 from collections import deque
 from collections.abc import Callable
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import otel, sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
@@ -84,22 +84,12 @@ _TX_KEYS = (
 _TX_EVENT_BYTES = sum(map(len, _TX_KEYS)) + len(JOURNAL_SOURCE) + 11 * SCALAR_BYTES
 
 type JournalEvent = dict[str, str | int | bool | None]
-
-
-class JournalStart(NamedTuple):
-    """What a transaction's journal event keeps from its begin; only a begin with a journal to offer to has one."""
-
-    journal: RuntimeJournal
-    request_id: str | None  # only this install's request
-    started_ns: int  # perf_counter, as P-sql's ``completedNanos``: BootUI's ``startNanos``
-    trace_id: str | None
-    nested: bool
-    savepoint: bool
-    read_only: bool
-    isolation: str | None
-
-
-type _Facts = tuple[int, str | None, bool, bool, bool, str | None]  # JournalStart after ``request_id``
+# a begin's journal facts, the same for every context: the perf_counter start (BootUI's ``startNanos``, on P-sql's
+# ``completedNanos`` clock), the trace id, nested, savepoint, read-only and isolation
+type _Facts = tuple[int, str | None, bool, bool, bool, str | None]
+# what a transaction's journal event keeps from its begin: the journal, this install's request id and the facts.
+# Plain tuples: one is built per begin, on the listener's budget.
+type JournalStart = tuple[RuntimeJournal, str | None, _Facts]
 
 # the connections whose transaction began in this context: BootUI's thread stack, so ``nested`` is "another one is
 # still open here" (REQUIRES_NEW). Weak: a connection dropped without an end event stops counting once collected.
@@ -107,14 +97,17 @@ _OPEN: ContextVar[tuple[weakref.ref[Any], ...]] = ContextVar("sharpit_open_trans
 
 
 def _nests(conn: Any) -> bool:
-    live = tuple(r for r in _OPEN.get() if (other := r()) is not None and other is not conn and other.in_transaction())
+    stack = _OPEN.get()
+    if len(stack) == 1 and stack[0]() is conn:  # the same connection again, nothing else open: nothing to change
+        return False
+    live = tuple(r for r in stack if (other := r()) is not None and other is not conn and other.in_transaction())
     _OPEN.set((*live, weakref.ref(conn)))
     return bool(live)
 
 
 def _facts(conn: Any, *, savepoint: bool) -> _Facts | None:
-    """The begin's journal facts, the same for every context; ``None`` under AUTOCOMMIT, where each statement commits
-    itself and there is no physical transaction for BootUI to record."""
+    """The begin's journal facts; ``None`` under AUTOCOMMIT, where each statement commits itself and there is no
+    physical transaction for BootUI to record."""
     autocommit = getattr(conn, "_is_autocommit_isolation", None)  # SQLAlchemy 2.0+: the option or the engine's level
     if callable(autocommit) and autocommit():
         return None
@@ -122,25 +115,13 @@ def _facts(conn: Any, *, savepoint: bool) -> _Facts | None:
     level = options.get("isolation_level")
     isolation = str(level).upper().replace(" ", "_") if level else None
     nested = savepoint or _nests(conn)
-    return (
-        time.perf_counter_ns(),
-        otel.current_trace_id(),
-        nested,
-        savepoint,
-        bool(options.get("postgresql_readonly")),
-        isolation,
-    )
+    read_only = bool(options.get("postgresql_readonly"))
+    return time.perf_counter_ns(), otel.current_trace_id(), nested, savepoint, read_only, isolation
 
 
-def _class_name(error: BaseException | None) -> str | None:
-    if error is None:
-        return None
+def _class_name(error: BaseException) -> str:
     cls = type(error)
     return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
-
-
-def _text_bytes(value: str | None) -> int:
-    return SCALAR_BYTES if value is None else len(value)
 
 
 def transaction_event(
@@ -151,29 +132,39 @@ def transaction_event(
 
     ``method`` is the row's call site (BootUI's ``@Transactional`` method has no Python twin); ``rollbackOnly`` and the
     ORM counts are unknown (``False``, ``-1``); ``failureClass`` names the error that failed the DBAPI commit."""
-    failure = _class_name(error)
+    _, request_id, (started_ns, trace_id, nested, savepoint, read_only, isolation) = start
+    thread: str = row["thread"]
+    method: str = row["methodName"]
+    failure = None if error is None else _class_name(error)
     record: JournalEvent = {
         "source": JOURNAL_SOURCE,
         "epochMillis": row["startTimestamp"],
-        "durationNanos": max(0, time.perf_counter_ns() - start.started_ns),
-        "traceId": start.trace_id,
-        "requestId": start.request_id,
-        "thread": row["thread"],
-        "method": row["methodName"],
+        "durationNanos": max(0, time.perf_counter_ns() - started_ns),
+        "traceId": trace_id,
+        "requestId": request_id,
+        "thread": thread,
+        "method": method,
         "rolledBack": row["status"] == "ROLLED_BACK",  # BootUI: status == ROLLED_BACK; a failed commit is UNKNOWN
-        "nested": start.nested,
-        "savepoint": start.savepoint,
-        "startNanos": start.started_ns,
-        "readOnly": start.read_only,
-        "isolation": start.isolation,
+        "nested": nested,
+        "savepoint": savepoint,
+        "startNanos": started_ns,
+        "readOnly": read_only,
+        "isolation": isolation,
         "rollbackOnly": False,
         "failureClass": failure,
         "ormStatements": -1,
         "ormFlushes": -1,
         "ormDirtyEntities": -1,
     }
-    texts = (start.trace_id, start.request_id, row["thread"], row["methodName"], start.isolation, failure)
-    return record, _TX_EVENT_BYTES + sum(map(_text_bytes, texts))
+    return record, (
+        _TX_EVENT_BYTES
+        + len(thread)
+        + len(method)
+        + (SCALAR_BYTES if trace_id is None else len(trace_id))
+        + (SCALAR_BYTES if request_id is None else len(request_id))
+        + (SCALAR_BYTES if isolation is None else len(isolation))
+        + (SCALAR_BYTES if failure is None else len(failure))
+    )
 
 
 def _publish(row: dict[str, Any], error: BaseException | None = None) -> None:
@@ -183,7 +174,7 @@ def _publish(row: dict[str, Any], error: BaseException | None = None) -> None:
     if start is None:
         return
     try:
-        start.journal.offer_flat(*transaction_event(row, start, error))
+        start[0].offer_flat(*transaction_event(row, start, error))
     except Exception as exc:  # noqa: BLE001 - publishing never disturbs the transaction it observes
         dispatch.routing_failed(exc)
 
@@ -518,7 +509,7 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
                 thread=threading.current_thread().name,
                 trace_id=request_id,
                 connection_id=connection_id,
-                journal=None if journal is None or facts is None else JournalStart(journal, request_id, *facts),
+                journal=None if journal is None or facts is None else (journal, request_id, facts),
             )
             if entry_id >= 0:
                 stack.append((weakref.ref(recorder), entry_id))
