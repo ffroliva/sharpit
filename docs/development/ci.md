@@ -106,7 +106,7 @@ layout and runner options (O1-O3 in the 0.6.0 plan's `W0b-ci-method.md`), queued
 What the numbers say:
 
 - **Setup is not the cost.** With uv's cache hot, checkout, setup-uv and `uv sync` take 10-25 s a job.
-- **The pool is.** ~52 jobs share an account-wide pool of ~20 runners with every other lane's runs; in 43183266267
+- **The pool is.** ~53 jobs share an account-wide pool of ~20 runners with every other lane's runs; in 43183266267
   only 10-14 of ours ran at once and Windows shards started 4-8 minutes in. Job order in the file does not change
   which job gets a runner first.
 - **Shard times swing with what shares a worker, not with the weights.** The same `tests/test_safety_matrix.py`
