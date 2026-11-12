@@ -450,7 +450,7 @@ def test_transaction_journal_event_built_inside_the_guard_on_the_rollback_path(m
 
 def test_transaction_journal_source_disabled_builds_nothing(monkeypatch: pytest.MonkeyPatch):
     """Not a journal source: the begin reads no journal facts and builds no event; it only counts the drop."""
-    handle, engine = _install(sources=("http",))
+    handle, engine = _install(sources=("http",), sql_trace_enabled=False)  # no sql drop beside it
     calls: list[str] = []
     facts, built = transactions._facts, transactions.transaction_event  # pyright: ignore[reportPrivateUsage]
     monkeypatch.setattr(transactions, "_facts", lambda *a, **k: calls.append("facts") or facts(*a, **k))
