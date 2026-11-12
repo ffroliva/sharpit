@@ -134,6 +134,10 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 ## Workflow
 
+- **CI and sbx run in 3-5 minutes on average** (owner, top priority). When a PR's CI run or an sbx full-suite run
+  averages above 5 minutes, fixing that comes before other work: refresh the shard weights, rebalance shards, cut
+  setup, optimize slow tests. Never by skipping, deselecting or weakening a test or raising a budget. Numbers and how
+  to measure: `docs/development/ci.md` (*Wall clock*).
 - **Worktree per change**, branched from current `origin/main` (`superpowers:using-git-worktrees`). Never work on
   `main`, on a shared checkout or on another agent's branch.
 - **TDD** (`superpowers:test-driven-development`): a failing test, watched red for the right reason, then the fix.

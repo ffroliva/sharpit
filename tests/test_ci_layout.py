@@ -69,7 +69,11 @@ def test_the_coverage_shards_use_the_sys_monitoring_tracer() -> None:
     assert "COVERAGE_CORE: sysmon" in JOBS["coverage-shard"]
 
 
-LOAD_CEILING = {"ubuntu-latest": 170.0, "windows-latest": 305.0}  # weighted test-seconds: ~0.3 s of wall per second
+# Weighted test-seconds per shard. Run 43178363371: a shard's pytest step takes ~0.27 s of wall per weighted second on
+# Ubuntu (586 s in 158 s) and ~0.31 s on Windows (841 s in 262 s), so these keep each step under ~1.7 minutes. Weights
+# from run 43199441634 (after the sqlite heap-walk fix): max loads 313 (Ubuntu, 4 shards) and 294 (Windows, 6). Windows
+# is back at its old 305; Ubuntu's old 170 was set against stale weights that summed to half the measured time.
+LOAD_CEILING = {"ubuntu-latest": 330.0, "windows-latest": 305.0}
 
 
 @pytest.mark.parametrize("leg", [leg for leg in _legs("test-shard") if leg])
@@ -602,9 +606,11 @@ def test_the_job_count_never_rises() -> None:
 
 
 def test_the_required_critical_path_is_listed_before_live() -> None:
-    """The coverage leg and the shards set the required wall: listed first, the not-required live legs last."""
+    """The shards (Windows first) and the coverage leg set the required wall; the not-required live legs go last."""
     names = list(JOBS)
-    assert names[:4] == ["changes", "coverage-shard", "test-shard", "lint"]
+    assert names[:4] == ["changes", "test-shard", "coverage-shard", "lint"]
+    rows = [line for line in JOBS["test-shard"].splitlines() if "shard:" in line]
+    assert all("windows-latest" in row for row in rows[:6]), "the Windows shards are the long pole: first"
     assert names[-2:] == ["live", "live-check"]
 
 
