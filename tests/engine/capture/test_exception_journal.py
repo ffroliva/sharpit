@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sharpit.engine.capture import exceptions as exceptions_module
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,7 +17,7 @@ from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 
 MESSAGE_CANARY = "zq-message-canary-17"
 ARGS_CANARY = "zq-args-canary-29"
-ENVELOPE = {"source", "epochMillis", "durationNanos", "traceId", "thread", "requestId"}
+ENVELOPE = {"source", "epochMillis", "durationNanos", "traceId", "thread", "requestId", "failedOrSlow"}
 PAYLOAD = {"groupId", "exceptionClass", "signature", "types", "logged"}
 
 
@@ -25,6 +27,15 @@ class Teapot(Exception):
 
 class Brewing(Teapot):
     pass
+
+
+class PoolTimeout(Brewing):
+    pass
+
+
+def _with_cause(outer: Exception, inner: Exception) -> Exception:
+    outer.__cause__ = inner
+    return _raised(outer)
 
 
 def _install(sources: tuple[str, ...] = ("exception",), **options: Any) -> Any:
@@ -65,7 +76,7 @@ def _info(handle: Any, request_id: str) -> RequestInfo:
     return RequestInfo(request_id, handle.context.context_id, "GET", "/x", None, 0, None)
 
 
-# ported: ExceptionStoreTests.publishesEachRecordedExceptionToTheJournalWithItsClassGroupAndSignatureButNoMessage
+# ported: RecorderPublishingTests.exceptionOccurrencesPublishTheirGroupAndClassButNeverTheirMessage
 def test_exception_journal_event_offered_once_per_captured_exception_with_bootui_fields() -> None:
     handle = _install()[1]
     store = handle.context.capture.exceptions
@@ -82,6 +93,7 @@ def test_exception_journal_event_offered_once_per_captured_exception_with_bootui
     assert record["thread"] == "worker"
     assert record["requestId"] == "r1"
     assert record["durationNanos"] == -1
+    assert record["failedOrSlow"] is True  # BootUI offers every exception event with failedOrSlow=true
     assert isinstance(record["signature"], str)
     assert len(str(record["signature"])) == 16
 
@@ -107,11 +119,25 @@ def test_exception_journal_signature_ignores_line_numbers_and_the_log_source_is_
     assert second["logged"] is False
 
 
-# ported: ExceptionStoreTests.theJournalEventNeverCarriesTheMessage
+# ported: RecorderPublishingTests.exceptionOccurrencesPublishTheirGroupAndClassButNeverTheirMessage (the message part)
 @pytest.mark.parametrize("exposure", ["MASKED", "FULL", "METADATA_ONLY"])
-def test_exception_journal_message_and_args_canary_never_reaches_the_journal(exposure: str) -> None:
+def test_exception_journal_message_and_args_canary_never_reaches_the_journal(
+    exposure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, handle = _install(expose_values=exposure)
+    journal = handle.context.capture.journal
+    offered: list[dict[str, object]] = []
+    real_offer = journal.offer
+
+    def spy(event: dict[str, object]) -> None:
+        offered.append(dict(event))  # the event as the producer built it, before any read-time masking
+        real_offer(event)
+
+    monkeypatch.setattr(journal, "offer", spy)
     assert client.get("/boom").status_code == 500
+    assert len(offered) == 1
+    assert MESSAGE_CANARY not in json.dumps(offered)
+    assert ARGS_CANARY not in json.dumps(offered)
     records = _records(handle)
     assert len(records) == 1
     assert MESSAGE_CANARY not in json.dumps(records)
@@ -152,3 +178,74 @@ def test_exception_journal_event_not_offered_twice_for_a_reraising_handler() -> 
     assert client.get("/rethrow").status_code == 500
     assert len(_records(handle)) == 1
     assert handle.context.capture.exceptions.report()["totalExceptions"] == 1
+
+
+# ported: RecorderPublishingTests.exceptionMetadataIncludesDeepCausesAndSuperclassNamesWithoutMessages
+def test_exception_journal_types_list_the_deepest_cause_first_with_superclasses_and_no_messages() -> None:
+    handle = _install()[1]
+    exc = _with_cause(RuntimeError("secret-wrapper"), PoolTimeout("secret-cause"))
+    handle.context.capture.exceptions.record(exc, "handler", None, "worker")
+    record = _records(handle)[0]
+    assert record["types"] == [f"{__name__}.PoolTimeout", f"{__name__}.Brewing", f"{__name__}.Teapot", "RuntimeError"]
+    assert record["exceptionClass"] == "RuntimeError"
+    assert "secret" not in json.dumps(record)
+
+
+def test_exception_journal_types_are_capped_at_sixteen() -> None:
+    handle = _install()[1]
+    base: type[Exception] = Exception
+    for depth in range(20):
+        base = type(f"Level{depth}", (base,), {})
+    handle.context.capture.exceptions.record(_raised(base("x")), "handler", None, "t")
+    types = _records(handle)[0]["types"]
+    assert isinstance(types, list)
+    assert len(types) == 16  # ExceptionPayload.MAX_TYPES
+    assert types[0].endswith("Level19")
+
+
+def test_exception_journal_types_walk_at_most_eight_causes() -> None:
+    handle = _install()[1]
+    classes = [type(f"Chain{i}", (Exception,), {}) for i in range(12)]
+    exc: Exception = _raised(classes[11]("x"))
+    for cls in reversed(classes[:11]):  # Chain0 is the outermost, each one's cause is the next
+        exc = _with_cause(cls("x"), exc)
+    handle.context.capture.exceptions.record(exc, "handler", None, "t")
+    types = _records(handle)[0]["types"]
+    assert types == [f"{__name__}.Chain{i}" for i in range(8, -1, -1)]  # root and 8 causes, deepest of those first
+
+
+def test_exception_journal_exception_group_types_come_from_the_first_leaf_chain() -> None:
+    handle = _install()[1]
+    group = _raised(ExceptionGroup("g", [_with_cause(RuntimeError("a"), PoolTimeout("b")), KeyError("k")]))
+    handle.context.capture.exceptions.record(group, "handler", None, "t")
+    record = _records(handle)[0]
+    assert record["types"] == [f"{__name__}.PoolTimeout", f"{__name__}.Brewing", f"{__name__}.Teapot", "RuntimeError"]
+
+
+def test_exception_journal_a_failing_event_build_keeps_the_stores_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = _install()[1]
+    store = handle.context.capture.exceptions
+
+    def broken(*_args: object) -> list[str]:
+        raise RuntimeError("build failed")
+
+    monkeypatch.setattr(exceptions_module, "_types", broken)
+    store.record(_raised(Brewing("x")), "handler", None, "t")  # nothing escapes to the host
+    assert store.report()["totalExceptions"] == 1
+    assert _records(handle) == ()
+    monkeypatch.undo()
+    store.record(_raised(Teapot("y")), "handler", None, "t")  # control: the store and journal still work
+    assert store.report()["totalExceptions"] == 2
+    assert len(_records(handle)) == 1
+
+
+def test_exception_journal_a_failing_offer_keeps_the_stores_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = _install()[1]
+    store = handle.context.capture.exceptions
+
+    def refuse(_event: dict[str, object]) -> None:
+        raise RuntimeError("journal down")
+
+    monkeypatch.setattr(handle.context.capture.journal, "offer", refuse)
+    store.record(_raised(Brewing("x")), "handler", None, "t")
+    assert store.report()["totalExceptions"] == 1
