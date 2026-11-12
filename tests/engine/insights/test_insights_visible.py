@@ -4,6 +4,7 @@ reads the report through the production service."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from typing import Any
 
@@ -13,6 +14,8 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.service import insights_service
+from sharpit.engine.collectors.insights.snapshot import SOURCE_PANELS
+from sharpit.engine.panels import PANELS
 
 # source, owning sharpit panel, a kind that requires the source, an event of that source
 _HTTP = {"source": "http", "requestId": "r1", "status": 200, "route": "GET /a", "routeTemplate": "/a"}
@@ -64,12 +67,50 @@ def test_a_required_source_with_its_panel_disabled_is_not_applicable_naming_the_
     assert snapshot_module.SOURCE_PANELS[source] == (panel,)
 
 
-@pytest.mark.parametrize(("source", "panel", "kind", "event"), CASES, ids=IDS)
-def test_a_required_source_with_its_panel_enabled_is_evaluated(
-    handles: list[Any], source: str, panel: str, kind: str, event: dict[str, Any]
+def _same_as_default(handles: list[Any], events: list[dict[str, Any]], kind: str) -> None:
+    """Every panel explicitly enabled changes nothing: the check and the observations equal the default install's."""
+    out: list[dict[str, Any]] = []
+    every = {panel.id: {"enabled": True} for panel in PANELS if panel.implemented}
+    for panels in ({}, every):
+        handle = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, panels=panels)
+        handles.append(handle)
+        for event in events:
+            assert handle.context.capture.journal.offer(event)
+        report = insights_service(handle.context).report()
+        out.append(
+            {"check": _check(report, kind), "observations": [o for o in report["observations"] if o["kind"] == kind]}
+        )
+    assert json.dumps(out[0], sort_keys=True) == json.dumps(out[1], sort_keys=True)
+    assert out[0]["check"]["status"] != "NOT_APPLICABLE"
+
+
+def test_enabling_every_panel_leaves_an_implemented_kind_unchanged(handles: list[Any]) -> None:
+    _same_as_default(
+        handles, [_HTTP, {**_HTTP, "requestId": "r2"}, {**_HTTP, "requestId": "r3"}, _EXC], "errors-behind-2xx"
+    )
+
+
+def test_every_source_panel_is_a_real_panel() -> None:
+    known = {panel.id for panel in PANELS}
+    assert {p for panels in SOURCE_PANELS.values() for p in panels} <= known
+
+
+# RuntimeInsightsService.missingSource (v2.3.0 :1362-1368): hidden requests leave a kind that examines them nothing
+@pytest.mark.parametrize(
+    ("kind", "event"), [("ai-usage-by-route", {"source": "ai", "requestId": "r1"}), ("exception-hotspots", _EXC)]
+)
+def test_a_kind_that_reads_requests_with_the_http_panel_off_is_not_applicable_for_its_unit_of_work_evidence(
+    handles: list[Any], kind: str, event: dict[str, Any]
 ) -> None:
-    check = _check(_report(handles, event, **{panel: True}), kind)
-    assert check["status"] != "NOT_APPLICABLE" or "disabled" not in str(check["reason"]), source
+    handle = install(
+        FastAPI(), enabled="ON", show_banner=False, config_scan=False, panels={"http-exchanges": {"enabled": False}}
+    )
+    handles.append(handle)
+    assert handle.context.capture.journal.offer(_HTTP)
+    assert handle.context.capture.journal.offer(event)
+    check = _check(insights_service(handle.context).report(), kind)
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == "The http-exchanges panel is disabled, so its unit-of-work evidence cannot be evaluated."
 
 
 @pytest.mark.parametrize("email_on", [True, False])

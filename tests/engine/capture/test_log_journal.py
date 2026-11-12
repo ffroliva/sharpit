@@ -21,6 +21,7 @@ from sharpit.engine.capture import logtail
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
+from sharpit.engine.collectors.insights.kinds import errors_behind_2xx
 from sharpit.engine.collectors.insights.service import insights_service
 from sharpit.engine.masking import Masker
 
@@ -404,7 +405,7 @@ def test_errors_behind_2xx_real_install_with_both_log_panels_off_journals_the_er
     report = insights_service(handle.context).report()
     check = next(c for c in report["checks"] if c["kind"] == "errors-behind-2xx")
     assert check["status"] == "NOT_APPLICABLE"  # hidden: no evidence source is visible
-    assert "their panels are disabled" in str(check["reason"])
+    assert check["reason"] == errors_behind_2xx.NOT_APPLICABLE  # BootUI ErrorsBehind2xx.notApplicable, whole text
     assert [o for o in report["observations"] if o["kind"] == "errors-behind-2xx"] == []
     assert ARG_CANARY not in json.dumps(report)
 
