@@ -30,6 +30,7 @@ from sharpit.engine.sqltext import Dialect, error_text, exception_leaves, is_dat
 
 MAX_MESSAGE = 2000
 MAX_CAUSES = 5
+MAX_CAUSE_DEPTH = 8  # ExceptionStore.MAX_CAUSE_DEPTH: how deep the journal event's types walk
 MAX_TYPES = 16  # ExceptionPayload.MAX_TYPES
 _BASE_TYPES = frozenset(
     {BaseException, Exception, object}
@@ -100,10 +101,6 @@ def unknown_group(gid: str) -> str:
     return f"Unknown exception group '{gid}'"
 
 
-def _class_name(exc: BaseException) -> str:
-    return _qualified(type(exc))
-
-
 def _frames(exc: BaseException, limit: int | None = None) -> list[dict[str, Any]]:
     """Innermost first, capped to the innermost ``limit``; names and lines only."""
     walked = list(traceback.walk_tb(exc.__traceback__))
@@ -128,35 +125,40 @@ def _chosen(frames: list[dict[str, Any]]) -> dict[str, Any] | None:
 def fingerprint(exc: BaseException, frames: list[dict[str, Any]] | None = None) -> str:
     """The class and the place it came from (``frames``: the uncapped walk); equal fingerprints share a group."""
     frame = _chosen(_frames(exc) if frames is None else frames)
-    name = _class_name(exc)
+    name = _class_name(type(exc))
     return name if frame is None else f"{name}\n{frame['declaringClass']}:{frame['methodName']}:{frame['lineNumber']}"
 
 
-def _types(exc: BaseException, causes: list[BaseException]) -> list[str]:
-    """BootUI ``exceptionTypes``: class and superclass names, deepest cause first, bounded, without messages."""
+def _types(exc: BaseException) -> list[str]:
+    """BootUI ``exceptionTypes``: class and superclass names, the deepest cause first (the exception itself last),
+    capped at ``MAX_TYPES``, without messages. The chain is the exception's own, ``MAX_CAUSE_DEPTH`` causes deep; an
+    exception group is already its first leaf here, so the other leaves add no types."""
     names: list[str] = []
-    for current in reversed([exc, *causes]):
-        names.extend(n for c in type(current).__mro__ if c not in _BASE_TYPES if (n := _qualified(c)) not in names)
+    for current in reversed([exc, *_causes(exc, [], MAX_CAUSE_DEPTH)]):
+        for cls in type(current).__mro__:
+            name = _class_name(cls)
+            if cls not in _BASE_TYPES and name not in names:
+                names.append(name)
     return names[:MAX_TYPES]
 
 
-def _qualified(cls: type) -> str:
+def _class_name(cls: type) -> str:
     return cls.__qualname__ if cls.__module__ == "builtins" else f"{cls.__module__}.{cls.__qualname__}"
 
 
-def _causes(exc: BaseException, extra: list[BaseException]) -> list[BaseException]:
-    """``__cause__``, else an unsuppressed ``__context__``; cycle-safe, then the other group leaves, at most five."""
+def _causes(exc: BaseException, extra: list[BaseException], limit: int = MAX_CAUSES) -> list[BaseException]:
+    """``__cause__``, else an unsuppressed ``__context__``; cycle-safe, then other group leaves; ``limit`` at most."""
     seen = {id(exc)}
     found: list[BaseException] = []
     current = exc
-    while len(found) < MAX_CAUSES:
+    while len(found) < limit:
         following = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
         if following is None or id(following) in seen:
             break
         seen.add(id(following))
         found.append(following)
         current = following
-    return (found + [e for e in extra if id(e) not in seen])[:MAX_CAUSES]
+    return (found + [e for e in extra if id(e) not in seen])[:limit]
 
 
 def _common(frames: list[dict[str, Any]], enclosing: list[dict[str, Any]]) -> int:
@@ -283,11 +285,13 @@ class ExceptionStore:
         self._record(exc, source, request, thread, message_override)
         self._signal()
 
-    def _offer(self, event: dict[str, object]) -> None:
+    def _offer(self, build: Callable[[], dict[str, object]]) -> None:
+        """Offer the event ``build`` makes. Built here, inside the guard and only when a journal is set (a disabled
+        source still counts its drop), so a failing build or offer never costs the store its record."""
         journal = self.journal
         if journal is not None and not INTERNAL.get():  # sharpit's own work is never the application's
             with contextlib.suppress(Exception):  # publishing never disturbs capture
-                journal.offer(event)
+                journal.offer(build())
 
     def _record(
         self,
@@ -307,7 +311,7 @@ class ExceptionStore:
             cause_frames = _frames(cause, self.max_frames)
             causes.append(
                 {
-                    "exceptionClassName": _class_name(cause),
+                    "exceptionClassName": _class_name(type(cause)),
                     "message": self._text(cause),
                     "frames": cause_frames,
                     "commonFrames": _common(cause_frames, frames),
@@ -332,11 +336,10 @@ class ExceptionStore:
             "traceId": request.id if request else None,
         }
         gid = hashlib.sha256(key.encode()).hexdigest()[:16]
-        event = self._event(exc, causes_raw, chosen, gid, now_ms, request, thread, source)
         with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
-                group = self._groups[gid] = _Group(gid, _class_name(exc), now_ms)
+                group = self._groups[gid] = _Group(gid, _class_name(type(exc)), now_ms)
             elif group.status == "RESOLVED":  # a regression: reopen; ACKNOWLEDGED stays as it is
                 group.status = "OPEN"
                 group.regressions += 1
@@ -349,36 +352,34 @@ class ExceptionStore:
                 group.occurrences.pop()
             if len(self._groups) > self.max_groups:
                 del self._groups[min(self._groups.values(), key=lambda g: g.order).id]
-        self._offer(event)
+        self._offer(lambda: self._event(exc, chosen, gid, occurrence, request))
 
     def _event(
         self,
         exc: BaseException,
-        causes: list[BaseException],
         chosen: dict[str, Any] | None,
         gid: str,
-        now_ms: int,
+        occurrence: dict[str, Any],
         request: RequestInfo | None,
-        thread: str | None,
-        source: str,
     ) -> dict[str, object]:
         """BootUI's ``exception`` event (``ExceptionPayload`` and its envelope): the class, group, signature (the
         fingerprint without line numbers) and types; never the message, ``args`` or a frame."""
-        name = _class_name(exc)
+        name = _class_name(type(exc))
         place = "" if chosen is None else f"\n{chosen['declaringClass']}:{chosen['methodName']}"
         owned = request is not None and request.context_id == self.context_id  # another install's request is not ours
         return {
             "source": "exception",
-            "epochMillis": now_ms,
+            "epochMillis": occurrence["timestamp"],
             "durationNanos": -1,
             "traceId": otel.current_trace_id(),
-            "thread": thread,
+            "thread": occurrence["thread"],
             "requestId": request.id if request is not None and owned else None,
+            "failedOrSlow": True,  # BootUI offers every exception event as failed
             "groupId": gid,
             "exceptionClass": name,
             "signature": hashlib.sha256(f"{name}{place}".encode()).hexdigest()[:16],
-            "types": _types(exc, causes),
-            "logged": source == "log",
+            "types": _types(exc),
+            "logged": occurrence["source"] == "log",
         }
 
     def report(self) -> dict[str, Any]:

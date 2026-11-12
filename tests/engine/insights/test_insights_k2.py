@@ -199,8 +199,18 @@ def test_errors_behind_2xx_secret_in_a_read_field_is_never_shown(exposure: Expos
     assert "abcdef0123456789" not in dumped
 
 
-def test_errors_behind_2xx_real_install_is_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_errors_behind_2xx_real_install_evaluates_now_that_exception_is_produced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES)
+    assert "exception" in REAL_PRODUCED_SOURCES  # W5a P-exception
+    run = Run()
+    run.request(200, exception(ILLEGAL_STATE))
+    assert run.check()["status"] == "EVALUATED"
+
+
+def test_errors_behind_2xx_without_any_evidence_producer_is_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES - EVIDENCE_SOURCES | {"http"})
     run = Run()
     run.request(200)
     check = run.check()

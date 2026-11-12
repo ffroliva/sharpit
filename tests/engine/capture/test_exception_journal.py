@@ -6,13 +6,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sharpit.engine.capture import exceptions as exceptions_module
-
 import pytest
 from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine.capture import exceptions as exceptions_module
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 
 MESSAGE_CANARY = "zq-message-canary-17"
