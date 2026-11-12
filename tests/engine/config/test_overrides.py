@@ -626,6 +626,21 @@ def test_put_refuses_values_the_environment_cannot_hold(tmp_path: Path, value: s
     assert not file.exists()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows caps name=value at 32767 UTF-16 units")
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("V", "a" * 32766), ("VPROBE", "a" * 32765), ("E", "\U0001f600" * 16383)],
+    ids=["value-at-cap", "name-plus-value-over", "astral-pairs"],
+)
+def test_put_refuses_a_name_and_value_over_the_windows_block_limit(tmp_path: Path, name: str, value: str) -> None:
+    # found in the round-3 tier-high re-review: the cap was on the value alone
+    file = tmp_path / "overrides.env"
+    service = ConfigOverrideService(overrides_file=file)
+    error = _raised(lambda: service.put(name, value))
+    assert isinstance(error, ValueError)
+    assert name not in os.environ
+
+
 @pytest.mark.parametrize("raw", ['"' + "a" * 40000 + '"', r'"\ud800"'], ids=["40000-chars", "lone-surrogate"])
 def test_file_value_the_environment_cannot_hold_applies_nothing(tmp_path: Path, raw: str) -> None:
     file = tmp_path / "overrides.env"
