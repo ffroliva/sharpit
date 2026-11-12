@@ -11,12 +11,13 @@ once, by whichever comes first of the worker finishing or the caller giving up; 
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
-from sharpit.engine import sqla
+from sharpit.engine import appsource, sqla
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture import activity
@@ -207,6 +208,13 @@ def dismissal_store(ctx: SharpitContext) -> DismissalStore:
 _NO_ROUTE_MODEL = ApiModel((), (), ("This framework adapter does not expose route details.",))
 
 
+def rest_api_source_index(ctx: SharpitContext) -> appsource.SourceIndex | None:
+    """The host's source index the error-contract panel and the REST API rules both read; None: no app root found."""
+    app = getattr(ctx.introspector, "app", None)
+    root = appsource.resolve_app_root(app, sys.modules, app_package=ctx.settings.app_package)
+    return appsource.build_index(root) if root is not None else None
+
+
 def rest_api_service(ctx: SharpitContext) -> RestApiService:
     """The per-install REST API advisor (seeded in tests under the same key); scans hold their own single-flight."""
     source: Any = getattr(ctx.introspector, "api_model", None)  # duck-typed: not part of the AppIntrospector SPI
@@ -219,6 +227,7 @@ def rest_api_service(ctx: SharpitContext) -> RestApiService:
             ctx.masker,
             ctx.lazy("singleflight:rest-api-scan", SingleFlight),
             max_retained=ctx.settings.advisors_max_retained_violations,
+            index=lambda: rest_api_source_index(ctx),
         ),
     )
 

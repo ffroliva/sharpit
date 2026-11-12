@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from collections.abc import Callable
 from functools import partial
 from importlib import import_module
@@ -17,7 +16,7 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import BaseRoute, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from sharpit.engine import appsource, guard, tools
+from sharpit.engine import guard, tools
 from sharpit.engine import probe as probe_engine
 from sharpit.engine.advisors.retention import MAX_PAGE_LIMIT, AdvisorViolationError, parse_integer
 from sharpit.engine.capture import activity
@@ -534,14 +533,7 @@ def _rest_api_routes(ctx: SharpitContext) -> list[BaseRoute]:
         except BadRequest as exc:
             return json_response({"error": str(exc)}, 400)
         introspector = cast(Any, ctx.introspector)
-        reasons: list[str] = []
-        root = appsource.resolve_app_root(
-            introspector.app,
-            sys.modules,
-            app_package=settings.app_package,
-            reasons=reasons,
-        )
-        index = appsource.build_index(root) if root is not None else None
+        index = tools.rest_api_source_index(ctx)
         model = getattr(introspector, "api_model")()  # noqa: B009 - the adapter model is duck-typed
         return json_response(error_contract_report(model, index, params.get("q"), offset, limit))
 

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sharpit.engine.appsource import ModuleInfo, SourceIndex
@@ -32,6 +35,7 @@ class ErrorContractEntry:
     body_category: str
     body_type: str | None
     produces: tuple[str, ...]
+    retry_after: bool | None = False  # a literal Retry-After header; None: headers built at runtime; not in the DTO
 
     def dto(self) -> dict[str, Any]:
         return {
@@ -77,7 +81,7 @@ def _handler_node(
     module = index.modules.get(module_name)
     if module is None:
         return None, None
-    parts = qualname.split(".")
+    parts = [p for p in qualname.split(".") if p != "<locals>"]
     body = module.tree.body
     node = None
     for part in parts:
@@ -95,6 +99,9 @@ def _handler_node(
     if isinstance(node, ast.ClassDef):
         node = None
     return module, node
+
+
+_RESPONSES = frozenset({"JSONResponse", "Response", "PlainTextResponse"})
 
 
 def _call_name(node: ast.expr) -> str:
@@ -133,33 +140,58 @@ def _status(value: ast.expr, current: str | None, source: str) -> tuple[str | No
     if not isinstance(value, ast.Call):
         return current, source
     declared = next((keyword.value for keyword in value.keywords if keyword.arg == "status_code"), None)
-    if (
-        declared is None
-        and _call_name(value.func) in {"JSONResponse", "Response", "PlainTextResponse"}
-        and len(value.args) > 1
-    ):
+    if declared is None and _call_name(value.func) in _RESPONSES and len(value.args) > 1:
         declared = value.args[1]
     if isinstance(declared, ast.Constant) and type(declared.value) is int:
         return str(declared.value), "ANNOTATION"
     return (None, "DYNAMIC") if declared is not None else (current, source)
 
 
-def _declaration(info: ErrorHandlerInfo, index: SourceIndex | None) -> tuple[str | None, str, str, str | None]:
+def _retry_after(value: ast.expr) -> bool | None:
+    """True for a literal ``Retry-After`` header key, None when the headers are built at runtime, else False."""
+    if not isinstance(value, ast.Call):
+        return False
+    headers = next((keyword.value for keyword in value.keywords if keyword.arg == "headers"), None)
+    if headers is None and _call_name(value.func) in _RESPONSES and len(value.args) > 2:
+        headers = value.args[2]
+    if headers is None:
+        return False
+    if not isinstance(headers, ast.Dict):  # a name or a call
+        return None
+    literal = [
+        key.value.lower() for key in headers.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    ]
+    if "retry-after" in literal:
+        return True
+    return None if len(literal) < len(headers.keys) else False  # a ``**spread`` or computed key may carry it
+
+
+def _declaration(
+    info: ErrorHandlerInfo, index: SourceIndex | None
+) -> tuple[str | None, str, str, str | None, bool | None]:
     if getattr(info, "is_partial", False):
-        return None, "UNRESOLVED", "UNRESOLVED", None
+        return None, "UNRESOLVED", "UNRESOLVED", None, False
     _, function = _handler_node(info.handler, index)
     status = str(info.key_status) if info.key_status is not None else None
-    status_source = "ANNOTATION" if status is not None else "DYNAMIC"
+    status_source = "ANNOTATION" if status is not None else "UNRESOLVED"  # BootUI: no visible status is UNRESOLVED
     if function is None:
-        return status, status_source if status is not None else "UNRESOLVED", "UNRESOLVED", None
+        return status, status_source, "UNRESOLVED", None, False
     category, body_type = "UNRESOLVED", None
     returns = [node.value for node in ast.walk(function) if isinstance(node, ast.Return) and node.value is not None]
+    statuses = {_status(value, status, status_source) for value in returns}
+    retries = {_retry_after(value) for value in returns}
     for value in returns:
-        status, status_source = _status(value, status, status_source)
         category, body_type = _body(value)
         if category != "DYNAMIC" or isinstance(value, ast.Call):
             break
-    return status, status_source, category, body_type
+    if len(statuses) > 1:  # branches that disagree are unknown, whatever their order
+        status, status_source = None, "DYNAMIC"
+    elif statuses:
+        status, status_source = statuses.pop()
+    retry_after: bool | None = False  # no Retry-After seen
+    if retries:
+        retry_after = retries.pop() if len(retries) == 1 else None  # branches that disagree are unknown
+    return status, status_source, category, body_type, retry_after
 
 
 def _scope_rank(scope: str) -> int:
@@ -183,7 +215,7 @@ def _rank_group(
         rank = i + 1
         for pos in range(i, end):
             info, exception_type, component, method = ordered[pos]
-            status, status_source, category, body_type = _declaration(info, index)
+            status, status_source, category, body_type, retry_after = _declaration(info, index)
             ranked.append(
                 ErrorContractEntry(
                     f"{component}#{method}({exception_type})",
@@ -202,14 +234,45 @@ def _rank_group(
                     category,
                     body_type,
                     (),
+                    retry_after,
                 )
             )
         i = end
     return ranked
 
 
-def entries(model: ApiModel, index: SourceIndex | None) -> list[ErrorContractEntry]:
+def index_for_handlers(handlers: Sequence[ErrorHandlerInfo]) -> SourceIndex:
+    """Build a minimal SourceIndex from the modules defining each handler, read from disk."""
+    modules: dict[str, ModuleInfo] = {}
+    for info in handlers:
+        mod_name = _loaded_module_of(info.handler)
+        if mod_name is not None and mod_name not in modules:
+            parsed = _parsed_module(mod_name)
+            if parsed is not None:
+                modules[mod_name] = parsed
+    return SourceIndex(modules=modules)
+
+
+def _loaded_module_of(handler: str) -> str | None:
+    """The longest dotted prefix of ``handler`` that is an already-imported module (nothing is imported here)."""
+    parts = handler.split(".")
+    return next((name for i in range(len(parts), 0, -1) if (name := ".".join(parts[:i])) in sys.modules), None)
+
+
+def _parsed_module(mod_name: str) -> ModuleInfo | None:
+    filename = getattr(sys.modules[mod_name], "__file__", None)
+    if not (isinstance(filename, str) and filename.endswith(".py")):
+        return None
+    try:
+        return ModuleInfo(mod_name, Path(filename), ast.parse(Path(filename).read_text("utf-8")), (), ())
+    except (OSError, SyntaxError, ValueError):
+        return None
+
+
+def entries(model: ApiModel, index: SourceIndex | None = None) -> list[ErrorContractEntry]:
     """One sorted entry per declared key, with all handler details derived from source AST only."""
+    if index is None:
+        index = index_for_handlers(model.error_handlers)
     by_exception: dict[str, list[tuple[ErrorHandlerInfo, str, str, str]]] = {}
     for info in model.error_handlers:
         component, method = _split_handler(info.handler, index)

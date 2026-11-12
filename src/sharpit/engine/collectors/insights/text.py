@@ -17,3 +17,12 @@ def stable_hash(value: str | None) -> str:
 def counted(count: int, noun: str, plural: str | None = None) -> str:
     """``InsightText.counted``: ``1 request``, ``3 requests``."""
     return f"{count} {noun if count == 1 else plural or noun + 's'}"
+
+
+# repeated-selects' default floor (RepeatedSelects.java:44-61); the kind's lane shares these literals, not a copy
+MIN_REQUESTS, HIGH_REPEAT_KEEP = 3, 10
+UNDER_DEFAULT_FLOOR = (
+    f"Repeated SELECTs under 50 ms of summed measured time, seen in fewer than {MIN_REQUESTS} requests and fewer than "
+    f"{HIGH_REPEAT_KEEP} times in any one, are left out of the default agent list; "
+    "ask for them with the query repeated-selects."
+)

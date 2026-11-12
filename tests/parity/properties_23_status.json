@@ -184,8 +184,9 @@
     },
     {
       "name": "bootui.cache.clear-enabled",
-      "status": "matched",
-      "difference": null
+      "status": "partial",
+      "difference": "default differs: BootUI=True; sharpit=False",
+      "deviation": "D-K1-1 (proposed): sharpit defaults cache clearing off (council round 1, fail closed); BootUI defaults it on"
     },
     {
       "name": "bootui.claude-code.allow-raw-reveal",
