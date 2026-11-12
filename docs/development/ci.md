@@ -1,6 +1,6 @@
 # CI: every job, what it guards, and how to run it locally
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`. A green local `/sharpit:check` runs one
+`.github/workflows/ci.yml` runs on every pull request, on pushes to `main`, `mvp` and `release/**`, and on dispatch. A green local `/sharpit:check` runs one
 environment; CI runs several. Before a PR that adds a dependency, a pytest plugin or test-time code, reproduce the jobs
 below locally, each in its own environment so the worktree's `.venv` stays intact:
 
@@ -45,8 +45,8 @@ The four files heavier than any shard alone (`tests/_shard.py` `OWN_JOB`: the ma
 
 | Leg | Shards |
 |---|---|
-| Windows 3.14 (listed first: the long pole) | 6 |
-| Ubuntu 3.12, 3.14 | 4 each |
+| Windows 3.14 (the long pole) | 6 |
+| Ubuntu 3.12, 3.14 (locked deps, push only) | 4 each |
 | `coverage` (the 3.13 leg) | 5 |
 | `lowest` | 4 |
 | `no-sqlalchemy` | 3 |
@@ -56,6 +56,29 @@ Branch protection requires the job names in the first table, so each keeps a job
 fails, never skips, when coverage did not succeed; forks and Dependabot still skip it for want of a token). One red
 shard therefore turns all four `test` checks red; the shard job's own name says which leg failed. To add a shard,
 change the matrix only; never shard to hide a slow test (`skills/optimize/SKILL.md`).
+
+## Pull request vs push
+
+Owner decision (2026-11-12), to bring a PR toward the 3-5 minute rule: the locked-deps Ubuntu 3.12 and 3.14 legs (8
+shard rows) run only on `push` (to `main`, `mvp`, `release/**`) and `workflow_dispatch`, never on `pull_request`.
+Nothing is skipped, deselected or re-budgeted: every Python and both OSes are still exercised on every PR, and the
+full matrix runs on every merge before anything ships.
+
+| | Pull request | Push / dispatch |
+|---|---|---|
+| Windows 3.14, 6 shards (`test-shard`) | yes | yes |
+| Ubuntu 3.12 and 3.14, 4 shards each (`test-shard-locked`) | no | yes |
+| Ubuntu 3.13 under coverage, 5 shards (`coverage-shard`), `sonar`, `coverage` | yes | yes |
+| `lowest` (3.12), `no-sqlalchemy`, masking gates, `live`, `lint`, `ui`, `vitest`, `wheel` | yes | yes |
+
+- GitHub Actions cannot read `matrix` in a job-level `if`, so the push-only rows are a second job, `test-shard-locked`,
+  with `test-shard`'s steps line for line; `tests/test_ci_layout.py` fails when the two drift.
+- The required `test (ubuntu-latest, 3.12)` and `(..., 3.14)` checks keep their names. On a PR they pass with a note
+  ("run on push") once `changes`, the Windows shards, coverage and lint passed; on a push or dispatch they also need
+  every locked shard green, so a failed shard turns them red.
+- `release/**` is in `on.push.branches`: every merge into `release/0.6.0` runs the full matrix and a code-scan analysis
+  of that branch, which refreshes the base analysis the PR scans compare against (a stale one made each PR's Python sensor
+  re-parse ~848 files). Every push is its own concurrency group (`run_id`), so none cancels another.
 
 ## Wall clock
 
@@ -71,6 +94,9 @@ the last `completed_at` minus the first `created_at`, runner-minutes the sum of 
 | 43187639646 (PR #156) | worksteal reverted | 8.1 | 96.5 | `test shard (ubuntu, 3.14, 1/4)` 4.5 min |
 | 43199441634 (PR #156) | sqlite heap-walk fix | 6.7 | 77.5 | `test shard (windows, 6/6)` 3.3 min; jobs queued up to 2.9 min, 20 at once |
 | 43201435266 (PR #156) | weights refreshed after the fix | 6.7 | 77.7 | `test shard (ubuntu, 3.14, 4/4)` 4.3 min; queued up to 3.0 min |
+
+Row to add once measured: the first PR run on this layout (Windows 6 + coverage 5 + lowest 4 + no-sqlalchemy 3 +
+masking and live rows; 8 shard rows fewer than 43201435266).
 
 After the heap-walk fix the shards are balanced and no test file drifts by worker; the wall is the account's 20-runner
 pool (77 runner-min, so ~3.9 min even perfectly packed) plus `sonar` (~2 min) after the coverage shards. Its Python
