@@ -32,9 +32,11 @@ ORDERS = "GET /api/orders/{id}"
 API = "/sharpit/api/runtime-insights"
 ILLEGAL_STATE = "IllegalStateException"
 Row = dict[str, Any]
-CANARY = "abcdef0123456789"
+CANARY = "Qzxw-canary-7vK"  # not hexadecimal: the id-stripping regex must not be what hides it
 POOL = "sqlalchemy.pool.impl.QueuePool"
 LEAK = "The garbage collector is trying to clean up non-checked-in connection"
+ASGI = "Exception in ASGI application"
+ERROR = "ERROR"  # SQLAlchemy 2.1 logs the pool leak at ERROR (pool/base.py)
 
 
 def exc(cls: str, sig: str | None = None, *types: str) -> Row:
@@ -51,14 +53,14 @@ class Run:
         self.journal = RuntimeJournal(masker=Masker(exposure, True))
         self.requests = 0
 
-    def request(self, status: int, *children: Row, route: str = ORDERS) -> str:
+    def request(self, status: int, *children: Row, route: str = ORDERS, trace: str | None = None) -> str:
         self.requests += 1
         request_id = f"r{self.requests}"
         method, _, template = route.partition(" ")
         info = RequestInfo(request_id, "ctx", method, template.replace("{id}", "42"), None, 0, 30_000_000)
         for child in children:
             self.journal.offer({**child, "requestId": request_id})
-        self.journal.offer(http_event(info, [], 1_000_000, status, template))
+        self.journal.offer({**http_event(info, [], 1_000_000, status, template), "traceId": trace})
         return request_id
 
     def unowned(self, *events: Row) -> None:
@@ -260,13 +262,13 @@ def test_exception_hotspots_text_uses_journal_fields_only() -> None:
 # ported: JournalFactObservationsTests.frameworkWarningsAreGroupedPerRouteWithAKnownCodesCheckAndApplicationLoggersAreLeftOut  # noqa: E501
 def test_framework_warnings_by_route_seeded_case_and_counterexample() -> None:
     run = Run()
-    run.request(200, log(POOL, "WARN", LEAK), log(POOL, "WARN", LEAK))
+    run.request(200, log(POOL, ERROR, LEAK), log(POOL, ERROR, LEAK))
     run.request(200)
     run.request(200, log("com.example.Orders", "WARN", "Slow order %s"))  # an application logger
     evaluation = run.evaluate(WARNINGS)
     assert evaluation.eligible == 3
     (finding,) = evaluation.findings
-    assert finding.sentence == f'`{ORDERS}` logged `WARN` from `QueuePool` in 1 of 3 requests (2 events): "{LEAK}".'
+    assert finding.sentence == f'`{ORDERS}` logged `ERROR` from `{POOL}` in 1 of 3 requests (2 events): "{LEAK}".'
     assert "returned to the pool" in finding.what_to_check[0]
     assert len(finding.what_to_check) == 2
     assert finding.listed is True  # a known message is listed by default
@@ -280,11 +282,10 @@ def test_framework_warnings_by_route_seeded_case_and_counterexample() -> None:
 def test_framework_warnings_by_route_list_errors_and_known_warnings_and_count_errors_without_a_request() -> None:
     run = Run()
     run.request(200, log("starlette.routing", "WARN", "Odd %s"))
-    run.request(400, log("uvicorn.error", "WARN", "Invalid HTTP request received."))
     run.request(500, log("fastapi.routing", "ERROR", "Broke %s"))
     run.unowned(*[log(POOL, "ERROR", "Exception during reset or similar")] * 3)
     run.unowned(
-        log("uvicorn.error", "ERROR", "Error parsing request"),
+        log("uvicorn.error", "ERROR", ASGI),
         log("uvicorn.error", "WARN", "Slow request"),  # a WARN without an id is not counted
         log("com.example.Orders", "ERROR", "Application failure %s"),  # not a framework logger
     )
@@ -304,8 +305,6 @@ def test_framework_warnings_by_route_list_errors_and_known_warnings_and_count_er
     assert broke.listed is True
     odd = next(f for f in by_subject(findings, ORDERS) if "Odd" in f.sentence)
     assert odd.unlisted == "It is a WARN message sharpit has no specific check for."
-    invalid = next(f for f in by_subject(findings, ORDERS) if "Invalid HTTP" in f.sentence)
-    assert invalid.listed is True
     assert findings[-1] is unowned
 
 
@@ -321,7 +320,7 @@ def test_framework_warnings_by_route_messages_that_differ_only_by_ids_or_path_nu
     findings = by_subject(run.evaluate(WARNINGS).findings, ORDERS)
     assert len(findings) == 2
     grouped = next(f for f in findings if "HTTP Request" in f.sentence)
-    assert grouped.sentence.startswith(f"`{ORDERS}` logged `ERROR` from `errors` in 3 of 4 requests (3 events): ")
+    assert grouped.sentence.startswith(f"`{ORDERS}` logged `ERROR` from `starlette.errors` in 3 of 4 requests (3 events): ")
     assert "/api/orders/<n> failed, error id: <id>" in grouped.sentence
     assert base not in grouped.sentence
     assert grouped.affected == 3
@@ -356,6 +355,7 @@ def test_framework_warnings_by_route_message_key_drops_ids_and_numeric_path_segm
     ("logger", "counted"),
     [
         ("uvicorn", True), ("uvicorn.error", True), ("gunicorn.error", True), ("hypercorn.error", True),
+        ("urllib3.connectionpool", True), ("aiohttp.client", True),
         ("starlette", True), ("fastapi.routing", True), ("sqlalchemy.engine.Engine", True), ("alembic.runtime", True),
         ("asyncio", True), ("anyio", True), ("httpx", True), ("httpcore.connection", True),
         ("uvicornx.extra", False), ("app.uvicorn", False), ("fastapi_users", False), ("sqlalchemy2", False),
@@ -365,7 +365,7 @@ def test_framework_warnings_by_route_message_key_drops_ids_and_numeric_path_segm
 )  # fmt: skip
 def test_framework_warnings_by_route_python_framework_loggers_only(logger: str, counted: bool) -> None:
     run = Run()
-    run.request(200, log(logger, "ERROR", "Boom"))
+    run.request(200, log(logger, "ERROR", ASGI))  # a message every uvicorn logger counts
     assert bool(run.evaluate(WARNINGS).findings) is counted
 
 
@@ -378,13 +378,13 @@ def test_framework_warnings_by_route_a_clean_run_is_evaluated_and_clean() -> Non
 
 def test_framework_warnings_by_route_without_requests_is_insufficient_not_clean() -> None:
     run = Run()
-    run.unowned(log(POOL, "WARN", LEAK))
+    run.unowned(log(POOL, ERROR, LEAK))
     assert run.check(WARNINGS)["status"] == "INSUFFICIENT"
 
 
 def test_framework_warnings_by_route_metadata_only_withholds_and_says_so() -> None:
     run = Run(Exposure.METADATA_ONLY)
-    run.request(200, log(POOL, "WARN", LEAK))
+    run.request(200, log(POOL, ERROR, LEAK))
     check = run.check(WARNINGS)
     assert check["status"] == "NOT_APPLICABLE"
     assert "SHARPIT_EXPOSE_VALUES" in str(check["reason"])
@@ -394,18 +394,18 @@ def test_framework_warnings_by_route_metadata_only_withholds_and_says_so() -> No
 def test_framework_warnings_by_route_text_uses_journal_fields_only() -> None:
     run = Run()
     secret = "Bearer " + CANARY
-    run.request(200, {**log(POOL, "WARN", LEAK), "message": secret, "args": [secret], "exceptionClass": "X"})
+    run.request(200, {**log(POOL, ERROR, LEAK), "message": secret, "args": [secret], "exceptionClass": "X"})
     rows = run.rows(WARNINGS)
     assert len(rows) == 1
     row = rows[0]
     assert CANARY not in run.dump(WARNINGS)
-    assert row["sentence"] == f'`{ORDERS}` logged `WARN` from `QueuePool` in 1 of 1 request (1 event): "{LEAK}".'
+    assert row["sentence"] == f'`{ORDERS}` logged `ERROR` from `{POOL}` in 1 of 1 request (1 event): "{LEAK}".'
     assert run.detail(row)["rows"] == [{"cells": ["r1", "200", "1", POOL]}]
 
 
 def _client(exposure: str) -> TestClient:
     app = FastAPI()
-    log_ = logging.getLogger("uvicorn.error")
+    log_ = logging.getLogger("sqlalchemy.pool")
 
     @app.get("/boom")
     def boom() -> None:
@@ -415,6 +415,7 @@ def _client(exposure: str) -> TestClient:
     def warn() -> dict[str, bool]:
         log_.warning("pool low for %s", f"password={CANARY}")
         log_.error("pool broke for %s", f"password={CANARY}")
+        logging.getLogger("uvicorn.error").error("app failure for %s", f"password={CANARY}")  # an app, not the server
         return {"ok": True}
 
     install(app, enabled="ON", show_banner=False, config_scan=False, expose_values=exposure)
@@ -448,8 +449,8 @@ def test_framework_warnings_by_route_real_install_finds_the_route_that_logs(expo
     check, rows, dumped = _kind(client, WARNINGS)
     assert check["status"] == "EVALUATED"
     assert sorted(r["sentence"] for r in rows) == [
-        '`GET /warn` logged `ERROR` from `error` in 1 of 1 request (1 event): "pool broke for %s".',
-        '`GET /warn` logged `WARN` from `error` in 1 of 1 request (1 event): "pool low for %s".',
+        '`GET /warn` logged `ERROR` from `sqlalchemy.pool` in 1 of 1 request (1 event): "pool broke for %s".',
+        '`GET /warn` logged `WARN` from `sqlalchemy.pool` in 1 of 1 request (1 event): "pool low for %s".',
     ]
     assert CANARY not in dumped
 
@@ -464,3 +465,61 @@ def test_both_kinds_real_install_metadata_only_says_ids_are_withheld() -> None:
         assert "SHARPIT_EXPOSE_VALUES" in str(check["reason"])
         assert rows == []
         assert CANARY not in dumped
+
+
+def test_framework_warnings_by_route_the_uvicorn_loggers_count_only_uvicorns_own_messages() -> None:
+    run = Run()  # apps log through ``uvicorn.error`` too (the common idiom): their lines are not the server's
+    run.request(500, log("uvicorn.error", ERROR, "pool broke for %s"), log("uvicorn", ERROR, "app says no"))
+    run.unowned(log("uvicorn.error", ERROR, "app failed %s"), log("uvicorn.error", ERROR, ASGI))
+    findings = run.evaluate(WARNINGS).findings
+    assert [f.subject for f in findings] == ["No request"]
+    assert findings[0].affected == 1
+
+
+def test_framework_warnings_by_route_every_known_message_can_be_reached() -> None:
+    from sharpit.engine.collectors.insights.kinds import framework_warnings_by_route as kind
+
+    # a WARN carries no request id in practice and no path counts it; only ERROR messages can show
+    assert not [f for f in kind.KNOWN if f in ("Invalid HTTP request received", "Executing %s took")]
+
+
+def test_framework_warnings_by_route_the_no_request_row_says_what_it_counts() -> None:
+    run = Run()
+    run.unowned(log("uvicorn.error", ERROR, ASGI))
+    (row,) = run.evaluate(WARNINGS).findings
+    text = " ".join([*row.limitations, *row.what_to_check])
+    assert "startup" not in text  # the log handler attaches after the host's startup
+    assert "after the request" in text  # an unhandled 500 is logged by the server once the request id is reset
+    assert "Exception hotspots" in text  # and the same failure is counted there
+
+
+def test_framework_warnings_by_route_an_event_with_only_a_trace_id_is_counted_once() -> None:
+    run = Run()
+    trace = "4bf92f3577b34da6a3ce929d0e0e4736"
+    run.request(500, trace=trace)
+    run.unowned({**log("fastapi.routing", ERROR, "Broke %s"), "traceId": trace})  # BootUI joins logs by request id only
+    findings = run.evaluate(WARNINGS).findings
+    assert [f.subject for f in findings] == ["No request"]
+    assert findings[0].affected == 1
+
+
+def test_framework_warnings_by_route_leaks_that_differ_only_by_address_are_one_group() -> None:
+    run = Run()
+    for address in ("0x7f3a1c2b4d10", "0x7f3a1c2b9e88"):
+        run.request(200, log(POOL, ERROR, f"{LEAK} <connection object at {address}>"))
+    run.unowned(*[log(POOL, ERROR, f"{LEAK} <connection object at 0x7f3a1c2b{n}>") for n in ("0001", "0002")])
+    findings = run.evaluate(WARNINGS).findings
+    (grouped,) = by_subject(findings, ORDERS)
+    assert grouped.affected == 2
+    assert grouped.sentence.endswith('<connection object at <addr>>".')
+    (unowned,) = by_subject(findings, "No request")
+    assert [row[2] for row in unowned.rows] == ["2"]
+
+
+def test_framework_warnings_by_route_a_secret_in_a_template_is_masked_before_it_is_shown() -> None:
+    run = Run()  # masking off would show the canary: the id-stripping regex must not be what hides it
+    run.request(200, log(POOL, ERROR, f"reset failed, password={CANARY}"))
+    run.unowned(log(POOL, ERROR, f"reset failed, token={CANARY}"))
+    dumped = run.dump(WARNINGS)
+    assert "reset failed" in dumped
+    assert CANARY not in dumped
