@@ -567,3 +567,11 @@ def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
                     _contexts.pop(ctx.context_id, None)
 
     return remove
+
+
+def transaction_event(
+    row: dict[str, Any], start: object, error: BaseException | None
+) -> tuple[dict[str, str | int | bool | None], int]:
+    """Wrong-value stub: the recorder offers no ``transaction`` journal event yet."""
+    del row, start, error
+    return {}, 0

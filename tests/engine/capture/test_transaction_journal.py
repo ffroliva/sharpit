@@ -1,26 +1,31 @@
 """W5a P-transaction: one ``transaction`` journal event per completed transaction (BootUI ``TransactionPayload``).
 
-Metadata only: no SQL text, no parameter, no connection URL.
+The event is offered from the transactions panel's own recorder, as BootUI offers it from ``TransactionRecorder``'s
+completion: one tracker, one call-site walk, one routing. Metadata only: no SQL text, no parameter, no connection URL.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import gc
 import json
-from collections.abc import Iterator
+import sqlite3
+import time
+from collections.abc import Generator, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 sa = pytest.importorskip("sqlalchemy")
-pytest.importorskip("sqlalchemy.orm")
-import sqlalchemy.orm  # noqa: E402,F401  (sa.orm)
+orm = pytest.importorskip("sqlalchemy.orm")
 
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
+from sharpit.engine.capture import transactions  # noqa: E402
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal  # noqa: E402
-from sharpit.engine.sqla import transactions  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
@@ -30,8 +35,8 @@ SELECT = f"select 1 where 'x' = '{LITERAL_CANARY}' or :n = :n"
 FIELDS = {
     "source", "epochMillis", "durationNanos", "traceId", "requestId", "thread",
     "method", "rolledBack", "nested", "savepoint", "startNanos", "readOnly", "isolation", "rollbackOnly",
-    "failureClass", "ormStatements", "ormFlushes", "ormDirtyEntities", "completion",
-}  # fmt: skip
+    "failureClass", "ormStatements", "ormFlushes", "ormDirtyEntities",
+}  # fmt: skip  # BootUI's TransactionPayload and envelope only (owner, 2026-11-12: no ``completion``)
 
 
 @pytest.fixture(autouse=True)
@@ -41,8 +46,8 @@ def clean_listeners() -> Iterator[None]:
     sqla.detach_all()
 
 
-def _install(sources: tuple[str, ...] = ("transaction",), url: str = "sqlite://", **options: Any) -> Any:
-    engine = sa.create_engine(url)
+def _install(sources: tuple[str, ...] = ("transaction",), engine: Any = None, **options: Any) -> Any:
+    engine = sa.create_engine("sqlite://") if engine is None else engine
     handle = install(
         FastAPI(),
         enabled="ON",
@@ -55,14 +60,32 @@ def _install(sources: tuple[str, ...] = ("transaction",), url: str = "sqlite://"
     return handle, engine
 
 
-def _records(handle: Any) -> tuple[dict[str, Any], ...]:
+def _file_engine(tmp_path: Path) -> Any:
+    """A pooled file database: each ``connect()`` is its own DBAPI connection (``sqlite://`` shares one per thread)."""
+    return sa.create_engine(f"sqlite:///{tmp_path / 'tx.db'}")
+
+
+def _journal(handle: Any) -> Any:
     journal = handle.context.capture.journal
     assert journal is not None
-    return tuple(journal.records("transaction"))  # type: ignore[arg-type]
+    return journal
+
+
+def _records(handle: Any) -> tuple[dict[str, Any], ...]:
+    return tuple(_journal(handle).records("transaction"))
 
 
 def _read(conn: Any) -> None:
     conn.execute(sa.text(SELECT), {"n": PARAMETER_CANARY})
+
+
+@contextlib.contextmanager
+def _request(handle: Any, request_id: str) -> Generator[None]:
+    token = REQUEST.set(RequestInfo(request_id, handle.context.context_id, "GET", "/x", None, 0, None))
+    try:
+        yield
+    finally:
+        REQUEST.reset(token)
 
 
 # ported: RecorderPublishingTests.transactionsPublishTheirMethodRollbackAndTheRequestTheyBeganIn
@@ -78,7 +101,6 @@ def test_transaction_journal_event_offered_once_per_commit_with_bootui_fields():
     assert record["rolledBack"] is False
     assert record["nested"] is False
     assert record["savepoint"] is False
-    assert record["completion"] == "COMMIT"
     assert record["rollbackOnly"] is False
     assert record["failureClass"] is None
     assert record["ormStatements"] == -1
@@ -92,10 +114,7 @@ def test_transaction_journal_rollback_sets_rolled_back():
     with engine.connect() as conn:
         _read(conn)
         conn.rollback()
-    records = _records(handle)
-    assert len(records) == 1
-    assert records[0]["rolledBack"] is True
-    assert records[0]["completion"] == "ROLLBACK"
+    assert [r["rolledBack"] for r in _records(handle)] == [True]
 
 
 def test_transaction_journal_exception_inside_begin_is_a_rollback():
@@ -106,14 +125,71 @@ def test_transaction_journal_exception_inside_begin_is_a_rollback():
     assert [r["rolledBack"] for r in _records(handle)] == [True]
 
 
-def test_transaction_journal_close_without_commit_is_not_a_rollback_decision():
+def test_transaction_journal_close_without_commit_is_rolled_back():
+    """SQLAlchemy rolls an uncommitted transaction back on close: the panel's ROLLED_BACK, so BootUI's rolledBack."""
     handle, engine = _install()
-    with engine.connect() as conn:  # a read-only request: SQLAlchemy rolls the open transaction back on close
+    with engine.connect() as conn:
         _read(conn)
+    assert [r["rolledBack"] for r in _records(handle)] == [True]
+
+
+def test_transaction_journal_swallowed_integrity_error_then_session_close_is_rolled_back():
+    handle, engine = _install()
+    with engine.begin() as conn:
+        conn.execute(sa.text("create table u (a integer primary key)"))
+        conn.execute(sa.text("insert into u values (1)"))
+    with orm.Session(engine) as session, contextlib.suppress(sa.exc.IntegrityError):
+        session.execute(sa.text("insert into u values (1)"))  # the duplicate fails; the handler swallows it
+    assert [r["rolledBack"] for r in _records(handle)] == [False, True]
+
+
+def test_transaction_journal_autocommit_connection_offers_no_transaction():
+    """Under AUTOCOMMIT each statement commits itself: no physical transaction, so nothing BootUI would record."""
+    handle, engine = _install()
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        _read(conn)
+        conn.rollback()
+    assert _records(handle) == ()
+    with engine.connect() as conn:  # the control: the same work in a real transaction is offered
+        _read(conn)
+        conn.rollback()
+    assert [r["rolledBack"] for r in _records(handle)] == [True]
+
+
+class _FailingCommit:
+    """A DBAPI connection whose commit takes 10 ms and then fails, as a deferred constraint does."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.connection, name)
+
+    def commit(self) -> None:
+        time.sleep(0.01)
+        raise RuntimeError("commit failed")
+
+
+def test_transaction_journal_failed_dbapi_commit_is_not_a_commit():
+    """The ``commit`` event fires before the DBAPI commit: the event waits for it, as the panel's row does."""
+    engine = sa.create_engine("sqlite://", creator=lambda: _FailingCommit(sqlite3.connect(":memory:")))
+    handle, _ = _install(engine=engine)
+    with engine.connect() as conn:
+        transaction = conn.begin()
+        with pytest.raises(RuntimeError):
+            transaction.commit()
     records = _records(handle)
     assert len(records) == 1
+    assert records[0]["failureClass"] == "RuntimeError"
     assert records[0]["rolledBack"] is False
-    assert records[0]["completion"] == "CLOSE"
+    assert records[0]["durationNanos"] >= 10_000_000, "the duration includes the DBAPI commit"
+
+
+def test_transaction_journal_offered_with_sql_trace_disabled():
+    handle, engine = _install(sql_trace_enabled=False)
+    with engine.begin() as conn:
+        _read(conn)
+    assert len(_records(handle)) == 1
 
 
 def test_transaction_journal_savepoint_is_nested():
@@ -132,21 +208,36 @@ def test_transaction_journal_savepoint_is_nested():
 
 
 # ported: TransactionRecorderTests.tracksParentChildNestingOnTheSameThread
-def test_transaction_journal_transaction_begun_inside_another_is_nested():
-    handle, engine = _install(url="sqlite://")
+def test_transaction_journal_transaction_begun_inside_another_is_nested(tmp_path: Path):
+    handle, engine = _install(engine=_file_engine(tmp_path))
     with engine.begin() as outer:
         _read(outer)
         with engine.begin() as inner:
             _read(inner)
+    engine.dispose()
     assert [(r["nested"], r["savepoint"]) for r in _records(handle)] == [(True, False), (False, False)]
 
 
-def test_transaction_journal_sequential_transactions_are_not_nested():
-    handle, engine = _install()
+def test_transaction_journal_sequential_transactions_are_not_nested(tmp_path: Path):
+    handle, engine = _install(engine=_file_engine(tmp_path))
     for _ in range(2):
         with engine.begin() as conn:
             _read(conn)
+    engine.dispose()
     assert [r["nested"] for r in _records(handle)] == [False, False]
+
+
+def test_transaction_journal_unclosed_connection_collected_does_not_nest_the_next(tmp_path: Path):
+    handle, engine = _install(engine=_file_engine(tmp_path))
+    abandoned = engine.connect()
+    abandoned.begin()
+    _read(abandoned)
+    del abandoned  # never committed, rolled back or closed: no end event ever comes
+    gc.collect()
+    with engine.begin() as conn:
+        _read(conn)
+    engine.dispose()
+    assert _records(handle)[-1]["nested"] is False
 
 
 def test_transaction_journal_engine_begin_and_session_and_async_each_offer_once():
@@ -156,18 +247,19 @@ def test_transaction_journal_engine_begin_and_session_and_async_each_offer_once(
     with engine.connect() as conn:  # autobegin then commit
         _read(conn)
         conn.commit()
-    with sa.orm.Session(engine) as session:  # a Session
+    with orm.Session(engine) as session:  # a Session
         session.execute(sa.text(SELECT), {"n": 1})
         session.commit()
-    with sa.orm.Session(engine) as session:  # a Session that rolls back
+    with orm.Session(engine) as session:  # a Session that rolls back
         session.execute(sa.text(SELECT), {"n": 1})
         session.rollback()
-    assert [r["completion"] for r in _records(handle)] == ["COMMIT", "COMMIT", "COMMIT", "ROLLBACK"]
+    assert [r["rolledBack"] for r in _records(handle)] == [False, False, False, True]
 
     async def run() -> None:
-        from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+        from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: PLC0415
 
         async_engine = create_async_engine("sqlite+aiosqlite://")
+        handle.context.capture.engine_registry.add(async_engine)
         async with AsyncSession(async_engine) as session:
             await session.execute(sa.text(SELECT), {"n": 1})
             await session.commit()
@@ -175,9 +267,8 @@ def test_transaction_journal_engine_begin_and_session_and_async_each_offer_once(
             await conn.execute(sa.text(SELECT), {"n": 1})
         await async_engine.dispose()
 
-    before = len(_records(handle))
     asyncio.run(run())
-    assert len(_records(handle)) - before == 2
+    assert len(_records(handle)) == 6
 
 
 def test_transaction_journal_not_offered_for_sharpit_internal_work():
@@ -195,23 +286,26 @@ def test_transaction_journal_not_offered_when_source_disabled():
     with engine.begin() as conn:
         _read(conn)
     assert _records(handle) == ()
+    enabled, enabled_engine = _install()  # the control: the same work with the source enabled is offered
+    with enabled_engine.begin() as conn:
+        _read(conn)
+    assert len(_records(enabled)) == 1
+
+
+def test_transaction_journal_source_disabled_is_counted_as_dropped():
+    handle, engine = _install(sources=("http",))
+    with engine.begin() as conn:
+        _read(conn)
+    assert _journal(handle).status()["dropped"].get("transaction") == 1
 
 
 def test_transaction_journal_carries_the_request_id_of_this_install_only():
     ours, engine = _install()
     theirs, _ = _install()
-    token = REQUEST.set(RequestInfo("r-ours", ours.context.context_id, "GET", "/x", None, 0, None))
-    try:
-        with engine.begin() as conn:
-            _read(conn)
-    finally:
-        REQUEST.reset(token)
-    token = REQUEST.set(RequestInfo("r-theirs", theirs.context.context_id, "GET", "/x", None, 0, None))
-    try:
-        with engine.begin() as conn:
-            _read(conn)
-    finally:
-        REQUEST.reset(token)
+    with _request(ours, "r-ours"), engine.begin() as conn:
+        _read(conn)
+    with _request(theirs, "r-theirs"), engine.begin() as conn:
+        _read(conn)
     assert [r["requestId"] for r in _records(ours)] == ["r-ours"]
     assert "r-theirs" not in json.dumps(_records(ours))
 
@@ -230,10 +324,33 @@ def test_transaction_journal_carries_no_sql_text_parameter_or_url(exposure: str)
     assert "select" not in dumped.lower()
 
 
+def test_transaction_journal_event_size_is_what_the_flat_walk_charges(monkeypatch: pytest.MonkeyPatch):
+    """The producer charges the event's size itself, as P-sql does: it must equal the journal's own walk."""
+    from sharpit.engine.capture.journal import _flat  # noqa: PLC0415  # pyright: ignore[reportPrivateUsage]
+
+    handle, engine = _install()
+    journal = _journal(handle)
+    offer = journal.offer_flat
+    charged: list[tuple[int | None, int]] = []
+
+    def spy(event: dict[str, Any], size: int | None = None) -> bool:
+        if event.get("source") == "transaction":  # P-sql offers its statements through the same call
+            charged.append((size, _flat(event)[1]))
+        return offer(event, size)
+
+    monkeypatch.setattr(journal, "offer_flat", spy)
+    with engine.begin() as conn:
+        _read(conn)
+    with _request(handle, "r-sized"), engine.execution_options(isolation_level="SERIALIZABLE").connect() as conn:
+        _read(conn)
+        conn.rollback()
+    assert len(charged) == 2
+    assert [size for size, _ in charged] == [walked for _, walked in charged]
+
+
 def test_transaction_journal_failure_never_breaks_the_transaction(monkeypatch: pytest.MonkeyPatch):
     handle, engine = _install()
-    journal = handle.context.capture.journal
-    assert journal is not None
+    journal = _journal(handle)
 
     def boom(*_: object, **__: object) -> bool:
         raise RuntimeError("journal down")
@@ -249,18 +366,24 @@ def test_transaction_journal_failure_never_breaks_the_transaction(monkeypatch: p
 
 
 def test_transaction_journal_event_built_inside_the_guard(monkeypatch: pytest.MonkeyPatch):
-    handle, engine = _install()
+    """A build that raises costs only its own event: the other install's commit, settled after it, is still offered."""
+    engine = sa.create_engine("sqlite://")
+    first, _ = _install(engine=engine)
+    second, _ = _install(engine=engine)
+    built = transactions.transaction_event
+    calls: list[None] = []
 
-    def boom(*_: object, **__: object) -> None:
-        raise RuntimeError("cannot build")
+    def fails_first(*args: Any) -> Any:
+        calls.append(None)
+        if len(calls) == 1:
+            raise RuntimeError("cannot build")
+        return built(*args)
 
-    monkeypatch.setattr(transactions, "_event", boom)
+    monkeypatch.setattr(transactions, "transaction_event", fails_first)
     with engine.begin() as conn:
         _read(conn)
-    monkeypatch.undo()
-    with engine.begin() as conn:
-        _read(conn)
-    assert len(_records(handle)) == 1
+    assert len(calls) == 2, "the second install's event must still be built"
+    assert len(_records(first)) + len(_records(second)) == 1
 
 
 def test_transaction_journal_isolation_level_is_carried_when_set():
