@@ -6,12 +6,16 @@ Deviations from BootUI, for the owner's list:
   ``deque`` under a lock in the caller's thread, so ``queueDepth`` is always 0 and ``queue-capacity`` is unused: it is
   parsed with BootUI's default and reported as ``queueCapacity``, but nothing waits in a queue, so nothing is refused at
   it. Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted and counted.
+- The synchronous path is kept cheap instead (owner, 2026-11-12): an event is stored as a compact record (its keys, a
+  tuple a layout shares among its records, and a tuple of its values), sized and copied before the lock, which is
+  held for the append only. The dict a reader sees is built when it reads. ``offer_record`` is the offer without a dict.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
   suspended, from a source not configured, and one event larger than the whole byte bound. An offer whose source
-  cannot be read is counted under a key no source has: ``reentrant`` (made from inside an offer) or ``failed`` (a
-  non-string source, or an event that raised or nested too deep while it was copied).
+  cannot be read is counted under a key no source has: ``reentrant`` (made by the event's own code while ``offer``
+  copies it, or by a finalizer during an append) or ``failed`` (a non-string source, an event that raised or nested
+  too deep while it was copied, or a record that is not its layout's).
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
 source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-paths``), is added to
@@ -46,6 +50,10 @@ class JournalSink(Protocol):
 
     def offer(self, event: Event) -> bool: ...
 
+    def offer_record(
+        self, fields: RecordFields, values: tuple[str | float | bool | None, ...], size: int | None = None
+    ) -> bool: ...
+
     def records(self, source: str) -> tuple[dict[str, object], ...]: ...
 
     def accepts(self, source: str) -> bool: ...
@@ -56,6 +64,12 @@ class JournalSink(Protocol):
 class _NullSink:
     def offer(self, event: Event) -> bool:
         del event  # the port's signature; the null sink takes nothing
+        return False
+
+    def offer_record(
+        self, fields: RecordFields, values: tuple[str | float | bool | None, ...], size: int | None = None
+    ) -> bool:
+        del fields, values, size  # the port's signature; the null sink takes nothing
         return False
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
@@ -101,11 +115,61 @@ def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
     return plain, SCALAR_BYTES
 
 
-def _flat(event: Event) -> tuple[object, int]:
-    """``_snapshot``'s size for a flat event of scalars, without the copy: the caller handed the event over."""
-    return event, sum(
-        len(key) + (len(value) if isinstance(value, str) else SCALAR_BYTES) for key, value in event.items()
-    )
+Record = tuple[tuple[tuple[str, ...], tuple[object, ...]], int]  # (an event's keys, its values in that order), its size
+_Held = tuple[str, tuple[str, ...], tuple[object, ...], int, int]  # a stored record, as a read takes it out of the lock
+_SCALARS = frozenset({int, float, bool, type(None)})
+
+
+def _copied(event: Event) -> Record:
+    """A deep, plain copy of each value (``_snapshot``) and the event's size, in one walk and without a dict."""
+    keys: list[str] = []
+    values: list[object] = []
+    size = 0
+    for key, item in event.items():
+        name = str(key)
+        value, item_size = _snapshot(item, 1)
+        keys.append(name)
+        values.append(value)
+        size += len(name) + item_size
+    return (tuple(keys), tuple(values)), size
+
+
+def _flat(event: Event) -> Record:
+    """``_copied`` for a flat event of scalars, without the copy: the caller handed the event over."""
+    keys, values = tuple(event), tuple(event.values())
+    size = sum(map(len, keys)) + sum(len(v) if isinstance(v, str) else SCALAR_BYTES for v in values)
+    return (keys, values), size
+
+
+def _record_bytes(values: tuple[object, ...]) -> int:
+    """What ``_flat`` charges the values of a record. Text is exactly ``str`` and anything else exactly a JSON scalar,
+    or it raises and the record is refused: no host ``__len__`` runs, and nothing nested is charged as a scalar."""
+    size = 0
+    for value in values:
+        kind = type(value)
+        if kind is str:
+            size += len(cast("str", value))
+        elif kind in _SCALARS:
+            size += SCALAR_BYTES
+        else:
+            raise TypeError("a journal record holds scalars only")
+    return size
+
+
+class RecordFields:
+    """One source's record layout, declared once by its producer: the keys a read shows, in order, ``source`` first.
+
+    ``RuntimeJournal.offer_record(fields, values)`` takes the values in the same order, the source included.
+    """
+
+    __slots__ = ("key_bytes", "keys", "source")
+
+    def __init__(self, source: str, *names: str) -> None:
+        if "source" in names or len(set(names)) != len(names):
+            raise ValueError("a record's field names are unique, and source is the first")
+        self.source = source
+        self.keys = ("source", *names)
+        self.key_bytes = sum(map(len, self.keys))  # the fixed part of a record's size
 
 
 # ported: JournalTextExposure: the runs a SQL shape keeps but cannot tell apart from a value, and what reads two ways
@@ -206,8 +270,12 @@ def _mask(value: object, name: str, masker: Masker) -> object:
     return shown
 
 
+class _Busy(threading.local):
+    active = False  # a class default: reading it on a thread that never set it costs no failed lookup
+
+
 class RuntimeJournal:
-    """In-memory event ring: O(1) append, raw events kept, masking applied when records are read."""
+    """In-memory event ring: O(1) append of a compact record; the dict is built, and masked, when records are read."""
 
     name = "runtime-journal"
 
@@ -226,7 +294,7 @@ class RuntimeJournal:
         self.sources = None if sources is None else frozenset(sources)  # None: no filter (the wiring always passes one)
         self.masker = masker or Masker(Exposure.MASKED, True)
         self.run_id = uuid.uuid4().hex[:8]
-        self._events: deque[tuple[dict[str, object], int, int]] = deque()
+        self._events: deque[_Held] = deque()  # (source, keys, values, size, epoch ms): never a dict per event
         self._bytes = 0
         self._accepted: Counter[str] = Counter()
         self._dropped: Counter[str] = Counter()
@@ -234,10 +302,39 @@ class RuntimeJournal:
         self._binding_bound: str | None = None
         self._accepting = True
         self._lock = threading.RLock()
-        self._busy = threading.local()
+        self._busy = _Busy()
+        self._appending = False  # read and written under the lock only
 
     def offer(self, event: Event) -> bool:
-        return self._offer(event, _snapshot)
+        return self._offer(event, _copied, None)
+
+    def offer_record(
+        self, fields: RecordFields, values: tuple[str | float | bool | None, ...], size: int | None = None
+    ) -> bool:
+        """The offer without a dict, for a per-event producer: ``values`` in ``fields.keys`` order, the source first.
+
+        The record contract: ``values`` is a tuple of plain scalars (``str``, ``int``, ``float``, ``bool``, ``None``),
+        one per key, already masked and literal-free as the producer's event is today; the journal keeps that very
+        tuple. ``size`` is the producer's own count of ``fields.key_bytes`` plus each text's length and
+        ``SCALAR_BYTES`` per other value; without it, or below 1, the journal counts it, and refuses what is not a
+        scalar. A read shows the record exactly as the same event offered through ``offer_flat``.
+        """
+        if self._busy.active:  # offered by an event's own code while this thread copies another: never recurse
+            self.count_dropped(REENTRANT)
+            return False
+        try:  # nothing in here runs host code, so it never marks the thread busy: ``_commit`` guards a finalizer
+            source = fields.source
+            if self.sources is not None and source not in self.sources:
+                self.count_dropped(source)
+                return False
+            if type(values) is not tuple or len(values) != len(fields.keys) or values[0] != source:
+                raise ValueError("not the layout's record")  # noqa: TRY301 - counted failed below, as any bad offer
+            if size is None or size < 1:
+                size = fields.key_bytes + _record_bytes(values)
+            return self._commit(source, fields.keys, values, size)
+        except Exception:  # noqa: BLE001 - publishing never raises into the host; the record is dropped and counted
+            self.count_dropped(FAILED)
+            return False
 
     def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None) -> bool:
         """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy.
@@ -245,45 +342,60 @@ class RuntimeJournal:
         A per-statement producer passes ``size``, which must equal what ``_flat`` charges (its test proves it); a size
         below 1 is not trusted, and the event is walked instead, so it never bypasses ``max_bytes``.
         """
-        if size is None or size < 1:
-            return self._offer(event, _flat)
-        return self._offer(event, lambda stored: (stored, size))
+        return self._offer(event, _flat, size)
 
-    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
-        if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
-            self._dropped[REENTRANT] += 1
+    def _offer(self, event: Event, record: Callable[[Event], Record], size: int | None) -> bool:
+        busy = self._busy
+        if busy.active:  # an offer made while this thread copies another's event: never recurse
+            self.count_dropped(REENTRANT)
             return False
-        with self._lock:
-            self._busy.active = True
-            try:
-                return self._append(event, store)
-            except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
-                self._dropped[FAILED] += 1
+        busy.active = True  # the copy runs the event's own code (``items``, ``str``): what it offers is dropped
+        try:
+            return self._append(event, record, size)
+        finally:
+            busy.active = False
+
+    def _append(self, event: Event, record: Callable[[Event], Record], size: int | None = None) -> bool:
+        """Read, copy and size the event before the lock: only the append is inside it."""
+        try:
+            source = event.get("source")
+            if not isinstance(source, str):
+                self.count_dropped(FAILED)
                 return False
-            finally:
-                self._busy.active = False
+            if not self._accepting or (self.sources is not None and source not in self.sources):
+                self.count_dropped(source)  # suspended, or a source not configured: counted, never silently lost
+                return False
+            if size is None or size < 1:
+                (keys, values), size = record(event)
+            else:
+                keys, values = tuple(event), tuple(event.values())
+            return self._commit(source, keys, values, size)
+        except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
+            self.count_dropped(FAILED)
+            return False
 
-    def _append(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
-        source = event.get("source")
-        if not isinstance(source, str):
-            self._dropped[FAILED] += 1
-            return False
-        if not self._accepting or (self.sources is not None and source not in self.sources):
-            self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
-            return False
-        stored, size = store(event)
-        if size > self.max_bytes:
-            self._dropped[source] += 1  # one event larger than the whole byte bound
-            return False
-        stamp = time.time_ns() // 1_000_000
-        while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
-            self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
-            _, removed, _ = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
-            self._bytes -= removed
-            self._evicted += 1
-        self._events.append((cast("dict[str, object]", stored), size, stamp))
-        self._bytes += size
-        self._accepted[source] += 1
+    def _commit(self, source: str, keys: tuple[str, ...], values: tuple[object, ...], size: int) -> bool:
+        """The one critical section: the ring, the eviction the append causes, the byte total and the counters."""
+        max_bytes = self.max_bytes
+        with self._lock:
+            if self._appending:  # this thread again (the lock is reentrant): a finalizer that logged mid-append
+                self._dropped[REENTRANT] += 1
+                return False
+            if not self._accepting or size > max_bytes:
+                self._dropped[source] += 1  # suspended, or one event larger than the whole byte bound
+                return False
+            self._appending = True
+            try:
+                events, max_events = self._events, self.max_events
+                while events and (len(events) >= max_events or self._bytes + size > max_bytes):
+                    self._binding_bound = "COUNT" if len(events) >= max_events else "BYTES"
+                    self._bytes -= events.popleft()[3]  # a ring: the oldest event makes room, counted as evicted
+                    self._evicted += 1
+                events.append((source, keys, values, size, time.time_ns() // 1_000_000))
+                self._bytes += size
+                self._accepted[source] += 1
+            finally:
+                self._appending = False
         return True
 
     def accepts(self, source: str) -> bool:
@@ -298,12 +410,13 @@ class RuntimeJournal:
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
-            events = tuple(event for event, _, _ in self._events if event.get("source") == source)
+            events = [record for record in self._events if record[0] == source]
         return self._masked(source, events)
 
     def _masked(
-        self, source: str, events: Iterable[dict[str, object]], memo: dict[tuple[str, str | None], object] | None = None
+        self, source: str, events: Iterable[_Held], memo: dict[tuple[str, str | None], object] | None = None
     ) -> tuple[dict[str, object], ...]:
+        """The dict of each record, built here and nowhere earlier: every key in the order it was offered, masked."""
         counts = _COUNTS.get(source, frozenset())
         masker = self.masker
         # one read sees the same texts over and over (a statement's shape, a thread name, a request's id on each of its
@@ -324,19 +437,23 @@ class RuntimeJournal:
                 memo[entry] = _mask(value, key, masker)
             return memo[entry]
 
-        return tuple({key: shown(key, value) for key, value in event.items()} for event in events)
+        return tuple(
+            {key: shown(key, value) for key, value in zip(keys, values, strict=True)}
+            for _, keys, values, _, _ in events
+        )
 
     def view(
         self, sources: Iterable[str]
     ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None]:
         """``status()``, ``records(s)`` per source and the newest event's epoch ms from ONE lock acquisition."""
-        held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
+        held: dict[str, list[_Held]] = {s: [] for s in sources}
         with self._lock:
             status = self._status()
             newest = None
-            for event, _, stamp in self._events:  # one pass, whatever the number of sources read
-                if (bucket := held.get(cast("str", event.get("source")))) is not None:
-                    bucket.append(event)
+            for record in self._events:  # one pass, whatever the number of sources read
+                if (bucket := held.get(record[0])) is not None:
+                    bucket.append(record)
+                stamp = record[4]
                 newest = stamp if newest is None or stamp > newest else newest  # BootUI takes the max epoch
         memo: dict[tuple[str, str | None], object] = {}
         return status, {s: self._masked(s, events, memo) for s, events in held.items()}, newest
@@ -371,7 +488,7 @@ class RuntimeJournal:
             "reservedCapacity": self.max_events // 10,
             "evictedEvents": self._evicted,
             "bindingBound": self._binding_bound,
-            "oldestRetainedAt": self._events[0][2] if self._events else None,
+            "oldestRetainedAt": self._events[0][4] if self._events else None,
             "queueDepth": 0,
             "queueCapacity": self.queue_capacity,
             "recorded": dict(self._accepted),

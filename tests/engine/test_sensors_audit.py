@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from sharpit.engine.capture.journal import RuntimeJournal
+from sharpit.engine.capture.journal import RecordFields, RuntimeJournal
 from sharpit.engine.sensors.audit import AuditHub
 from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.lane import SensorLane, build_lane
@@ -57,6 +57,10 @@ class Sink:
             raise self.fail
         self.rows.append(event)
         return True
+
+    def offer_record(self, fields: RecordFields, values: tuple[Any, ...], size: int | None = None) -> bool:
+        del size  # a stand-in keeps the record as the event a read shows
+        return self.offer(dict(zip(fields.keys, values, strict=True)))
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         return tuple(dict(row) for row in self.rows if row.get("source") == source)
