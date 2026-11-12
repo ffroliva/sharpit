@@ -24,7 +24,7 @@ from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import change_events
-from sharpit.engine.collectors import alembic, pools
+from sharpit.engine.collectors import alembic, alembic_cli, pools
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.health import health_service
@@ -44,6 +44,7 @@ from sharpit.fastapi.sse import sse_response
 
 _adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
 _PAYLOAD_TOO_LARGE = "Request payload exceeds limit"
+_ALEMBIC_BODY_CAP = 4096  # {beanName, confirm}
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -414,6 +415,23 @@ def _exception_store(ctx: SharpitContext) -> ExceptionStore:
     return store
 
 
+def _alembic_migrate_handler(ctx: SharpitContext) -> Any:
+    async def alembic_migrate(request: Request) -> Response:
+        raw = await _read_capped(request, _ALEMBIC_BODY_CAP)
+        if raw is None:
+            return error(413, _PAYLOAD_TOO_LARGE)
+        body = _probe_request_body(raw)
+        if isinstance(body, Response):
+            return body
+        try:  # the runner is read off the module per request: the one seam tests replace
+            status, result = await run_in_threadpool(alembic.migrate, ctx, body, alembic_cli.run_alembic)
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+        return json_response(result, status)
+
+    return alembic_migrate
+
+
 def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
@@ -427,9 +445,7 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
-    def alembic_migrate(_request: Request) -> Response:  # skeleton: replaced by the feature commit
-        keys = ("status", "message", "beanName", "migrationsExecuted", "schemasCleaned", "schemasDropped")
-        return json_response({**dict.fromkeys(keys, "stub"), "migrationPath": None, "warnings": []}, 404)
+    alembic_migrate = _alembic_migrate_handler(ctx)
 
     def health(_request: Request) -> Response:
         return json_response(health_service(ctx).report())

@@ -76,8 +76,8 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         "type", "version", "description", "script", "state", "installedBy", "installedOn", "installedRank",
         "executionTime", "checksum",
     ]  # fmt: skip
-    assert (database["migrateEnabled"], database["cleanEnabled"]) == (False, False)
-    assert database["migrateDisabledReason"] == database["cleanDisabledReason"] == NEVER_RUNS
+    assert (database["migrateEnabled"], database["migrateDisabledReason"]) == (True, None)  # W8 M1
+    assert (database["cleanEnabled"], database["cleanDisabledReason"]) == (False, NEVER_RUNS)
 
 
 test_shape_matches_flyway_dto = test_shape_keys_match_bootui

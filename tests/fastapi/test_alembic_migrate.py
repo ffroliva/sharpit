@@ -67,7 +67,7 @@ level = NOTSET
 formatter = generic
 
 [formatter_generic]
-format = %%(levelname)-5.5s [%%(name)s] %%(message)s
+format = %(levelname)-5.5s [%(name)s] %(message)s
 """
 ENV = """\
 from logging.config import fileConfig
@@ -140,6 +140,8 @@ def _client(ini: Path, engines: list[Any] | None = None, **options: Any) -> Test
 
 
 def _name(client: TestClient) -> str:
+    """The database name as sharpit reports it once the panel has read the engines (the refresh)."""
+    client.post("/sharpit/api/alembic/refresh")
     body = client.get(REPORT).json()
     return body["databases"][0]["name"]
 
