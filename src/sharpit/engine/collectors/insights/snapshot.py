@@ -40,6 +40,7 @@ SOURCE_PANELS: Mapping[str, tuple[str, ...]] = {
     "processes": ("side-effects",), "files": ("side-effects",),
 }  # fmt: skip
 PanelEnabled = Callable[[str], bool]
+PanelUnavailable = Callable[[str], str | None]
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
 
@@ -53,6 +54,9 @@ class Snapshot:
     hidden: Mapping[str, tuple[str, ...]] = field(
         default_factory=dict[str, tuple[str, ...]]
     )  # source -> its off panels
+    unavailable: Mapping[str, str] = field(
+        default_factory=dict[str, str]
+    )  # off panel -> why this application cannot serve it (BootUI ``PanelVisibility.unavailable``)
 
     @cached_property
     def request_index(self) -> RequestIndex:
@@ -86,12 +90,16 @@ def hidden_panels(source: str, panel_enabled: PanelEnabled | None) -> tuple[str,
 
 
 def project(
-    journal: Any, ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD, panel_enabled: PanelEnabled | None = None
+    journal: Any,
+    ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
+    panel_enabled: PanelEnabled | None = None,
+    panel_unavailable: PanelUnavailable | None = None,
 ) -> Snapshot:
     """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear.
-    ``panel_enabled`` None: every panel is enabled."""
+    ``panel_enabled`` None: every panel is enabled; ``panel_unavailable`` names why an off panel cannot be served."""
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
     produced = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
     status, records, newest = journal.view([s for s in produced if s not in hidden])
-    return Snapshot(status, records, newest, ai_token_threshold, hidden)
+    reasons = {p: r for panels in hidden.values() for p in panels if panel_unavailable and (r := panel_unavailable(p))}
+    return Snapshot(status, records, newest, ai_token_threshold, hidden, reasons)
