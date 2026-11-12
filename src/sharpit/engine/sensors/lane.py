@@ -14,10 +14,11 @@ from typing import Any
 from sharpit.engine.capture.journal import JournalSink
 from sharpit.engine.sensors.audit import AuditHub, Sensor, hub
 from sharpit.engine.sensors.files import FilesSensor
+from sharpit.engine.sensors.floor import FILES_DEFAULT_REASON, SWITCHABLE_SENSORS
 from sharpit.engine.sensors.processes import ProcessesSensor
 
 BUILT = ("processes", "files")  # the sensors this version builds
-SWITCHABLE = ("files",)  # AgentSensorSettings.SWITCHABLE_SENSORS ∩ BUILT: BootUI keeps the processes sensor always on
+SWITCHABLE = tuple(name for name in SWITCHABLE_SENSORS if name in BUILT)  # BootUI keeps processes always on
 
 
 class SensorHook:
@@ -38,12 +39,16 @@ class SensorHook:
 
 
 class SensorLane:
-    def __init__(self, sensors: list[Sensor], sink: JournalSink, audit: AuditHub = hub) -> None:
+    def __init__(
+        self, sensors: list[Sensor], sink: JournalSink, audit: AuditHub = hub, configured: tuple[str, ...] | None = None
+    ) -> None:
         self._sensors = {sensor.name: sensor for sensor in sensors}
+        self._configured = frozenset(self._sensors if configured is None else configured)
         self._sink = sink
         self._hub = audit
         self._paused: set[str] = set()
-        self._off: set[str] = set()  # switched off by the action: kept across restarts
+        # off by the action or by configuration (a switchable sensor nobody asked for starts off): kept across restarts
+        self._off = {name for name in self._sensors if name in SWITCHABLE and name not in self._configured}
         self.attached = False
 
     @property
@@ -74,6 +79,24 @@ class SensorLane:
         if self.attached:
             self.attach()
 
+    def toggles(self) -> list[dict[str, Any]]:
+        """``JavaAgentSensorToggleDto`` for each sensor this lane switches at run time."""
+        return [
+            {
+                "id": name,
+                "configured": name in self._configured,
+                "enabled": (on := name not in self._off),
+                "overridden": on != (name in self._configured),
+                "state": "installed" if on else "off",
+                "optInReason": FILES_DEFAULT_REASON,
+                "available": True,
+                "unavailableReason": None,
+                "failure": None,
+            }
+            for name in self._sensors
+            if name in SWITCHABLE
+        ]
+
     def switch(self, name: str, enabled: bool) -> bool:
         """The W6 sensor action: False when this lane cannot switch ``name`` (not configured or not switchable)."""
         if name not in self._sensors or name not in SWITCHABLE:
@@ -96,8 +119,9 @@ def build_lane(
     audit: AuditHub = hub,
 ) -> SensorLane | None:
     """The lane for ``configured`` sensors, or None: nothing configured, or no journal to offer to."""
-    wanted = [name for name in BUILT if name in configured]
-    if not wanted or sink is None:
+    if not any(name in configured for name in BUILT) or sink is None:
         return None
     built: dict[str, Any] = {"processes": ProcessesSensor, "files": lambda: FilesSensor(mask_path, own=own)}
-    return SensorLane([built[name]() for name in wanted], sink, audit)
+    # a switchable sensor is built even when not configured, off: the action may switch it on (BootUI's toggle)
+    wanted = [name for name in BUILT if name in configured or name in SWITCHABLE]
+    return SensorLane([built[name]() for name in wanted], sink, audit, configured)

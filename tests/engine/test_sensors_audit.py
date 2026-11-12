@@ -327,7 +327,11 @@ def _processes(event: str, *args: Any) -> list[Mapping[str, object]]:
         ("subprocess.Popen", (f"prog {CANARY}", ["x"], None, None), "prog"),  # POSIX: executable="prog <secret>"
         ("subprocess.Popen", (f"  prog	{CANARY}", ["x"], None, None), "prog"),
         ("subprocess.Popen", (None, [f"prog {CANARY}", "a"], None, None), "prog"),
-        ("subprocess.Popen", (f"/usr/bin/my tool {CANARY}", ["x"], None, None), "my"),  # the file name stops at its first blank too
+        (
+            "subprocess.Popen",
+            (f"/usr/bin/my tool {CANARY}", ["x"], None, None),
+            "my",
+        ),  # the file name stops at its first blank too
         ("os.exec", (b"/bin/sh", [b"sh", CANARY.encode()], {"A": CANARY}), "sh"),
         ("os.spawn", (0, "/usr/bin/ls", ["ls", CANARY], {}), "ls"),
         ("os.posix_spawn", ("/usr/bin/id", ["id", CANARY], {}), "id"),

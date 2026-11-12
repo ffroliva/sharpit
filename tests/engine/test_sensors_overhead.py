@@ -81,7 +81,9 @@ def switched(sensor, round_):
         return out
     return run
 
-resident_off, resident_on = alternate(lambda: direct(empty, *unsubscribed), lambda: direct(hub._dispatch, *unsubscribed))
+resident_off, resident_on = alternate(
+    lambda: direct(empty, *unsubscribed), lambda: direct(hub._dispatch, *unsubscribed)
+)
 off, on = [], []
 for i in range(ROUNDS):
     for side in (("off", "on") if i % 2 == 0 else ("on", "off")):

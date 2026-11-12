@@ -14,6 +14,7 @@ import posixpath
 import re
 import sys
 import tempfile
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -49,6 +50,14 @@ def _slashes(path: str) -> str:
 
 def _fold(path: str) -> str:
     return path.casefold() if _FOLD else path
+
+
+def _text(path: object) -> str | None:
+    """A path argument as text, or None when it names no file (a descriptor)."""
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        return None
+    raw: str | bytes = os.fspath(path)  # pyright: ignore[reportUnknownVariableType]
+    return raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
 
 
 def _is_absolute(path: str) -> bool:
@@ -127,6 +136,7 @@ class FilesSensor:
         self._skip = tuple(_fold(_slashes(os.path.abspath(path)).rstrip("/") + "/") for path in skipped if path)
         self._system = tuple(_fold(prefix + "/") for prefix in _SYSTEM)
         self._seen: dict[str, tuple[str, str] | None] = {}  # raw path -> (pattern, location); None: left out
+        self._copying = threading.local()  # the two paths a copyfile is about to open itself, per thread
         self.ignored = 0
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -142,6 +152,8 @@ class FilesSensor:
         if len(args) < 3:
             return ()
         path, mode, flags = args[:3]
+        if self._is_inner_copy_open(path):
+            return ()
         wrote = (
             any(c in mode for c in "wax+")
             if isinstance(mode, str)
@@ -153,15 +165,26 @@ class FilesSensor:
         verb = "move" if event == "os.rename" else "copy"
         if len(args) < 2:
             return ()
+        if verb == "copy":
+            self._copying.paths = {_text(args[0]), _text(args[1])}
         return (*self._row(f"{verb} from", args[0]), *self._row(f"{verb} to", args[1]))
 
+    def _is_inner_copy_open(self, path: object) -> bool:
+        """The open ``shutil.copyfile`` makes of a path it just announced is the copy's own: BootUI records it once."""
+        pending: set[str | None] | None = getattr(self._copying, "paths", None)
+        if not pending:
+            return False
+        text = _text(path)
+        if text in pending:
+            pending.discard(text)
+            return True
+        pending.clear()  # the next open is not the copy's: nothing is held over
+        return False
+
     def _row(self, kind: str, path: object) -> tuple[Mapping[str, object], ...]:
-        if not isinstance(path, (str, bytes, os.PathLike)):
-            return ()  # a file descriptor names no file
-        raw: str | bytes = os.fspath(path)  # pyright: ignore[reportUnknownVariableType]
-        text = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+        text = _text(path)
         if not text:
-            return ()
+            return ()  # a file descriptor names no file, nor does an empty name
         seen = self._seen
         if text in seen:
             found = seen[text]

@@ -14,8 +14,8 @@ _SWITCH = (
 )
 
 
-def _status(_call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
-    return java_agent_report()  # no sensors to filter by query in this version
+def _status(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
+    return java_agent_report(call.ctx.capture.sensors)  # no sensors to filter by query in this version
 
 
 def _switcher(enabled: bool) -> Callable[[CallContext, dict[str, Any]], dict[str, Any]]:

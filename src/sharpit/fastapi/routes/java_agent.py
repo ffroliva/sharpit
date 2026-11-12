@@ -30,7 +30,7 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
 
     def report(_request: Request) -> Response:
-        return json_response(java_agent_report())
+        return json_response(java_agent_report(ctx.capture.sensors))
 
     async def switch(request: Request) -> Response:
         raw = await read_body(ctx, request)

@@ -67,11 +67,11 @@ class AuditHub:
 
     def release(self, sensor: Sensor | None = None) -> None:
         """Drop one sensor's subscription, or every one; the dispatcher stays installed, inert."""
+        if sensor is not None:
+            self.disable(sensor)
+            return
         with self._lock:
-            if sensor is None:
-                self._subs.clear()
-            else:
-                self._subs.pop(id(sensor), None)
+            self._subs.clear()
             self._rebuild()
 
     def _rebuild(self) -> None:
