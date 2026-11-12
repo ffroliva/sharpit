@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from email.utils import format_datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.capture.mail import MailAttachment, MailEntry, MailRecorder
 from sharpit.engine.masking import MASK, Exposure
@@ -118,7 +118,9 @@ def clear_emails(ctx: SharpitContext) -> None:
 
 
 def _address_header(name: str, addresses: object) -> str:
-    return f"{name}: {', '.join(str(a) for a in addresses)}\r\n" if isinstance(addresses, list) and addresses else ""  # pyright: ignore[reportUnknownVariableType]
+    if not isinstance(addresses, list) or not addresses:
+        return ""
+    return f"{name}: {', '.join(str(a) for a in cast('list[object]', addresses))}\r\n"
 
 
 def render_eml(message: Mapping[str, Any]) -> str:

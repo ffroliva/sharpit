@@ -29,6 +29,7 @@ from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_r
 from sharpit.engine.capture.exchanges import exchange_row, http_event
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.capture.mail import HOOK as MAIL_HOOK
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
 from sharpit.engine.context import application_family
@@ -79,6 +80,7 @@ HOOK_SQLITE_LISTENERS = "sqlite-listeners"
 HOOK_TRACES = "traces"
 HOOK_TRANSACTIONS = TRANSACTIONS_SOURCE
 HOOK_RUNTIME_JOURNAL = RuntimeJournal.name
+HOOK_MAIL = MAIL_HOOK
 HOOK_NAMES = frozenset(
     {
         HOOK_CAPTURE_MIDDLEWARE,
@@ -90,6 +92,7 @@ HOOK_NAMES = frozenset(
         HOOK_TRACES,
         HOOK_TRANSACTIONS,
         HOOK_RUNTIME_JOURNAL,
+        HOOK_MAIL,
     }
 )
 

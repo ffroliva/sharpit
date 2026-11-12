@@ -33,7 +33,10 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         return Response(
             render_eml(message).encode("utf-8"),
             media_type="message/rfc822",
-            headers={**dict(security_headers("api")), "content-disposition": f'attachment; filename="email-{email_id}.eml"'},
+            headers={
+                **dict(security_headers("api")),
+                "content-disposition": f'attachment; filename="email-{email_id}.eml"',
+            },
         )
 
     return [

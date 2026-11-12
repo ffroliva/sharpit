@@ -144,6 +144,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason (no agent sensors in this version); actions refused as BootUI refuses them without the agent. MCP: `get_agent_status` |
 | Metrics | `GET {api}/metrics`, `GET {api}/metrics/detail` | host Prometheus registry, collected on each read (every host collector runs once); label values and HELP text are masked. MCP and CLI: `get_metrics` / `metrics` |
 | AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
+| Email | `GET {api}/email`, `GET {api}/email/{id}`, `GET {api}/email/{id}/eml`, `DELETE {api}/email` | outgoing mail captured at `smtplib`/`aiosmtplib` `sendmail`, bounded; secret-shaped text masked always; DELETE clears (refused on a read-only panel). `SHARPIT_EMAIL_DEV_TRAP=true` captures without sending. MCP: `get_emails`; CLI: `mail` |
 
 The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
 `get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
@@ -163,7 +164,7 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 49 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 50 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
@@ -177,6 +178,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - Runtime: `get_health`, `get_threads`, `get_startup_timeline`, `get_scheduled_tasks`, `get_traces`, `get_low_footprint`, `get_metrics`, `get_runtime_insights`, `get_runtime_insight`.
 - Agent sessions: `get_copilot_sessions`, `get_claude_code_sessions`.
 - AI Framework: `get_ai_overview` (CLI: `ai overview`).
+- Email: `get_emails` (CLI: `mail`).
 - Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which ships no agent
   sensors; the sensor tools (`get_code_inventory`, `get_code_paths`, `get_method_probe`, `get_side_effects`) are not
   advertised and answer "Tool not available in this application".

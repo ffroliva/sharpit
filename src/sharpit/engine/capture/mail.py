@@ -28,7 +28,7 @@ from collections.abc import Callable, Sequence
 from email import message_from_bytes, message_from_string, policy
 from email.message import EmailMessage
 from email.utils import formataddr, getaddresses
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from sharpit.engine import otel
 from sharpit.engine.capture import wraps
@@ -44,7 +44,8 @@ HOOK = "mail"
 TAG = "mail"
 TRUNCATED = "\n…[truncated, showing {limit} of {total} characters]"
 _ORIGINAL = "__sharpit_original__"  # wraps.wrap's marker on a wrapper
-_ASYNC_REFUSED = ({}, "OK")  # what aiosmtplib's sendmail answers when every recipient was accepted
+# what aiosmtplib's sendmail answers when every recipient was accepted
+_ASYNC_REFUSED: tuple[dict[str, Any], str] = ({}, "OK")
 
 
 class MailAttachment(NamedTuple):
@@ -100,14 +101,17 @@ def _attachment(part: EmailMessage) -> MailAttachment:
 def _envelope_recipients(recipients: object) -> list[str]:
     if isinstance(recipients, str):
         return [recipients]
-    return [str(r) for r in recipients] if isinstance(recipients, Sequence) else []  # pyright: ignore[reportUnknownVariableType]
+    return [str(r) for r in cast("Sequence[object]", recipients)] if isinstance(recipients, Sequence) else []
 
 
 def parse(sender: str, recipients: object, raw: str | bytes, strict: Masker, limit: int) -> MailMessage:
     """What ``sendmail`` was handed, as BootUI's ``MimeMessageInspector`` reads a message: bodies masked-then-cut at
     ``limit``, attachments as metadata only, bcc from the envelope (``send_message`` strips the header)."""
-    parsed = (message_from_bytes if isinstance(raw, bytes) else message_from_string)(raw, policy=policy.default)  # type: ignore[arg-type]
-    message = parsed if isinstance(parsed, EmailMessage) else EmailMessage()
+    message = (
+        message_from_bytes(raw, policy=policy.default)
+        if isinstance(raw, bytes)
+        else message_from_string(raw, policy=policy.default)
+    )
     to, cc = _addresses(message, "To"), _addresses(message, "Cc")
     shown = {addr.lower() for _, addr in getaddresses([*to, *cc])}
     bcc = [*_addresses(message, "Bcc"), *(r for r in _envelope_recipients(recipients) if r.lower() not in shown)]
@@ -222,7 +226,7 @@ class MailRecorder:
         with self._lock:
             self._entries.clear()
 
-    # --- the capture-hook registry entry (low-footprint) ----------------------------------------------------------------
+    # --- the capture-hook registry entry (low-footprint) ----------------------------------------------------------
 
     def suspend(self) -> None:
         self.paused = True
@@ -252,7 +256,7 @@ class MailRecorder:
                 _unwrap_senders()
 
 
-# --- the process-wide wrap, shared by every armed recorder -------------------------------------------------------------
+# --- the process-wide wrap, shared by every armed recorder -----------------------------------------------------
 
 _LOCK = threading.RLock()
 _ACTIVE: list[MailRecorder] = []
