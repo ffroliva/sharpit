@@ -1,7 +1,8 @@
 """The Email panel's read side (BootUI ``EmailCaptureService.list/get``, ``EmailsReport``, ``EmailEmlRenderer``).
 
 Masking happens here, at read time with the live policy, as BootUI's does: ``mask-content`` (off by default) masks every
-field unless the exposure is FULL; sharpit's own secret scrub always runs on top (deviation D-E1, owner ruling OQ1):
+field unless the exposure is FULL; below FULL, sharpit's own secret scrub runs on top (deviation D-E1, owner
+ruling OQ1):
 BootUI shows a captured password-reset link as it is, sharpit masks the secret in it. The ``.eml`` is rendered from the
 masked message, never from the stored one.
 """

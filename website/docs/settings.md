@@ -117,8 +117,8 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_CACHE_CLEAR_ENABLED` | `cache_clear_enabled` | `false` | allow the Cache panel's clear action (read-only still refuses it); an invalid value turns it off |
 | `SHARPIT_EMAIL_MAX_ENTRIES` | `email_max_entries` | `100` | captured emails kept; the oldest is dropped first |
 | `SHARPIT_EMAIL_MAX_BODY_LENGTH` | `email_max_body_length` | `200000` | characters kept of each text or HTML body; a longer one is masked, then cut |
-| `SHARPIT_EMAIL_DEV_TRAP` | `email_dev_trap` | `false` | capture outgoing mail and do not send it (`smtplib` and `aiosmtplib` `sendmail`) |
-| `SHARPIT_EMAIL_MASK_CONTENT` | `email_mask_content` | `false` | mask every address, subject and body unless `SHARPIT_EXPOSE_VALUES=FULL`; secret-shaped text is masked either way |
+| `SHARPIT_EMAIL_DEV_TRAP` | `email_dev_trap` | `false` | capture outgoing mail and do not send it: a session opened under the trap never connects (`smtplib` and `aiosmtplib`) |
+| `SHARPIT_EMAIL_MASK_CONTENT` | `email_mask_content` | `false` | mask every address, subject and body unless `SHARPIT_EXPOSE_VALUES=FULL`; secret-shaped text is masked either way, unless `SHARPIT_EXPOSE_VALUES=FULL` |
 | `SHARPIT_SECURITY_LOGS_MAX_LOGS` | `security_logs_max_logs` | `500` | authentication and authorization audit events kept by the Security Logs panel |
 | `SHARPIT_TRANSACTIONS_ENABLED` | `transactions_enabled` | `true` | capture SQLAlchemy transactions for the Transactions panel |
 | `SHARPIT_TRANSACTIONS_RECORDING` | `transactions_recording` | `true` | initial transaction recording state |

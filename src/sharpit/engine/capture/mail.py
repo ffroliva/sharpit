@@ -1,18 +1,26 @@
 """Outgoing mail capture (BootUI ``EmailCaptureService`` and ``EmailStore``): the only module that touches ``smtplib``
 and ``aiosmtplib``.
 
-Wrap points are ``smtplib.SMTP.sendmail`` and ``aiosmtplib.SMTP.sendmail`` only (W0 spike c): ``send_message``, the SMTP
-subclasses and fastapi-mail all end in ``sendmail``, so one message is captured once. ``aiosmtplib`` is never imported
-here: it is wrapped when the host has already imported it (the attacher is retried at startup and on the first
-request). The wrap is process-wide and shared by every armed recorder (one per ``install()``); the last one out
-restores the originals.
+The capture point is ``smtplib.SMTP.sendmail`` and ``aiosmtplib.SMTP.sendmail`` only (W0 spike c): ``send_message``,
+the SMTP subclasses and fastapi-mail all end in ``sendmail``, so one message is captured once. ``aiosmtplib`` is never
+imported here: it is wrapped when the host has already imported it (the attacher is retried at startup and on the first
+request). The wrap is process-wide and holds every armed recorder (one per ``install()``) by a weak reference, so an app
+dropped without shutting down stops capturing once it is garbage-collected; the last one out restores the originals.
+In a request, only that app's recorder records the message and only its trap decides; outside a request (a worker
+thread, startup, a script) the message is no app's, so every live recorder records it and any trap among them holds it.
 
 Delivery is never affected: a capture that raises, a paused recorder and a disabled panel all leave the host's call
-as it was. The one deliberate change is the dev trap (``email_dev_trap``), which answers the call itself, as BootUI's
-``CapturingJavaMailSender`` skips the real send; it holds while paused, as BootUI's does.
+as it was. The one deliberate change is the dev trap (``email_dev_trap``), which, like BootUI's
+``CapturingJavaMailSender``, never reaches the transport. ``sendmail`` alone cannot skip it: ``smtplib.SMTP()`` and
+``aiosmtplib``'s ``connect`` open the socket, EHLO, STARTTLS and log in before ``sendmail`` runs. So once a trap is
+armed, ``smtplib.SMTP.connect`` and ``starttls`` and ``aiosmtplib.SMTP._create_connection`` are wrapped too: a session
+opened under the trap talks to an in-memory server that accepts every command, and no socket is opened. A trap holds
+while paused, as BootUI's does. A capture that fails under the trap lets the message through, as BootUI's
+``captureMime`` answers ``true``; a trapped session has no transport to send it on, so there it is neither sent nor
+stored (proposed deviation D-E2).
 
-Shortcut: only ``sendmail`` is wrapped, so a host that talks to a server through its own socket code is not seen;
-``SMTP_SSL`` and ``LMTP`` inherit ``sendmail`` and are.
+Shortcut: only ``sendmail`` is captured, so a host that talks to a server through its own socket code is not seen;
+``SMTP_SSL`` and ``LMTP`` inherit ``sendmail`` and are (an ``LMTP`` unix socket is not trapped).
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ import smtplib
 import sys
 import threading
 import time
+import weakref
 from collections import deque
 from collections.abc import Callable, Sequence
 from email import message_from_bytes, message_from_string, policy
@@ -46,6 +55,21 @@ TRUNCATED = "\n…[truncated, showing {limit} of {total} characters]"
 _ORIGINAL = "__sharpit_original__"  # wraps.wrap's marker on a wrapper
 # what aiosmtplib's sendmail answers when every recipient was accepted
 _ASYNC_REFUSED: tuple[dict[str, Any], str] = ({}, "OK")
+# the trap's in-memory server: its reply per command verb (the first four letters); anything else is accepted
+_REPLIES: dict[str, tuple[bytes, ...]] = {
+    "EHLO": (
+        b"250-sharpit dev trap\r\n",
+        b"250-8BITMIME\r\n",
+        b"250-SMTPUTF8\r\n",
+        b"250-STARTTLS\r\n",
+        b"250 AUTH PLAIN LOGIN\r\n",
+    ),
+    "AUTH": (b"235 accepted, never checked\r\n",),
+    "DATA": (b"354 go on\r\n",),
+    "QUIT": (b"221 bye\r\n",),
+}
+_ACCEPTED = (b"250 ok\r\n",)
+_NO_TLS = "sharpit dev trap: no TLS, nothing left the process"
 
 
 class MailAttachment(NamedTuple):
@@ -159,18 +183,19 @@ class MailRecorder:
         self.teardown_registered = False
         self._strict = Masker(Exposure.MASKED, True, token, identity_key=masker.identity_key)
         self._capture = capture
-        self._context_id = context_id
+        self.context_id = context_id
         self._entries: deque[MailEntry] = deque(maxlen=self.max_entries)
         self._sequence = 0
         self._lock = threading.Lock()
 
     # --- capture ------------------------------------------------------------------------------------------------------
 
-    def record(self, sender: str, recipients: object, message: object) -> bool:
-        """Store one outgoing message; answers whether the caller should still hand it to the real transport."""
-        send = not self.dev_trap
+    def record(self, sender: str, recipients: object, message: object, sent: bool | None = None) -> None:
+        """Store one outgoing message as ``sent`` (whether it reaches the transport; this recorder's own trap decides
+        when not given)."""
         if self.paused or not isinstance(message, str | bytes):
-            return send
+            return
+        send = not self.dev_trap if sent is None else sent
         parsed = parse(sender, recipients, message, self._strict, self.max_body_length)
         info = REQUEST.get()
         with self._lock:
@@ -182,11 +207,10 @@ class MailRecorder:
                 send,
                 otel.current_trace_id(),
                 threading.current_thread().name,
-                info.id if info is not None and info.context_id == self._context_id else None,
+                info.id if info is not None and info.context_id == self.context_id else None,
             )
             self._entries.appendleft(entry)
         self._publish(entry)
-        return send
 
     def _publish(self, entry: MailEntry) -> None:
         journal = self._capture.journal
@@ -241,44 +265,88 @@ class MailRecorder:
 
     def arm(self) -> bool:
         """Wrap what can be wrapped now; ``True`` when nothing more can come (``aiosmtplib`` absent or wrapped)."""
+        global _refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free by the wrappers
         with _LOCK:
-            if self not in _ACTIVE:
-                _ACTIVE.append(self)
-            _wrap_senders()
+            live = [ref for ref in _refs if ref() is not None]  # also prunes what a skipped ``_forget`` left
+            me = cast("MailRecorder", self)
+            mine = [] if any(ref() is me for ref in live) else [weakref.ref(me, _forget)]
+            _refs = (*live, *mine)
+            _wrap_senders(trap=any(r.dev_trap for r in _live()))
             return "smtplib" in _WRAPPED and not _aiosmtplib_pending()
 
     def disarm(self) -> None:
+        global _refs  # noqa: PLW0603
         self.teardown_registered = False
         with _LOCK:
-            if self in _ACTIVE:
-                _ACTIVE.remove(self)
-            if not _ACTIVE:
+            _refs = tuple(ref for ref in _refs if ref() not in (None, self))
+            if not _refs:
                 _unwrap_senders()
 
 
 # --- the process-wide wrap, shared by every armed recorder -----------------------------------------------------
 
 _LOCK = threading.RLock()
-_ACTIVE: list[MailRecorder] = []
-_WRAPPED: dict[str, Callable[[], bool]] = {}  # sender family -> its remover, in wrap order
+_refs: tuple[weakref.ref[MailRecorder], ...] = ()  # every armed recorder, held weakly
+_WRAPPED: dict[str, Callable[[], bool]] = {}  # wrapped method -> its remover, in wrap order
+
+
+def _live() -> list[MailRecorder]:
+    return [r for ref in _refs if (r := ref()) is not None]
+
+
+def _forget(dead: weakref.ref[MailRecorder]) -> None:
+    """A recorder's app was garbage-collected without shutting down: drop it, and unwrap when it was the last."""
+    global _refs  # noqa: PLW0603
+    if not _LOCK.acquire(blocking=False):  # collected inside another thread's locked section: the next arm prunes it
+        return
+    try:
+        _refs = tuple(ref for ref in _refs if ref is not dead and ref() is not None)
+        if not _refs:
+            _unwrap_senders()
+    finally:
+        _LOCK.release()
+
+
+def _targets() -> list[MailRecorder]:
+    """In a request, its own app's recorder only; outside one, every live recorder (the message is no app's)."""
+    live = _live()
+    info = REQUEST.get()
+    return live if info is None else [r for r in live if r.context_id == info.context_id]
+
+
+def _trapping() -> bool:
+    """Whether a session opened now is trapped: a targeted recorder has the dev trap on."""
+    try:
+        return any(r.dev_trap for r in _targets())
+    except Exception:  # noqa: BLE001 - never an error into the host's connect
+        return False
 
 
 def _dispatch(sender: str, recipients: object, message: object) -> bool:
-    """Record on every armed recorder; ``True`` when the dev trap holds the real send back."""
-    suppress = False
-    for recorder in tuple(_ACTIVE):
-        try:
-            send = recorder.record(sender, recipients, message)
-        except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
-            send = not recorder.dev_trap
-        suppress = suppress or not send
-    return suppress
+    """Record on every targeted recorder; ``True`` when a trap holds the real send back. A trap whose capture failed
+    lets the message through, as BootUI's ``captureMime`` answers ``true`` when it cannot capture."""
+    try:
+        targets = _targets()
+    except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
+        return False
+    sent = not any(r.dev_trap for r in targets)
+    held = [_held(recorder, sender, recipients, message, sent) for recorder in targets]  # every one records
+    return any(held)
+
+
+def _held(recorder: MailRecorder, sender: str, recipients: object, message: object, sent: bool) -> bool:
+    """Whether this recorder's trap holds the message back: only when its capture succeeded."""
+    try:
+        recorder.record(sender, recipients, message, sent)
+    except Exception:  # noqa: BLE001 - the host's mail is never lost to the capture
+        return False
+    return recorder.dev_trap
 
 
 def _sync_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(original)
     def sendmail(self: Any, from_addr: str, to_addrs: object, msg: object, *args: Any, **kwargs: Any) -> Any:
-        if _ACTIVE and _dispatch(from_addr, to_addrs, msg):
+        if _refs and _dispatch(from_addr, to_addrs, msg):
             return {}
         return original(self, from_addr, to_addrs, msg, *args, **kwargs)
 
@@ -288,11 +356,116 @@ def _sync_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
 def _async_sendmail(original: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(original)
     async def sendmail(self: Any, sender: str, recipients: object, message: object, *args: Any, **kwargs: Any) -> Any:
-        if _ACTIVE and _dispatch(sender, recipients, message):
+        if _refs and _dispatch(sender, recipients, message):
             return _ASYNC_REFUSED
         return await original(self, sender, recipients, message, *args, **kwargs)
 
     return sendmail
+
+
+# --- the dev trap's transport: a session opened under the trap never opens a socket ------------------------------
+
+
+def _replies(command: bytes) -> tuple[bytes, ...]:
+    return _REPLIES.get(command[:4].upper().decode("ascii", "replace"), _ACCEPTED)
+
+
+class _TrapPeer:
+    """``smtplib``'s socket for a trapped session: an in-memory server that accepts every command."""
+
+    def __init__(self) -> None:
+        self._lines: deque[bytes] = deque([b"220 sharpit dev trap\r\n"])
+        self._data = False
+
+    def sendall(self, data: bytes) -> None:
+        if self._data:  # the message itself, up to its "." line
+            self._data = not data.endswith(b"\r\n.\r\n")
+            self._lines.extend(() if self._data else _ACCEPTED)
+            return
+        self._data = data[:4].upper() == b"DATA"
+        self._lines.extend(_replies(data))
+
+    def makefile(self, *_args: object) -> _TrapPeer:
+        return self
+
+    def readline(self, *_args: object) -> bytes:
+        return self._lines.popleft() if self._lines else b""
+
+    def close(self) -> None:
+        self._lines.clear()
+
+
+def _sync_connect(original: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(original)
+    def connect(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if not (_refs and _trapping()):
+            return original(self, *args, **kwargs)
+        self.sock, self.file = _TrapPeer(), None
+        return self.getreply()
+
+    return connect
+
+
+def _sync_starttls(original: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(original)
+    def starttls(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if not isinstance(getattr(self, "sock", None), _TrapPeer):
+            return original(self, *args, **kwargs)
+        self.ehlo_or_helo_if_needed()
+        self.helo_resp = self.ehlo_resp = None  # what the real one forgets after the handshake (RFC 3207)
+        self.esmtp_features, self.does_esmtp = {}, False
+        return (220, _NO_TLS.encode())
+
+    return starttls
+
+
+class _TrapTransport:
+    def get_extra_info(self, _key: str, default: object = None) -> object:
+        return default
+
+    def is_closing(self) -> bool:
+        return False
+
+    def close(self) -> None:
+        return None
+
+
+class _TrapProtocol:
+    """``aiosmtplib``'s ``SMTPProtocol`` for a trapped session: the same answers as ``_TrapPeer``."""
+
+    is_connected = True
+
+    def __init__(self, response: Callable[[int, str], Any]) -> None:
+        self.transport = _TrapTransport()
+        self._response = response
+
+    def _answer(self, lines: tuple[bytes, ...]) -> Any:
+        text = "\n".join(line[4:].decode("ascii").strip() for line in lines)
+        return self._response(int(lines[0][:3]), text)
+
+    async def execute_command(self, *args: bytes, **_options: object) -> Any:
+        return self._answer(_replies(args[0] if args else b""))
+
+    async def execute_data_command(self, *_args: object, **_options: object) -> Any:
+        return self._answer(_ACCEPTED)
+
+    async def start_tls(self, *_args: object, **_options: object) -> Any:
+        return self._response(220, _NO_TLS)
+
+
+def _async_create_connection(response: Callable[[int, str], Any]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def make(original: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(original)
+        async def _create_connection(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if not (_refs and _trapping()):
+                return await original(self, *args, **kwargs)
+            self.protocol = _TrapProtocol(response)
+            self.transport = self.protocol.transport
+            return response(220, "sharpit dev trap")
+
+        return _create_connection
+
+    return make
 
 
 def _aiosmtplib_pending() -> bool:
@@ -305,22 +478,31 @@ def _aiosmtplib_pending() -> bool:
         return False
 
 
-def _wrap_one(family: str, owner: type, make: Callable[[Callable[..., Any]], Callable[..., Any]]) -> None:
+def _wrap_one(family: str, owner: type, name: str, make: Callable[[Callable[..., Any]], Callable[..., Any]]) -> None:
     if family in _WRAPPED:
         return
-    remover = wraps.wrap(owner, "sendmail", make, tag=TAG)
+    remover = wraps.wrap(owner, name, make, tag=TAG)
     if remover is not None:
         _WRAPPED[family] = remover
-    elif _ORIGINAL in getattr(owner.__dict__.get("sendmail"), "__dict__", {}):
+    elif _ORIGINAL in getattr(owner.__dict__.get(name), "__dict__", {}):
         _WRAPPED[family] = lambda: False  # ours from an earlier arm whose remover could not run; still in place
 
 
-def _wrap_senders() -> None:
-    _wrap_one("smtplib", smtplib.SMTP, _sync_sendmail)
+def _wrap_senders(*, trap: bool) -> None:
+    """The capture wraps; the trap's transport wraps only once a recorder with the trap on is armed, so a host without
+    the trap keeps its own connect."""
+    _wrap_one("smtplib", smtplib.SMTP, "sendmail", _sync_sendmail)
+    if trap:
+        _wrap_one("smtplib.connect", smtplib.SMTP, "connect", _sync_connect)
+        _wrap_one("smtplib.starttls", smtplib.SMTP, "starttls", _sync_starttls)
     module = sys.modules.get("aiosmtplib")
     owner = getattr(module, "SMTP", None)
-    if isinstance(owner, type):
-        _wrap_one("aiosmtplib", owner, _async_sendmail)
+    if not isinstance(owner, type):
+        return
+    _wrap_one("aiosmtplib", owner, "sendmail", _async_sendmail)
+    response = getattr(module, "SMTPResponse", None)
+    if trap and callable(response):  # without it the trap stays sendmail-only for this aiosmtplib
+        _wrap_one("aiosmtplib.connect", owner, "_create_connection", _async_create_connection(response))
 
 
 def _unwrap_senders() -> None:

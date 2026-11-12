@@ -6,8 +6,9 @@ from sharpit.engine.tools import _NONE, Tool  # pyright: ignore[reportPrivateUsa
 TOOLS = (
     Tool(
         "get_emails",
-        "Return the bounded local email-capture inventory with content governed by sharpit exposure policy and "
-        "secret-shaped text always masked. This does not send, download, or delete any message.",
+        "Return the bounded local email-capture inventory with content governed by sharpit exposure policy; "
+        "secret-shaped text is masked unless the exposure is FULL. This does not send, download, or delete any "
+        "message.",
         _NONE,
         "email",
         False,

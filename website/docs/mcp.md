@@ -79,7 +79,7 @@ tool.
 
 ### Email
 
-- `get_emails`: the bounded outgoing-mail capture inventory (`smtplib` and `aiosmtplib` `sendmail`); content follows the exposure policy and secret-shaped text is always masked. CLI alias `mail`. Never sends, downloads or deletes.
+- `get_emails`: the bounded outgoing-mail capture inventory (`smtplib` and `aiosmtplib` `sendmail`); content follows the exposure policy, and secret-shaped text is masked unless `SHARPIT_EXPOSE_VALUES=FULL` (a body over the length limit is masked before it is cut, at any exposure). CLI alias `mail`. Never sends, downloads or deletes.
 
 ### Agent sensors
 
