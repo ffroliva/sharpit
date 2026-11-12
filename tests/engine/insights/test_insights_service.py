@@ -72,7 +72,7 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
     assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
-    assert {"ai", "sql", "exception"} <= snapshot_module.PRODUCED_SOURCES
+    assert {"ai", "sql", "exception", "log"} <= snapshot_module.PRODUCED_SOURCES
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
@@ -86,6 +86,10 @@ def test_every_produced_source_has_a_producer_test() -> None:
         "exception": (
             "tests/engine/capture/test_exception_journal.py",
             "test_exception_journal_event_offered_once_per_captured_exception_with_bootui_fields",
+        ),
+        "log": (
+            "tests/engine/capture/test_log_journal.py",
+            "test_log_journal_event_offered_once_per_record_with_bootui_fields",
         ),
         "http": (
             "tests/fastapi/test_http_journal.py",
@@ -381,3 +385,12 @@ def test_the_exception_source_is_recorded_only_when_enabled() -> None:
     disabled.offer(event)
     assert snapshot_module.project(enabled).recorded("exception")
     assert not snapshot_module.project(disabled).recorded("exception")
+
+
+def test_the_log_source_is_recorded_only_when_enabled() -> None:
+    event = {"source": "log", "logger": "org.hibernate.x", "level": "WARN", "template": "t", "requestId": "r1"}
+    enabled, disabled = _journal(["log"]), _journal(["http"])
+    enabled.offer(event)
+    disabled.offer(event)
+    assert snapshot_module.project(enabled).recorded("log")
+    assert not snapshot_module.project(disabled).recorded("log")
