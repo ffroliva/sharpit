@@ -33,6 +33,7 @@ from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
+from sharpit.engine.sensors.lane import build_lane
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sqltext import is_database_exception
 
@@ -336,6 +337,7 @@ class CaptureWiring:
                 masker=ctx.masker,
             )
             ctx.capture.hooks.register(journal)
+            self._arm_sensors(ctx, journal)
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
@@ -365,6 +367,15 @@ class CaptureWiring:
         exchanges = ctx.capture.exchanges
         self._register(ctx, HOOK_CAPTURE_MIDDLEWARE, exchanges.clear if exchanges is not None else _nothing)
 
+    def _arm_sensors(self, ctx: SharpitContext, journal: RuntimeJournal) -> None:
+        lane = ctx.capture.sensors = build_lane(
+            ctx.settings.agent_sensors, journal, ctx.masker.mask_path, own=(ctx.settings.state_dir,)
+        )
+        if lane is not None:
+            for hook in lane.hooks():
+                ctx.capture.hooks.register(hook)
+            lane.attach()
+
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions
         handlers = getattr(self.app, "exception_handlers", None)
@@ -376,6 +387,8 @@ class CaptureWiring:
     def on_startup(self, ctx: SharpitContext) -> None:
         self._context = ctx
         self.detached = False
+        if ctx.capture.sensors is not None:
+            ctx.capture.sensors.attach()  # a shutdown unbound them; the hook itself stayed, inert
         self._wrap_handlers(ctx)  # again after a shutdown restored the plain dict
         self._first_run(ctx)
         self._attach_logging()  # after the host's startup: its basicConfig()/dictConfig() has run
@@ -399,6 +412,8 @@ class CaptureWiring:
                 teardowns.pop()()
             except Exception as exc:  # noqa: BLE001
                 self.hook_failed("teardown", exc)
+        if ctx.capture.sensors is not None:
+            ctx.capture.sensors.detach()  # the audit hook stays installed, inert: it cannot be removed
         self._armed.clear()  # the next startup re-runs every attacher
         self._removers.clear()
         self.detached = True

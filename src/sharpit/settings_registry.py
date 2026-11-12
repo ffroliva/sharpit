@@ -108,7 +108,9 @@ JOURNAL_SOURCES = (
     "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client", "cache",
     "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources", "app-event",
     "websocket", "orm", "agent.executors", "agent.caught-exceptions",
+    "processes", "files",
 )  # fmt: skip
+# processes, files: sharpit-only journal sources, the W6 S3 sensors (BootUI keeps them in its Side Effects store)
 
 # AgentSensorSettings.KNOWN_SENSORS: every id is accepted; sharpit builds only processes and files (engine/sensors/)
 AGENT_SENSORS = (

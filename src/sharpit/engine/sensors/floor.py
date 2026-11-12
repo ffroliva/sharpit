@@ -13,6 +13,7 @@ import sys
 from typing import Any, cast
 
 from sharpit import __version__
+from sharpit.engine.sensors.lane import SensorLane
 
 # JavaAgentService.NOT_ATTACHED_REASON, BootUI -> sharpit and JVM -> process; this version ships no agent to attach
 NOT_ATTACHED_REASON = (
@@ -150,21 +151,23 @@ def java_agent_report() -> dict[str, Any]:
     }
 
 
-def switch_sensor(sensor_id: str, enabled: object) -> dict[str, Any]:
+def switch_sensor(sensor_id: str, enabled: object, lane: SensorLane | None = None) -> dict[str, Any]:
     """``JavaAgentController.switchSensor``: 400 without ``enabled`` or for an unswitchable id, else 409 not armed."""
     if not isinstance(enabled, bool):
         raise SensorRefusal(400, 'The request body must say {"enabled": true} or {"enabled": false}.')
-    return switch_sensor_for_agents(sensor_id)
+    return switch_sensor_for_agents(sensor_id, enabled, lane)
 
 
-def switch_sensor_for_agents(sensor_id: str) -> dict[str, Any]:
-    """``JavaAgentService.switchSensor``: never switches here, the agent is not attached."""
+def switch_sensor_for_agents(sensor_id: str, enabled: bool = True, lane: SensorLane | None = None) -> dict[str, Any]:
+    """``JavaAgentService.switchSensor``: switches a sensor the context's ``lane`` runs, else 409: not armed."""
     if sensor_id.strip() not in SWITCHABLE_SENSORS:
         raise SensorRefusal(
             400,
             f"'{sensor_id}' cannot be switched at run time: the sensors switched at run time are "
             f"{', '.join(SWITCHABLE_SENSORS)}.",
         )
+    if lane is not None and lane.switch(sensor_id.strip(), enabled):
+        return java_agent_report()
     raise SensorRefusal(
         409,
         "The sharpit agent is not armed for this application, so its sensors cannot be switched: "
