@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# zizmor cache-poisoning (owner ruling 2026-11-12): ignored on each cache step below. This workflow publishes
+# nothing, and GitHub scopes caches so a pull request's cache is never restored by a push run on main, mvp or
+# release/**; the audit fires because release/** is a push trigger.
+
 permissions:
   contents: read
 
@@ -66,7 +70,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
@@ -164,7 +168,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
@@ -262,7 +266,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
       - run: uv run --no-sync ruff check
@@ -355,7 +359,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
@@ -481,7 +485,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.changes.outputs.code != 'false'
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - if: needs.changes.outputs.code != 'false'
         run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
@@ -523,7 +527,7 @@ jobs:
           fetch-depth: 0 # blame and new-code detection need full history
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.changes.outputs.code != 'false'
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - if: needs.changes.outputs.code != 'false'
         run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
@@ -556,7 +560,7 @@ jobs:
           github.actor != 'dependabot[bot]' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           path: ~/.sonar/cache
           key: sonar-${{ runner.os }}-v8.4.1 # the scan action's version: a new pin downloads a fresh scanner
       - name: SonarCloud scan
@@ -600,7 +604,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
@@ -705,7 +709,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: >-
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
@@ -823,7 +827,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && '--group full-extras' || '' }} --python 3.14 # NOSONAR - installs sharpit from source for the gate
@@ -889,7 +893,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           node-version: 22
       - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         run: npm ci --ignore-scripts && npm run build
@@ -912,7 +916,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           node-version: 22
       - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         run: npm ci --ignore-scripts && npm test
@@ -936,7 +940,7 @@ jobs:
         run: python3 scripts/ci/no_superpowers.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.changes.outputs.code != 'false'
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - if: needs.changes.outputs.code != 'false'
         run: uv build --out-dir "$RUNNER_TEMP/dist"
@@ -981,7 +985,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
+        with: # zizmor: ignore[cache-poisoning]
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --group full-extras --python 3.14 # NOSONAR - installs sharpit from source and every live driver
