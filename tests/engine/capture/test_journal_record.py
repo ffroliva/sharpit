@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import gc
 import threading
-from collections import deque
+from collections import Counter, deque
 from typing import Any
 
 import pytest
@@ -244,3 +244,135 @@ def test_a_finalizer_that_offers_during_the_append_is_dropped_and_the_ring_stays
     assert status["recorded"] == {"sql": 1}
     assert status["retainedEvents"] == 1
     assert journal.offer({"source": "log", "level": "INFO"}) is True  # nothing is left marked busy or appending
+
+
+def _read_never_raises(journal: RuntimeJournal, *sources: str) -> None:
+    for read in (lambda: journal.records(sources[0]), lambda: journal.view(sources), journal.status):
+        try:
+            read()
+        except (ValueError, RuntimeError) as exc:  # the defect: an exception where a read is answered
+            pytest.fail(f"a read raised {type(exc).__name__}: {exc}")
+
+
+def test_a_flat_event_whose_keys_and_values_disagree_is_stored_consistently_and_reads_still_work() -> None:
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "http"))
+    journal.offer_flat({"source": "http", "path": "/ok"})
+
+    class Drifting(dict):  # type: ignore[type-arg]
+        def values(self) -> Any:  # another thread adds a key between the two reads of a two-pass copy
+            self["late"] = 1
+            return super().values()
+
+    journal.offer_flat(Drifting(source="sql", sql="select 1"))
+    _read_never_raises(journal, "sql", "http")
+    assert [list(record) for record in journal.records("sql")] in ([], [["source", "sql"]])
+
+
+@pytest.mark.parametrize(
+    ("where", "read"), [("ring", "records"), ("ring", "view"), ("counters", "status"), ("counters", "view")]
+)
+def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_counted(where: str, read: str) -> None:
+    """A finalizer (garbage collection) can run in the middle of a read's iteration or counter copy, on this thread."""
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "log"))
+    journal.offer_flat({"source": "sql", "sql": "select 1"})
+    journal.offer_flat({"source": "sql", "sql": "select 2"})
+    nested: list[bool] = []
+    # the ring case appends if it is let in; the counters case counts a refusal into the counter being copied
+    offered = {"source": "log", "level": "WARN"} if where == "ring" else {"source": "other"}
+
+    class Finalized:
+        def __del__(self) -> None:
+            nested.append(journal.offer_flat(dict(offered)))
+
+    class Ring(deque):  # type: ignore[type-arg]
+        def __iter__(self) -> Any:
+            for n, item in enumerate(super().__iter__()):
+                yield item
+                if n == 0 and not nested:
+                    Finalized()
+
+    class Spy(Counter):  # type: ignore[type-arg]
+        def __iter__(self) -> Any:  # a Counter that iterates its own way is copied through ``keys()``
+            return super().__iter__()
+
+        def keys(self) -> Any:  # ``dict(counter)`` reads the keys, then the values
+            if not nested:
+                Finalized()
+            return super().keys()
+
+    if where == "ring":
+        journal._events = Ring(journal._events)  # pyright: ignore[reportPrivateUsage]
+    else:
+        journal._dropped = Spy(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+    _read_never_raises_one(journal, read)
+    assert nested == [False]
+    assert journal.status()["dropped"] == {"reentrant": 1}
+    assert journal.status()["retainedEvents"] == 2
+
+
+def _read_never_raises_one(journal: RuntimeJournal, read: str) -> None:
+    reads = {"records": lambda: journal.records("sql"), "view": lambda: journal.view(["sql"]), "status": journal.status}
+    try:
+        reads[read]()
+    except (ValueError, RuntimeError) as exc:
+        pytest.fail(f"{read} raised {type(exc).__name__}: {exc}")
+
+
+def test_a_compact_offer_of_a_list_is_refused_even_with_the_producers_size() -> None:
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql",))
+    offer, fields = _compact(journal)
+    layout = fields("sql", *KEYS[1:])
+    assert offer(layout, (*tuple(EVENT.values())[:-1], ["x" * 5000]), 50) is False
+    assert journal.status()["dropped"] == {"failed": 1}
+    assert journal.status()["retainedEvents"] == 0
+
+
+@pytest.mark.parametrize("flat", [True, False])
+def test_an_event_is_filed_by_the_source_it_is_stored_with(flat: bool) -> None:
+    """``get("source")`` and ``items()`` of one host object can disagree: the record is refused, not filed twice."""
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "http"))
+
+    class Liar(dict):  # type: ignore[type-arg]
+        def get(self, key: str, default: Any = None) -> Any:
+            return "sql"
+
+    offer = journal.offer_flat if flat else journal.offer
+    assert offer(Liar(source="http", n=1)) is False
+    assert journal.records("sql") == ()
+    assert journal.status()["recorded"] == {}
+    assert journal.status()["dropped"] == {"failed": 1}
+
+
+def test_a_nested_offer_during_an_append_is_refused_before_it_copies_anything() -> None:
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "log"))
+    offer, layout = _layout(journal)
+    copied: list[str] = []
+    nested: list[bool] = []
+
+    class Spy(dict):  # type: ignore[type-arg]
+        def items(self) -> Any:
+            copied.append("items")
+            return super().items()
+
+    class Finalized:
+        def __del__(self) -> None:
+            nested.append(journal.offer(Spy(source="log", level="WARN")))
+
+    class Slot(deque):  # type: ignore[type-arg]
+        def append(self, item: Any) -> None:
+            Finalized()
+            super().append(item)
+
+    journal._events = Slot()  # pyright: ignore[reportPrivateUsage]
+    assert offer(layout, tuple(EVENT.values())) is True
+    assert nested == [False]
+    assert copied == []  # refused at entry: no host-side copy under the held lock
+
+
+def test_equal_layouts_share_one_keys_tuple() -> None:
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000)
+    for _ in range(2):
+        assert journal.offer_flat({"source": "log", "a": 1}) is True
+        assert journal.offer({"source": "log", "a": 1}) is True
+    keys = [held[1] for held in journal._events]  # pyright: ignore[reportPrivateUsage]
+    assert all(k is keys[0] for k in keys)

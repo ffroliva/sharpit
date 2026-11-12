@@ -317,3 +317,44 @@ def test_sql_journal_call_site_is_the_application_frame():
     site = _records(handle)[0]["callSite"]
     assert isinstance(site, str)
     assert site.startswith("test_sql_journal:_run:")  # the helper is the first application frame
+
+
+def test_sql_journal_record_is_this_exact_ordered_dict(monkeypatch: pytest.MonkeyPatch):
+    """Every field holds a value no other field holds, so a swap of two positions in the tuple is a failure."""
+    from sharpit.engine import otel  # noqa: PLC0415
+    from sharpit.engine.capture.journal import RuntimeJournal  # noqa: PLC0415
+    from sharpit.engine.sources import dispatch  # noqa: PLC0415
+    from sharpit.engine.sqltext import Dialect  # noqa: PLC0415
+
+    trace = "4bf92f3577b34da6a3ce929d0e0e4736"
+    monkeypatch.setattr(otel, "current_trace_id", lambda: trace)
+    monkeypatch.setattr("time.time_ns", lambda: 1_700_000_000_123_456_789)
+    handle, _ = _install()
+    recorder = handle.context.capture.sql_trace
+    recorder.capture_call_site = True
+    request = RequestInfo("req-9", handle.context.context_id, "GET", "/x", None, 0, None)
+    event = dispatch.SqlEvent(
+        "sqlalchemy", "select 1", None, True, 7, 5_000_000, 3_000_000, 1, ValueError("x"), None, None, Dialect.SQLITE
+    )  # fmt: skip
+    values, size = dispatch._journal_event(  # pyright: ignore[reportPrivateUsage]
+        handle.context, recorder, event, "select ?", request, "worker-7", "app/x.py:12"
+    )
+    journal = RuntimeJournal(sources=("sql",))
+    assert journal.offer_record(dispatch._SQL_FIELDS, values, size) is True  # pyright: ignore[reportPrivateUsage]
+    assert list(journal.records("sql")[0].items()) == [
+        ("source", "sql"),
+        ("sql", "select ?"),
+        ("traceId", trace),
+        ("requestId", "req-9"),
+        ("thread", "worker-7"),
+        ("durationNanos", 3_000_000),
+        ("startedAt", 1_700_000_000_120),
+        ("dataSource", None),
+        ("failed", True),
+        ("phase", None),
+        ("completedNanos", 8_000_000),
+        ("codePathStamp", 0),
+        ("provenance", "EXECUTION"),
+        ("batchSize", 7),
+        ("callSite", "app/x.py:12"),
+    ]
