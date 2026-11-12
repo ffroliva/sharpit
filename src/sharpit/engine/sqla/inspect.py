@@ -189,6 +189,7 @@ class EngineRegistry:
     def __init__(self, masker: Masker) -> None:
         self._masker = masker
         self._names: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
+        self._bases: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()  # name before any "#n"
         self._lock = threading.RLock()
         self._snapshot: tuple[tuple[weakref.ReferenceType[Any], str], ...] = ()
 
@@ -211,6 +212,7 @@ class EngineRegistry:
                 n += 1
                 unique = f"{name}#{n}"
             self._names[sync] = unique
+            self._bases[sync] = name
             self._snapshot = tuple((weakref.ref(key), value) for key, value in self._names.items())
 
     def holds(self, engine: object) -> bool:
@@ -219,6 +221,17 @@ class EngineRegistry:
     def engines(self) -> list[tuple[str, Any]]:
         """``(display name, Engine)`` in registration order."""
         return [(name, engine) for ref, name in self._snapshot if (engine := ref()) is not None]
+
+    def database_names(self) -> list[str]:
+        """One display name per database: engines on the same masked URL (``name#2``...) count once, first name wins."""
+        seen: set[str] = set()
+        names: list[str] = []
+        for name, engine in self.engines():
+            base = self._bases.get(engine, name)
+            if base not in seen:
+                seen.add(base)
+                names.append(name)
+        return names
 
     def has_engines(self) -> bool:
         return any(ref() is not None for ref, _ in self._snapshot)
