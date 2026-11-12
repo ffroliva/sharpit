@@ -414,8 +414,8 @@ def _exception_store(ctx: SharpitContext) -> ExceptionStore:
     return store
 
 
-def _alembic_migrate_handler(ctx: SharpitContext) -> Any:
-    async def alembic_migrate(request: Request) -> Response:
+def _alembic_action_handler(ctx: SharpitContext, action: Any) -> Any:
+    async def alembic_action(request: Request) -> Response:
         raw = await _read_capped(request, _ALEMBIC_BODY_CAP)
         if raw is None:
             return error(413, _PAYLOAD_TOO_LARGE)
@@ -425,12 +425,12 @@ def _alembic_migrate_handler(ctx: SharpitContext) -> Any:
         if isinstance(body.get("beanName"), list | dict):  # Jackson cannot read a String from these
             return error(400, "beanName must be a string")
         try:  # the runner is read off the module per request: the one seam tests replace
-            status, result = await run_in_threadpool(alembic.migrate, ctx, body, alembic_cli.run_alembic)
+            status, result = await run_in_threadpool(action, ctx, body, alembic_cli.run_alembic)
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
         return json_response(result, status)
 
-    return alembic_migrate
+    return alembic_action
 
 
 def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
@@ -446,7 +446,8 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
-    alembic_migrate = _alembic_migrate_handler(ctx)
+    alembic_migrate = _alembic_action_handler(ctx, alembic.migrate)
+    alembic_clean = _alembic_action_handler(ctx, alembic.clean)
 
     def health(_request: Request) -> Response:
         return json_response(health_service(ctx).report())
@@ -461,6 +462,7 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/alembic/migrations", alembic_migrations, methods=["GET"]),
         Route(f"{api}/alembic/refresh", alembic_refresh, methods=["POST"]),
         Route(f"{api}/alembic/migrate", alembic_migrate, methods=["POST"]),
+        Route(f"{api}/alembic/clean", alembic_clean, methods=["POST"]),
         Route(f"{api}/health", health, methods=["GET"]),
         Route(f"{api}/health/check", health_check, methods=["POST"]),
     ]
