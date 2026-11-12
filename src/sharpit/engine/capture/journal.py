@@ -62,9 +62,6 @@ class _NullSink:
 NULL_SINK: JournalSink = _NullSink()
 
 
-_UNIQUE_KEYS = frozenset({"requestId", "traceId", "spanId", "executionId"})  # one value per event: never memoised
-
-
 def _count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -287,19 +284,25 @@ class RuntimeJournal:
             events = tuple(event for event, _, _ in self._events if event.get("source") == source)
         return self._masked(source, events)
 
-    def _masked(self, source: str, events: Iterable[dict[str, object]]) -> tuple[dict[str, object], ...]:
+    def _masked(
+        self, source: str, events: Iterable[dict[str, object]], memo: dict[tuple[str, str | None], object] | None = None
+    ) -> tuple[dict[str, object], ...]:
         counts = _COUNTS.get(source, frozenset())
         masker = self.masker
-        # one read sees the same texts over and over (a statement's shape, a thread name): each is masked once. Only
-        # text and None are kept, whose result is immutable and depends on nothing but (key, value) during one read.
-        memo: dict[tuple[str, str | None], object] = {}
+        # one read sees the same texts over and over (a statement's shape, a thread name, a request's id on each of its
+        # events): each is masked once. Only text and None are kept, whose result is immutable and depends on nothing
+        # but (key, value) during one read; ``view`` shares one memo across its sources.
+        memo = {} if memo is None else memo
 
         def shown(key: str, value: object) -> object:
             if key in counts and _count(value):
                 return value
-            if (value is not None and type(value) is not str) or key in _UNIQUE_KEYS:
+            kind = type(value)
+            if kind is int or kind is bool or kind is float:
+                return masker.mask(key, value)[0]  # what ``_mask`` answers for a plain number, without its walk
+            if value is not None and kind is not str:
                 return _mask(value, key, masker)
-            entry = (key, value)
+            entry = (key, cast("str | None", value))
             if entry not in memo:
                 memo[entry] = _mask(value, key, masker)
             return memo[entry]
@@ -310,12 +313,16 @@ class RuntimeJournal:
         self, sources: Iterable[str]
     ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None]:
         """``status()``, ``records(s)`` per source and the newest event's epoch ms from ONE lock acquisition."""
-        wanted = tuple(sources)
+        held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
         with self._lock:
             status = self._status()
-            held = {s: tuple(e for e, _, _ in self._events if e.get("source") == s) for s in wanted}
-            newest = max((stamp for _, _, stamp in self._events), default=None)  # BootUI takes the max epoch
-        return status, {s: self._masked(s, events) for s, events in held.items()}, newest
+            newest = None
+            for event, _, stamp in self._events:  # one pass, whatever the number of sources read
+                if (bucket := held.get(cast("str", event.get("source")))) is not None:
+                    bucket.append(event)
+                newest = stamp if newest is None or stamp > newest else newest  # BootUI takes the max epoch
+        memo: dict[tuple[str, str | None], object] = {}
+        return status, {s: self._masked(s, events, memo) for s, events in held.items()}, newest
 
     def suspend(self) -> None:
         with self._lock:
