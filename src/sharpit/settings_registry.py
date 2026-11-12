@@ -354,6 +354,10 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "alembic_clean_enabled": (parse_bool, False),
     "dev_services_restart_enabled": (parse_bool, False),
     "cache_clear_enabled": (parse_bool, False),
+    "email_max_entries": (_int, None),
+    "email_dev_trap": (parse_bool, False),
+    "email_mask_content": (parse_bool, None),
+    "email_max_body_length": (_int, None),
 }
 
 NEVER_ECHOED = {
@@ -497,6 +501,10 @@ _NON_CREDENTIAL_FIELDS = {
     "alembic_clean_enabled": _FLAG,
     "dev_services_restart_enabled": _FLAG,
     "cache_clear_enabled": _FLAG,
+    "email_max_entries": "Captured email count limit, not a credential.",
+    "email_dev_trap": _FLAG,
+    "email_mask_content": _FLAG,
+    "email_max_body_length": "Captured email body length limit, not a credential.",
     "warnings": "Diagnostic messages, not a credential.",
 }
 

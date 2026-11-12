@@ -24,6 +24,8 @@ from sharpit.engine.capture import route_path
 from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer
+from sharpit.engine.capture.mail import MailRecorder
+from sharpit.engine.capture.mail import attach as attach_mail
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots
 from sharpit.engine.capture.transactions import TransactionRecorder
@@ -124,6 +126,18 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             application=lambda: application_family(ctx),
         )
         wiring.add_lane(ctx, HOOK_TRANSACTIONS, lambda: attach_transactions(ctx), recorder.clear)
+    # the capture runs whatever the panel says (OQ3, as BootUI's CapturingJavaMailSender does); the panel gates reads
+    recorder = capture.mail = MailRecorder(
+        ctx.masker,
+        capture,
+        max_entries=settings.email_max_entries,
+        max_body_length=settings.email_max_body_length,
+        dev_trap=settings.email_dev_trap,
+        context_id=ctx.context_id,
+        token=ctx.token,
+    )
+    capture.hooks.register(recorder)
+    capture.attachers.append(lambda: attach_mail(ctx))
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):

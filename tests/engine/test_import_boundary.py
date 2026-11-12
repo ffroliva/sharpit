@@ -52,6 +52,8 @@ GATEKEEPERS: dict[str, set[str]] = {
     "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
     "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
     "arq": {"sharpit/engine/collectors/scheduled/arq.py"},
+    "smtplib": {"sharpit/engine/capture/mail.py"},
+    "aiosmtplib": {"sharpit/engine/capture/mail.py"},
     "pytest": {"sharpit/pytest_plugin"},
     "_pytest": {"sharpit/pytest_plugin"},
 }
@@ -792,6 +794,21 @@ def test_scheduler_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monke
         "sharpit/engine/collectors/scheduled/__init__.py imports apscheduler.job",
         "sharpit/engine/collectors/scheduled/__init__.py imports celery.schedules",
         "sharpit/engine/collectors/scheduled/__init__.py imports arq.cron",
+    ]
+
+
+def test_mail_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W7 lane E: smtplib and aiosmtplib are confined to engine/capture/mail.py."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    pkg = tmp_path / "src" / "sharpit" / "engine"
+    pkg.mkdir(parents=True)
+    (pkg / "leak.py").write_text("import smtplib\nimport aiosmtplib\n", encoding="utf-8")
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/leak.py imports smtplib",
+        "sharpit/engine/leak.py imports aiosmtplib",
     ]
 
 

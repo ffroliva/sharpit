@@ -2,8 +2,8 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 27,
-    "missing": 34,
+    "partial": 28,
+    "missing": 33,
     "n-a": 30,
     "total": 96
   },
@@ -243,8 +243,8 @@
       "golden": "email/captured.json",
       "panel": "email",
       "route": "/sharpit/api/email",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/email (HTTP 404)"
+      "status": "partial",
+      "difference": "email/captured.json parity: unavailableReason: null in payload, golden has string; not listed in nullable.json"
     },
     {
       "golden": "exceptions/captured.json",
