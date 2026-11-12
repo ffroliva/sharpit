@@ -13,13 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
-from sharpit.engine.collectors.insights.snapshot import (
-    DEFAULT_AI_TOKEN_THRESHOLD,
-    PanelEnabled,
-    PanelUnavailable,
-    Snapshot,
-    project,
-)
+from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 
 if TYPE_CHECKING:
@@ -81,17 +75,7 @@ def _missing(snapshot: Snapshot, source: str) -> str:
     if not snapshot.journaled(source):
         return _not_recorded(source)
     panels = snapshot.hidden[source]
-    if all(p in snapshot.unavailable for p in panels):  # off because this application cannot serve them
-        return (
-            f"{_panels_label(panels)}, whose evidence this reads, {_verb(panels)} not available in this application: "
-            f"{_reasons_for(snapshot, panels)}"
-        )
     return f"{_panels_label(panels)}, whose evidence this reads, {_verb(panels)} disabled."
-
-
-def _reasons_for(snapshot: Snapshot, panels: Sequence[str]) -> str:
-    """Each distinct unavailable reason once, in the panels' order (``PanelVisibility.reasonsFor``)."""
-    return " ".join(dict.fromkeys(snapshot.unavailable[p] for p in panels if p in snapshot.unavailable))
 
 
 def _requests_hidden(observation: Observation, snapshot: Snapshot) -> str | None:
@@ -124,27 +108,12 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     unseen: list[str] = []
     for source in sorted(observation.optional_reads):
         if panels := snapshot.hidden.get(source):
-            unseen += _off_panels(snapshot, panels)
+            unseen.append(f"{_panels_label(panels)} {_verb(panels)} disabled, so its evidence is not counted.")
         elif not snapshot.journaled(source):
             unseen.append(
                 f"Without the {source} source, which the runtime journal does not record, its evidence is not counted."
             )
     return unseen
-
-
-def _off_panels(snapshot: Snapshot, panels: Sequence[str]) -> list[str]:
-    """A source's off panels as caveats: the user's disabled ones, then those this application cannot serve."""
-    unavailable = [p for p in panels if p in snapshot.unavailable]
-    disabled = [p for p in panels if p not in snapshot.unavailable]
-    lines: list[str] = []
-    if disabled:
-        lines.append(f"{_panels_label(disabled)} {_verb(disabled)} disabled, so its evidence is not counted.")
-    if unavailable:
-        lines.append(
-            f"{_panels_label(unavailable)} {_verb(unavailable)} not available in this application, so its evidence "
-            f"is not counted: {_reasons_for(snapshot, unavailable)}"
-        )
-    return lines
 
 
 def _row_status(sufficient: bool, partial: str | None) -> str:
@@ -244,11 +213,9 @@ class InsightsService:
         observations: Sequence[Observation] | None = None,
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
         panel_enabled: PanelEnabled | None = None,
-        panel_unavailable: PanelUnavailable | None = None,
     ) -> None:
         self.journal = journal
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
-        self.panel_unavailable = panel_unavailable  # None: every panel can be served
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
         self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
@@ -276,7 +243,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled, self.panel_unavailable)
+        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
         for observation in self.observations:
@@ -337,34 +304,12 @@ def _detail(
     }  # fmt: skip
 
 
-# A capture flag off leaves its panel unavailable (BootUI creates no beans for it), so its source is no evidence.
-SQL_CAPTURE_DISABLED = "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
-TRANSACTIONS_DISABLED = "Transactions are disabled via SHARPIT_TRANSACTIONS_ENABLED=false"
-
-
 def insights_service(ctx: SharpitContext) -> InsightsService:
     """The install's service over its journal, shared by the routes and the tools (a test seeds it through ``lazy``)."""
-    settings = ctx.settings
-    capture_off = {
-        "sql-trace": (settings.sql_trace_enabled, SQL_CAPTURE_DISABLED),
-        "transactions": (settings.transactions_enabled, TRANSACTIONS_DISABLED),
-    }
-
-    def panel_unavailable(panel_id: str) -> str | None:
-        on, reason = capture_off.get(panel_id, (True, ""))
-        return None if on else reason
+    threshold = ctx.settings.runtime_insights_ai_token_threshold
 
     def panel_enabled(panel_id: str) -> bool:  # settings only: a panel sharpit has not shipped yet is not "disabled"
-        panel = settings.panels.get(panel_id)
-        return (panel is None or panel.enabled) and panel_unavailable(panel_id) is None
+        panel = ctx.settings.panels.get(panel_id)
+        return panel is None or panel.enabled
 
-    return ctx.lazy(
-        "runtime-insights",
-        lambda: InsightsService(
-            ctx.capture.journal,
-            None,
-            settings.runtime_insights_ai_token_threshold,
-            panel_enabled,
-            panel_unavailable,
-        ),
-    )
+    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled))
