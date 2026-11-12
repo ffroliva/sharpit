@@ -32,9 +32,14 @@ _SELF = "__sharpit_wrapper__"  # the wrapper itself: functools.wraps copies the 
 _LOCK = threading.RLock()
 
 
+def _descriptor(entry: Any) -> bool:
+    kind: Any = type(entry)  # identity only: `in (staticmethod, classmethod)` would run a metaclass __eq__
+    return kind is staticmethod or kind is classmethod
+
+
 def _inner(entry: Any) -> types.FunctionType | None:
     """The plain function inside a raw ``__dict__`` entry, or ``None`` for anything else (the single classifier)."""
-    func: Any = entry.__func__ if type(entry) in (staticmethod, classmethod) else entry
+    func: Any = entry.__func__ if _descriptor(entry) else entry
     return func if type(func) is types.FunctionType else None
 
 
@@ -71,9 +76,11 @@ def wrap(
             wrapped.__sharpit_original__ = func  # type: ignore[attr-defined]
             setattr(wrapped, _TAG, tag)
             setattr(wrapped, _SELF, wrapped)
-            new: Any = type(entry)(wrapped) if type(entry) in (staticmethod, classmethod) else wrapped
+            new: Any = type(entry)(wrapped) if _descriptor(entry) else wrapped
             setattr(owner, name, new)
-            if owner.__dict__.get(name) is not new:  # a metaclass whose __setattr__ does nothing
+            if owner.__dict__.get(name) is not new:  # a metaclass __setattr__ that ignored or transformed the value
+                if owner.__dict__.get(name) is not entry:
+                    setattr(owner, name, entry)
                 return None
         except Exception:  # noqa: BLE001 - a failed wrap never reaches the host
             return None
