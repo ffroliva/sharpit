@@ -156,6 +156,57 @@ def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
     return dto
 
 
+# The stored form: one tuple per statement, masked at record time, so recording builds no row dict (perf lane B,
+# 2026-11-12). ``materialize`` builds the readable row from it for every reader.
+type CompactRow = tuple[
+    int,  # id
+    int,  # timestamp, epoch ns
+    str,  # sql: the shaped text, or the masked statement while parameter capture is on
+    bool,  # has parameters: PREPARED
+    str,  # category
+    int,  # duration, ns
+    bool,  # success
+    str | None,  # masked error text
+    int,  # rowcount; -1 when unknown or the statement failed
+    int,  # batch size
+    str | None,  # connection id
+    str,  # thread
+    list[str] | None,  # masked parameters, captured only while parameter capture is on
+    str | None,  # request id
+    str | None,  # call site
+    Shape,
+    str | None,  # the lifespan phase at record time
+]
+
+
+def materialize(row: CompactRow, slow_threshold_millis: int) -> dict[str, Any]:
+    """The readable row from a compact one: what ``rows()`` returns and ``entry_dto`` reads."""
+    (row_id, timestamp, sql, prepared, category, duration_ns, success, error_message, rowcount, batch_size,
+     connection_id, thread, parameters, request_id, site, shape, phase) = row  # fmt: skip
+    millis = duration_ns // 1_000_000
+    return {
+        "id": row_id,
+        "timestamp": timestamp,  # epoch ns, for ordering; entry_dto converts to the contract's epoch ms
+        "sql": sql,
+        "statementType": "PREPARED" if prepared else "STATEMENT",
+        "category": category,
+        "durationMicros": duration_ns // 1_000,
+        "durationMillis": millis,
+        "success": success,
+        "errorMessage": error_message,
+        "affectedRows": rowcount if rowcount >= 0 else None,
+        "batchSize": batch_size,
+        "connectionId": connection_id,
+        "thread": thread,
+        "slow": slow_threshold_millis > 0 and millis >= slow_threshold_millis,
+        "parameters": parameters if parameters is not None else [],
+        "traceId": request_id,
+        "callSite": site,
+        "shape": shape,
+        "phase": phase if request_id is None else None,
+    }
+
+
 def _truncate(text: str, limit: int) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[:limit] + "…"
@@ -207,7 +258,7 @@ class SqlTraceRecorder:
         self.recording = recording
         # STARTUP or SHUTDOWN while the adapter observes the host's lifespan in that phase; None (unknown) otherwise
         self.lifespan_phase: str | None = None
-        self._entries: deque[dict[str, Any]] = deque(maxlen=max_entries)
+        self._entries: deque[CompactRow] = deque(maxlen=max_entries)
         self._aggregates: OrderedDict[str, _Aggregate] = OrderedDict()
         self._ids = itertools.count(1)
         self._total = 0
@@ -269,7 +320,7 @@ class SqlTraceRecorder:
         call_site: str | None = None,
         batch_size: int | None = None,
     ) -> str | None:
-        """Build the masked row once, at capture time; a paused recorder returns before any work.
+        """Store the masked compact row once, at capture time; a paused recorder returns before any work.
 
         Returns the literal-free statement text (never the raw SQL), which the journal event carries; ``None`` paused.
         """
@@ -287,37 +338,25 @@ class SqlTraceRecorder:
         if error is not None:
             masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
+            rowcount = -1  # a failed statement reports no affected rows
         has_parameters = bool(parameters)
         millis = duration_ns // 1_000_000
         category = category_of(sql)
         site = call_site if self.capture_call_site else None
-        row = {
-            "id": 0,
-            "timestamp": time.time_ns(),  # epoch ns, for ordering; entry_dto converts to the contract's epoch ms
-            "sql": stored,
-            "statementType": "PREPARED" if has_parameters else "STATEMENT",
-            "category": category,
-            "durationMicros": duration_ns // 1_000,
-            "durationMillis": millis,
-            "success": success and error is None,
-            "errorMessage": error_message,
-            "affectedRows": rowcount if rowcount >= 0 and error is None else None,
-            "batchSize": (batch_size if batch_size is not None else len(cast_sequence(parameters)))
+        batch = (
+            (batch_size if batch_size is not None else len(cast_sequence(parameters)))
             if executemany and has_parameters
-            else 0,
-            "connectionId": connection_id,
-            "thread": thread,
-            "slow": self._slow(millis),
-            "parameters": self._parameters(parameters, executemany)
-            if masker.capture_parameters and has_parameters
-            else [],
-            "traceId": request_id,
-            "callSite": site,
-            "shape": shape,
-            "phase": self.lifespan_phase if request_id is None else None,
-        }
+            else 0
+        )
+        shown = self._parameters(parameters, executemany) if masker.capture_parameters and has_parameters else None
+        timestamp = time.time_ns()
+        ok = success and error is None
+        phase = self.lifespan_phase
         with self._lock:
-            row["id"] = next(self._ids)
+            row: CompactRow = (
+                next(self._ids), timestamp, stored, has_parameters, category, duration_ns, ok, error_message,
+                rowcount, batch, connection_id, thread, shown, request_id, site, shape, phase,
+            )  # fmt: skip
             self._sqlite_seen |= dialect is Dialect.SQLITE
             if len(self._entries) == self.max_entries:
                 self._evicted += 1
@@ -369,19 +408,22 @@ class SqlTraceRecorder:
             self.changes.signal()
 
     def rows(self) -> list[dict[str, Any]]:
-        """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` builds one DTO."""
-        return list(self._entries)
+        """The readable rows, oldest first (``timestamp`` in epoch ns); ``entry_dto`` builds one DTO."""
+        threshold = self.slow_query_threshold_millis
+        return [materialize(row, threshold) for row in list(self._entries)]
 
     def report(self, data_sources: list[str]) -> dict[str, Any]:
         """``SqlTraceReport``: entries newest first, stats over the ring, top statements since the last clear."""
         with self._lock:  # one view of the ring and the groups; a reader that spins here must yield to the writers
-            rows = list(self._entries)
+            compact = list(self._entries)
             groups = [
                 (a.sql, a.category, a.executions, a.total_duration, a.max_duration, list(a.call_sites))
                 for a in list(self._aggregates.values())  # NOSONAR - RLock: a gc finalizer here can add a group
             ]
             total, evicted = self._total, self._evicted
             sqlite_seen = self._sqlite_seen
+        threshold = self.slow_query_threshold_millis
+        rows = [materialize(row, threshold) for row in compact]  # outside the lock: host statements never wait on it
         stats = _empty_stats()
         for row in rows:
             millis = row["durationMillis"]
