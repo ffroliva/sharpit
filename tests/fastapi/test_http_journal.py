@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import secrets
+import time
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
@@ -97,6 +98,18 @@ def test_without_tracing_and_ai_outside_any_request_the_kind_is_not_applicable()
     check = next(c for c in checks if c["kind"] == "ai-usage-by-route")
     assert check["status"] == "NOT_APPLICABLE"
     assert "Without tracing" in str(check["reason"])
+
+
+# BootUI parity: HttpPayload.timing.startNanos, on the clock the sql event's completedNanos is read from
+def test_http_journal_event_carries_the_monotonic_start_on_the_sql_clock() -> None:
+    client, journal, _ = _world()
+    before = time.perf_counter_ns()
+    client.get("/api/items/1")
+    after = time.perf_counter_ns()
+    start = _one(journal).get("startNanos")
+    assert start is not None
+    assert isinstance(start, int)
+    assert before <= start <= after
 
 
 def test_http_journal_event_path_is_cut_like_the_exchange_row() -> None:
