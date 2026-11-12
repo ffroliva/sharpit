@@ -139,9 +139,7 @@ def test_errors_behind_2xx_not_applicable_when_http_unproduced(monkeypatch: pyte
 
 def test_errors_behind_2xx_is_not_applicable_when_ids_are_withheld() -> None:
     run = Run()
-    run.request(200, exception(ILLEGAL_STATE))
-    for record in run.journal.records("http"):
-        record.pop("requestId", None)  # the exposure withheld the ids the join needs
+    run.journal.offer({"source": "http", "route": ORDERS, "status": 200})  # the exposure withheld the ids
     check = run.check()
     assert check["status"] == "NOT_APPLICABLE"
     assert "SHARPIT_EXPOSE_VALUES" in str(check["reason"])
@@ -151,8 +149,9 @@ def test_errors_behind_2xx_text_uses_journal_fields_only() -> None:
     run = Run()
     secret = "Bearer " + "abcdef0123456789"
     run.request(200, {**exception(ILLEGAL_STATE), "message": secret, "stack": secret})
-    assert "abcdef0123456789" not in json.dumps(run.report())
-    assert "IllegalStateException" in json.dumps(run.rows())
+    detail = InsightsService(run.journal).insight(str(run.rows()[0]["id"]))
+    assert "abcdef0123456789" not in json.dumps([run.report(), detail])
+    assert detail["rows"] == [{"cells": ["r1", "200", "exception: IllegalStateException"]}]
 
 
 @pytest.mark.parametrize(
