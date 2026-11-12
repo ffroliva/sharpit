@@ -382,9 +382,9 @@ def _files(**options: Any) -> FilesSensor:
 def test_the_files_sensor_collapses_a_path_to_a_pattern(
     event: str, args: tuple[Any, ...], kind: str, target: str, location: str
 ) -> None:
-    (row,) = _files().record(event, args)
-    assert (row["kind"], row["target"], row["location"]) == (kind, target, location)
-    assert set(row) == {"source", "kind", "target", "origin", "location"}
+    rows = _files().record(event, args)
+    assert [(row["kind"], row["target"], row["location"]) for row in rows] == [(kind, target, location)]
+    assert all(set(row) == {"source", "kind", "target", "origin", "location"} for row in rows)
 
 
 @pytest.mark.parametrize(
