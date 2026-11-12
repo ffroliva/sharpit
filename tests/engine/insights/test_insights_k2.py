@@ -199,16 +199,14 @@ def test_errors_behind_2xx_secret_in_a_read_field_is_never_shown(exposure: Expos
     assert "abcdef0123456789" not in dumped
 
 
-def test_errors_behind_2xx_real_install_is_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_errors_behind_2xx_real_install_evaluates_rolled_back_transactions(monkeypatch: pytest.MonkeyPatch) -> None:
+    # the transaction source has a producer now (W5a P-transaction): the real set is no longer NOT_APPLICABLE
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES)
+    assert "transaction" in REAL_PRODUCED_SOURCES
     run = Run()
-    run.request(200)
-    check = run.check()
-    assert check["status"] == "NOT_APPLICABLE"
-    assert check["reason"] == (
-        "The runtime journal records none of the transaction, exception, log, and rest-client sources, or their "
-        "panels are disabled."
-    )
+    run.request(200, {"source": "transaction", "rolledBack": True, "nested": False, "method": "app.orders:save:12"})
+    assert run.check()["status"] == "EVALUATED"
+    assert len(run.rows()) == 1
 
 
 def test_errors_behind_2xx_not_applicable_when_http_unproduced(monkeypatch: pytest.MonkeyPatch) -> None:
