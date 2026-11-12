@@ -188,7 +188,9 @@ def _declaration(
         status, status_source = None, "DYNAMIC"
     elif statuses:
         status, status_source = statuses.pop()
-    retry_after = retries.pop() if len(retries) == 1 else None if retries else False
+    retry_after: bool | None = False  # no Retry-After seen
+    if retries:
+        retry_after = retries.pop() if len(retries) == 1 else None  # branches that disagree are unknown
     return status, status_source, category, body_type, retry_after
 
 
@@ -243,21 +245,28 @@ def index_for_handlers(handlers: Sequence[ErrorHandlerInfo]) -> SourceIndex:
     """Build a minimal SourceIndex from the modules defining each handler, read from disk."""
     modules: dict[str, ModuleInfo] = {}
     for info in handlers:
-        parts = info.handler.split(".")
-        for i in range(len(parts), 0, -1):
-            mod_name = ".".join(parts[:i])
-            if mod_name in sys.modules:
-                mod = sys.modules[mod_name]
-                filename = getattr(mod, "__file__", None)
-                if isinstance(filename, str) and filename.endswith(".py") and mod_name not in modules:
-                    try:
-                        source = Path(filename).read_text("utf-8")
-                        tree = ast.parse(source)
-                        modules[mod_name] = ModuleInfo(mod_name, Path(filename), tree, (), ())
-                    except (OSError, SyntaxError, ValueError):
-                        pass
-                break
+        mod_name = _loaded_module_of(info.handler)
+        if mod_name is not None and mod_name not in modules:
+            parsed = _parsed_module(mod_name)
+            if parsed is not None:
+                modules[mod_name] = parsed
     return SourceIndex(modules=modules)
+
+
+def _loaded_module_of(handler: str) -> str | None:
+    """The longest dotted prefix of ``handler`` that is an already-imported module (nothing is imported here)."""
+    parts = handler.split(".")
+    return next((name for i in range(len(parts), 0, -1) if (name := ".".join(parts[:i])) in sys.modules), None)
+
+
+def _parsed_module(mod_name: str) -> ModuleInfo | None:
+    filename = getattr(sys.modules[mod_name], "__file__", None)
+    if not (isinstance(filename, str) and filename.endswith(".py")):
+        return None
+    try:
+        return ModuleInfo(mod_name, Path(filename), ast.parse(Path(filename).read_text("utf-8")), (), ())
+    except (OSError, SyntaxError, ValueError):
+        return None
 
 
 def entries(model: ApiModel, index: SourceIndex | None = None) -> list[ErrorContractEntry]:
