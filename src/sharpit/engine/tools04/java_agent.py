@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from sharpit.engine.sensors.floor import SensorRefusal, java_agent_report, switch_sensor_for_agents
@@ -13,15 +14,18 @@ _SWITCH = (
 )
 
 
-def _status(_call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
-    return java_agent_report()  # no sensors to filter by query in this version
+def _status(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
+    return java_agent_report(call.ctx.capture.sensors)  # no sensors to filter by query in this version
 
 
-def _switch(_call: CallContext, args: dict[str, Any]) -> dict[str, Any]:
-    try:
-        return switch_sensor_for_agents(args["id"])
-    except SensorRefusal as refusal:
-        raise ToolCallError(refusal.message, refusal.status) from None
+def _switcher(enabled: bool) -> Callable[[CallContext, dict[str, Any]], dict[str, Any]]:
+    def switch(call: CallContext, args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return switch_sensor_for_agents(args["id"], enabled, call.ctx.capture.sensors)
+        except SensorRefusal as refusal:
+            raise ToolCallError(refusal.message, refusal.status) from None
+
+    return switch
 
 
 TOOLS = (
@@ -35,9 +39,21 @@ TOOLS = (
         False,
         _status,
     ),
-    Tool("enable_agent_sensor", "With the user's authorization, switch on" + _SWITCH, _ID, "java-agent", True, _switch),
     Tool(
-        "disable_agent_sensor", "With the user's authorization, switch off" + _SWITCH, _ID, "java-agent", True, _switch
+        "enable_agent_sensor",
+        "With the user's authorization, switch on" + _SWITCH,
+        _ID,
+        "java-agent",
+        True,
+        _switcher(True),
+    ),
+    Tool(
+        "disable_agent_sensor",
+        "With the user's authorization, switch off" + _SWITCH,
+        _ID,
+        "java-agent",
+        True,
+        _switcher(False),
     ),
 )
 COMMANDS = {

@@ -328,6 +328,7 @@ PROPERTIES = {
     "bootui.runtime-journal.max-bytes": ("runtime_journal_max_bytes", "39KB"),
     "bootui.runtime-journal.queue-capacity": ("runtime_journal_queue_capacity", "40"),
     "bootui.runtime-journal.sources": ("runtime_journal_sources", "SQL,http"),
+    "bootui.agent.sensors": ("agent_sensors", "Processes,files"),  # W6 S3
     "bootui.runtime-insights.ai-token-threshold": ("runtime_insights_ai_token_threshold", "9000"),
     "bootui.resources.jfr.max-duration": ("resources_jfr_max_duration", "45s"),
     # 0.4.0 fields pre-created by lane F
@@ -501,6 +502,7 @@ NEW_FAIL_SAFE: list[tuple[str, str, str, Any]] = [
     ("runtime_journal_max_bytes", "SHARPIT_RUNTIME_JOURNAL_MAX_BYTES", "lots", 32 * 1024 * 1024),
     ("runtime_journal_queue_capacity", "SHARPIT_RUNTIME_JOURNAL_QUEUE_CAPACITY", "-1", 10_000),
     ("runtime_journal_sources", "SHARPIT_RUNTIME_JOURNAL_SOURCES", "sql,nope", JOURNAL_SOURCES),
+    ("agent_sensors", "SHARPIT_AGENT_SENSORS", "files,nope", ()),  # W6 S3: an unknown id turns every sensor off
 ]
 
 
@@ -775,6 +777,7 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "RUNTIME_JOURNAL_MAX_BYTES",
         "RUNTIME_JOURNAL_QUEUE_CAPACITY",
         "RUNTIME_JOURNAL_SOURCES",
+        "AGENT_SENSORS",
         "RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD",
         "RESOURCES_JFR_MAX_DURATION",
         "SECURITY_LOGS_MAX_LOGS",
