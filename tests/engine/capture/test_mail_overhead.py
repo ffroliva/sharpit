@@ -6,6 +6,7 @@ import gc
 import time
 from typing import Any
 
+import pytest
 from tests.overhead import check_budget, paired
 
 from fastapi import FastAPI
@@ -16,12 +17,17 @@ ROUNDS = 200
 MESSAGE = "Subject: hi\n\nbody\n"
 
 
-def test_suspended_mail_wrapper_overhead_budget():
+def test_suspended_mail_wrapper_overhead_budget(monkeypatch: pytest.MonkeyPatch):
     """With the mail hook suspended, the production ``sendmail`` wrapper (``_sync_sendmail`` around a no-op transport)
     costs at most 10 µs over the bare transport, even with apps installed earlier, never shut down and dropped
     (finding W7-E r2 #6: the budget timed ``_dispatch``, and leaked recorders made it 1392 µs)."""
     from sharpit.engine.capture import mail
 
+    # Apps another test file served and never shut down are still installed (the root logger keeps their handler),
+    # and every installed app records mail sent outside a request: theirs is not this wrapper's cost, so they are
+    # paused for the measurement. Apps dropped without shutting down are collected, and must cost nothing.
+    for installed in [o for o in gc.get_objects() if isinstance(o, mail.MailRecorder)]:
+        monkeypatch.setattr(installed, "paused", True)
     for _ in range(15):
         install(FastAPI(), **OPTIONS)  # never shut down, never uninstalled, dropped at once
     gc.collect()

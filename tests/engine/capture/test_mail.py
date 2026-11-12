@@ -380,6 +380,19 @@ def test_a_capture_failure_on_a_trapped_session_is_not_sent(
         assert h.emails()["total"] == 0
 
 
+def test_a_trapped_session_never_reaches_a_transport_once_its_trap_is_gone(no_smtp_server: list[object]):
+    # r2 fix review: a session opened under a trap has no server behind it, so its mail is never "sent"
+    trap = install(FastAPI(), **{**OPTIONS, "email_dev_trap": True})
+    smtp = smtplib.SMTP("smtp.example.test", 587, local_hostname="app.example.test")  # trapped: no socket
+    trap.uninstall_capture()
+    with harness() as h:  # the trap is off here
+        answer = smtp.sendmail("app@example.test", ["b@example.test"], "Subject: orphan\r\n\r\nbody\r\n")
+        smtp.quit()
+        assert no_smtp_server == []
+        assert answer == {}
+        assert [m["sent"] for m in h.emails()["messages"]] == [False]
+
+
 def _dropped_install(**options: Any) -> weakref.ref[Any]:
     """An app installed, never shut down nor uninstalled, then dropped: a weak reference to its recorder."""
     handle = install(FastAPI(), **{**OPTIONS, **options})
