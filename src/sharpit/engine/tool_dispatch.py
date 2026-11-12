@@ -11,7 +11,8 @@ from typing import Any, NoReturn, cast
 from sharpit import __version__
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
-from sharpit.engine.panels import disabled_reason, read_only_reason
+from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
+from sharpit.engine.sensors.floor import AGENT_SENSOR_TOOLS, ID_SOURCES, PANEL_REASONS
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.settings import PanelSettings
 
@@ -151,12 +152,24 @@ def _rule_violation_arguments(checked: dict[str, Any], raw_limit: object, max_re
     return {"scanId": (scan_id or "").strip(), "offset": offset, "pageLimit": raw_limit, "maxResults": max_results}
 
 
-def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any) -> Tool:
+def _raise_unlisted_tool(settings: Any, name: str, contracts: Any) -> NoReturn:
+    """``McpDispatcher.unavailableTool``: a BootUI tool sharpit does not advertise says why, from its panel."""
+    panel = AGENT_SENSOR_TOOLS.get(name)
+    if panel is None:
+        raise contracts.RpcError(contracts.INVALID_PARAMS, contracts.UNKNOWN_TOOL_PREFIX + name)
+    if not settings.panels.get(panel, PanelSettings()).enabled:
+        raise contracts.ToolCallError(disabled_reason(panel), 403)
+    title = next(p.title for p in PANELS if p.id == panel)
+    message = f"{contracts.UNAVAILABLE_TOOL_PREFIX}{name}. Its {title} panel is unavailable: {PANEL_REASONS[panel]}"
+    raise contracts.RpcError(contracts.INVALID_PARAMS, message)
+
+
+def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any, settings: Any) -> Tool:
     if not isinstance(name, str) or not name:
         raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing tool name")
     tool = next((t for t in catalogue if t.name == name and (via == "cli" or not t.action)), None)
     if tool is None:
-        raise contracts.RpcError(contracts.INVALID_PARAMS, contracts.UNKNOWN_TOOL_PREFIX + name)
+        _raise_unlisted_tool(settings, name, contracts)
     return tool
 
 
@@ -177,7 +190,9 @@ def _normalized_arguments(tool: Tool, checked: dict[str, Any], max_results: int,
     raw_id = checked.get("id")
     gid = raw_id.strip() if isinstance(raw_id, str) else ""
     if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
-        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing required argument: id")
+        source = ID_SOURCES.get(tool.name)  # McpProtocol.missingArgumentMessage: where the id comes from
+        suffix = f" ({source})" if source else ""
+        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing required argument: id" + suffix)
     normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
     if "scanId" in tool.input_schema["properties"]:  # RULE_VIOLATIONS: checked only on the tool that declares them
         normalized.update(_rule_violation_arguments(checked, raw_limit, max_results))
@@ -190,7 +205,7 @@ def call_tool(
     """The tool's payload, or ``RpcError`` (protocol error) / ``ToolCallError`` (in-band refusal)."""
     contracts = _contracts()
     catalogue = contracts.TOOLS if tools is None else tools
-    tool = _find_tool(catalogue, name, via, contracts)
+    tool = _find_tool(catalogue, name, via, contracts, call.ctx.settings)
     checked = _checked_tool_arguments(tool, args, contracts)
     settings = call.ctx.settings
     flags = settings.panels.get(tool.panel, PanelSettings())
@@ -268,7 +283,8 @@ def cli_invoke(call: CallContext, name: str, args: object) -> tuple[int, dict[st
         return exc.status, {"error": exc.message}
     except contracts.RpcError as exc:
         if exc.code == contracts.INVALID_PARAMS:
-            status = 404 if exc.message.startswith(contracts.UNKNOWN_TOOL_PREFIX) else 400
+            unlisted = (contracts.UNKNOWN_TOOL_PREFIX, contracts.UNAVAILABLE_TOOL_PREFIX)
+            status = 404 if exc.message.startswith(unlisted) else 400
         else:
             status = {contracts.SERVER_AT_CAPACITY: 429, contracts.TOOL_TIMEOUT: 504}.get(exc.code, 500)
         return status, {"error": exc.message}

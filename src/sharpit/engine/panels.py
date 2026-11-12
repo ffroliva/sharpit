@@ -68,6 +68,11 @@ PANELS: tuple[Panel, ...] = (
     Panel("claude-code", "Claude Code", False, "/claude-code"),
     Panel("github", "GitHub", True, "/github"),
     Panel("ai", "AI Framework", False, "/ai"),
+    # 0.6.0 W6: the agent-sensor panels (engine/sensors/floor.py answers them until the sensors ship)
+    Panel("java-agent", "Java Agent", True, "/java-agent"),
+    Panel("code-inventory", "Code Inventory", False, "/code-inventory"),
+    Panel("code-paths", "Code Paths", True, "/code-paths"),
+    Panel("side-effects", "Side Effects", False, "/side-effects"),
     # 0.6.0 W8 A0: slots for the read sides (W5b K, W7 D), action-capable as BootUiPanels.java:124,133
     Panel("cache", "Cache", True, "/cache"),
     Panel("dev-services", "Dev Services", True, "/dev-services"),

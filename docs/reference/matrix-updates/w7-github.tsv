@@ -1,0 +1,14 @@
+route:GET /github	partial	Empty-cwd golden matches; parity reports unavailableReason null on a local repository checkout
+tool:get_github_dashboard	matched	BootUI 2.3.0 schema, read-only flag and github command in test_tools_23
+cli:github	matched	get_github_dashboard maps to the BootUI github command
+prop:bootui.github.allowed-api-hosts	matched	lower-cased allowed host list and default
+prop:bootui.github.api-enabled	matched	boolean GitHub API refresh setting
+prop:bootui.github.max-api-calls	matched	positive GitHub API call limit
+prop:bootui.github.max-issues	matched	positive issue limit
+prop:bootui.github.max-pull-requests	matched	positive pull request limit
+prop:bootui.github.max-security-alerts	matched	positive security alert limit
+prop:bootui.github.max-workflow-runs	matched	positive workflow run limit
+prop:bootui.github.quota-safety-threshold	matched	positive quota safety threshold
+prop:bootui.github.request-timeout	matched	5 second default and duration parser
+panel:github	matched	GET, read tool and the REST-only refresh action (G2) implemented; masking corpus rows for fetched text wait on Fk
+op:github.refresh	matched	POST /github/refresh: BootUI call order, budget, quota protection, 2 MiB cap, no redirects; tests/engine/collectors/github/test_github_client.py, tests/fastapi/test_github_refresh_api.py
