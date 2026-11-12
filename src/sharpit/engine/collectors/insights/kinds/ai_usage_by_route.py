@@ -1,8 +1,10 @@
 """``ai-usage-by-route``: BootUI ``E/insights/AiUsageByRoute.java:63-264``.
 
-Deviations (proposed): an operation joins its request by request id or trace id only (sharpit's AI event carries no
-start time for BootUI's time-window join); a call without ``durationNanos`` is left out of the median, which is then
-not stated; the not-applicable reason names no Java framework.
+Deviations (proposed): an operation joins its request by request id, else by trace id (sharpit's AI event carries no
+start time for BootUI's time-window join, and there is no PROPAGATED tier: REQUEST_ID is a request-id join, TRACE_ID
+the rest); an operation that joins no retained request is counted in the check's ``uncounted`` text; a call without
+``durationNanos`` is left out of the median, which is then not stated; the not-applicable reason names no Java
+framework.
 """
 
 from __future__ import annotations
@@ -71,7 +73,7 @@ class _Usage:
         inputs: list[int] = []
         for event in events:
             self.operations += 1
-            self.trace_linked += not event.get("requestId") and not event.get("executionId")
+            self.trace_linked += not event.get("requestId")
             self.failed += event.get("failed") is True
             if event.get("operation") == "chat":
                 calls += 1
@@ -208,5 +210,15 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
                 usage.add(request, operations)
         if usage.operations:
             findings.append(_finding(route, usage, len(routed)))
-    unplaced = not snapshot.recorded("http") and bool(snapshot.records.get("ai"))
-    return Evaluation(len(requests), findings, NO_ROUTE if unplaced else None)
+    return Evaluation(len(requests), findings, _uncounted(snapshot))
+
+
+def _uncounted(snapshot: Snapshot) -> str | None:
+    events = snapshot.records.get("ai", ())
+    if not snapshot.recorded("http"):
+        return NO_ROUTE if events else None
+    unjoined = sum(snapshot.request_index.owner(event) is None for event in events)
+    if not unjoined:
+        return None
+    verb = "it is" if unjoined == 1 else "they are"
+    return f"{counted(unjoined, 'AI operation')} joined no retained request, so {verb} not counted."

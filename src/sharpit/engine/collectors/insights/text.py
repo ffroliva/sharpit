@@ -29,10 +29,9 @@ UNDER_DEFAULT_FLOOR = (
 
 
 def unit(route: str | None) -> str:
-    """``InsightText.unit``: what one unit of a route's work is called."""
-    if route and route.startswith("@Scheduled "):
-        return "run"
-    return "message" if route and route.startswith("consume ") else "request"
+    """``InsightText.unit``: what one unit of a route's work is called (sharpit's routes are all requests)."""
+    del route  # BootUI's "@Scheduled " and "consume " routes come from Java producers no sharpit producer has
+    return "request"
 
 
 def millis(nanos: int) -> str:

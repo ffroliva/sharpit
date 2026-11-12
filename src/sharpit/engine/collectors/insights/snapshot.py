@@ -10,9 +10,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from functools import cached_property
+from typing import TYPE_CHECKING, Any
 
 from sharpit.settings_registry import JOURNAL_SOURCES
+
+if TYPE_CHECKING:
+    from sharpit.engine.collectors.insights.requests import Request, RequestIndex
 
 PRODUCED_SOURCES: frozenset[str] = frozenset({"ai"})  # W7 A2's AI recognizer (#134); W5a's http and sql are not merged
 
@@ -26,6 +30,17 @@ class Snapshot:
     records: Mapping[str, tuple[dict[str, object], ...]]  # recorded sources only
     newest_at: int | None = None
     ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD  # runtime_insights_ai_token_threshold, validated positive
+
+    @cached_property
+    def request_index(self) -> RequestIndex:
+        """The http requests, projected once per snapshot however many kinds read them."""
+        from sharpit.engine.collectors.insights.requests import RequestIndex  # noqa: PLC0415 - requests imports this
+
+        return RequestIndex(self.records.get("http", ()))
+
+    @property
+    def requests(self) -> tuple[Request, ...]:
+        return self.request_index.requests
 
     def recorded(self, source: str) -> bool:
         return source in self.records

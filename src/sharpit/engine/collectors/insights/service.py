@@ -28,7 +28,6 @@ UNKNOWN_PREFIX = "No observation "
 UNKNOWN_SUFFIX = " in this run's retained events: it may have been evicted or cleared."
 TEXT_OMITTED = "The text of this observation is withheld under METADATA_ONLY exposure: counts, ids and statuses only."
 MAX_EXEMPLARS, MAX_EVIDENCE_ROWS = 3, 20  # RuntimeInsightsService.MAX_EXEMPLARS, MAX_EVIDENCE_ROWS
-_LINKS = ("requestId", "executionId", "traceId")
 
 Row = dict[str, object]
 Mask = Callable[[str], str | None]  # None: METADATA_ONLY shows no text
@@ -123,12 +122,21 @@ def _row(
     }, finding  # fmt: skip
 
 
+def _link(snapshot: Snapshot, event: Row) -> int:
+    """``InsightsSnapshot.java:171-220``: a request or execution id links by itself, a trace id only to an owner."""
+    if event.get("requestId"):
+        return 0
+    if event.get("executionId"):
+        return 1
+    return 2 if snapshot.request_index.owner(event) is not None else 3
+
+
 def _coverage(snapshot: Snapshot) -> list[Row]:
     rows: list[Row] = []
     for source, events in snapshot.records.items():
         if not events:
             continue
-        linked = [next((i for i, key in enumerate(_LINKS) if event.get(key)), 3) for event in events]
+        linked = [_link(snapshot, event) for event in events]
         rows.append({
             "source": source, "events": len(events), "byRequestId": linked.count(0), "byExecutionId": linked.count(1),
             "byTraceId": linked.count(2), "unlinked": linked.count(3), "dropped": snapshot.dropped(source),

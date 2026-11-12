@@ -1,13 +1,18 @@
 """Requests projected from the journal's ``http`` records, with the events of other sources joined to them.
 
-The record shape is ``requestId``, ``traceId`` and ``route`` (``"GET /api/x"``); W5a's http producer meets it. An event
-joins the request it names by ``requestId``, else the one its ``traceId`` names. Without the http source there are no
-requests and nothing joins: the caller says so rather than guess a route.
+The http record shape is a contract the W5a http producer meets (self-declared here; no producer is merged yet):
+``requestId`` (str), ``traceId`` (str, lower-case 32 hex as ``capture/exchanges.trace_id`` writes it), ``method`` (str),
+``route`` (the label, ``"GET /api/x"``), ``status`` (int), ``durationNanos`` (int), ``startedAt`` (epoch ms). Only
+``requestId`` is required; a missing field reads as ``None``.
+
+An event that carries a ``requestId`` joins that request or nothing (BootUI ``InsightsSnapshot.java:205-209``); an event
+without one joins the request its ``traceId`` names. Without the http source there are no requests and nothing joins:
+the caller says so rather than guess a route. The projection is built once per snapshot (``Snapshot.request_index``).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 
@@ -17,29 +22,52 @@ class Request:
     request_id: str
     route: str
     trace_id: str | None
+    method: str | None = None
+    status: int | None = None
+    duration_nanos: int | None = None
+    started_at: int | None = None
     children: dict[str, list[dict[str, object]]] = field(default_factory=dict[str, list[dict[str, object]]])
+
+
+class RequestIndex:
+    """The retained http requests and the join of an event to one of them."""
+
+    def __init__(self, records: tuple[dict[str, object], ...]) -> None:
+        self.requests = tuple(
+            Request(
+                str(r.get("requestId")), str(r.get("route") or ""), _text(r.get("traceId")), _text(r.get("method")),
+                _count(r.get("status")), _count(r.get("durationNanos")), _count(r.get("startedAt")),
+            )
+            for r in records
+        )  # fmt: skip
+        self._by_id = {r.request_id: r for r in self.requests}
+        self._by_trace: dict[str, Request] = {}
+        for request in self.requests:
+            if request.trace_id:
+                self._by_trace.setdefault(request.trace_id, request)
+
+    def owner(self, event: dict[str, object]) -> Request | None:
+        request_id = _text(event.get("requestId"))
+        if request_id:
+            return self._by_id.get(request_id)
+        return self._by_trace.get(_text(event.get("traceId")) or "")
 
 
 def project_requests(snapshot: Snapshot, *sources: str) -> list[Request]:
     """The retained http requests, each with its children from ``sources`` (recorded ones only), in journal order."""
-    if not snapshot.recorded("http"):
-        return []
-    requests = [
-        Request(str(r.get("requestId")), str(r.get("route") or ""), _text(r.get("traceId")), {s: [] for s in sources})
-        for r in snapshot.records.get("http", ())
-    ]
+    index = snapshot.request_index
+    requests = [replace(r, children={s: [] for s in sources}) for r in index.requests]
     by_id = {r.request_id: r for r in requests}
-    by_trace: dict[str, Request] = {}
-    for request in requests:
-        if request.trace_id:
-            by_trace.setdefault(request.trace_id, request)
     for source in sources:
         for event in snapshot.records.get(source, ()):
-            owner = by_id.get(_text(event.get("requestId")) or "") or by_trace.get(_text(event.get("traceId")) or "")
-            if owner is not None:
-                owner.children[source].append(event)
+            if (owner := index.owner(event)) is not None:
+                by_id[owner.request_id].children[source].append(event)
     return requests
 
 
 def _text(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
