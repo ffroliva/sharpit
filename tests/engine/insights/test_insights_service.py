@@ -218,18 +218,34 @@ def test_insights_report_golden_keys_23() -> None:
     ]  # fmt: skip
 
 
+def _sql_event(i: int) -> dict[str, str | int | bool | None]:
+    """A ``sql`` event as the producer builds it: a few dozen shapes repeat, as an application's statements do."""
+    return {
+        "source": "sql", "sql": f"select a, b from t{i % 40} where id = ? and name = 'x{i % 40}'", "traceId": None,
+        "requestId": f"r{i % 700}", "thread": "MainThread", "durationNanos": 1_000 + i,
+        "startedAt": 1_700_000_000_000 + i, "dataSource": None, "failed": False, "phase": None,
+        "completedNanos": 10_000 + i, "codePathStamp": 0, "provenance": "EXECUTION", "batchSize": 1,
+        "callSite": f"app/db.py:load:{i % 12}",
+    }  # fmt: skip
+
+
 def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget() -> None:
-    """Times projection and coverage over a full journal with stub kinds; not BootUI's budget test."""
-    journal = _journal(max_events=50_000)
+    """Times projection and coverage over a full journal with stub kinds; not BootUI's budget test.
+
+    W5a P-sql r3: 50,000 ``sql`` events with repeated shapes too, so the read-time SQL masking is inside the budget.
+    """
+    journal = _journal(max_events=100_000)
     for i in range(50_000):
         journal.offer_flat({"source": "ai", "operation": "chat", "inputTokens": i, "requestId": f"r{i % 700}"})
+    for i in range(50_000):
+        journal.offer_flat(_sql_event(i))
     service = InsightsService(journal)
     best = float("inf")
     for _ in range(3):
         start = time.perf_counter()
         report = service.report()
         best = min(best, time.perf_counter() - start)
-    assert report["window"]["retainedEvents"] == 50_000
+    assert report["window"]["retainedEvents"] == 100_000
     check_wall_budget("insights report over a full journal", best, 2.0)
 
 
