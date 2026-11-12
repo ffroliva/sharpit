@@ -197,6 +197,11 @@ class SharpitSettings:
     alembic_clean_enabled: bool = False
     dev_services_restart_enabled: bool = False
     cache_clear_enabled: bool = False
+    # 0.6.0 W7 E: BootUI P:3286-3320 (email.max-entries, dev-trap, mask-content, max-body-length)
+    email_max_entries: int = 100
+    email_dev_trap: bool = False
+    email_mask_content: bool = False
+    email_max_body_length: int = 200_000
     warnings: tuple[str, ...] = ()
 
 
