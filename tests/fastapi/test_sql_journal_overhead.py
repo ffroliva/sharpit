@@ -1,4 +1,4 @@
-"""The ``sql`` journal event's overhead budget: what offering it adds to a recorded statement (7 to 12 µs measured).
+"""The ``sql`` journal event's overhead budget: what offering it adds to a recorded statement (3 to 9 µs measured).
 
 Rounds alternate and the first side swaps every round, through tests/overhead.py; how to read a failure:
 docs/development/overhead-budgets.md.
@@ -22,7 +22,7 @@ from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
-# first number, for the owner: measured 2026-11-12 over five paired runs, -n 0: 7.4 to 12.3 µs
+# first number, for the owner: measured 2026-11-12 over five paired runs, -n 0: 7.4 to 12.3 µs; round 2: 3.4 to 8.8 µs
 BUDGET_NS = 25_000
 ROUNDS, PER_ROUND = 45, 200
 
