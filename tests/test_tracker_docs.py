@@ -130,6 +130,7 @@ OPTIONAL_LIBRARIES: dict[str, tuple[str, ...]] = {
         "mysql",
     ),
     "OpenTelemetry": ("traces",),
+    "prometheus-client": ("metrics",),
     "pydantic-settings": ("config",),
 }
 

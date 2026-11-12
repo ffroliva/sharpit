@@ -85,11 +85,23 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     ]
 
 
+def _row_status(sufficient: bool, partial: str | None) -> str:
+    if not sufficient:
+        return "INSUFFICIENT"
+    return "OBSERVED" if partial is None else "PARTIAL"
+
+
+def _check_status(worked: bool, partial: str | None) -> str:
+    if not worked:
+        return "INSUFFICIENT"
+    return "EVALUATED" if partial is None else "PARTIAL"
+
+
 def _row(
     observation: Observation, found: Any, partial: str | None, unseen: list[str], mask: Mask
 ) -> tuple[Row, Finding]:
     finding = listing.apply(observation.kind, found)
-    status = "INSUFFICIENT" if not finding.sufficient else "OBSERVED" if partial is None else "PARTIAL"
+    status = _row_status(finding.sufficient, partial)
     hidden = mask("") is None  # METADATA_ONLY: every text is withheld, and the row says so
     own = [] if hidden else [t for t in map(mask, finding.limitations) if t is not None]
     own += [TEXT_OMITTED] if hidden else []
@@ -210,7 +222,7 @@ class InsightsService:
             reasons.append(self._mask(evaluation.uncounted) or "")
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
-        status = "INSUFFICIENT" if not evaluation.worked else "EVALUATED" if partial is None else "PARTIAL"
+        status = _check_status(evaluation.worked, partial)
         reason = " ".join(r for r in reasons if r) or None
         check = _check(observation, status, evaluation.eligible, len(evaluation.findings), reason)
         return check, [_row(observation, f, partial, unseen, self._mask) for f in evaluation.findings]
