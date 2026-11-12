@@ -68,6 +68,10 @@ class RefusedNameError(ValueError):
     """The name is valid but policy forbids overriding it."""
 
 
+class OverridesFileError(RuntimeError):
+    """The overrides file cannot be written, or must not be (it was malformed or held entries sharpit skipped)."""
+
+
 def _is_sharpit_key(name: str) -> bool:
     upper = name.upper()
     lower = name.lower()
@@ -90,7 +94,7 @@ def _validate_name(name: object, profile_vars: Iterable[str] = ()) -> str:
     if _is_sharpit_key(trimmed):
         raise RefusedNameError("sharpit settings cannot be overridden at runtime.")
     if _is_refused_name(trimmed, profile_vars):
-        raise RefusedNameError(f"Environment variable '{trimmed}' cannot be overridden at runtime.")
+        raise RefusedNameError("Environment variable cannot be overridden at runtime.")
     return trimmed
 
 
@@ -216,14 +220,14 @@ class ConfigOverridesFileStore:
             if created:
                 with contextlib.suppress(OSError):
                     temp_path.unlink()
-            raise RuntimeError(f"Unable to write sharpit overrides file: {file}") from e
+            raise OverridesFileError(f"Unable to write sharpit overrides file: {file}") from e
 
     def delete(self) -> None:
         try:
             if self._file.exists():
                 self._file.unlink()
         except OSError as e:
-            raise RuntimeError(f"Unable to delete sharpit overrides file: {self._file}") from e
+            raise OverridesFileError(f"Unable to delete sharpit overrides file: {self._file}") from e
 
 
 def load_overrides(path: str | Path, profile_vars: Iterable[str] = ()) -> tuple[dict[str, str], list[str]]:
@@ -299,6 +303,11 @@ class ConfigOverrideService:
 
         self._overrides, self._load_warnings = load_overrides(self._file, self._profile_vars)
 
+    def _require_intact_file(self) -> None:
+        """A save writes only the in-memory map: refuse it when the file held entries that map does not."""
+        if self._load_warnings:
+            raise OverridesFileError(f"Overrides file {self._file} is malformed; fix or delete it")
+
     @property
     def overrides_file(self) -> Path:
         return self._file
@@ -329,12 +338,13 @@ class ConfigOverrideService:
             self._store.save(self._overrides)
         except Exception as e:
             self._overrides = snapshot
-            if isinstance(e, RuntimeError):
+            if isinstance(e, OverridesFileError):
                 raise
-            raise RuntimeError(f"Unable to write sharpit overrides file: {self._file}") from e
+            raise OverridesFileError(f"Unable to write sharpit overrides file: {self._file}") from e
 
     def put(self, name: str, value: object) -> ConfigOverrideResult:
         validated_name, validated_value = validate_entry(name, "" if value is None else value, self._profile_vars)
+        self._require_intact_file()
         with _LOCK:
             alias = self._alias(validated_name)
             previous = self._overrides.get(alias) if alias is not None else None
@@ -355,9 +365,9 @@ class ConfigOverrideService:
                 _restore_env(validated_name, prior)
                 if not had_original:
                     _ORIGINAL_ENVIRON.pop(key, None)
-                if isinstance(e, RuntimeError):
+                if isinstance(e, OverridesFileError):
                     raise
-                raise RuntimeError(f"Unable to write sharpit overrides file: {self._file}") from e
+                raise OverridesFileError(f"Unable to write sharpit overrides file: {self._file}") from e
         return ConfigOverrideResult(
             name=validated_name,
             value=self._display_value(validated_name, validated_value),
@@ -368,6 +378,7 @@ class ConfigOverrideService:
 
     def remove(self, name: str) -> ConfigOverrideResult:
         validated_name = _validate_name(name, self._profile_vars)
+        self._require_intact_file()
         with _LOCK:
             alias = self._alias(validated_name)
             if alias is None:

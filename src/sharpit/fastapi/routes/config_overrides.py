@@ -17,7 +17,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from sharpit.engine.collectors.config.overrides import ConfigOverrideResult, override_service
+from sharpit.engine.collectors.config.overrides import (
+    ConfigOverrideResult,
+    OverridesFileError,
+    override_service,
+)
 from sharpit.engine.context import SharpitContext
 from sharpit.fastapi.http import error, json_response
 
@@ -58,7 +62,9 @@ def build_routes(ctx: SharpitContext) -> list[BaseRoute]:
             result: ConfigOverrideResult = await run_in_threadpool(change)
         except ValueError as exc:  # the layer's refusals (RefusedNameError included); their messages quote no input
             return error(400, str(exc))
-        except RuntimeError as exc:  # the write failure: BootUI's fixed "Unable to write ..." message
+        except (
+            OverridesFileError
+        ) as exc:  # the write failure or the refused malformed file: BootUI's fixed "Unable to write ..." message
             return error(500, str(exc))
         except Exception:
             logger.exception("config override failed")
