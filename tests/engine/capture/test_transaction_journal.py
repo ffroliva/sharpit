@@ -1,4 +1,4 @@
-"""W5a P-transaction: one ``transaction`` journal event per completed database transaction (BootUI ``TransactionPayload``).
+"""W5a P-transaction: one ``transaction`` journal event per completed transaction (BootUI ``TransactionPayload``).
 
 Metadata only: no SQL text, no parameter, no connection URL.
 """
