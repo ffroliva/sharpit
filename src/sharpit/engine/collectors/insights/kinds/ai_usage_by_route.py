@@ -30,6 +30,10 @@ NOT_APPLICABLE = "Without tracing, or an AI framework reporting its calls, AI us
 NO_ROUTE = (
     "Without the http source, which the runtime journal does not record, AI operations cannot be placed on a route."
 )
+IDS_WITHHELD = (
+    "Request and trace ids are withheld at METADATA_ONLY exposure, so AI operations cannot be placed on a route "
+    "(SHARPIT_EXPOSE_VALUES)."
+)
 COLUMNS = ["Request", "Operations", "Model calls", "Models", "Input tokens", "Output tokens"]
 _Event = dict[str, object]
 
@@ -39,7 +43,9 @@ def _count(value: object) -> int | None:
 
 
 def not_applicable(snapshot: Snapshot) -> str | None:
-    requests = project_requests(snapshot)
+    requests = snapshot.requests
+    if not requests and snapshot.records.get("http"):
+        return IDS_WITHHELD  # http records exist but none names an id: the exposure withheld them
     if not requests or any(r.trace_id for r in requests):
         return None
     stamped = any(e.get("requestId") or e.get("executionId") for e in snapshot.records.get("ai", ()))

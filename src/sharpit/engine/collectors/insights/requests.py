@@ -33,12 +33,14 @@ class RequestIndex:
     """The retained http requests and the join of an event to one of them."""
 
     def __init__(self, records: tuple[dict[str, object], ...]) -> None:
+        # a record without a request id (withheld by the exposure, or never written) is no request: never ``str(None)``
         self.requests = tuple(
             Request(
-                str(r.get("requestId")), str(r.get("route") or ""), _text(r.get("traceId")), _text(r.get("method")),
+                request_id, str(r.get("route") or ""), _text(r.get("traceId")), _text(r.get("method")),
                 _count(r.get("status")), _count(r.get("durationNanos")), _count(r.get("startedAt")),
             )
             for r in records
+            if (request_id := _text(r.get("requestId")))
         )  # fmt: skip
         self._by_id = {r.request_id: r for r in self.requests}
         self._by_trace: dict[str, Request] = {}

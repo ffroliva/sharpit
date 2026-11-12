@@ -118,7 +118,7 @@ def journal_finish_reason(attributes: Mapping[str, Any]) -> str | None:
     return first.lower() if first.lower() in _FINISH_REASONS else first or None
 
 
-def ai_journal_event(span: Any) -> dict[str, str | int | bool | None]:
+def ai_journal_event(span: Any, context_id: str | None = None) -> dict[str, str | int | bool | None]:
     raw = getattr(span, "attributes", None)
     name = getattr(span, "name", "")
     if not isinstance(name, str):
@@ -146,7 +146,7 @@ def ai_journal_event(span: Any) -> dict[str, str | int | bool | None]:
         "operation": operation_name,
         # journal-only envelope fields (BootUI keeps them on RuntimeEvent, not AiPayload): the insights join reads them
         "traceId": f"{trace_id:032x}" if isinstance(trace_id, int) else None,  # the http producer's format
-        "requestId": request.id if request is not None else None,
+        "requestId": request.id if request is not None and context_id in (None, request.context_id) else None,
         "durationNanos": ended - started if isinstance(started, int) and isinstance(ended, int) else None,
         "provider": provider(attributes),
         "model": response_model(attributes) or request_model(attributes),
