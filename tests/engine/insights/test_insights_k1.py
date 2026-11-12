@@ -94,7 +94,7 @@ class Run:
         event = SqlEvent("sqlalchemy", text, None, False, None, started_ns, duration_ns, -1, None, None, None,
                          Dialect.POSTGRESQL)  # fmt: skip
         clock = SimpleNamespace(time_ns=lambda: ended_epoch_ns)
-        with patch.object(dispatch, "time", clock), patch.object(dispatch, "call_site", lambda *_: None):
+        with patch.object(dispatch, "time", clock), patch.object(dispatch, "call_site", return_value=None):
             dispatch.deliver(event, [self.ctx])
 
     def report(self) -> Row:
