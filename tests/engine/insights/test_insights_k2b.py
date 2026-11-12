@@ -526,3 +526,43 @@ def test_framework_warnings_by_route_a_secret_in_a_template_is_masked_before_it_
     dumped = run.dump(WARNINGS)
     assert "reset failed" in dumped
     assert CANARY not in dumped
+
+
+# review r2 HIGH: with the source's panel off the store does not exist, so the kind must not claim it evaluated it
+def _boom_client(**panels: bool) -> TestClient:
+    app = FastAPI()
+    log_ = logging.getLogger("sqlalchemy.pool")
+
+    @app.get("/boom")
+    def boom() -> None:
+        log_.error("pool broke")
+        raise ValueError("boom")
+
+    install(
+        app, enabled="ON", show_banner=False, config_scan=False,
+        panels={p: {"enabled": on} for p, on in panels.items()},
+    )  # fmt: skip
+    return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000), raise_server_exceptions=False)
+
+
+@pytest.mark.parametrize(
+    ("kind", "panel"), [(HOTSPOTS, "exceptions"), (WARNINGS, "log-tail")], ids=["exceptions-off", "log-tail-off"]
+)
+def test_a_kind_whose_source_panel_is_off_is_not_applicable_never_evaluated_over_nothing(kind: str, panel: str) -> None:
+    client = _boom_client(**{panel: False})
+    assert client.get("/boom").status_code == 500
+    assert client.get("/boom").status_code == 500
+    check, rows, _ = _kind(client, kind)
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == f"The {panel} panel, whose evidence this reads, is disabled."
+    assert not rows
+
+
+@pytest.mark.parametrize("kind", [HOTSPOTS, WARNINGS])
+def test_a_kind_with_the_http_exchanges_panel_off_answers_boot_uis_hidden_requests_text(kind: str) -> None:
+    client = _boom_client(**{"http-exchanges": False})
+    assert client.get("/boom").status_code == 500
+    check, rows, _ = _kind(client, kind)
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == "The http-exchanges panel is disabled, so its unit-of-work evidence cannot be evaluated."
+    assert not rows
