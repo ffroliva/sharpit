@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import functools
+import sys
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 MAX_CLEARED_NAMES = 200
+MAX_ECHOED_NAME = 120
+_LRU_WRAPPER = type(functools.lru_cache(maxsize=1)(lambda: None))
 
 
 @dataclass(frozen=True)
@@ -19,11 +24,14 @@ class CacheClearRequest:
     def from_dict(cls, data: dict[str, Any] | None) -> CacheClearRequest | None:
         if data is None:
             return None
+        manager_name = data.get("managerName")
+        cache_name = data.get("cacheName")
+        # BootUI reads Boolean.TRUE.equals: only JSON true counts. A non-string name is no name.
         return cls(
-            manager_name=data.get("managerName"),
-            cache_name=data.get("cacheName"),
-            all=data.get("all"),
-            confirm=data.get("confirm"),
+            manager_name=manager_name if isinstance(manager_name, str) else None,
+            cache_name=cache_name if isinstance(cache_name, str) else None,
+            all=data.get("all") is True,
+            confirm=data.get("confirm") is True,
         )
 
 
@@ -87,6 +95,7 @@ class InProcessCacheProvider:
         self._unavailable_reason: str | None = None
         self._managers: dict[str, CacheManagerSnapshot] = {}
         self._cache_objects: dict[tuple[str, str], tuple[Any, bool]] = {}
+        self._lock = threading.RLock()
 
     def available(self) -> bool:
         return self._available
@@ -95,7 +104,8 @@ class InProcessCacheProvider:
         return self._clear_enabled
 
     def managers(self) -> list[CacheManagerSnapshot]:
-        return list(self._managers.values())
+        with self._lock:
+            return list(self._managers.values())
 
     def clear_unavailable_reason(self) -> str | None:
         return self._unavailable_reason
@@ -108,6 +118,14 @@ class InProcessCacheProvider:
         *,
         is_remote: bool = False,
         native_type: str | None = None,
+    ) -> None:
+        if not _is_supported(cache_obj):
+            raise TypeError("only functools cache wrappers and cachetools.Cache instances can be registered")
+        with self._lock:
+            self._register(manager_name, cache_name, cache_obj, is_remote, native_type)
+
+    def _register(
+        self, manager_name: str, cache_name: str, cache_obj: Any, is_remote: bool, native_type: str | None
     ) -> None:
         self._cache_objects[(manager_name, cache_name)] = (cache_obj, is_remote)
         type_str = native_type or f"{type(cache_obj).__module__}.{type(cache_obj).__qualname__}"
@@ -131,21 +149,30 @@ class InProcessCacheProvider:
             )
 
     def evict(self, manager_name: str, cache_name: str) -> bool:
-        key = (manager_name, cache_name)
-        if key not in self._cache_objects:
+        with self._lock:
+            entry = self._cache_objects.get((manager_name, cache_name))
+        if entry is None or entry[1]:  # a remote cache is NEVER invoked
             return False
-        cache_obj, is_remote = self._cache_objects[key]
-        if is_remote:
-            # Remote caches must NEVER be invoked
-            return False
-
-        if hasattr(cache_obj, "cache_clear") and callable(cache_obj.cache_clear):
+        cache_obj = entry[0]
+        if type(cache_obj) is _LRU_WRAPPER:
             cache_obj.cache_clear()
-            return True
-        if hasattr(cache_obj, "clear") and callable(cache_obj.clear):
+        else:
             cache_obj.clear()
-            return True
-        return False
+        return True
+
+
+def _cachetools_cache() -> type | None:
+    module = sys.modules.get("cachetools")  # never imported: the host's own copy, if it has one
+    cls = getattr(module, "Cache", None)
+    return cls if isinstance(cls, type) else None
+
+
+def _is_supported(cache_obj: object) -> bool:
+    """A functools wrapper or a cachetools.Cache, by type alone: no attribute of a host object is read."""
+    if type(cache_obj) is _LRU_WRAPPER:
+        return True
+    cache_cls = _cachetools_cache()
+    return cache_cls is not None and issubclass(type(cache_obj), cache_cls)
 
 
 class CacheService:
@@ -153,14 +180,26 @@ class CacheService:
         self,
         provider: CacheProvider | None,
         *,
-        clear_enabled: bool = True,
+        clear_enabled: bool = False,
         masker: Any | None = None,
     ) -> None:
         self.provider = provider
         self._clear_enabled = clear_enabled
         self.masker = masker
+        self._lock = threading.Lock()  # clear actions run one at a time; reads never take it
+
+    def _echo(self, name: str) -> str:
+        """A request name as shown in a message: masked first, then bounded."""
+        text = name
+        if self.masker is not None and hasattr(self.masker, "mask_text"):
+            text = self.masker.mask_text(text) or ""
+        return text if len(text) <= MAX_ECHOED_NAME else text[:MAX_ECHOED_NAME] + "..."
 
     def clear(self, request: CacheClearRequest | None) -> CacheClearResponse:
+        with self._lock:
+            return self._clear(request)
+
+    def _clear(self, request: CacheClearRequest | None) -> CacheClearResponse:
         if self.provider is None or not self.provider.available():
             return self._result(409, "unavailable", "No cache backend is available.", [])
 
@@ -172,7 +211,7 @@ class CacheService:
                 [],
             )
 
-        if request is None or not request.confirm:
+        if request is None or request.confirm is not True:
             return self._result(
                 400,
                 "confirmation_required",
@@ -185,12 +224,12 @@ class CacheService:
             return self._result(409, "unavailable", unavailable_reason, [])
 
         managers = self._sorted_managers()
-        if request.all:
+        if request.all is True:
             return self._clear_all(managers)
 
         manager_name = request.manager_name
         cache_name = request.cache_name
-        if not manager_name or not manager_name.strip() or not cache_name or not cache_name.strip():
+        if manager_name is None or not manager_name.strip() or cache_name is None or not cache_name.strip():
             return self._result(
                 400,
                 "invalid_request",
@@ -198,7 +237,7 @@ class CacheService:
                 [],
             )
 
-        return self._clear_one(managers, manager_name.strip(), cache_name.strip())
+        return self._clear_one(managers, manager_name, cache_name)
 
     def _sorted_managers(self) -> list[CacheManagerSnapshot]:
         if self.provider is None:
@@ -241,14 +280,14 @@ class CacheService:
             return self._result(409, "unavailable", "No cache backend is available.", [])
         manager = next((m for m in managers if m.name == manager_name), None)
         if manager is None:
-            return self._result(404, "not_found", f"Cache manager '{manager_name}' was not found.", [])
+            return self._result(404, "not_found", f"Cache manager '{self._echo(manager_name)}' was not found.", [])
 
         cache = next((c for c in manager.caches if c.name == cache_name), None)
         if cache is None:
             return self._result(
                 404,
                 "not_found",
-                f"Cache '{cache_name}' was not found in manager '{manager_name}'.",
+                f"Cache '{self._echo(cache_name)}' was not found in manager '{self._echo(manager_name)}'.",
                 [],
             )
 

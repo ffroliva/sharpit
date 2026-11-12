@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
@@ -14,6 +15,15 @@ GET_ROWS: list[str] = []
 WRITE_ROWS = [("POST", "/sharpit/api/cache/clear")]
 
 LOCAL = ("127.0.0.1", 50000)
+
+
+@pytest.fixture(autouse=True)
+def _cache_read_lane_landed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """K1's route is reachable only once the Cache read lane flips the panel on (proposed deviation D-K1-2)."""
+    from sharpit.engine import panels
+
+    real = panels.panel_is_implemented
+    monkeypatch.setattr(panels, "panel_is_implemented", lambda panel_id: panel_id == "cache" or real(panel_id))
 
 
 def _lru() -> Any:

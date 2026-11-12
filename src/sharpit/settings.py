@@ -186,7 +186,7 @@ class SharpitSettings:
     overrides_file: str = ".sharpit/overrides.env"  # load_settings derives it from state_dir when unset
     alembic_clean_enabled: bool = False
     dev_services_restart_enabled: bool = False
-    cache_clear_enabled: bool = True
+    cache_clear_enabled: bool = False
     warnings: tuple[str, ...] = ()
 
 

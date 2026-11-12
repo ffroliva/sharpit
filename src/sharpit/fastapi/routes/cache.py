@@ -31,14 +31,11 @@ def build_routes(ctx: SharpitContext, _host_app: object = None) -> list[BaseRout
                 data = None
         clear_req = CacheClearRequest.from_dict(data)
 
-        service = ctx.peek("cache_service")
-        if service is None or not isinstance(service, CacheService):
-            provider_obj: Any = getattr(ctx, "cache_provider", None) or ctx.peek("cache_provider")
-            service = CacheService(
-                provider_obj,
-                clear_enabled=ctx.settings.cache_clear_enabled,
-                masker=ctx.masker,
-            )
+        def build() -> CacheService:
+            provider: Any = getattr(ctx, "cache_provider", None) or ctx.peek("cache_provider")
+            return CacheService(provider, clear_enabled=ctx.settings.cache_clear_enabled, masker=ctx.masker)
+
+        service = ctx.lazy("cache_service", build)  # one service, so its lock serialises every clear
         response = service.clear(clear_req)
         return JSONResponse(status_code=response.status, content=response.body.to_dict())
 

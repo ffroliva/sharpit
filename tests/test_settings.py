@@ -357,7 +357,7 @@ PROPERTIES = {
     "bootui.overrides-file": ("overrides_file", "/custom/overrides.env"),
     "bootui.alembic.clean-enabled": ("alembic_clean_enabled", "true"),
     "bootui.dev-services.restart-enabled": ("dev_services_restart_enabled", "true"),
-    "bootui.cache.clear-enabled": ("cache_clear_enabled", "false"),
+    "bootui.cache.clear-enabled": ("cache_clear_enabled", "true"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {
@@ -839,7 +839,7 @@ def test_runtime_journal_max_bytes_kwarg_int_and_bool() -> None:
 
 # --- W8 A0: the write-action settings ----------------------------------------------------------------------------
 
-W8_GATES = {"alembic_clean_enabled": False, "dev_services_restart_enabled": False, "cache_clear_enabled": True}
+W8_GATES = {"alembic_clean_enabled": False, "dev_services_restart_enabled": False, "cache_clear_enabled": False}
 
 
 def test_w8_action_settings_defaults():
