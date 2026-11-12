@@ -350,6 +350,22 @@ def test_offer_flat_with_a_size_below_one_still_charges_the_event_and_respects_t
     assert journal.status()["retainedBytes"] > 0
 
 
+def test_offer_flat_with_a_size_builds_no_store_per_call(monkeypatch: Any) -> None:
+    """W5a P-transaction r4: a sized flat offer hands its event and size straight on; no closure per offer."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096)
+    stores: list[object] = []
+    append = journal._append
+
+    def spy(event: Any, store: object, *rest: Any) -> bool:
+        stores.append(store)
+        return append(event, store, *rest)
+
+    monkeypatch.setattr(journal, "_append", spy)
+    assert journal.offer_flat({"source": "sql", "sql": "select 1"}, size=30) is True
+    assert stores == [None]
+    assert journal.status()["retainedBytes"] == 30
+
+
 def test_a_suspended_journal_accepts_no_source() -> None:
     # a paused SQL Trace panel asks accepts() before building an event: a suspended journal must not cost it one
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)

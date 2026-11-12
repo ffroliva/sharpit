@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dis
 import gc
 import json
 import sqlite3
@@ -377,6 +378,28 @@ def test_transaction_journal_event_size_is_what_the_flat_walk_charges(monkeypatc
         conn.rollback()
     assert len(charged) == 2
     assert [size for size, _ in charged] == [walked for _, walked in charged]
+
+
+def test_transaction_event_copies_its_fixed_parts_instead_of_building_every_key():
+    """r4: the 18-key event is a copy of one prebuilt dict with the per-transaction fields set, never a dict display
+    rebuilt key by key on every commit (the listener budget)."""
+    built = {instruction.opname for instruction in dis.get_instructions(transactions.transaction_event)}
+    assert not built & {"BUILD_MAP", "BUILD_CONST_KEY_MAP"}
+
+
+def test_transaction_event_never_hands_out_or_changes_its_fixed_parts():
+    """Each event is its own dict in BootUI's key order: changing one never reaches the next."""
+    row = {"thread": "t", "methodName": "m:f:1", "startTimestamp": 1, "status": "COMMITTED"}
+    facts = (0, None, False, False, False, None, 0)
+    first, _ = transactions.transaction_event(row, (None, "r-1", facts), None)
+    first["source"] = "changed"
+    first["ormFlushes"] = 7
+    second, _ = transactions.transaction_event(row, (None, "r-2", facts), None)
+    assert second is not first
+    assert second["source"] == "transaction"
+    assert second["ormFlushes"] == -1
+    assert second["requestId"] == "r-2"
+    assert tuple(second) == transactions._TX_KEYS  # pyright: ignore[reportPrivateUsage]
 
 
 def test_transaction_journal_failure_never_breaks_the_transaction(monkeypatch: pytest.MonkeyPatch):
