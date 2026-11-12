@@ -125,13 +125,14 @@ def test_resource_profile_without_the_resources_source_names_the_setting() -> No
 def test_resource_profile_post_answers_the_floor_and_starts_nothing(suffix: str) -> None:
     client, _ = _client(runtime_journal_sources="http,sql,resources", resources_jfr_max_duration="45s")
     client.get(PROFILE)  # warm-up: the first sync route starts the AnyIO worker thread, which is not a sampler
-    threads = threading.active_count()
+    before = {t.ident for t in threading.enumerate()}
     response = client.post(PROFILE + suffix)
     assert response.status_code == 200
     assert response.json()["state"] == "UNAVAILABLE"
     assert response.json()["reason"] == profile.NO_SAMPLER
     assert response.json()["maxDurationSeconds"] == 45
-    assert threading.active_count() == threads
+    # a thread that ends meanwhile is fine; a thread the POST started is not (a count equality flaked both ways on CI)
+    assert [t.name for t in threading.enumerate() if t.ident not in before] == []
 
 
 @pytest.fixture
