@@ -295,7 +295,8 @@ class CacheService:
             return self._result(
                 409,
                 "unavailable",
-                f"Remote cache '{cache_name}' in manager '{manager_name}' does not support clearing.",
+                f"Remote cache '{self._echo(cache_name)}' in manager '{self._echo(manager_name)}' "
+                "does not support clearing.",
                 [],
             )
 
@@ -308,7 +309,7 @@ class CacheService:
             return self._result(
                 404,
                 "not_found",
-                f"Cache '{cache_name}' was not returned by manager '{manager_name}'.",
+                f"Cache '{self._echo(cache_name)}' was not returned by manager '{self._echo(manager_name)}'.",
                 [],
             )
 
@@ -316,7 +317,7 @@ class CacheService:
         return self._result(
             200,
             "cleared",
-            f"Cleared cache '{cache_name}' from manager '{manager_name}'.",
+            f"Cleared cache '{self._echo(cache_name)}' from manager '{self._echo(manager_name)}'.",
             cleared,
             cleared_count=1,
         )
@@ -327,7 +328,9 @@ class CacheService:
         type_name = type(ex).__name__
         if self.masker is not None and hasattr(self.masker, "mask_text"):
             type_name = self.masker.mask_text(type_name)
-        message = f"Failed to clear cache '{cache_name}' from manager '{manager_name}' ({type_name})."
+        message = (
+            f"Failed to clear cache '{self._echo(cache_name)}' from manager '{self._echo(manager_name)}' ({type_name})."
+        )
         return self._result(500, "failed", message, cleared, cleared_count=len(cleared))
 
     def _result(

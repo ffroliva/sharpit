@@ -520,3 +520,53 @@ def test_clear_actions_are_serialised(fake_cachetools: type) -> None:
     second.join(5)
     assert not ran_while_first_blocked
     assert b_cleared.is_set()
+
+
+# round 3 finding 3: every echo of a cache name is masked and bounded
+SECRET = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+SECRET_NAME = f"token={SECRET}"
+
+
+def _masked(service: CacheService) -> CacheService:
+    from sharpit.engine.masking import Exposure, Masker
+
+    service.masker = Masker(Exposure.MASKED, True)
+    return service
+
+
+def test_remote_cache_message_masks_name() -> None:
+    provider = InProcessCacheProvider()
+    provider.register("redis", SECRET_NAME, _lru(), is_remote=True)
+    service = _masked(CacheService(provider, clear_enabled=True))
+    response = service.clear(CacheClearRequest(manager_name="redis", cache_name=SECRET_NAME, confirm=True))
+    assert response.status == 409
+    assert SECRET not in response.body.message
+
+
+def test_not_returned_message_masks_name() -> None:
+    fake = FakeCacheProvider()
+    fake.managers_val = [CacheManagerSnapshot(name="m", caches=[CacheSnapshot(name=SECRET_NAME)])]
+    fake.evict_returns_false = True
+    service = _masked(CacheService(fake, clear_enabled=True))
+    response = service.clear(CacheClearRequest(manager_name="m", cache_name=SECRET_NAME, confirm=True))
+    assert response.status == 404
+    assert SECRET not in response.body.message
+
+
+def test_failed_message_masks_name() -> None:
+    fake = FakeCacheProvider()
+    fake.managers_val = [CacheManagerSnapshot(name="m", caches=[CacheSnapshot(name=SECRET_NAME)])]
+    fake.evict_throws = True
+    service = _masked(CacheService(fake, clear_enabled=True))
+    response = service.clear(CacheClearRequest(manager_name="m", cache_name=SECRET_NAME, confirm=True))
+    assert response.status == 500
+    assert SECRET not in response.body.message
+
+
+def test_cleared_message_masks_name() -> None:
+    provider = InProcessCacheProvider()
+    provider.register("m", SECRET_NAME, _lru())
+    service = _masked(CacheService(provider, clear_enabled=True))
+    response = service.clear(CacheClearRequest(manager_name="m", cache_name=SECRET_NAME, confirm=True))
+    assert response.status == 200
+    assert SECRET not in response.body.message

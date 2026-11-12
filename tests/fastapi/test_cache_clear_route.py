@@ -179,7 +179,7 @@ def test_route_non_string_name_is_400_not_500() -> None:
         assert resp.json()["status"] == "invalid_request"
 
 
-# finding 7: a GET under the cache prefix never clears
+# finding 7: a GET under the cache prefix never clears, even with a clearing body
 def test_get_never_clears() -> None:
     cache = _lru()
     provider = InProcessCacheProvider()
@@ -188,7 +188,54 @@ def test_get_never_clears() -> None:
     handle = install(app, enabled="ON", show_banner=False, cache_clear_enabled=True)
     handle.context.cache_provider = provider  # type: ignore[attr-defined]
 
+    body = b'{"all":true,"confirm":true}'
     with _client(app) as client:
-        client.get("/sharpit/api/cache")
-        client.get("/sharpit/api/cache/clear")
-        assert _size(cache) == 1
+        for path in ("/sharpit/api/cache/clear", "/sharpit/api/cache"):
+            resp = client.request("GET", path, content=body, headers={"content-type": "application/json"})
+            assert resp.status_code != 200
+            assert _size(cache) == 1
+
+
+# round 3 finding 2: the provider is resolved per call, not captured by the first request
+def test_provider_registered_after_first_request_is_used() -> None:
+    cache = _lru()
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, cache_clear_enabled=True)
+    payload = {"all": True, "confirm": True}
+
+    with _client(app) as client:
+        first = client.post("/sharpit/api/cache/clear", json=payload)
+        assert first.status_code == 409
+        assert first.json()["status"] == "unavailable"
+        provider = InProcessCacheProvider()
+        provider.register("in_process", "items", cache)
+        handle.context.cache_provider = provider  # type: ignore[attr-defined]
+        second = client.post("/sharpit/api/cache/clear", json=payload)
+        assert second.status_code == 200
+        assert _size(cache) == 0
+
+
+# round 3 finding 4: a hung host cache_clear must not block the event loop
+def test_clear_runs_off_the_event_loop() -> None:
+    import asyncio
+
+    seen: list[bool] = []
+
+    class Probe(InProcessCacheProvider):
+        def evict(self, manager_name: str, cache_name: str) -> bool:
+            try:
+                asyncio.get_running_loop()
+                seen.append(True)
+            except RuntimeError:
+                seen.append(False)
+            return super().evict(manager_name, cache_name)
+
+    provider = Probe()
+    provider.register("m", "c", _lru())
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, cache_clear_enabled=True)
+    handle.context.cache_provider = provider  # type: ignore[attr-defined]
+    with _client(app) as client:
+        resp = client.post("/sharpit/api/cache/clear", json={"managerName": "m", "cacheName": "c", "confirm": True})
+        assert resp.status_code == 200
+    assert seen == [False]
