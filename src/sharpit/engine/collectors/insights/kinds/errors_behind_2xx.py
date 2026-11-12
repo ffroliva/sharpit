@@ -14,6 +14,8 @@ the finding says so in its limitations. A recorded http source whose ids the exp
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.requests import Request, project_requests
 from sharpit.engine.collectors.insights.snapshot import Snapshot
@@ -23,10 +25,12 @@ KIND = "errors-behind-2xx"
 TITLE = "Errors behind 2xx responses"
 MINIMUM_TIER = "REQUEST_ID"
 READS: frozenset[str] = frozenset({"http"})
-OPTIONAL_READS: frozenset[str] = frozenset({"transaction", "exception", "log", "rest-client", "fault-tolerance"})
+TRANSACTION, EXCEPTION_SOURCE, LOG, REST_CLIENT = "transaction", "exception", "log", "rest-client"
 IMPLEMENTED = True
 
-EVIDENCE_SOURCES = ("transaction", "exception", "log", "rest-client")
+EVIDENCE_SOURCES = (TRANSACTION, EXCEPTION_SOURCE, LOG, REST_CLIENT)
+OPTIONAL_READS: frozenset[str] = frozenset(EVIDENCE_SOURCES)
+MAX_ITEMS = 3  # BootUI ``ErrorsBehind2xx.java:420``: ``.distinct().limit(3)``
 NOT_APPLICABLE = (
     "The runtime journal records none of the transaction, exception, log, and rest-client sources, or"
     " their panels are disabled."
@@ -43,10 +47,10 @@ LIMITATIONS = [
     "a task's own failure is not counted apart from the request's.",
 ]
 # (clause after "3 requests", noun in the evidence row), strongest first
-ROLLED_BACK, EXCEPTION, ERROR_LOG, DOWNSTREAM = "rolled", "exception", "error-log", "downstream"
+ROLLED_BACK, EXCEPTION, ERROR_LOG, DOWNSTREAM = "rolled", EXCEPTION_SOURCE, "error-log", "downstream"
 EVIDENCE = {
     ROLLED_BACK: ("whose transaction rolled back", "rolled-back transaction"),
-    EXCEPTION: ("that recorded an exception", "exception"),
+    EXCEPTION: ("that recorded an exception", EXCEPTION_SOURCE),
     ERROR_LOG: ("that wrote an ERROR log", "ERROR log"),
     DOWNSTREAM: ("that received a 5xx or failed downstream call", "downstream 5xx or failure"),
 }
@@ -54,6 +58,8 @@ _Event = dict[str, object]
 
 
 def not_applicable(snapshot: Snapshot) -> str | None:
+    """No evidence source recorded: BootUI's reason (a source may still be recorded with its panel disabled; that
+    is not checked). Ids the exposure withheld: no request to place evidence behind."""
     if not any(snapshot.recorded(source) for source in EVIDENCE_SOURCES):
         return NOT_APPLICABLE
     return IDS_WITHHELD if not snapshot.requests and snapshot.records.get("http") else None
@@ -82,30 +88,37 @@ def _downstream(event: _Event) -> str | None:
     return " ".join(p for p in parts if p)
 
 
-def _evidence(event: _Event, source: str) -> tuple[str, str] | None:
-    if source == "transaction":
-        rolled = event.get("rolledBack") is True and event.get("nested") is not True
-        return (ROLLED_BACK, _text(event.get("method"), "transaction")) if rolled else None
-    if source == "exception":
-        return EXCEPTION, _simple_name(event.get("exceptionClass"))
-    if source == "log":
-        error = str(event.get("level")).upper() == "ERROR"
-        return (ERROR_LOG, _text(event.get("logger"), "?")) if error else None
-    what = _downstream(event)
-    return (DOWNSTREAM, what) if what else None
+def _rolled_back(event: _Event) -> str | None:
+    rolled = event.get("rolledBack") is True and event.get("nested") is not True
+    return _text(event.get("method"), TRANSACTION) if rolled else None
+
+
+def _error_log(event: _Event) -> str | None:
+    return _text(event.get("logger"), "?") if str(event.get("level")).upper() == "ERROR" else None
+
+
+_BY_SOURCE: dict[str, tuple[str, Callable[[_Event], str | None]]] = {
+    TRANSACTION: (ROLLED_BACK, _rolled_back),
+    EXCEPTION_SOURCE: (EXCEPTION, lambda event: _simple_name(event.get("exceptionClass"))),
+    LOG: (ERROR_LOG, _error_log),
+    REST_CLIENT: (DOWNSTREAM, _downstream),
+}
 
 
 def _behind(request: Request) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for source in EVIDENCE_SOURCES:
         for event in request.children.get(source, ()):
-            if (item := _evidence(event, source)) is not None:
-                found.setdefault(item[0], []).append(item[1])
+            kind, what = _BY_SOURCE[source]
+            if (item := what(event)) is not None:
+                found.setdefault(kind, []).append(item)
     return {kind: found[kind] for kind in EVIDENCE if kind in found}  # strongest first
 
 
 def _describe(found: dict[str, list[str]]) -> str:
-    return "; ".join(f"{EVIDENCE[kind][1]}: {', '.join(dict.fromkeys(what).keys())}" for kind, what in found.items())
+    return "; ".join(
+        f"{EVIDENCE[kind][1]}: {', '.join(list(dict.fromkeys(what))[:MAX_ITEMS])}" for kind, what in found.items()
+    )
 
 
 def _finding(route: str, behind: list[tuple[Request, dict[str, list[str]]]], eligible: int) -> Finding:
