@@ -45,7 +45,7 @@ The four files heavier than any shard alone (`tests/_shard.py` `OWN_JOB`: the ma
 
 | Leg | Shards |
 |---|---|
-| Windows 3.14 (the long pole) | 6 |
+| Windows 3.14 (the long pole) | 7 |
 | Ubuntu 3.12, 3.14 (locked deps, push only) | 4 each |
 | `coverage` (the 3.13 leg) | 5 |
 | `lowest` | 4 |
@@ -66,7 +66,7 @@ full matrix runs on every merge before anything ships.
 
 | | Pull request | Push / dispatch |
 |---|---|---|
-| Windows 3.14, 6 shards (`test-shard`) | yes | yes |
+| Windows 3.14, 7 shards (`test-shard`) | yes | yes |
 | Ubuntu 3.12 and 3.14, 4 shards each (`test-shard-locked`) | no | yes |
 | Ubuntu 3.13 under coverage, 5 shards (`coverage-shard`), `sonar`, `coverage` | yes | yes |
 | `lowest` (3.12), `no-sqlalchemy`, masking gates, `live`, `lint`, `ui`, `vitest`, `wheel` | yes | yes |

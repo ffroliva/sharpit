@@ -44,7 +44,7 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards an Ubuntu leg, 6 on Windows (its
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards an Ubuntu leg, 7 on Windows (its
   # tests run ~1.45x slower), because the costliest shard sets the leg's wall (ceiling: tests/test_ci_layout.py).
   # Each leg's shards together run every test exactly once (tests/test_shard.py).
   # On a pull request this job is the Windows 3.14 leg, the long pole, so it asks the 20-runner pool for a slot first.
@@ -56,12 +56,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, python: "3.14", shard: 1/6 }
-          - { os: windows-latest, python: "3.14", shard: 2/6 }
-          - { os: windows-latest, python: "3.14", shard: 3/6 }
-          - { os: windows-latest, python: "3.14", shard: 4/6 }
-          - { os: windows-latest, python: "3.14", shard: 5/6 }
-          - { os: windows-latest, python: "3.14", shard: 6/6 }
+          - { os: windows-latest, python: "3.14", shard: 1/7 }
+          - { os: windows-latest, python: "3.14", shard: 2/7 }
+          - { os: windows-latest, python: "3.14", shard: 3/7 }
+          - { os: windows-latest, python: "3.14", shard: 4/7 }
+          - { os: windows-latest, python: "3.14", shard: 5/7 }
+          - { os: windows-latest, python: "3.14", shard: 6/7 }
+          - { os: windows-latest, python: "3.14", shard: 7/7 }
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
@@ -111,7 +112,7 @@ jobs:
           retention-days: 7
       # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
       # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
-      - if: ${{ !cancelled() && (matrix.shard == '4/4' || matrix.shard == '6/6') }}
+      - if: ${{ !cancelled() && (matrix.shard == '4/4' || matrix.shard == '7/7') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
         run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
@@ -400,7 +401,7 @@ jobs:
           retention-days: 7
       # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
       # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
-      - if: ${{ !cancelled() && (matrix.shard == '4/4' || matrix.shard == '6/6') }}
+      - if: ${{ !cancelled() && (matrix.shard == '4/4' || matrix.shard == '7/7') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
         run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
