@@ -306,7 +306,9 @@ class ConfigOverrideService:
     def _require_intact_file(self) -> None:
         """A save writes only the in-memory map: refuse it when the file held entries that map does not."""
         if self._load_warnings:
-            raise OverridesFileError(f"Overrides file {self._file} is malformed; fix or delete it")
+            raise OverridesFileError(
+                f"Overrides file {self._file} is malformed; fix or delete it, then restart the app"
+            )
 
     @property
     def overrides_file(self) -> Path:

@@ -192,7 +192,8 @@ def test_post_non_object_body_is_400(tmp_path: Path, raw: str) -> None:
 
 def test_post_deeply_nested_body_is_400(tmp_path: Path) -> None:
     file = tmp_path / "o.env"
-    client = _client(file)
+    # a server exception becomes a 500 here, so without the catch the red is 500 != 400, not a crash
+    client = TestClient(_client(file).app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False)
     env, content = _snapshot(file)
     resp = client.post(URL, content="[" * 50_000, headers={"content-type": "application/json"})
     assert resp.status_code == 400
@@ -282,7 +283,7 @@ def test_unreadable_overrides_file_is_never_overwritten(tmp_path: Path, content:
     resp = client.request(method, path, json=None if method == "DELETE" else {"name": "NEW_KEY", "value": "x"})
     assert (resp.status_code, resp.json()) == (
         500,
-        {"error": f"Overrides file {file} is malformed; fix or delete it"},
+        {"error": f"Overrides file {file} is malformed; fix or delete it, then restart the app"},
     )
     _unchanged(file, env, before)
 
