@@ -236,23 +236,24 @@ class RuntimeJournal:
         """
         if size is None or size < 1:
             return self._offer(event, _flat)
-        return self._offer(event, lambda stored: (stored, size))
+        return self._offer(event, None, size)  # the caller's size as is: no closure built per offer
 
-    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
+    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]] | None, size: int = 0) -> bool:
+        """``store`` copies and sizes the event; ``None`` keeps the event as handed over, charged ``size``."""
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
             self._dropped[REENTRANT] += 1
             return False
         with self._lock:
             self._busy.active = True
             try:
-                return self._append(event, store)
+                return self._append(event, store, size)
             except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
                 self._dropped[FAILED] += 1
                 return False
             finally:
                 self._busy.active = False
 
-    def _append(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
+    def _append(self, event: Event, store: Callable[[Event], tuple[object, int]] | None, size: int) -> bool:
         source = event.get("source")
         if not isinstance(source, str):
             self._dropped[FAILED] += 1
@@ -260,7 +261,7 @@ class RuntimeJournal:
         if not self._accepting or (self.sources is not None and source not in self.sources):
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
-        stored, size = store(event)
+        stored, size = (event, size) if store is None else store(event)
         if size > self.max_bytes:
             self._dropped[source] += 1  # one event larger than the whole byte bound
             return False

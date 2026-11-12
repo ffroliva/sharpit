@@ -84,6 +84,11 @@ _TX_KEYS = (
 _TX_EVENT_BYTES = sum(map(len, _TX_KEYS)) + len(JOURNAL_SOURCE) + 11 * SCALAR_BYTES
 
 type JournalEvent = dict[str, str | int | bool | None]
+# the event's fixed parts, built once in BootUI's key order: each event is a copy with its own fields set, cheaper on
+# the listener's budget than a dict display of all 18 keys. ``rollbackOnly`` and the ORM counts are unknown here.
+_TX_FIXED: JournalEvent = dict.fromkeys(_TX_KEYS) | {
+    "source": JOURNAL_SOURCE, "rollbackOnly": False, "ormStatements": -1, "ormFlushes": -1, "ormDirtyEntities": -1,
+}  # fmt: skip
 # a begin's journal facts, the same for every context: the perf_counter start (BootUI's ``startNanos``, on P-sql's
 # ``completedNanos`` clock), the trace id, nested, savepoint, read-only, isolation and the connection's write count
 type _Facts = tuple[int, str | None, bool, bool, bool, str | None, int]
@@ -165,27 +170,21 @@ def transaction_event(
     thread: str = row["thread"]
     method: str = row["methodName"]
     failure = None if error is None else _class_name(error)
-    record: JournalEvent = {
-        "source": JOURNAL_SOURCE,
-        "epochMillis": row["startTimestamp"],
-        "durationNanos": max(0, time.perf_counter_ns() - started_ns),
-        "traceId": trace_id,
-        "requestId": request_id,
-        "thread": thread,
-        "method": method,
-        # BootUI: status == ROLLED_BACK (a failed commit is UNKNOWN); a write-free rollback is its read-only commit
-        "rolledBack": row["status"] == "ROLLED_BACK" and writes > begun_writes,
-        "nested": nested,
-        "savepoint": savepoint,
-        "startNanos": started_ns,
-        "readOnly": read_only,
-        "isolation": isolation,
-        "rollbackOnly": False,
-        "failureClass": failure,
-        "ormStatements": -1,
-        "ormFlushes": -1,
-        "ormDirtyEntities": -1,
-    }
+    record = _TX_FIXED.copy()
+    record["epochMillis"] = row["startTimestamp"]
+    record["durationNanos"] = max(0, time.perf_counter_ns() - started_ns)
+    record["traceId"] = trace_id
+    record["requestId"] = request_id
+    record["thread"] = thread
+    record["method"] = method
+    # BootUI: status == ROLLED_BACK (a failed commit is UNKNOWN); a write-free rollback is its read-only commit
+    record["rolledBack"] = row["status"] == "ROLLED_BACK" and writes > begun_writes
+    record["nested"] = nested
+    record["savepoint"] = savepoint
+    record["startNanos"] = started_ns
+    record["readOnly"] = read_only
+    record["isolation"] = isolation
+    record["failureClass"] = failure
     return record, (
         _TX_EVENT_BYTES
         + len(thread)
