@@ -50,6 +50,7 @@ class Evaluation:
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     detail: Any = None  # the advisor's own facts, for its scope and extra-section hooks
+    skipped: tuple[str, ...] = ()  # ids reported SKIPPED: counted in rulesEvaluated, never evaluated (BootUI skipped())
 
 
 @dataclass(frozen=True)
@@ -224,7 +225,11 @@ class AdvisorScan:
             occurrences.setdefault(finding.rule_id, []).append(
                 (finding.fingerprint, finding.message, finding.identity or finding.target)
             )
-        results = [RuleResult.evaluate(rule, found[rule.id]) for rule in self.rules if rule.id in found]
+        results = [
+            RuleResult.skipped(rule) if rule.id in done.skipped else RuleResult.evaluate(rule, found[rule.id])
+            for rule in self.rules
+            if rule.id in found or rule.id in done.skipped
+        ]
         result = self._build(done.status, done.message, scanned_at, done, results, done.evidence)
         scan = _Scan(result, occurrences)
         with self._swap:  # build first: a failed build must leave retention and cache as they were

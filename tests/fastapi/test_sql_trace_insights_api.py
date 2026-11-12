@@ -81,7 +81,7 @@ def test_insights_respects_panel_disabled():
 def test_mcp_tools_list_has_only_get():
     client = _client()
     names = [t["name"] for t in _rpc(client, "tools/list")["result"]["tools"]]
-    assert [n for n in names if "insights" in n] == ["get_sql_trace_insights"]
+    assert [n for n in names if "sql_trace_insights" in n] == ["get_sql_trace_insights"]
     result = _rpc(client, "tools/call", {"name": "get_sql_trace_insights", "arguments": {}})["result"]
     assert result["isError"] is False
     assert result["structuredContent"]["window"]["retainedStatements"] == 7

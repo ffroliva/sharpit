@@ -160,8 +160,19 @@ def _case_findings(rule_id: str) -> list[str]:
     return [v.target for v in found[rule_id]]
 
 
+ERROR_CONTRACT_RULES = {
+    "RAPI-ERR-004",
+    "RAPI-ERR-005",
+    "RAPI-ERR-007",
+    "RAPI-ERR-008",
+    "RAPI-ERR-010",
+    "RAPI-ERR-011",
+}
+
+
 def test_cases_cover_every_rule():
-    assert set(CASES) == {r.id for r in RULES}
+    # Route-level and app-wide rules; error-contract rules are covered in test_rules_errors.py
+    assert set(CASES) == {r.id for r in RULES if r.id not in ERROR_CONTRACT_RULES}
 
 
 @pytest.mark.parametrize("rule_id", sorted(CASES))

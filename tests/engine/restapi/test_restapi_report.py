@@ -88,6 +88,14 @@ def test_get_before_scan_not_scanned(tmp_path: Path):
     assert report["violationDetails"]["scanId"] is None
 
 
+def test_err011_is_a_skipped_result_not_an_evaluated_rule(tmp_path: Path):
+    # ported: RestApiScanner.java:326 passes results.size(); ExceptionHandlersDoNotExposeStackTracesRule skipped(...)
+    service = _service(tmp_path)
+    done = service._run(None)  # pyright: ignore[reportPrivateUsage]
+    assert getattr(done, "skipped", ()) == ("RAPI-ERR-011",)
+    assert "RAPI-ERR-011" not in done.evaluated
+
+
 def test_shape_keys_match_bootui(tmp_path: Path):
     # ported: RestApiReport and RestApiScanStatusDto components (+ RESULT_KEYS for RestApiRuleResultDto)
     report = _service(tmp_path).scan()
@@ -100,7 +108,7 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         3,
         5,
     )
-    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 21  # 20 + 2.2.0's RAPI-RESP-011
+    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 27  # 21 + 5 RAPI-ERR + ERR-011 (SKIPPED)
     assert report["scan"]["status"] == "SCANNED"
     assert isinstance(report["scan"]["scannedAt"], int)
     assert report["scan"]["message"] == (

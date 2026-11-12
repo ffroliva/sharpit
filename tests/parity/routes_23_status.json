@@ -2,9 +2,9 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 26,
-    "missing": 36,
-    "n-a": 29,
+    "partial": 27,
+    "missing": 34,
+    "n-a": 30,
     "total": 96
   },
   "routes": [
@@ -544,8 +544,8 @@
       "golden": "runtime-insights/captured.json",
       "panel": "runtime-insights",
       "route": "/sharpit/api/runtime-insights",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/runtime-insights (HTTP 404)"
+      "status": "partial",
+      "difference": "runtime-insights/captured.json parity: coverage: non-empty golden list requires a non-empty payload list; limitations: non-empty golden list requires a non-empty payload list; notExercised: non-empty golden list requires a non-empty payload list; observations: non-empty golden list requires a non-empty payload list; window.firstEventAt: null in payload, golden has number; not listed in nullable.json; window.lastEventAt: null in payload, golden has number; not listed in nullable.json"
     },
     {
       "golden": "runtime-insights/comparison.captured.json",
@@ -572,8 +572,8 @@
       "golden": "runtime-insights/resource-profile.captured.json",
       "panel": "runtime-insights",
       "route": "/sharpit/api/runtime-insights/resource-profile",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/runtime-insights/resource-profile (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "scheduled/captured.json",
