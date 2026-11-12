@@ -451,8 +451,9 @@ def test_register_never_probes_host_getattr() -> None:
             raise AssertionError(name)
 
     provider = InProcessCacheProvider()
+    hostile = Hostile()
     with pytest.raises(TypeError):
-        provider.register("m", "c", Hostile())
+        provider.register("m", "c", hostile)
     assert probed == []
 
 
@@ -464,8 +465,9 @@ def test_unsupported_object_clear_never_runs() -> None:
             cleared.append("clear")
 
     provider = InProcessCacheProvider()
+    plain = Plain()
     with pytest.raises(TypeError):
-        provider.register("m", "c", Plain())
+        provider.register("m", "c", plain)
     response = CacheService(provider, clear_enabled=True).clear(CacheClearRequest(all=True, confirm=True))
     assert response.body.cleared_caches == 0
     assert cleared == []

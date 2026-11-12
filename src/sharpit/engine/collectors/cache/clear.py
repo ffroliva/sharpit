@@ -6,10 +6,11 @@ import functools
 import sys
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 MAX_CLEARED_NAMES = 200
 MAX_ECHOED_NAME = 120
+_NO_BACKEND = "No cache backend is available."
 _LRU_WRAPPER = type(functools.lru_cache(maxsize=1)(lambda: None))
 
 
@@ -200,8 +201,19 @@ class CacheService:
             return self._clear(request)
 
     def _clear(self, request: CacheClearRequest | None) -> CacheClearResponse:
+        refusal = self._refusal(request)
+        if refusal is not None:
+            return refusal
+        request = cast("CacheClearRequest", request)  # _refusal returned None, so it is not None
+        managers = self._sorted_managers()
+        if request.all is True:
+            return self._clear_all(managers)
+        return self._clear_named(managers, request)
+
+    def _refusal(self, request: CacheClearRequest | None) -> CacheClearResponse | None:
+        """The first gate that refuses the request, in gate order, or None when it may proceed."""
         if self.provider is None or not self.provider.available():
-            return self._result(409, "unavailable", "No cache backend is available.", [])
+            return self._result(409, "unavailable", _NO_BACKEND, [])
 
         if not self._clear_enabled or not self.provider.clear_enabled():
             return self._result(
@@ -222,11 +234,9 @@ class CacheService:
         unavailable_reason = self.provider.clear_unavailable_reason()
         if unavailable_reason is not None:
             return self._result(409, "unavailable", unavailable_reason, [])
+        return None
 
-        managers = self._sorted_managers()
-        if request.all is True:
-            return self._clear_all(managers)
-
+    def _clear_named(self, managers: list[CacheManagerSnapshot], request: CacheClearRequest) -> CacheClearResponse:
         manager_name = request.manager_name
         cache_name = request.cache_name
         if manager_name is None or not manager_name.strip() or cache_name is None or not cache_name.strip():
@@ -236,7 +246,6 @@ class CacheService:
                 "managerName and cacheName are required when clearing one cache.",
                 [],
             )
-
         return self._clear_one(managers, manager_name, cache_name)
 
     def _sorted_managers(self) -> list[CacheManagerSnapshot]:
@@ -249,7 +258,7 @@ class CacheService:
 
     def _clear_all(self, managers: list[CacheManagerSnapshot]) -> CacheClearResponse:
         if self.provider is None:
-            return self._result(409, "unavailable", "No cache backend is available.", [])
+            return self._result(409, "unavailable", _NO_BACKEND, [])
         cleared: list[str] = []
         cleared_count = 0
         for manager in managers:
@@ -277,7 +286,7 @@ class CacheService:
         self, managers: list[CacheManagerSnapshot], manager_name: str, cache_name: str
     ) -> CacheClearResponse:
         if self.provider is None:
-            return self._result(409, "unavailable", "No cache backend is available.", [])
+            return self._result(409, "unavailable", _NO_BACKEND, [])
         manager = next((m for m in managers if m.name == manager_name), None)
         if manager is None:
             return self._result(404, "not_found", f"Cache manager '{self._echo(manager_name)}' was not found.", [])
