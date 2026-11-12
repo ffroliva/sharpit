@@ -26,8 +26,15 @@ def _text(value: object) -> str | None:
 
 
 def _base(program: str) -> str | None:
-    name = program.replace("\\", "/").rpartition("/")[2].strip()[:_MAX]
-    return name or None
+    """The file name of ``program``, cut at its first blank: whatever follows is an argument, never a name."""
+    text = program.replace("\\", "/").strip()
+    first_blank = next((i for i, c in enumerate(text) if c.isspace()), len(text))
+    if "/" not in text[:first_blank]:
+        text = text[:first_blank]  # ``prog --password x``: no separator before the blank, so nothing after it is a name
+    words = text.rpartition("/")[2].split(
+        None, 1
+    )  # shortcut: an unquoted path with blanks and a later ``/`` argument yields that segment
+    return words[0][:_MAX] if words else None
 
 
 def _first_word(command: str) -> str | None:
@@ -35,7 +42,7 @@ def _first_word(command: str) -> str | None:
     command = command.lstrip()
     if command[:1] in ("'", '"'):
         end = command.find(command[0], 1)
-        return command[1 : end if end > 0 else None]
+        return command[1 : end if end > 0 else None].lstrip()  # an unclosed quote: the text after it, cut by the caller
     return command.split(None, 1)[0] if command else None
 
 
@@ -58,6 +65,14 @@ def _argv_target(program: object, argv: object) -> str | None:
     return None
 
 
+_ARGV_AT = {
+    "subprocess.Popen": (0, 1),
+    "os.exec": (0, 1),
+    "os.spawn": (1, 2),
+    "os.posix_spawn": (0, 1),
+}  # (program, argv)
+
+
 class ProcessesSensor:
     name = SOURCE
     events = ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn")
@@ -71,12 +86,5 @@ class ProcessesSensor:
         if event == "os.system":
             command = _text(args[0]) if args else None
             return _shell_target(command) if command else None
-        if event == "subprocess.Popen" and len(args) >= 2:
-            return _argv_target(args[0], args[1])
-        if event == "os.exec" and len(args) >= 2:
-            return _argv_target(args[0], args[1])
-        if event == "os.spawn" and len(args) >= 3:
-            return _argv_target(args[1], args[2])
-        if event == "os.posix_spawn" and len(args) >= 2:
-            return _argv_target(args[0], args[1])
-        return None
+        where = _ARGV_AT.get(event)
+        return _argv_target(args[where[0]], args[where[1]]) if where and len(args) > where[1] else None
