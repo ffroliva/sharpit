@@ -11,7 +11,7 @@ import ast
 import configparser
 import functools
 import heapq
-import importlib.util
+import importlib.metadata
 import os
 import re
 import sys
@@ -463,10 +463,11 @@ Runner = Callable[[list[str], str], ProcessResult]
 
 
 def _installed() -> bool:
-    try:
-        return importlib.util.find_spec("alembic") is not None  # a spec lookup: nothing is imported
-    except (ImportError, ValueError):
+    try:  # the distribution's metadata: nothing is imported (find_spec belongs to appsource alone)
+        importlib.metadata.distribution("alembic")
+    except importlib.metadata.PackageNotFoundError:
         return False
+    return True
 
 
 def _ini_file(ctx: SharpitContext) -> Path | None:
