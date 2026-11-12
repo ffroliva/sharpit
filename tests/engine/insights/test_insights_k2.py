@@ -18,11 +18,13 @@ from sharpit.engine.capture.exchanges import http_event
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.masking import Exposure, Masker
 
 KIND = "errors-behind-2xx"
 ORDERS = "GET /api/orders/{id}"
 EVIDENCE_SOURCES = frozenset({"http", "transaction", "exception", "log", "rest-client"})
 ILLEGAL_STATE = "java.lang.IllegalStateException"
+REAL_PRODUCED_SOURCES = snapshot_module.PRODUCED_SOURCES  # before the autouse widening
 Row = dict[str, object]
 
 
@@ -31,8 +33,8 @@ def evidence_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", EVIDENCE_SOURCES)
 
 
-def tx(method: str | None, *, nested: bool = False) -> Row:
-    return {"source": "transaction", "method": method, "rolledBack": True, "nested": nested}
+def tx(method: str | None, *, nested: bool = False, rolled_back: bool = True) -> Row:
+    return {"source": "transaction", "method": method, "rolledBack": rolled_back, "nested": nested}
 
 
 def exception(cls: str) -> Row:
@@ -50,8 +52,8 @@ def downstream(status: int | None, failed: bool = False) -> Row:
 
 
 class Run:
-    def __init__(self) -> None:
-        self.journal = RuntimeJournal()
+    def __init__(self, exposure: Exposure = Exposure.MASKED) -> None:
+        self.journal = RuntimeJournal(masker=Masker(exposure, True))
         self.requests = 0
 
     def request(self, status: int, *children: Row, route: str = ORDERS) -> str:
@@ -79,22 +81,27 @@ def test_errors_behind_2xx_counts_several_requests_in_plain_words() -> None:
     run = Run()
     for _ in range(2):
         run.request(200, exception(ILLEGAL_STATE), tx("OrderService.place"))
-    (row,) = run.rows()
+    rows = run.rows()
+    assert len(rows) == 1
+    (row,) = rows
     assert row["sentence"] == (
         f"`{ORDERS}` answered 2xx in 2 of 2 successful requests: 2 requests whose transaction rolled back, "
         "2 requests that recorded an exception."
     )
 
 
-# ported: JournalFactObservationsTests.errorsBehind2xxOrderEvidenceByStrengthAndReportRecoveredRequestsApart
+# ported: JournalFactObservationsTests.errorsBehind2xxOrderEvidenceByStrengthAndReportRecoveredRequestsApart (the
+# unrecovered half only: sharpit has no recovered group)
 def test_errors_behind_2xx_seeded_case_and_counterexample() -> None:
     run = Run()
     run.request(200, exception(ILLEGAL_STATE), tx("OrderService.place"))
-    run.request(200, downstream(404), tx("StockService.reserve", nested=True))  # a 4xx the client threw, a savepoint
+    run.request(200, downstream(404, failed=True), tx("StockService.reserve", nested=True))  # status wins over failed
     run.request(500, exception(ILLEGAL_STATE))  # not a 2xx
     run.request(201, downstream(503))
     run.request(200, log("ERROR"), log("WARN"))
-    (row,) = run.rows()
+    rows = run.rows()
+    assert len(rows) == 1
+    (row,) = rows
     assert row["id"].startswith(f"{KIND}:")  # type: ignore[attr-defined]
     assert row["sentence"] == (
         f"`{ORDERS}` answered 2xx in 3 of 4 successful requests: 1 request whose transaction rolled back, "
@@ -128,6 +135,82 @@ def test_errors_behind_2xx_says_which_evidence_the_journal_does_not_record(monke
     assert run.check()["status"] == "NOT_APPLICABLE"
 
 
+def evidence_cells(run: Run) -> list[str]:
+    rows = run.rows()
+    assert len(rows) == 1
+    detail = InsightsService(run.journal).insight(str(rows[0]["id"]))
+    return [str(r["cells"][2]) for r in detail["rows"]]  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    ("child", "shown"),
+    [
+        (downstream(404, failed=True), None),  # BootUI: a status wins over ``failed``
+        (downstream(None, failed=True), "downstream 5xx or failure: failed GET stock:8080"),
+        (downstream(None, failed=False), None),
+        (downstream(500), "downstream 5xx or failure: 500 GET stock:8080"),
+        (tx("OrderService.place", rolled_back=False), None),  # a committed transaction is no evidence
+        (tx(None), "rolled-back transaction: transaction"),  # BootUI's fallback text for a method-less transaction
+    ],
+)
+# ported: JournalFactObservationsTests.errorsBehind2xxOrderEvidenceByStrengthAndReportRecoveredRequestsApart (the
+# unrecovered half only: sharpit has no recovered group)
+def test_errors_behind_2xx_evidence_rules(child: Row, shown: str | None) -> None:
+    run = Run(Exposure.FULL)  # MASKED masks ``authority`` by key: the text rules are read as recorded
+    run.request(200, child)
+    if shown is None:
+        assert run.rows() == []
+    else:
+        assert evidence_cells(run) == [shown]
+
+
+@pytest.mark.parametrize(("status", "counted"), [(199, False), (200, True), (299, True), (300, False)])
+def test_errors_behind_2xx_only_2xx_counts(status: int, counted: bool) -> None:
+    run = Run()
+    run.request(status, exception(ILLEGAL_STATE))
+    assert [r["eligible"] for r in run.rows()] == ([1] if counted else [])
+
+
+def test_errors_behind_2xx_lists_at_most_three_distinct_items_per_evidence() -> None:
+    run = Run()
+    names = ["a.A", "a.B", "a.C", "a.D"]
+    run.request(200, *(exception(n) for n in names), exception("a.A"))
+    assert evidence_cells(run) == ["exception: A, B, C"]  # ``.distinct().limit(3)``
+
+
+@pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.METADATA_ONLY])
+def test_errors_behind_2xx_secret_in_a_read_field_is_never_shown(exposure: Exposure) -> None:
+    secret = "Bearer " + "abcdef0123456789"
+    run = Run(exposure)
+    run.request(
+        200,
+        {**exception(secret), "method": secret},
+        {**log("ERROR", logger=secret)},
+        {**downstream(503), "authority": secret, "method": secret},
+        tx(secret),
+    )
+    if exposure is Exposure.MASKED:
+        rows = run.rows()
+        assert len(rows) == 1
+        dumped = json.dumps([run.report(), InsightsService(run.journal).insight(str(rows[0]["id"]))])
+    else:
+        assert run.rows() == []  # METADATA_ONLY withholds the request ids: no row, so no row text
+        dumped = json.dumps(run.report())
+    assert "abcdef0123456789" not in dumped
+
+
+def test_errors_behind_2xx_real_install_is_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES)
+    run = Run()
+    run.request(200)
+    check = run.check()
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == (
+        "The runtime journal records none of the transaction, exception, log, and rest-client sources, or their "
+        "panels are disabled."
+    )
+
+
 def test_errors_behind_2xx_not_applicable_when_http_unproduced(monkeypatch: pytest.MonkeyPatch) -> None:
     run = Run()
     run.request(200, exception(ILLEGAL_STATE))
@@ -138,8 +221,9 @@ def test_errors_behind_2xx_not_applicable_when_http_unproduced(monkeypatch: pyte
 
 
 def test_errors_behind_2xx_is_not_applicable_when_ids_are_withheld() -> None:
-    run = Run()
-    run.journal.offer({"source": "http", "route": ORDERS, "status": 200})  # the exposure withheld the ids
+    run = Run(Exposure.METADATA_ONLY)  # the journal itself nulls ``requestId`` at this exposure
+    run.request(200, exception(ILLEGAL_STATE))
+    assert run.journal.records("http")[0]["requestId"] is None
     check = run.check()
     assert check["status"] == "NOT_APPLICABLE"
     assert "SHARPIT_EXPOSE_VALUES" in str(check["reason"])
@@ -149,7 +233,9 @@ def test_errors_behind_2xx_text_uses_journal_fields_only() -> None:
     run = Run()
     secret = "Bearer " + "abcdef0123456789"
     run.request(200, {**exception(ILLEGAL_STATE), "message": secret, "stack": secret})
-    detail = InsightsService(run.journal).insight(str(run.rows()[0]["id"]))
+    rows = run.rows()
+    assert len(rows) == 1
+    detail = InsightsService(run.journal).insight(str(rows[0]["id"]))
     assert "abcdef0123456789" not in json.dumps([run.report(), detail])
     assert detail["rows"] == [{"cells": ["r1", "200", "exception: IllegalStateException"]}]
 
