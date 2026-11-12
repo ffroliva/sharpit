@@ -91,3 +91,14 @@ def _text(value: object) -> str | None:
 
 def count(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def ids_withheld(snapshot: Snapshot, what: str) -> str | None:
+    """Why a kind cannot place ``what`` on a route: http events were recorded but none kept its request id (the
+    exposure withheld them). That is not "no eligible work"; the kind says so."""
+    if snapshot.requests or not snapshot.records.get("http"):
+        return None
+    return (
+        f"Request ids are withheld at METADATA_ONLY exposure, so {what} cannot be placed on a route "
+        "(SHARPIT_EXPOSE_VALUES)."
+    )

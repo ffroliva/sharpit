@@ -182,7 +182,7 @@ def test_exception_hotspots_a_known_exception_carries_its_check_before_the_gener
     run.request(500, exc("sqlalchemy.exc.PendingRollbackError", "rb", "sqlalchemy.exc.PendingRollbackError"))
     (finding,) = run.evaluate(HOTSPOTS).findings
     assert len(finding.what_to_check) == 2
-    assert "rolled back" in finding.what_to_check[0]
+    assert "marked failed" in finding.what_to_check[0]
     assert finding.what_to_check[1] == "Open the exception group to read its message and stack trace."
 
 
@@ -337,8 +337,8 @@ def test_framework_warnings_by_route_messages_that_differ_only_by_ids_or_path_nu
         ),
         ("trace 4bf92f3577b34da6a3ce929d0e0e4736 broke", "trace <id> broke"),
         (
-            "SAWarning: firstResult/maxResults specified with collection fetch; applying in memory",
-            "SAWarning: firstResult/maxResults specified with collection fetch; applying in memory",
+            "SAWarning: maxResults specified with collection fetch; applying in memory",
+            "SAWarning: maxResults specified with collection fetch; applying in memory",
         ),  # codes, words and short hexadecimal-looking text are kept
         ("Pool QueuePool-1 has 10 of 10 connections in use", "Pool QueuePool-1 has 10 of 10 connections in use"),
     ],
