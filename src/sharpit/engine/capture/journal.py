@@ -275,6 +275,11 @@ class RuntimeJournal:
         self._accepted[source] += 1
         return True
 
+    def drop(self, source: str) -> None:
+        """Count one ``source`` event its producer never built: the source is not configured, or the build failed."""
+        with self._lock:
+            self._dropped[source] += 1
+
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
         return self._accepting and (self.sources is None or source in self.sources)

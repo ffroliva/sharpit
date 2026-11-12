@@ -9,8 +9,9 @@ from sharpit.engine import sqla as _sqla
 from sharpit.engine.sqla import _lock  # pyright: ignore[reportPrivateUsage] - one lock for the whole package
 
 ConnectionEvent = Literal[
-    "begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint", "handle_error"
-]
+    "begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint", "handle_error",
+    "before_cursor_execute",
+]  # fmt: skip
 CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
     "begin",
     "commit",
@@ -19,6 +20,7 @@ CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
     "rollback_savepoint",
     "release_savepoint",
     "handle_error",
+    "before_cursor_execute",  # the transactions panel's write counter
 )  # add_connection_listener's events (O1)
 
 

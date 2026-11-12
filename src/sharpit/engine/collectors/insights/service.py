@@ -181,8 +181,10 @@ class InsightsService:
         journal: Any,
         observations: Sequence[Observation] | None = None,
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
+        hidden: Callable[[], frozenset[str]] = frozenset,
     ) -> None:
         self.journal = journal
+        self.hidden = hidden  # read per report: the sources whose panel is disabled (``project``)
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
         self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
@@ -210,7 +212,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold)
+        snapshot = project(self.journal, self.ai_token_threshold, self.hidden())
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
         for observation in self.observations:
@@ -272,4 +274,15 @@ def _detail(
 def insights_service(ctx: SharpitContext) -> InsightsService:
     """The install's service over its journal, shared by the routes and the tools (a test seeds it through ``lazy``)."""
     threshold = ctx.settings.runtime_insights_ai_token_threshold
-    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold))
+    return ctx.lazy(
+        "runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, lambda: _hidden(ctx))
+    )
+
+
+def _hidden(ctx: SharpitContext) -> frozenset[str]:
+    """BootUI ``ErrorsBehind2xx.java:112,157`` reads a source only while its panel is ``visible``: no transactions
+    recorder (the flag or the panel off) leaves ``transaction`` absent, not empty."""
+    return _NO_TRANSACTIONS if ctx.capture.transactions is None else frozenset()
+
+
+_NO_TRANSACTIONS = frozenset({"transaction"})

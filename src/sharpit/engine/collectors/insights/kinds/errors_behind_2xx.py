@@ -58,8 +58,8 @@ _Event = dict[str, object]
 
 
 def not_applicable(snapshot: Snapshot) -> str | None:
-    """No evidence source recorded: BootUI's reason (a source may still be recorded with its panel disabled; that
-    is not checked). Ids the exposure withheld: no request to place evidence behind."""
+    """No evidence source recorded: BootUI's reason (a source whose panel is disabled is not recorded: the service's
+    ``hidden``, BootUI's ``visible``). Ids the exposure withheld: no request to place evidence behind."""
     if not any(snapshot.recorded(source) for source in EVIDENCE_SOURCES):
         return NOT_APPLICABLE
     return IDS_WITHHELD if not snapshot.requests and snapshot.records.get("http") else None

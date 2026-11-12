@@ -50,9 +50,14 @@ class Snapshot:
         return int(self.status["dropped"].get(source, 0))
 
 
-def project(journal: Any, ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD) -> Snapshot:
-    """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear."""
+def project(
+    journal: Any, ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD, hidden: frozenset[str] = frozenset()
+) -> Snapshot:
+    """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear.
+
+    ``hidden``: sources whose panel is disabled (BootUI ``InsightsSnapshot.visible``): absent evidence, never proof
+    that nothing happened."""
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
-    recorded = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
+    recorded = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES and s not in hidden]
     status, records, newest = journal.view(recorded)
     return Snapshot(status, records, newest, ai_token_threshold)

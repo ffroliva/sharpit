@@ -85,8 +85,11 @@ _TX_EVENT_BYTES = sum(map(len, _TX_KEYS)) + len(JOURNAL_SOURCE) + 11 * SCALAR_BY
 
 type JournalEvent = dict[str, str | int | bool | None]
 # a begin's journal facts, the same for every context: the perf_counter start (BootUI's ``startNanos``, on P-sql's
-# ``completedNanos`` clock), the trace id, nested, savepoint, read-only and isolation
-type _Facts = tuple[int, str | None, bool, bool, bool, str | None]
+# ``completedNanos`` clock), the trace id, nested, savepoint, read-only, isolation and the connection's write count
+type _Facts = tuple[int, str | None, bool, bool, bool, str | None, int]
+# statements on a connection that were not a SELECT, a running count in ``conn.info``: a rollback undoes something
+# only when it grew since the begin. A write-free rollback is BootUI's read-only commit (coordinator default, r3).
+WRITES = "sharpit_tx_writes"
 # what a transaction's journal event keeps from its begin: the journal, this install's request id and the facts.
 # Plain tuples: one is built per begin, on the listener's budget.
 type JournalStart = tuple[RuntimeJournal, str | None, _Facts]
@@ -105,18 +108,43 @@ def _nests(conn: Any) -> bool:
     return bool(live)
 
 
-def _facts(conn: Any, *, savepoint: bool) -> _Facts | None:
-    """The begin's journal facts; ``None`` under AUTOCOMMIT, where each statement commits itself and there is no
-    physical transaction for BootUI to record."""
+def _autocommit(conn: Any) -> bool:
     autocommit = getattr(conn, "_is_autocommit_isolation", None)  # SQLAlchemy 2.0+: the option or the engine's level
-    if callable(autocommit) and autocommit():
-        return None
+    return callable(autocommit) and bool(autocommit())
+
+
+def _facts(conn: Any, conn_info: dict[str, Any], *, savepoint: bool) -> _Facts:
     options = conn.get_execution_options()
     level = options.get("isolation_level")
     isolation = str(level).upper().replace(" ", "_") if level else None
     nested = savepoint or _nests(conn)
     read_only = bool(options.get("postgresql_readonly"))
-    return time.perf_counter_ns(), otel.current_trace_id(), nested, savepoint, read_only, isolation
+    writes: int = conn_info.get(WRITES, 0)
+    return time.perf_counter_ns(), otel.current_trace_id(), nested, savepoint, read_only, isolation, writes
+
+
+def _journal_start(
+    journal: RuntimeJournal | None,
+    conn: Any,
+    conn_info: dict[str, Any],
+    request_id: str | None,
+    *,
+    recording: bool,
+    savepoint: bool,
+    facts: list[_Facts],
+) -> JournalStart | None:
+    """What the begin keeps for its journal event, or ``None``: no journal; AUTOCOMMIT, where each statement commits
+    itself and there is no physical transaction for BootUI to record; or ``transaction`` not a journal source, where a
+    recorded transaction only counts its drop (no facts read, no event built). ``facts`` is read once per begin."""
+    if journal is None or _autocommit(conn):
+        return None
+    if not journal.accepts(JOURNAL_SOURCE):
+        if recording:  # a paused panel offers nothing then (BootUI ``TransactionRecorder.java:208-211``)
+            journal.drop(JOURNAL_SOURCE)
+        return None
+    if not facts:
+        facts.append(_facts(conn, conn_info, savepoint=savepoint))
+    return journal, request_id, facts[0]
 
 
 def _class_name(error: BaseException) -> str:
@@ -125,14 +153,15 @@ def _class_name(error: BaseException) -> str:
 
 
 def transaction_event(
-    row: dict[str, Any], start: JournalStart, error: BaseException | None
+    row: dict[str, Any], start: JournalStart, error: BaseException | None, writes: int = 0
 ) -> tuple[JournalEvent, int]:
     """BootUI's ``transaction`` journal event (``TransactionPayload`` and its envelope, ``TransactionRecorder.java``
     315-336) from the panel's completed row, and its charged size: metadata only, never SQL text or a parameter.
 
     ``method`` is the row's call site (BootUI's ``@Transactional`` method has no Python twin); ``rollbackOnly`` and the
-    ORM counts are unknown (``False``, ``-1``); ``failureClass`` names the error that failed the DBAPI commit."""
-    _, request_id, (started_ns, trace_id, nested, savepoint, read_only, isolation) = start
+    ORM counts are unknown (``False``, ``-1``); ``failureClass`` names the error that failed the DBAPI commit;
+    ``writes`` is the connection's write count at the end: a rollback with no write since the begin undid nothing."""
+    _, request_id, (started_ns, trace_id, nested, savepoint, read_only, isolation, begun_writes) = start
     thread: str = row["thread"]
     method: str = row["methodName"]
     failure = None if error is None else _class_name(error)
@@ -144,7 +173,8 @@ def transaction_event(
         "requestId": request_id,
         "thread": thread,
         "method": method,
-        "rolledBack": row["status"] == "ROLLED_BACK",  # BootUI: status == ROLLED_BACK; a failed commit is UNKNOWN
+        # BootUI: status == ROLLED_BACK (a failed commit is UNKNOWN); a write-free rollback is its read-only commit
+        "rolledBack": row["status"] == "ROLLED_BACK" and writes > begun_writes,
         "nested": nested,
         "savepoint": savepoint,
         "startNanos": started_ns,
@@ -167,15 +197,16 @@ def transaction_event(
     )
 
 
-def _publish(row: dict[str, Any], error: BaseException | None = None) -> None:
+def _publish(row: dict[str, Any], error: BaseException | None = None, writes: int = 0) -> None:
     """Offer the row's journal event, built here inside the guard: a failing build or offer costs only this event,
-    never the panel's row or another context's event. The journal counts a source it does not record as dropped."""
+    counted dropped, never the panel's row or another context's event."""
     start: JournalStart | None = row.get("_journal")
     if start is None:
         return
     try:
-        start[0].offer_flat(*transaction_event(row, start, error))
+        start[0].offer_flat(*transaction_event(row, start, error, writes))
     except Exception as exc:  # noqa: BLE001 - publishing never disturbs the transaction it observes
+        start[0].drop(JOURNAL_SOURCE)
         dispatch.routing_failed(exc)
 
 
@@ -253,21 +284,17 @@ class TransactionRecorder:
         connection_id: str | None,
         journal: JournalStart | None = None,
     ) -> int:
-        if not self.recording:
+        """A row for the panel, or, while it is paused, a journal-only row the panel never shows (BootUI
+        ``TransactionRecorder.java:206-211``: a paused panel skips its buffer, the journal keeps recording)."""
+        if not self.recording and journal is None:
             return -1
         now = time.time_ns()
         with self._lock:
             entry_id = next(self._ids)
-            while len(self._entries) >= self.max_entries:
-                if not self._evict_completed_locked():
-                    break
-            if len(self._entries) >= 2 * self.max_entries:
-                # Open rows may outlive capacity (a long transaction) but never twice it: a connection dropped
-                # without an end event would otherwise grow the ring forever.
-                stale = self._entries.popleft()
-                self._open.pop(stale["id"], None)
-                self._evicted += 1
-                self._evicted_open += 1
+            if self.recording:
+                self._make_room_locked()
+            elif len(self._open) >= 2 * self.max_entries:
+                self._open.pop(next(iter(self._open)))  # the oldest: an abandoned journal-only row never ends
             row = {
                 "id": entry_id,
                 "methodName": method or "unknown",
@@ -291,13 +318,35 @@ class TransactionRecorder:
                 "_key": key,
                 "_journal": journal,
             }
-            self._entries.append(row)
+            if self.recording:
+                self._entries.append(row)
+                self._total += 1
             self._open[entry_id] = row
-            self._total += 1
         return entry_id
 
-    def end(self, entry_id: int, status: str, error: BaseException | None = None, *, settle: bool = False) -> None:
-        """Close an open row; ``settle=True`` lets ``settle`` re-close it once the DBAPI commit has returned."""
+    def _make_room_locked(self) -> None:
+        while len(self._entries) >= self.max_entries:
+            if not self._evict_completed_locked():
+                break
+        if len(self._entries) >= 2 * self.max_entries:
+            # Open rows may outlive capacity (a long transaction) but never twice it: a connection dropped
+            # without an end event would otherwise grow the ring forever.
+            stale = self._entries.popleft()
+            self._open.pop(stale["id"], None)
+            self._evicted += 1
+            self._evicted_open += 1
+
+    def end(
+        self,
+        entry_id: int,
+        status: str,
+        error: BaseException | None = None,
+        *,
+        settle: bool = False,
+        writes: int = 0,
+    ) -> None:
+        """Close an open row; ``settle=True`` lets ``settle`` re-close it once the DBAPI commit has returned.
+        ``writes``: the connection's write count now (``WRITES``)."""
         if entry_id < 0:
             return
         with self._lock:
@@ -312,7 +361,7 @@ class TransactionRecorder:
                     break
         self.changes.signal()
         if not settle:  # a commit is offered once its DBAPI commit has returned or failed (``settle``)
-            _publish(row, error)
+            _publish(row, error, writes)
 
     def settle(self, entry_id: int, error: BaseException | None = None) -> None:
         """The DBAPI commit returned (``error`` None) or failed: re-close the row so its duration includes it."""
@@ -412,8 +461,7 @@ def _enabled(ctx: SharpitContext) -> TransactionRecorder | None:
         isinstance(recorder, TransactionRecorder)
         and ctx.settings.transactions_enabled
         and ctx.settings.panels["transactions"].enabled
-        and recorder.recording
-    ):
+    ):  # paused or not: a paused panel still feeds the journal (``_begin``)
         return recorder
     return None
 
@@ -463,12 +511,12 @@ def _savepoints(info: dict[str, Any]) -> list[tuple[str | None, list[Tracked]]]:
     return info.setdefault("sharpit_tx_savepoints", [])
 
 
-def _close(items: list[Tracked], status: str, *, settle: bool = False) -> None:
+def _close(items: list[Tracked], status: str, *, settle: bool = False, writes: int = 0) -> None:
     for ref, entry_id in items:
         recorder = ref()
         if recorder is not None:
             try:
-                recorder.end(entry_id, status, settle=settle)
+                recorder.end(entry_id, status, settle=settle, writes=writes)
             except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
                 dispatch.routing_failed(exc)
 
@@ -490,18 +538,26 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
     parents = parent_ids or {}
     info = REQUEST.get()
     connection_id = _connection_id(conn)
-    facts: _Facts | None = None  # read once, at the first context with a journal
+    facts: list[_Facts] = []  # read once, at the first context whose journal records the source
     for ctx in _targets(conn):
         recorder = _enabled(ctx)
         if recorder is None:
             continue
         try:
+            request_id = info.id if info is not None and info.context_id == ctx.context_id else None
+            journal = _journal_start(
+                getattr(ctx.capture, "journal", None),  # a capture state without the journal lane has none
+                conn,
+                conn_info,
+                request_id,
+                recording=recorder.recording,
+                savepoint=parent_ids is not None,
+                facts=facts,
+            )
+            if journal is None and not recorder.recording:
+                continue  # paused, and nothing for the journal: BootUI records nothing (-1)
             parent = parents.get(id(recorder))
             method = call_site(None) if ctx.settings.sql_trace_capture_call_site else "unknown"
-            request_id = info.id if info is not None and info.context_id == ctx.context_id else None
-            journal = getattr(ctx.capture, "journal", None)  # a capture state without the journal lane has none
-            if journal is not None and facts is None:
-                facts = _facts(conn, savepoint=parent_ids is not None)
             entry_id = recorder.begin(
                 id(conn),
                 parent=parent,
@@ -509,7 +565,7 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
                 thread=threading.current_thread().name,
                 trace_id=request_id,
                 connection_id=connection_id,
-                journal=None if journal is None or facts is None else (journal, request_id, facts),
+                journal=journal,
             )
             if entry_id >= 0:
                 stack.append((weakref.ref(recorder), entry_id))
@@ -521,12 +577,13 @@ def _end(info: dict[str, Any], status: str, *, settle: bool = False) -> None:
     stack = _stack(info)
     closing, stack[:] = stack[:], []
     _savepoints(info).clear()
-    _close(closing, status, settle=settle)
+    _close(closing, status, settle=settle, writes=info.get(WRITES, 0))
 
 
 def _end_savepoint(conn: Any, name: str, status: str) -> None:
-    stack = _stack(conn.info)
-    savepoints = _savepoints(conn.info)
+    info = conn.info
+    stack = _stack(info)
+    savepoints = _savepoints(info)
     names = [frame_name for frame_name, _ in savepoints]
     # SQLAlchemy emits savepoint(name=None) before generating its sa_savepoint_N name: match the innermost unnamed.
     key = name if name in names else None
@@ -537,7 +594,7 @@ def _end_savepoint(conn: Any, name: str, status: str) -> None:
     del savepoints[depth:]
     closing = [item for item in stack if id(item) in tracked]
     stack[:] = [item for item in stack if id(item) not in tracked]
-    _close(closing, status)
+    _close(closing, status, writes=info.get(WRITES, 0))
 
 
 def tx_begin(conn: Any) -> None:
@@ -611,6 +668,17 @@ def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
         dispatch.routing_failed(exc)
 
 
+def tx_statement(conn: Any, _cursor: Any, statement: str, *_: object) -> None:
+    """Count a statement that is not a SELECT (``WRITES``). Leading comments, ``WITH`` and anything else count as a
+    write: a rollback is then reported, never hidden."""
+    try:
+        if statement[:16].lstrip()[:6].lower() != "select":
+            info = conn.info
+            info[WRITES] = info.get(WRITES, 0) + 1
+    except Exception as exc:  # noqa: BLE001 - never affect the application's statement
+        dispatch.routing_failed(exc)
+
+
 CONNECTION_CALLBACKS: dict[str, Callable[..., None]] = {
     "begin": tx_begin,
     "commit": tx_commit,
@@ -619,6 +687,7 @@ CONNECTION_CALLBACKS: dict[str, Callable[..., None]] = {
     "rollback_savepoint": tx_rollback_savepoint,
     "release_savepoint": tx_release_savepoint,
     "handle_error": tx_handle_error,
+    "before_cursor_execute": tx_statement,
 }
 _attach_lock = threading.Lock()
 _attach_count = 0
