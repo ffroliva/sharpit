@@ -244,6 +244,16 @@ def context_report(ctx: SharpitContext) -> dict[str, Any]:
     return recorder.report(rows)
 
 
+# a panel row's fixed parts, built once in its key order: a begin copies them and sets its own fields (the listener's
+# budget). ``isolation`` is never queried: BootUI reports UNKNOWN when it cannot tell.
+_ROW_FIXED: dict[str, Any] = {
+    "id": 0, "methodName": "unknown", "propagation": "NEW", "isolation": "UNKNOWN", "status": "OPEN",
+    "startTimestamp": 0, "endTimestamp": None, "durationMillis": 0, "parentId": None, "thread": "", "traceId": None,
+    "sqlStatementCount": 0, "connectionCount": 1, "readOnly": None, "slow": False, "connectionHeld": False,
+    "errorMessage": None, "_startedNs": 0, "_connectionId": None, "_key": 0, "_journal": None,
+}  # fmt: skip
+
+
 class TransactionRecorder:
     """A bounded transaction ring. Event callbacks mutate rows; report-time work only reads cached rows."""
 
@@ -295,29 +305,18 @@ class TransactionRecorder:
                 self._make_room_locked()
             elif len(self._open) >= 2 * self.max_entries:
                 self._open.pop(next(iter(self._open)))  # the oldest: an abandoned journal-only row never ends
-            row = {
-                "id": entry_id,
-                "methodName": method or "unknown",
-                "propagation": "PARTICIPATING" if parent is not None else "NEW",
-                "isolation": "UNKNOWN",  # never queried; BootUI reports UNKNOWN when it cannot tell
-                "status": "OPEN",
-                "startTimestamp": now // 1_000_000,
-                "endTimestamp": None,
-                "durationMillis": 0,
-                "parentId": parent,
-                "thread": thread,
-                "traceId": trace_id,
-                "sqlStatementCount": 0,
-                "connectionCount": 1,
-                "readOnly": None,
-                "slow": False,
-                "connectionHeld": False,
-                "errorMessage": None,
-                "_startedNs": now,
-                "_connectionId": connection_id,
-                "_key": key,
-                "_journal": journal,
-            }
+            row = _ROW_FIXED.copy()
+            row["id"] = entry_id
+            row["methodName"] = method or "unknown"
+            row["propagation"] = "PARTICIPATING" if parent is not None else "NEW"
+            row["startTimestamp"] = now // 1_000_000
+            row["parentId"] = parent
+            row["thread"] = thread
+            row["traceId"] = trace_id
+            row["_startedNs"] = now
+            row["_connectionId"] = connection_id
+            row["_key"] = key
+            row["_journal"] = journal
             if self.recording:
                 self._entries.append(row)
                 self._total += 1
