@@ -6,3 +6,4 @@ MINIMUM_TIER = "REQUEST_ID"
 READS: frozenset[str] = frozenset({"gc"})
 OPTIONAL_READS: frozenset[str] = frozenset()
 IMPLEMENTED = False
+USES_REQUESTS = False  # BootUI unitKinds() is empty: no request is examined

@@ -21,7 +21,8 @@ from sharpit.engine.capture import logtail
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
-from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.collectors.insights.kinds import errors_behind_2xx
+from sharpit.engine.collectors.insights.service import insights_service
 from sharpit.engine.masking import Masker
 
 ARG_CANARY = "zq-arg-canary-31"
@@ -375,7 +376,11 @@ def test_log_journal_no_handler_when_log_is_not_an_enabled_source_and_both_log_p
     assert kept.context.capture.wiring.log_handler is not None
 
 
-def test_errors_behind_2xx_real_install_with_both_log_panels_off_finds_a_logged_error(installed: list[Any]) -> None:
+def test_errors_behind_2xx_real_install_with_both_log_panels_off_journals_the_error_but_hides_it(
+    installed: list[Any],
+) -> None:
+    """BootUI ``InsightsSnapshot.visible(LOG)``: LOG belongs to the log-tail panel (``JournalSourcePanels``), so with it
+    off the producer still journals the event (as BootUI's appender) but insights do not count it (W5c I-visible)."""
     assert "log" in snapshot_module.PRODUCED_SOURCES  # W5a P-log
     app = FastAPI()
     handle = install(
@@ -396,12 +401,12 @@ def test_errors_behind_2xx_real_install_with_both_log_panels_off_finds_a_logged_
     with TestClient(app) as client:
         for _ in range(3):
             assert client.get("/pay").status_code == 200
-    report = InsightsService(handle.context.capture.journal).report()
+    assert [r["level"] for r in _records(handle)] == ["ERROR"] * 3  # journaled
+    report = insights_service(handle.context).report()
     check = next(c for c in report["checks"] if c["kind"] == "errors-behind-2xx")
-    assert check["status"] == "EVALUATED"
-    observations = [o for o in report["observations"] if o["kind"] == "errors-behind-2xx"]
-    assert len(observations) == 1
-    assert "ERROR log" in str(observations[0]["sentence"])
+    assert check["status"] == "NOT_APPLICABLE"  # hidden: no evidence source is visible
+    assert check["reason"] == errors_behind_2xx.NOT_APPLICABLE  # BootUI ErrorsBehind2xx.notApplicable, whole text
+    assert [o for o in report["observations"] if o["kind"] == "errors-behind-2xx"] == []
     assert ARG_CANARY not in json.dumps(report)
 
 
