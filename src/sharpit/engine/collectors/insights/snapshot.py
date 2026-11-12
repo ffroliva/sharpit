@@ -18,7 +18,9 @@ from sharpit.settings_registry import JOURNAL_SOURCES
 if TYPE_CHECKING:
     from sharpit.engine.collectors.insights.requests import Request, RequestIndex
 
-PRODUCED_SOURCES: frozenset[str] = frozenset({"ai", "http", "sql"})  # W7 A2 (#134), W5a P-http, W5a P-sql
+PRODUCED_SOURCES: frozenset[str] = frozenset(
+    {"ai", "http", "sql", "transaction"}
+)  # W7 A2 (#134), P-http, P-sql, P-transaction
 
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD

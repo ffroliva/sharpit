@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 import weakref
-from collections.abc import Sized
+from collections.abc import Callable, Sized
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
@@ -86,6 +86,21 @@ def _targets(engine: object | None) -> list[SharpitContext]:
         else []
     )
     return held or (contexts if len(contexts) == 1 else [])
+
+
+def journal_targets(engine: object | None, source: str) -> list[SharpitContext]:
+    """The contexts whose journal records ``source`` for work on ``engine``: routed, and the source configured."""
+    return [c for c in _targets(engine) if c.capture.journal is not None and c.capture.journal.accepts(source)]
+
+
+def offer_journal(ctx: SharpitContext, build: Callable[[], dict[str, str | int | bool | None]], hook: str) -> None:
+    """Build and offer one journal event inside one guard: a failure of either is reported, never raised."""
+    try:
+        journal = ctx.capture.journal
+        if journal is not None:
+            journal.offer_flat(build())
+    except Exception as exc:  # noqa: BLE001 - a journal failure never reaches the host's work
+        _context_failed(ctx, exc, hook)
 
 
 def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
