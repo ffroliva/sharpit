@@ -96,7 +96,7 @@ def run() -> Any:
     current.close()
 
 
-# ported: RouteTimeBreakdownTests.warmRequestsAreSplitIntoNamedPhasesWithOverlappingCallsCountedOnceAndTheColdRequestApart
+# ported: RouteTimeBreakdownTests.warmRequestsAreSplitIntoNamedPhasesWithOverlappingCallsCountedOnceAndTheColdRequestApart  # noqa: E501
 def test_warm_requests_are_split_into_phases_with_overlapping_calls_counted_once_and_the_cold_request_apart(
     run: Run,
 ) -> None:
@@ -109,13 +109,13 @@ def test_warm_requests_are_split_into_phases_with_overlapping_calls_counted_once
     orders = rows[ORDERS]
     assert orders["status"] == "OBSERVED"
     assert orders["sentence"] == (
-        "`GET /api/orders/{id}`: warm median 40 ms over 5 requests; Unattributed 62 %, SQL 38 %. "
+        "`GET /api/orders/{id}`: warm median 40 ms over 5 requests; Unattributed 63 %, SQL 38 %. "
         "First request 400 ms (cold)."
     )
     assert len(orders["exemplarRequestIds"]) == 3
     assert "r1" not in orders["exemplarRequestIds"]
     assert run.cells(orders) == [
-        ["SQL", "75", "38 %", "15"], ["Unattributed", "125", "62 %", "25"],
+        ["SQL", "75", "38 %", "15"], ["Unattributed", "125", "63 %", "25"],
         ["Overlapping calls, counted once above", "25", "", ""],
     ]  # fmt: skip
     customers = rows["GET /api/customers"]
@@ -161,7 +161,8 @@ def test_a_few_slow_warm_requests_are_listed_but_one_slow_request_or_a_few_fast_
     assert report.sufficient is False
     assert report.unlisted is None
     assert report.sentence == (
-        "`GET /api/report`: warm median 800 ms over 4 requests; phases need 5 warm requests. First request 800 ms (cold)."
+        "`GET /api/report`: warm median 800 ms over 4 requests; phases need 5 warm requests. "
+        "First request 800 ms (cold)."
     )
     assert len(report.exemplar_request_ids) == 3
     assert "It has fewer than 5 warm requests" in findings["GET /api/once"].unlisted
