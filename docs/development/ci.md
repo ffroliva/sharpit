@@ -76,8 +76,8 @@ full matrix runs on every merge before anything ships.
 - The required `test (ubuntu-latest, 3.12)` and `(..., 3.14)` checks keep their names. On a PR they pass with a note
   ("run on push") once `changes`, the Windows shards, coverage and lint passed; on a push or dispatch they also need
   every locked shard green, so a failed shard turns them red.
-- `release/**` is in `on.push.branches`: every merge into `release/0.6.0` runs the full matrix and a Sonar analysis of
-  that branch, which refreshes the base analysis the PR scans compare against (a stale one made each PR's Python sensor
+- `release/**` is in `on.push.branches`: every merge into `release/0.6.0` runs the full matrix and a code-scan analysis
+  of that branch, which refreshes the base analysis the PR scans compare against (a stale one made each PR's Python sensor
   re-parse ~848 files). Every push is its own concurrency group (`run_id`), so none cancels another.
 
 ## Wall clock
