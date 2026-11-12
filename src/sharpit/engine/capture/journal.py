@@ -272,6 +272,9 @@ class RuntimeJournal:
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
             events = tuple(event for event, _, _ in self._events if event.get("source") == source)
+        return self._masked(source, events)
+
+    def _masked(self, source: str, events: Iterable[dict[str, object]]) -> tuple[dict[str, object], ...]:
         counts = _COUNTS.get(source, frozenset())
         return tuple(
             {
@@ -280,6 +283,17 @@ class RuntimeJournal:
             }
             for event in events
         )
+
+    def view(
+        self, sources: Iterable[str]
+    ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None]:
+        """``status()``, ``records(s)`` per source and the newest event's epoch ms from ONE lock acquisition."""
+        wanted = tuple(sources)
+        with self._lock:
+            status = self._status()
+            held = {s: tuple(e for e, _, _ in self._events if e.get("source") == s) for s in wanted}
+            newest = max((stamp for _, _, stamp in self._events), default=None)  # BootUI takes the max epoch
+        return status, {s: self._masked(s, events) for s, events in held.items()}, newest
 
     def suspend(self) -> None:
         with self._lock:
@@ -295,26 +309,29 @@ class RuntimeJournal:
             self._bytes = 0
 
     def status(self) -> dict[str, Any]:
-        """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
         with self._lock:
-            return {
-                "enabled": True,
-                "runId": self.run_id,
-                "retainedEvents": len(self._events),
-                "retainedBytes": self._bytes,
-                "maxEvents": self.max_events,
-                "maxBytes": self.max_bytes,
-                "reservedEvents": 0,
-                "reservedCapacity": self.max_events // 10,
-                "evictedEvents": self._evicted,
-                "bindingBound": self._binding_bound,
-                "oldestRetainedAt": self._events[0][2] if self._events else None,
-                "queueDepth": 0,
-                "queueCapacity": self.queue_capacity,
-                "recorded": dict(self._accepted),
-                "dropped": dict(self._dropped),
-                "droppedEvents": sum(self._dropped.values()),
-                "previousRuns": [],
-                "previousRunsUnavailable": None,
-                "agentEvidence": None,
-            }
+            return self._status()
+
+    def _status(self) -> dict[str, Any]:
+        """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
+        return {
+            "enabled": True,
+            "runId": self.run_id,
+            "retainedEvents": len(self._events),
+            "retainedBytes": self._bytes,
+            "maxEvents": self.max_events,
+            "maxBytes": self.max_bytes,
+            "reservedEvents": 0,
+            "reservedCapacity": self.max_events // 10,
+            "evictedEvents": self._evicted,
+            "bindingBound": self._binding_bound,
+            "oldestRetainedAt": self._events[0][2] if self._events else None,
+            "queueDepth": 0,
+            "queueCapacity": self.queue_capacity,
+            "recorded": dict(self._accepted),
+            "dropped": dict(self._dropped),
+            "droppedEvents": sum(self._dropped.values()),
+            "previousRuns": [],
+            "previousRunsUnavailable": None,
+            "agentEvidence": None,
+        }

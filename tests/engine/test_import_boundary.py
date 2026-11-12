@@ -37,8 +37,13 @@ GATEKEEPERS: dict[str, set[str]] = {
     "dotenv": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
     "prometheus_client": {"sharpit/engine/collectors/metrics/prometheus.py"},
-    "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
-    "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
+    "urllib.request": {
+        "sharpit/engine/collectors/vulns/osv.py",
+        "sharpit/engine/collectors/vulns/epss.py",
+        "sharpit/engine/collectors/github/client.py",
+    },
+    "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
+    "subprocess": {"sharpit/engine/collectors/github/token.py"},  # gh auth token, the GitHub refresh action only
     "socket": set(),
     "ssl": set(),
     "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
@@ -419,6 +424,32 @@ def test_opentelemetry_import_is_confined_to_engine_otel(tmp_path: Path, monkeyp
 
     assert violations == [
         "sharpit/engine/tools.py imports opentelemetry.trace: only ['sharpit/engine/otel.py'] may import opentelemetry"
+    ]
+
+
+def test_subprocess_import_is_confined_to_github_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    github = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "github"
+    github.mkdir(parents=True)
+    (github / "token.py").write_text("import subprocess\n", encoding="utf-8")
+    (github / "dashboard.py").write_text("from subprocess import run\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/github/dashboard.py imports subprocess"
+    ]
+
+
+def test_github_network_imports_are_confined_to_github_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    github = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "github"
+    github.mkdir(parents=True)
+    (github / "client.py").write_text("import http.client\nimport urllib.request\n", encoding="utf-8")
+    (github / "dashboard.py").write_text("import urllib.request\n", encoding="utf-8")
+    (github / "token.py").write_text("from http import client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/github/dashboard.py imports urllib.request",
+        "sharpit/engine/collectors/github/token.py imports http.client",
     ]
 
 

@@ -383,48 +383,48 @@
     },
     {
       "name": "bootui.github.allowed-api-hosts",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_allowed_api_hosts"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.api-enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_api_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.max-api-calls",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_max_api_calls"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.max-issues",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_max_issues"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.max-pull-requests",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_max_pull_requests"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.max-security-alerts",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_max_security_alerts"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.max-workflow-runs",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_max_workflow_runs"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.quota-safety-threshold",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_quota_safety_threshold"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.github.request-timeout",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for github_request_timeout"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.graalvm.max-repository-lookups",

@@ -2,9 +2,9 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 24,
-    "missing": 47,
-    "n-a": 20,
+    "partial": 26,
+    "missing": 36,
+    "n-a": 29,
     "total": 96
   },
   "routes": [
@@ -103,57 +103,57 @@
       "golden": "code-inventory/captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-inventory (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-inventory/changes.captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory/changes",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-inventory/changes (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-inventory/dependencies.captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory/dependencies",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-inventory/dependencies (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-inventory/methods.captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory/methods",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-inventory/methods (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/beans.captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths/beans",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-paths/beans (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-paths (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/probes.captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths/probes",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-paths/probes (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/route.captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths/route",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/code-paths/route (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "conditions/captured.json",
@@ -306,8 +306,8 @@
       "golden": "github/captured.json",
       "panel": "github",
       "route": "/sharpit/api/github",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/github (HTTP 404)"
+      "status": "partial",
+      "difference": "github/captured.json parity: unavailableReason: null in payload, golden has string; not listed in nullable.json"
     },
     {
       "golden": "graalvm/captured.json",
@@ -369,8 +369,8 @@
       "golden": "java-agent/captured.json",
       "panel": "java-agent",
       "route": "/sharpit/api/java-agent",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/java-agent (HTTP 404)"
+      "status": "partial",
+      "difference": "java-agent/captured.json parity: setup.jarPath: null in payload, golden has string; not listed in nullable.json; setup.snippets: non-empty golden list requires a non-empty payload list"
     },
     {
       "golden": "jvm-tuning/captured.json",
@@ -607,8 +607,8 @@
       "golden": "side-effects/captured.json",
       "panel": "side-effects",
       "route": "/sharpit/api/side-effects",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/side-effects (HTTP 404)"
+      "status": "n-a",
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "sql-trace/captured.json",

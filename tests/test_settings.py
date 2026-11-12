@@ -34,6 +34,31 @@ def test_gateway_trust_default_off():
     assert load_settings({}, {}).trust_container_gateway == "OFF"
 
 
+def test_github_setting_defaults_and_parsers():
+    defaults = SharpitSettings()
+    assert getattr(defaults, "github_api_enabled", None) is True
+    assert getattr(defaults, "github_request_timeout", None) == 5.0
+    assert getattr(defaults, "github_max_pull_requests", None) == 10
+    assert getattr(defaults, "github_max_issues", None) == 25
+    assert getattr(defaults, "github_max_security_alerts", None) == 50
+    assert getattr(defaults, "github_max_workflow_runs", None) == 20
+    assert getattr(defaults, "github_quota_safety_threshold", None) == 10
+    assert getattr(defaults, "github_max_api_calls", None) == 17
+    assert getattr(defaults, "github_allowed_api_hosts", None) == ("api.github.com",)
+
+    loaded = load_settings(
+        {},
+        {
+            "SHARPIT_GITHUB_API_ENABLED": "false",
+            "SHARPIT_GITHUB_REQUEST_TIMEOUT": "2500ms",
+            "SHARPIT_GITHUB_ALLOWED_API_HOSTS": "API.GITHUB.COM, GHE.EXAMPLE.COM",
+        },
+    )
+    assert getattr(loaded, "github_api_enabled", None) is False
+    assert getattr(loaded, "github_request_timeout", None) == 2.5
+    assert getattr(loaded, "github_allowed_api_hosts", None) == ("api.github.com", "ghe.example.com")
+
+
 def test_env_overrides_kwargs():
     s = load_settings({"enabled": "ON", "read_only": False}, {"SHARPIT_ENABLED": "OFF", "SHARPIT_READ_ONLY": "yes"})
     assert s.enabled == "OFF"
@@ -336,6 +361,15 @@ PROPERTIES = {
     "bootui.architecture.max-file-bytes": ("architecture_max_file_bytes", "47"),
     "bootui.startup.enabled": ("startup_enabled", "false"),
     "bootui.startup.capacity": ("startup_capacity", "17"),
+    "bootui.github.api-enabled": ("github_api_enabled", "false"),
+    "bootui.github.request-timeout": ("github_request_timeout", "33s"),
+    "bootui.github.max-pull-requests": ("github_max_pull_requests", "11"),
+    "bootui.github.max-issues": ("github_max_issues", "26"),
+    "bootui.github.max-security-alerts": ("github_max_security_alerts", "51"),
+    "bootui.github.max-workflow-runs": ("github_max_workflow_runs", "21"),
+    "bootui.github.quota-safety-threshold": ("github_quota_safety_threshold", "11"),
+    "bootui.github.max-api-calls": ("github_max_api_calls", "18"),
+    "bootui.github.allowed-api-hosts": ("github_allowed_api_hosts", "GHE.EXAMPLE.COM,API.GITHUB.COM"),
     "bootui.app-package": ("app_package", "myapp"),
     # 0.6.0 agent-sessions (Copilot)
     "bootui.copilot.enabled": ("copilot_enabled", "OFF"),
@@ -771,6 +805,14 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "ARCHITECTURE_MAX_FILE_BYTES",
         "STARTUP_ENABLED",
         "STARTUP_CAPACITY",
+        "GITHUB_API_ENABLED",
+        "GITHUB_REQUEST_TIMEOUT",
+        "GITHUB_MAX_PULL_REQUESTS",
+        "GITHUB_MAX_ISSUES",
+        "GITHUB_MAX_SECURITY_ALERTS",
+        "GITHUB_MAX_WORKFLOW_RUNS",
+        "GITHUB_QUOTA_SAFETY_THRESHOLD",
+        "GITHUB_MAX_API_CALLS",
         "APP_PACKAGE",
         "COPILOT_ENABLED",
         "COPILOT_MAX_EVENTS_PER_SESSION",
