@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sharpit.engine.collectors.insights.service import UNKNOWN_PREFIX, UNKNOWN_SUFFIX
+from sharpit.engine.collectors.insights.text import HIGH_REPEAT_KEEP, MIN_REQUESTS, UNDER_DEFAULT_FLOOR
 
 Row = dict[str, Any]
 Matcher = Callable[[Row], bool]
@@ -25,13 +26,6 @@ NEW_MARK = "not observed in the previous run"
 JOURNAL_SETTINGS = "SHARPIT_RUNTIME_JOURNAL"
 NON_HTTP_PREFIX = "Retained non-HTTP executions, which requests does not count:"
 LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"
-# repeated-selects' default floor (RepeatedSelects.java:44-61); the kind's lane shares these literals, not a copy
-MIN_REQUESTS, HIGH_REPEAT_KEEP = 3, 10
-UNDER_DEFAULT_FLOOR = (
-    f"Repeated SELECTs under 50 ms of summed measured time, seen in fewer than {MIN_REQUESTS} requests and fewer than "
-    f"{HIGH_REPEAT_KEEP} times in any one, are left out of the default agent list; "
-    "ask for them with the query repeated-selects."
-)
 _JUDGED = (
     re.compile(  # JudgedWithoutFinding.SENTENCES: judged and not reported, as opposed to what a check could not see
         r"(?:Examined \d+ collections that reclaimed old-generation space; their retained occupancy did not meet this "
@@ -97,7 +91,7 @@ class _Next:
         return self
 
     def ask(self, tool: str, argument: str, value: object, why: str) -> _Next:
-        return self if value is None else self.add(tool, why, {argument: value})
+        return self if value is None or value == "" else self.add(tool, why, {argument: value})
 
     def then(self, others: _Next) -> list[Row]:
         merged = list(self.rows)

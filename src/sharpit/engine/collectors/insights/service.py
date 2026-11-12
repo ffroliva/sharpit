@@ -14,7 +14,7 @@ from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import Snapshot, project
-from sharpit.engine.collectors.insights.text import counted, stable_hash
+from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -97,6 +97,11 @@ def _check_status(worked: bool, partial: str | None) -> str:
     return "EVALUATED" if partial is None else "PARTIAL"
 
 
+def _ids(ids: Sequence[str], mask: Mask) -> list[str]:
+    """Ids are metadata: METADATA_ONLY (``None``) keeps them, any other mask answer, even "", replaces them."""
+    return [i if (m := mask(i)) is None else m for i in ids]
+
+
 def _row(
     observation: Observation, found: Any, partial: str | None, unseen: list[str], mask: Mask
 ) -> tuple[Row, Finding]:
@@ -104,14 +109,14 @@ def _row(
     status = _row_status(finding.sufficient, partial)
     hidden = mask("") is None  # METADATA_ONLY: every text is withheld, and the row says so
     own = [] if hidden else [t for t in map(mask, finding.limitations) if t is not None]
-    own += [TEXT_OMITTED] if hidden else []
+    own += [TEXT_OMITTED, *(t for t in finding.limitations if t == UNDER_DEFAULT_FLOOR)] if hidden else []
     return {
         "id": id_of(observation.kind, finding.key), "kind": observation.kind, "subject": mask(finding.subject) or "",
         "status": status, "sentence": mask(finding.sentence) or "", "eligible": finding.eligible,
         "affected": finding.affected,
         "minimumTier": finding.tier or observation.minimum_tier,
         "whatToCheck": [t for t in map(mask, finding.what_to_check) if t is not None],
-        "exemplarRequestIds": [mask(i) or i for i in finding.exemplar_request_ids[:MAX_EXEMPLARS]],  # ids are metadata
+        "exemplarRequestIds": _ids(finding.exemplar_request_ids[:MAX_EXEMPLARS], mask),
         "evidenceRows": min(MAX_EVIDENCE_ROWS, len(finding.rows)),
         "limitations": [*own, *unseen, *([partial] if partial else [])],
         "listed": finding.listed, "unlistedReason": finding.unlisted,

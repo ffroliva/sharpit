@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import threading
@@ -82,6 +83,9 @@ def test_every_produced_source_has_a_producer_test() -> None:
         file = root / path
         assert file.is_file(), f"{source}: {path} does not exist"
         assert f"def {name}(" in file.read_text(encoding="utf-8"), f"{source}: {name} is not in {path}"
+        module = importlib.import_module(path.removesuffix(".py").replace("/", "."))
+        marks = {m.name for m in getattr(getattr(module, name), "pytestmark", [])}
+        assert marks.isdisjoint({"skip", "skipif", "xfail"}), f"{source}: {name} is skipped or xfailed"
 
 
 def test_a_source_disabled_in_the_journal_is_not_recorded_even_when_produced() -> None:
