@@ -73,6 +73,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("code-inventory", "Code Inventory", False, "/code-inventory"),
     Panel("code-paths", "Code Paths", True, "/code-paths"),
     Panel("side-effects", "Side Effects", False, "/side-effects"),
+    Panel("email", "Email", True, "/email"),  # W7 E: BootUiPanels.java:159
     # 0.6.0 W8 A0: slots for the read sides (W5b K, W7 D), action-capable as BootUiPanels.java:124,133
     Panel("cache", "Cache", True, "/cache"),
     Panel("dev-services", "Dev Services", True, "/dev-services"),
