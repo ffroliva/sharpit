@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.collectors.config import overrides as overrides_mod
@@ -118,6 +119,16 @@ def test_config_report_override_flags_real(tmp_path: Path) -> None:
     assert only["properties"][0]["override"] is True
 
 
+def test_first_config_get_on_a_fresh_install_creates_no_file(tmp_path: Path, no_side_effects: SideEffectGuard) -> None:
+    file = tmp_path / "sub" / "o.env"
+    client = _client(file)
+    no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
+    env, content = _snapshot(file)
+    assert client.get("/sharpit/api/config").status_code == 200
+    _unchanged(file, env, content)
+    assert not file.parent.exists()
+
+
 def test_config_get_never_writes(tmp_path: Path) -> None:
     file = tmp_path / "o.env"
     client = _client(file)
@@ -150,7 +161,11 @@ def test_post_masks_secret_value_in_response(tmp_path: Path) -> None:
         ({"name": "bad name!", "value": "x"}, "Property name is invalid"),
         ({"name": "SHARPIT_ENABLED", "value": "x"}, "sharpit settings cannot be overridden at runtime."),
         ({"name": "Sharpit_Token", "value": "x"}, "sharpit settings cannot be overridden at runtime."),
-        ({"name": "path", "value": "x"}, "Environment variable 'path' cannot be overridden at runtime."),
+        ({"name": "path", "value": "x"}, "Environment variable cannot be overridden at runtime."),
+        (
+            {"name": "PYTHON_ghp_abcdefghijklmnop0123456789", "value": "x"},
+            "Environment variable cannot be overridden at runtime.",
+        ),
         ({"name": NAME, "value": "a\nb"}, "Property value must not contain control characters or newlines"),
         ({"name": NAME, "value": "a\x00b"}, "Property value must not contain control characters or newlines"),
     ],
@@ -175,11 +190,31 @@ def test_post_non_object_body_is_400(tmp_path: Path, raw: str) -> None:
     _unchanged(file, env, content)
 
 
+def test_post_deeply_nested_body_is_400(tmp_path: Path) -> None:
+    file = tmp_path / "o.env"
+    client = _client(file)
+    env, content = _snapshot(file)
+    resp = client.post(URL, content="[" * 50_000, headers={"content-type": "application/json"})
+    assert resp.status_code == 400
+    _unchanged(file, env, content)
+
+
+def test_post_persist_false_is_accepted_and_ignored(tmp_path: Path) -> None:
+    file = tmp_path / "o.env"
+    resp = _post(_client(file), {"name": NAME, "value": "x", "persist": False})
+    assert resp.status_code == 200
+    assert resp.json()["persisted"] is True
+    assert NAME in file.read_text(encoding="utf-8")
+
+
 def test_post_wrong_content_type_is_415(tmp_path: Path) -> None:
-    client = _client(tmp_path / "o.env")
+    file = tmp_path / "o.env"
+    client = _client(file)
+    env, content = _snapshot(file)
     resp = client.post(URL, content='{"name": "A", "value": "b"}', headers={"content-type": "text/plain"})
     assert resp.status_code == 415
     assert "A" not in os.environ
+    _unchanged(file, env, content)
 
 
 def test_post_oversized_body_is_413(tmp_path: Path) -> None:
@@ -228,6 +263,39 @@ def test_unexpected_failure_never_leaks_the_exception(tmp_path: Path, monkeypatc
     resp = _post(client, {"name": NAME, "value": "x"})
     assert resp.status_code == 500
     assert "secret-detail" not in resp.text
+
+
+_BAD_FILES = {
+    "malformed-line": 'KEEP_ONE="1"\nKEEP_TWO="2"\nthis line is broken\n',
+    "refused-name": 'KEEP_ONE="1"\nKEEP_TWO="2"\nPATH="/x"\n',
+}
+
+
+@pytest.mark.parametrize("content", list(_BAD_FILES.values()), ids=list(_BAD_FILES))
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_unreadable_overrides_file_is_never_overwritten(tmp_path: Path, content: str, method: str) -> None:
+    file = tmp_path / "o.env"
+    file.write_text(content, encoding="utf-8")
+    client = _client(file)
+    env, before = _snapshot(file)
+    path = f"{URL}/KEEP_ONE" if method == "DELETE" else URL
+    resp = client.request(method, path, json=None if method == "DELETE" else {"name": "NEW_KEY", "value": "x"})
+    assert (resp.status_code, resp.json()) == (
+        500,
+        {"error": f"Overrides file {file} is malformed; fix or delete it"},
+    )
+    _unchanged(file, env, before)
+
+
+def test_runtime_error_outside_the_write_is_the_generic_500(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(tmp_path / "o.env")
+
+    def boom(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("secret-detail")  # what an unrelated RecursionError looks like
+
+    monkeypatch.setattr(overrides_mod.ConfigOverrideService, "put", boom)
+    resp = _post(client, {"name": NAME, "value": "x"})
+    assert (resp.status_code, resp.json()) == (500, {"error": "Unable to apply the configuration override"})
 
 
 # --- gates: each refusal proves the override file and os.environ are unchanged -------------------------------------
