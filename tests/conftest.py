@@ -205,7 +205,8 @@ def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
     for base, dirs, files in os.walk(root):
         # pytest-cache-files-*: pytest's own atomic staging dir, which another xdist worker's cache writer may create in
         # the shared cwd mid-test; only that prefix is skipped, never a write the code under test makes
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith("pytest-cache-files-")]
+        staging = base == str(root)  # top level only: where pytest stages its cache next to the rootdir
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not (staging and d.startswith("pytest-cache-files-"))]
         for name in dirs:
             snap[os.path.join(base, name)] = None
         for name in files:

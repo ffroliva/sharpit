@@ -334,3 +334,13 @@ def test_a_file_written_in_the_cwd_is_still_a_side_effect(tmp_path: Path, monkey
     )
     assert error is not None
     assert "cwd changed" in error
+
+
+@pytest.mark.parametrize("name", ["pytest-cache-other-x", "nested/pytest-cache-files-x"])
+def test_a_directory_made_in_the_cwd_is_still_a_side_effect(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the skip is exactly pytest's staging prefix at the top of the cwd, nothing near it
+    error = _sweep_error(lambda _guard: (Path.cwd() / name).mkdir(parents=True), tmp_path, monkeypatch)
+    assert error is not None
+    assert "cwd changed" in error
