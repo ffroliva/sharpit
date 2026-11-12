@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
+from unittest import mock
+
+import pytest
 
 from sharpit.engine.capture.wraps import wrap
 
@@ -150,6 +155,7 @@ def test_an_async_method_stays_a_coroutine_function() -> None:
     assert wrap(client, "fetch", make_async, tag="t") is not None
     assert hasattr(client.__dict__["fetch"], "__sharpit_original__")
     assert inspect.iscoroutinefunction(client.__dict__["fetch"])
+    assert asyncio.run(client().fetch(7)) == ("wrapped", 7)
 
 
 def test_a_c_type_answers_none_without_raising() -> None:
@@ -197,9 +203,13 @@ def test_two_threads_wrapping_at_once_end_with_one_wrapper() -> None:
     barrier = threading.Barrier(8)
     results: list[Any] = []
 
+    def slow(original: Callable[..., Any]) -> Callable[..., Any]:
+        time.sleep(0.01)  # lets the threads interleave inside make, so only the lock keeps it to one wrapper
+        return passthrough(original)
+
     def go() -> None:
         barrier.wait()
-        results.append(wrap(client, "send", passthrough, tag="t"))
+        results.append(wrap(client, "send", slow, tag="t"))
 
     threads = [threading.Thread(target=go) for _ in range(8)]
     for t in threads:
@@ -208,3 +218,131 @@ def test_two_threads_wrapping_at_once_end_with_one_wrapper() -> None:
         t.join()
     assert sum(r is not None for r in results) == 1
     assert client().send(1) == ("wrapped", 1)
+
+
+class Wrapt:
+    """A stand-in for a wrapt FunctionWrapper: callable, with a descriptor ``__get__`` that binds for itself."""
+
+    def __get__(self, instance: Any, owner: Any = None) -> Any:
+        return self
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return "wrapt"
+
+
+@pytest.mark.parametrize(
+    "make_entry",
+    [
+        lambda: mock.MagicMock(),
+        lambda: len,
+        lambda: functools.partial(int, "7"),
+        lambda: Wrapt(),
+        lambda: staticmethod(Wrapt()),
+        lambda: classmethod(len),
+    ],
+    ids=["mock", "builtin", "partial", "wrapt-style", "static-over-wrapt", "classmethod-over-builtin"],
+)
+def test_a_non_function_callable_answers_none(make_entry: Callable[[], Any]) -> None:
+    client = make_client()
+    entry = make_entry()
+    client.thing = entry  # type: ignore[attr-defined]
+    assert wrap(client, "thing", passthrough, tag="t") is None
+    assert client.__dict__["thing"] is entry
+
+
+def test_a_wrapt_style_wrapper_answers_none_and_is_untouched() -> None:
+    client = make_client()
+    entry = Wrapt()
+    client.send = entry  # type: ignore[method-assign,assignment]
+    assert wrap(client, "send", passthrough, tag="t") is None
+    assert client.__dict__["send"] is entry
+    assert vars(entry) == {}
+    assert client().send(1) == "wrapt"
+
+
+def test_host_code_on_an_attribute_object_never_runs() -> None:
+    calls: list[str] = []
+
+    class Spy:
+        def __getattr__(self, attr: str) -> Any:
+            calls.append(attr)
+            raise AttributeError(attr)
+
+        @property
+        def __class__(self) -> Any:  # type: ignore[override]
+            calls.append("__class__")
+            return Spy
+
+        def __call__(self) -> None:
+            return None
+
+    client = make_client()
+    client.spy = Spy()  # type: ignore[attr-defined]
+    client.boxed = staticmethod(Spy())  # type: ignore[attr-defined]
+    assert wrap(client, "spy", passthrough, tag="t") is None
+    assert wrap(client, "boxed", passthrough, tag="t") is None
+    assert calls == []
+
+
+def test_a_nested_class_answers_none() -> None:
+    client = make_client()
+
+    class Inner:
+        pass
+
+    client.Inner = Inner  # type: ignore[attr-defined]
+    assert wrap(client, "Inner", passthrough, tag="t") is None
+    assert client.__dict__["Inner"] is Inner
+
+
+def test_a_property_answers_none() -> None:
+    client = make_client()
+    prop = property(lambda self: 1)
+    client.prop = prop  # type: ignore[attr-defined]
+    assert wrap(client, "prop", passthrough, tag="t") is None
+    assert client.__dict__["prop"] is prop
+
+
+def test_a_staticmethod_subclass_answers_none() -> None:
+    class Sub(staticmethod):  # type: ignore[type-arg]
+        pass
+
+    client = make_client()
+    entry = Sub(lambda x: x)
+    client.sub = entry  # type: ignore[attr-defined]
+    assert wrap(client, "sub", passthrough, tag="t") is None
+    assert client.__dict__["sub"] is entry
+
+
+def test_a_setattr_that_does_nothing_answers_none() -> None:
+    class Silent(type):
+        def __setattr__(cls, key: str, value: Any) -> None:
+            return None
+
+    class Quiet(metaclass=Silent):
+        def send(self) -> int:
+            return 1
+
+    assert wrap(Quiet, "send", passthrough, tag="t") is None
+    assert Quiet().send() == 1
+
+
+def test_a_make_that_returns_the_function_itself_answers_none_and_stamps_nothing() -> None:
+    client = make_client()
+    original = client.__dict__["send"]
+    assert wrap(client, "send", lambda func: func, tag="t") is None
+    assert client.__dict__["send"] is original
+    assert not hasattr(original, "__sharpit_original__")
+    assert "__sharpit_tag__" not in vars(original)
+
+
+def test_removing_the_inner_wrapper_first_leaves_the_outer_working() -> None:
+    client = make_client()
+    remove_a = wrap(client, "send", passthrough, tag="a")
+    remove_b = wrap(client, "send", passthrough, tag="b")
+    assert remove_a is not None
+    assert remove_b is not None
+    outer = client.__dict__["send"]
+    assert remove_a() is False
+    assert client.__dict__["send"] is outer
+    assert client().send(1) == ("wrapped", ("wrapped", 1))
