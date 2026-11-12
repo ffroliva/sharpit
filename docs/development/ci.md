@@ -78,9 +78,10 @@ What the numbers say:
 - **Shard times swing with what shares a worker, not with the weights.** The same `tests/test_safety_matrix.py`
   slice cost 33-69 s on five Windows shards and 464 s on the sixth: its tests ran at ~0.8 s each, then ~11 s each
   after some earlier test on that worker. Same file, 92 s on `lowest` and 382 s on Ubuntu 3.12 in one run. Candidate
-  cause (unconfirmed): `engine/sources/sqlite.py` `_count_preexisting` walks `gc.get_objects()` and calls
-  `gc.get_referrers` for each live sqlite3 connection on every attach, so a worker that piles up connections pays
-  heap x connections on every `install()`. `test_a12_resolver.py` first did not reproduce it.
+  cause (its effect on CI not yet measured): `engine/sources/sqlite.py` `_count_preexisting` called
+  `gc.get_referrers`, a whole-heap walk, once per live sqlite3 connection on every attach, so a worker that piles up
+  connections paid heap x connections on every `install()` (scratch: 300k objects, 200 connections, 755 ms). It now
+  makes two walks for any count (75 ms there); `test_preexisting_count_walks_the_heap_a_fixed_number_of_times` pins it.
 - **Tail stragglers.** `--dist load` left one worker with a 3-minute queue after the other three were idle
   (ubuntu 3.14 3/4: 98% -> 100% took 3 min). `--dist worksteal` evened the Windows shards (1.6-2.7 min) but reorders
   tests across workers, and that exposed a logging-state leak older than this change: seven `caplog` tests in
