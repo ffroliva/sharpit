@@ -72,7 +72,7 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
     assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
-    assert {"ai", "sql", "transaction"} <= snapshot_module.PRODUCED_SOURCES
+    assert {"ai", "sql", "exception", "transaction"} <= snapshot_module.PRODUCED_SOURCES
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
@@ -82,6 +82,10 @@ def test_every_produced_source_has_a_producer_test() -> None:
         "sql": (
             "tests/engine/capture/test_sql_journal.py",
             "test_sql_journal_event_offered_once_per_statement_with_bootui_fields",
+        ),
+        "exception": (
+            "tests/engine/capture/test_exception_journal.py",
+            "test_exception_journal_event_offered_once_per_captured_exception_with_bootui_fields",
         ),
         "transaction": (
             "tests/engine/capture/test_transaction_journal.py",
@@ -372,6 +376,15 @@ def test_the_sql_source_is_recorded_only_when_enabled() -> None:
     disabled.offer(sql)
     assert snapshot_module.project(enabled).recorded("sql")
     assert not snapshot_module.project(disabled).recorded("sql")
+
+
+def test_the_exception_source_is_recorded_only_when_enabled() -> None:
+    event = {"source": "exception", "exceptionClass": "x.Boom", "requestId": "r1"}
+    enabled, disabled = _journal(["exception"]), _journal(["http"])
+    enabled.offer(event)
+    disabled.offer(event)
+    assert snapshot_module.project(enabled).recorded("exception")
+    assert not snapshot_module.project(disabled).recorded("exception")
 
 
 def test_the_transaction_source_is_recorded_only_when_enabled() -> None:

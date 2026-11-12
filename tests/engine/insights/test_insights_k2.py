@@ -199,10 +199,31 @@ def test_errors_behind_2xx_secret_in_a_read_field_is_never_shown(exposure: Expos
     assert "abcdef0123456789" not in dumped
 
 
-def test_errors_behind_2xx_real_install_evaluates_rolled_back_transactions(monkeypatch: pytest.MonkeyPatch) -> None:
-    # the transaction source has a producer now (W5a P-transaction): the real set is no longer NOT_APPLICABLE
+def test_errors_behind_2xx_real_install_evaluates_now_that_exception_is_produced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES)
-    assert "transaction" in REAL_PRODUCED_SOURCES
+    assert "exception" in REAL_PRODUCED_SOURCES  # W5a P-exception
+    run = Run()
+    run.request(200, exception(ILLEGAL_STATE))
+    assert run.check()["status"] == "EVALUATED"
+
+
+def test_errors_behind_2xx_without_any_evidence_producer_is_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES - EVIDENCE_SOURCES | {"http"})
+    run = Run()
+    run.request(200)
+    check = run.check()
+    assert check["status"] == "NOT_APPLICABLE"
+    assert check["reason"] == (
+        "The runtime journal records none of the transaction, exception, log, and rest-client sources, or their "
+        "panels are disabled."
+    )
+
+
+def test_errors_behind_2xx_real_install_evaluates_rolled_back_transactions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", REAL_PRODUCED_SOURCES)
+    assert "transaction" in REAL_PRODUCED_SOURCES  # W5a P-transaction
     run = Run()
     run.request(200, {"source": "transaction", "rolledBack": True, "nested": False, "method": "app.orders:save:12"})
     assert run.check()["status"] == "EVALUATED"

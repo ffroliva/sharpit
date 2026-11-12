@@ -304,16 +304,17 @@ def test_exception_group_unwrap():
     assert [c["exceptionClassName"] for c in detail["causes"]] == ["TypeError"]
 
 
-def test_causes_cycle_safe_max_five():
+def test_causes_cycle_safe_max_eight():
+    """BootUI ExceptionStore.buildCauses walks at most MAX_CAUSE_DEPTH (8) causes (owner ruling 2026-11-12)."""
     store = _store()
-    chain = [RuntimeError(f"e{i}") for i in range(8)]
+    chain = [RuntimeError(f"e{i}") for i in range(10)]
     for outer, inner in zip(chain, chain[1:], strict=False):
         outer.__cause__ = inner
     chain[-1].__cause__ = chain[0]  # a cycle
     _record(store, chain[0])
     detail = store.detail(_groups(store)[0]["id"])
     assert detail is not None
-    assert [c["message"] for c in detail["causes"]] == ["e1", "e2", "e3", "e4", "e5"]
+    assert [c["message"] for c in detail["causes"]] == ["e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8"]
     loop = RuntimeError("loop")
     loop.__cause__ = loop
     _record(store, loop)

@@ -31,10 +31,15 @@ JOBS = _jobs()
 SHARD = re.compile(r"shard: \[?(\d+)/(\d+)")
 
 
+def _artifact_job(job: str) -> str:
+    """The locked job keeps test-shard's artifact names: scripts/ci/shard_weights.py reads Ubuntu weights from them."""
+    return "test-shard" if job == "test-shard-locked" else job
+
+
 def _legs(job: str) -> dict[str, list[tuple[int, int]]]:
     """Shard entries of a matrix job, grouped by (os, python) leg."""
     legs: dict[str, list[tuple[int, int]]] = defaultdict(list)
-    for line in JOBS[job].splitlines():
+    for line in JOBS.get(job, "").splitlines():  # a missing job has no legs: its own test says so
         if "shard:" not in line:
             continue
         leg = "".join(re.findall(r"(?:os|python): \"?([\w.-]+)", line))
@@ -52,7 +57,9 @@ def test_pyright_and_format_run_in_the_lint_job_only() -> None:
         assert [name for name, body in JOBS.items() if command in body] == ["lint"]
 
 
-@pytest.mark.parametrize("job", ["test-shard", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard"])
+@pytest.mark.parametrize(
+    "job", ["test-shard", "test-shard-locked", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard"]
+)
 def test_each_leg_of_a_sharded_job_lists_every_shard_exactly_once(job: str) -> None:
     for leg, entries in _legs(job).items():
         totals = {n for _, n in entries}
@@ -76,13 +83,18 @@ def test_the_coverage_shards_use_the_sys_monitoring_tracer() -> None:
 LOAD_CEILING = {"ubuntu-latest": 330.0, "windows-latest": 305.0}
 
 
-@pytest.mark.parametrize("leg", [leg for leg in _legs("test-shard") if leg])
+def _test_legs() -> dict[str, list[tuple[int, int]]]:
+    """The plain-install legs of the suite: the pull-request job and the push-only locked job together."""
+    return {**_legs("test-shard"), **_legs("test-shard-locked")}
+
+
+@pytest.mark.parametrize("leg", [leg for leg in _test_legs() if leg])
 def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str) -> None:
     """The costliest shard sets the leg's wall; the ceiling is what a shard count must keep it under."""
     from _shard import shard_loads
 
     platform = "win32" if leg.startswith("windows") else "linux"
-    n = _legs("test-shard")[leg][0][1]
+    n = _test_legs()[leg][0][1]
     loads = shard_loads(n, platform)  # the planner's own prediction: a split file's tests spread over shards 1..n-1
     ceiling = LOAD_CEILING["windows-latest" if platform == "win32" else "ubuntu-latest"]
     assert max(loads) <= ceiling, f"{leg}: {n} shards, loads {loads}"
@@ -90,7 +102,7 @@ def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str
 
 def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
-    assert "needs: [test-shard, coverage-shard, lint, changes]" in JOBS["test"]
+    assert "needs: [test-shard, test-shard-locked, coverage-shard, lint, changes]" in JOBS["test"]
     assert 'needs.lint.result }}" = success' in JOBS["test"]
 
 
@@ -100,7 +112,7 @@ DOCS_ONLY_SONAR = "Docs-only change; Sonar check is a no-op."
 
 def test_the_313_leg_runs_only_under_coverage() -> None:
     """The 3.13 suite ran twice on the same install: plain in test-shard and again under coverage."""
-    assert "ubuntu-latest3.13" not in _legs("test-shard")
+    assert "ubuntu-latest3.13" not in _test_legs()
 
 
 def test_the_coverage_leg_is_the_313_leg_in_five_shards() -> None:
@@ -116,7 +128,7 @@ def test_the_required_test_checks_need_the_coverage_leg() -> None:
     assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split(DOCS_ONLY_EXIT, 1)[1]
 
 
-BUDGET_JOBS = ("test-shard", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard")
+BUDGET_JOBS = ("test-shard", "test-shard-locked", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard")
 BUDGETS_ARGS = "@${{ runner.temp }}/budgets.args"  # the timing files (tests/_shard.py timing_files), one per line
 NO_BUDGETS_ARGS = "@${{ runner.temp }}/no-budgets.args"  # --ignore=<timing file>, one per line
 
@@ -152,7 +164,7 @@ def test_the_budget_files_run_alone_after_the_parallel_step(job: str) -> None:
     assert writer in JOBS[job]
     assert JOBS[job].index(writer) < JOBS[job].index(parallel[0])
     for kind in ("junit", "overhead", "speed"):
-        assert re.search(rf"name: {kind}-{job}-\S*budgets$", JOBS[job], re.MULTILINE), kind
+        assert re.search(rf"name: {kind}-{_artifact_job(job)}-\S*budgets$", JOBS[job], re.MULTILINE), kind
 
 
 def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
@@ -176,8 +188,8 @@ def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
     missing_overhead = [name for name in pytest_jobs if "name: overhead-" not in JOBS[name]]
     assert not missing_overhead, f"pytest jobs without overhead uploads: {missing_overhead}"
     for job in pytest_jobs:
-        assert f"name: junit-{job}-" in JOBS[job], job
-        assert f"name: overhead-{job}-" in JOBS[job], job
+        assert f"name: junit-{_artifact_job(job)}-" in JOBS[job], job
+        assert f"name: overhead-{_artifact_job(job)}-" in JOBS[job], job
         assert "SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl" in JOBS[job], job
         assert JOBS[job].count("if: always()") >= 2, job
     assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
@@ -202,7 +214,7 @@ def test_every_pytest_job_records_fixture_times_and_rebuilds_and_uploads_them(jo
     body = JOBS[job]
     assert body.index(f'os.makedirs(sys.argv[1], exist_ok=True)" "{SPEED_DIR}"') < body.index(runs[0])
     assert f'--values-file "${{{{ runner.temp }}}}/sharpit-canary.txt" "{SPEED_DIR}"' in body
-    upload = body.split(f"name: speed-{job}", 1)
+    upload = body.split(f"name: speed-{_artifact_job(job)}", 1)
     assert len(upload) == 2, f"{job} uploads no speed-{job}-* artifact"
     tail = upload[1].split("\n      - ", 1)[0]
     assert f"path: {SPEED_DIR}" in tail
@@ -405,6 +417,7 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
     for job in (
         "lint",
         "test-shard",
+        "test-shard-locked",
         "coverage-shard",
         "lowest-shard",
         "no-sqlalchemy-shard",
@@ -601,7 +614,7 @@ def _matrix_jobs(body: str) -> int:
 
 def test_the_job_count_never_rises() -> None:
     """Every job pays setup and a slot in a 20-runner pool: lower these pins when a job goes, never raise them."""
-    assert len(JOBS) == 18
+    assert len(JOBS) == 19
     assert sum(_matrix_jobs(body) for body in JOBS.values()) == 52
 
 
@@ -795,3 +808,84 @@ def test_a_wall_clock_budget_runs_with_the_timing_files(monkeypatch: pytest.Monk
     from tests._shard import timing_files  # noqa: PLC0415
 
     assert "tests/engine/insights/test_insights_service.py" in timing_files()
+
+
+def _on_header() -> str:
+    return CI.split("\npermissions:", 1)[0]
+
+
+def test_pr_runs_every_python_and_both_oses() -> None:
+    """The legs a pull request runs (the locked job is skipped there) still cover Python 3.12-3.14 and both OSes."""
+    legs = {**_legs("test-shard"), **_legs("coverage-shard")}
+    pythons = {re.sub(r"^\D+", "", leg) for leg in legs}
+    oses = {leg.removesuffix(re.sub(r"^\D+", "", leg)) for leg in legs}
+    assert "--python 3.12" in JOBS["lowest-shard"], "lowest is the pull request's 3.12 leg"
+    assert pythons | {"3.12"} == {"3.12", "3.13", "3.14"}, pythons
+    assert oses == {"windows-latest", "ubuntu-latest"}, oses
+
+
+def test_locked_ubuntu_312_and_314_run_on_push_only() -> None:
+    locked = JOBS.get("test-shard-locked", "")
+    assert _legs("test-shard-locked") == {
+        "ubuntu-latest3.12": [(i, 4) for i in range(1, 5)],
+        "ubuntu-latest3.14": [(i, 4) for i in range(1, 5)],
+    }
+    assert "if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'" in locked
+    assert set(_legs("test-shard")) == {"windows-latest3.14"}, "the pull-request job is the Windows leg alone"
+    assert "github.event_name" not in JOBS["test-shard"]
+    assert re.search(r"^  workflow_dispatch:", _on_header(), re.MULTILINE), "dispatch must run the locked legs too"
+
+
+def test_the_locked_job_runs_the_same_steps_as_the_pull_request_job() -> None:
+    """Two jobs because a job-level `if` cannot read the matrix; the copies must never drift apart."""
+    empty = "    steps:\n"  # a missing job fails the comparison below, not with a KeyError
+    steps = [job.split("    steps:\n", 1)[1] for job in (JOBS["test-shard"], JOBS.get("test-shard-locked", empty))]
+    assert steps[0] == steps[1]
+    names = [re.search(r"^    name: (.+)$", JOBS[job], re.MULTILINE) for job in ("test-shard", "test-shard-locked")]
+    assert names[0]
+    assert names[1]
+    assert names[0][1] == names[1][1]
+
+
+def test_release_branches_run_on_push() -> None:
+    push = re.search(r"^  push:\n    branches: \[(.*)\]$", _on_header(), re.MULTILINE)
+    assert push, "no push branches"
+    branches = {item.strip().strip('"') for item in push[1].split(",")}
+    assert {"main", "mvp", "release/**"} <= branches
+    # every push, release branches included, is its own concurrency group: none cancels another
+    assert "${{ github.event.pull_request.number || github.run_id }}" in CI
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in CI
+
+
+def _run_test_aggregator(
+    event: str, results: dict[str, str], code_changed: str = "true"
+) -> subprocess.CompletedProcess[str]:
+    lines = JOBS["test"].splitlines()
+    start = lines.index("        run: |") + 1
+    script = textwrap.dedent("\n".join(lines[start:]))
+    for job, result in results.items():
+        script = script.replace("${{ needs." + job + ".result }}", result)
+    return subprocess.run(
+        [shutil.which("bash") or "bash", "-e", "-c", script],
+        env={**os.environ, "CODE_CHANGED": code_changed, "GITHUB_EVENT_NAME": event},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+GREEN = {"changes": "success", "test-shard": "success", "coverage-shard": "success", "lint": "success"}
+
+
+def test_push_only_aggregators_pass_on_pr_and_require_shards_on_push() -> None:
+    skipped = {**GREEN, "test-shard-locked": "skipped"}
+    on_pr = _run_test_aggregator("pull_request", skipped)
+    assert on_pr.returncode == 0, on_pr.stderr
+    assert "run on push" in on_pr.stdout
+    assert _run_test_aggregator("pull_request", {**skipped, "test-shard": "failure"}).returncode != 0
+    assert _run_test_aggregator("push", {**GREEN, "test-shard-locked": "success"}).returncode == 0
+    for bad in ("failure", "cancelled", "skipped"):
+        assert _run_test_aggregator("push", {**GREEN, "test-shard-locked": bad}).returncode != 0, bad
+    assert _run_test_aggregator("workflow_dispatch", {**GREEN, "test-shard-locked": "failure"}).returncode != 0
+    docs_only = _run_test_aggregator("push", {**skipped, "test-shard": "skipped"}, code_changed="false")
+    assert docs_only.returncode == 0
