@@ -124,6 +124,7 @@ def test_resource_profile_without_the_resources_source_names_the_setting() -> No
 @pytest.mark.parametrize("suffix", ["", "/stop"])
 def test_resource_profile_post_answers_the_floor_and_starts_nothing(suffix: str) -> None:
     client, _ = _client(runtime_journal_sources="http,sql,resources", resources_jfr_max_duration="45s")
+    client.get(PROFILE)  # warm-up: the first sync route starts the AnyIO worker thread, which is not a sampler
     threads = threading.active_count()
     response = client.post(PROFILE + suffix)
     assert response.status_code == 200
