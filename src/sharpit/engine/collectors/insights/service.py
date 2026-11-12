@@ -8,24 +8,31 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from sharpit.engine.collectors.insights import listing
-from sharpit.engine.collectors.insights.finding import Evaluation
+from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import Snapshot, project
 from sharpit.engine.collectors.insights.text import counted, stable_hash
+
+if TYPE_CHECKING:
+    from sharpit.engine.context import SharpitContext
 
 logger = logging.getLogger("sharpit")
 
 DISABLED = "Runtime Insights reads the runtime journal, which is disabled: set SHARPIT_RUNTIME_JOURNAL_ENABLED=true."
 NOT_IMPLEMENTED = "sharpit has not implemented this observation yet."
 NOT_EVALUATED = "This observation could not be evaluated."
+UNKNOWN_PREFIX = "No observation "
+UNKNOWN_SUFFIX = " in this run's retained events: it may have been evicted or cleared."
+TEXT_OMITTED = "The text of this observation is withheld under METADATA_ONLY exposure: counts, ids and statuses only."
 MAX_EXEMPLARS, MAX_EVIDENCE_ROWS = 3, 20  # RuntimeInsightsService.MAX_EXEMPLARS, MAX_EVIDENCE_ROWS
 _LINKS = ("requestId", "executionId", "traceId")
 
 Row = dict[str, object]
-Mask = Callable[[str], str]
+Mask = Callable[[str], str | None]  # None: METADATA_ONLY shows no text
+Details = dict[str, tuple[Row, Finding]]
 
 
 class Observation(Protocol):
@@ -78,19 +85,25 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     ]
 
 
-def _row(observation: Observation, found: Any, partial: str | None, unseen: list[str], mask: Mask) -> Row:
+def _row(
+    observation: Observation, found: Any, partial: str | None, unseen: list[str], mask: Mask
+) -> tuple[Row, Finding]:
     finding = listing.apply(observation.kind, found)
     status = "INSUFFICIENT" if not finding.sufficient else "OBSERVED" if partial is None else "PARTIAL"
+    hidden = mask("") is None  # METADATA_ONLY: every text is withheld, and the row says so
+    own = [] if hidden else [t for t in map(mask, finding.limitations) if t is not None]
+    own += [TEXT_OMITTED] if hidden else []
     return {
-        "id": id_of(observation.kind, finding.key), "kind": observation.kind, "subject": mask(finding.subject),
-        "status": status, "sentence": mask(finding.sentence), "eligible": finding.eligible,
+        "id": id_of(observation.kind, finding.key), "kind": observation.kind, "subject": mask(finding.subject) or "",
+        "status": status, "sentence": mask(finding.sentence) or "", "eligible": finding.eligible,
         "affected": finding.affected,
-        "minimumTier": finding.tier or observation.minimum_tier, "whatToCheck": list(finding.what_to_check),
-        "exemplarRequestIds": list(finding.exemplar_request_ids[:MAX_EXEMPLARS]),
+        "minimumTier": finding.tier or observation.minimum_tier,
+        "whatToCheck": [t for t in map(mask, finding.what_to_check) if t is not None],
+        "exemplarRequestIds": [mask(i) or i for i in finding.exemplar_request_ids[:MAX_EXEMPLARS]],  # ids are metadata
         "evidenceRows": min(MAX_EVIDENCE_ROWS, len(finding.rows)),
-        "limitations": [mask(t) for t in (*finding.limitations, *unseen, *([partial] if partial else []))],
+        "limitations": [*own, *unseen, *([partial] if partial else [])],
         "listed": finding.listed, "unlistedReason": finding.unlisted,
-    }  # fmt: skip
+    }, finding  # fmt: skip
 
 
 def _coverage(snapshot: Snapshot) -> list[Row]:
@@ -141,25 +154,45 @@ class InsightsService:
         self.journal = journal
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
         masker = getattr(journal, "masker", None)
-        self._mask: Mask = (lambda text: masker.mask_text(text) or "") if masker else str
+        self._mask: Mask = masker.mask_text if masker else str
 
     def report(self) -> Row:
-        if self.journal is None:
-            return _report(False, DISABLED, None, [], [], [], [])
-        snapshot = project(self.journal)
-        checks: list[Row] = []
-        rows: list[Row] = []
-        for observation in self.observations:
-            check, found = self._evaluate(observation, snapshot)
-            checks.append(check)
-            rows += found
-        rows.sort(key=lambda row: (row["status"] == "INSUFFICIENT", -int(str(row["affected"])), str(row["id"])))
-        return _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot))
+        return self._build()[0]
 
     def insight(self, observation_id: str) -> Row:
-        return dict.fromkeys(("available", "unavailableReason", "observation", "columns", "rows", "truncated"))
+        """One observation with its evidence (``RuntimeInsightsService.insight``): at most 20 masked rows."""
+        if self.journal is None:
+            return _detail(False, DISABLED, None, [], [], 0)
+        found = self._build()[1].get(observation_id)
+        if found is None:
+            return _detail(False, f"{UNKNOWN_PREFIX}{observation_id}{UNKNOWN_SUFFIX}", None, [], [], 0)
+        row, finding = found
+        shown = (
+            []
+            if self._mask("") is None
+            else [[self._mask(c) or "" for c in r] for r in finding.rows[:MAX_EVIDENCE_ROWS]]
+        )
+        return _detail(True, None, row, finding.columns, shown, len(finding.rows) - len(shown))
 
-    def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[Row]]:
+    def _build(self) -> tuple[Row, Details]:
+        if self.journal is None:
+            return _report(False, DISABLED, None, [], [], [], []), {}
+        snapshot = project(self.journal)
+        checks: list[Row] = []
+        found: list[tuple[Row, Finding]] = []
+        for observation in self.observations:
+            check, rows = self._evaluate(observation, snapshot)
+            checks.append(check)
+            found += rows
+        found.sort(
+            key=lambda pair: (pair[0]["status"] == "INSUFFICIENT", -int(str(pair[0]["affected"])), str(pair[0]["id"]))
+        )
+        rows = [row for row, _ in found]
+        return _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot)), {
+            str(row["id"]): (row, finding) for row, finding in found
+        }
+
+    def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[tuple[Row, Finding]]]:
         missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)
         if missing is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, _not_recorded(missing)), []
@@ -174,9 +207,29 @@ class InsightsService:
             return _check(observation, "UNAVAILABLE", 0, 0, NOT_EVALUATED), []
         reasons = [partial] if partial else list(unseen)
         if evaluation.uncounted:
-            reasons.append(self._mask(evaluation.uncounted))
+            reasons.append(self._mask(evaluation.uncounted) or "")
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
         status = "INSUFFICIENT" if not evaluation.worked else "EVALUATED" if partial is None else "PARTIAL"
-        check = _check(observation, status, evaluation.eligible, len(evaluation.findings), " ".join(reasons) or None)
-        return check, [_row(observation, found, partial, unseen, self._mask) for found in evaluation.findings]
+        reason = " ".join(r for r in reasons if r) or None
+        check = _check(observation, status, evaluation.eligible, len(evaluation.findings), reason)
+        return check, [_row(observation, f, partial, unseen, self._mask) for f in evaluation.findings]
+
+
+def _detail(
+    available: bool,
+    reason: str | None,
+    observation: Row | None,
+    columns: list[str],
+    rows: list[list[str]],
+    truncated: int,
+) -> Row:
+    return {
+        "available": available, "unavailableReason": reason, "observation": observation, "columns": list(columns),
+        "rows": [{"cells": cells} for cells in rows], "truncated": truncated,
+    }  # fmt: skip
+
+
+def insights_service(ctx: SharpitContext) -> InsightsService:
+    """The install's service over its journal, shared by the routes and the tools (a test seeds it through ``lazy``)."""
+    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal))

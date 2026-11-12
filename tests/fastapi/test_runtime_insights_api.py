@@ -16,6 +16,7 @@ from sharpit import install
 from sharpit.engine.collectors.insights import profile
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.guard import PANEL_ACCESS_DENIED
 
 LOCAL = ("127.0.0.1", 50000)
 API = "/sharpit/api/runtime-insights"
@@ -29,8 +30,8 @@ REPORT_KEYS = [
 
 @dataclass(frozen=True)
 class FakeKind:
-    kind: str = "uncounted-work"
-    title: str = "Uncounted work"
+    kind: str = "errors-behind-2xx"
+    title: str = "Errors behind 2xx"
     minimum_tier: str = "REQUEST_ID"
     reads: frozenset[str] = frozenset({"ai"})
     optional_reads: frozenset[str] = frozenset()
@@ -112,7 +113,12 @@ def test_resource_profile_get_is_the_unavailable_floor() -> None:
     body = response.json()
     assert body["state"] == "UNAVAILABLE"
     assert body["maxDurationSeconds"] == 30
-    assert body["reason"] == profile.RESOURCES_OFF
+    assert body["reason"] == profile.NO_SAMPLER
+
+
+def test_resource_profile_without_the_resources_source_names_the_setting() -> None:
+    client, _ = _client(runtime_journal_sources="http,sql")
+    assert client.get(PROFILE).json()["reason"] == profile.RESOURCES_OFF
 
 
 @pytest.mark.parametrize("suffix", ["", "/stop"])
@@ -147,7 +153,8 @@ def test_resource_profile_post_refused_read_only_handler_not_run(
     assert client.get(PROFILE).status_code == 200
     response = client.post(PROFILE + suffix)
     assert response.status_code == 403
-    assert response.json()["error"] == "PANEL_READ_ONLY"
+    assert response.json()["error"] == PANEL_ACCESS_DENIED
+    assert "read-only" in response.json()["reason"]
     assert spy == []
 
 
@@ -181,6 +188,7 @@ def test_no_read_starts_anything(no_side_effects: SideEffectGuard) -> None:
     client, _ = _client(seeded=True, mcp_enabled="ON")
     with client:
         no_side_effects.block_network()
+        client.get("/sharpit/api/panels")  # the portal's worker thread starts with the first sync route
         threads = threading.active_count()
         listed = client.get(API)
         assert listed.status_code == 200
@@ -197,7 +205,7 @@ def test_insights_tool_answers_the_agent_list_with_the_bootui_default_limit() ->
     client, _ = _client(seeded=True, mcp_enabled="ON")
     listed = _mcp(client, "get_runtime_insights").get("structuredContent", {})
     assert listed.get("available") is True
-    assert [o["kind"] for o in listed["observations"]] == ["uncounted-work"]
+    assert [o["kind"] for o in listed["observations"]] == ["errors-behind-2xx"]
     assert listed["observations"][0]["exemplarRequestId"] == "r-1"
     assert listed["observations"][0]["verify"] == "Check the call site."
     steps = {step["tool"]: step for step in listed["next"]}

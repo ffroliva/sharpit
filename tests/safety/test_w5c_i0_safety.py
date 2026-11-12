@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.service import InsightsService
 
@@ -39,11 +40,17 @@ class _Kind:
     )
 
 
-def _observation_args(handle: Any) -> dict[str, Any]:
+def _seed_args(ctx: Any) -> dict[str, Any]:
     """A bare sweep app has no kind that finds anything: seed one so the tool is given a real observation id."""
-    ctx = handle.context
+    ctx.capture.journal = ctx.capture.journal or RuntimeJournal(sources=("ai",))
+    ctx.capture.journal.offer({"source": "ai", "operation": "chat", "inputTokens": 1, "outputTokens": 1})
     service = ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, [_Kind()]))
     return {"id": service.report()["observations"][0]["id"]}
 
 
+def _observation_args(handle: Any) -> dict[str, Any]:
+    return _seed_args(handle.context)
+
+
 TOOL_ARGS = {"get_runtime_insight": _observation_args}
+TOOL_SEEDS = {"get_runtime_insight": _seed_args}
