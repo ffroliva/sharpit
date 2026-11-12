@@ -1,9 +1,10 @@
 """Requests projected from the journal's ``http`` records, with the events of other sources joined to them.
 
-The http record shape is PROPOSED for the W5a http producer (not yet in the W5a plan; no producer is merged yet):
+The http record shape is the W5a http producer's (``exchanges.http_event``):
 ``requestId`` (str), ``traceId`` (str, lower-case 32 hex as ``capture/exchanges.trace_id`` writes it), ``method`` (str),
-``route`` (the label, ``"GET /api/x"``), ``status`` (int), ``durationNanos`` (int), ``startedAt`` (epoch ms). Only
-``requestId`` is required; a missing field reads as ``None``.
+``route`` (the label, ``"GET /api/x"``), ``status`` (int), ``durationNanos`` (int),
+``epochMillis`` (epoch ms, BootUI's name; ``startedAt`` is a fallback). Only ``requestId`` is required;
+a missing field reads as ``None``.
 
 An event that carries a ``requestId`` joins that request or nothing (BootUI ``InsightsSnapshot.java:205-209``); an event
 without one joins the request its ``traceId`` names. Without the http source there are no requests and nothing joins:
@@ -37,7 +38,8 @@ class RequestIndex:
         self.requests = tuple(
             Request(
                 request_id, str(r.get("route") or ""), _text(r.get("traceId")), _text(r.get("method")),
-                _count(r.get("status")), _count(r.get("durationNanos")), _count(r.get("startedAt")),
+                _count(r.get("status")), _count(r.get("durationNanos")),
+                _count(r.get("epochMillis", r.get("startedAt"))),
             )
             for r in records
             if (request_id := _text(r.get("requestId")))

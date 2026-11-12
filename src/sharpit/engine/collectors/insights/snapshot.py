@@ -18,7 +18,7 @@ from sharpit.settings_registry import JOURNAL_SOURCES
 if TYPE_CHECKING:
     from sharpit.engine.collectors.insights.requests import Request, RequestIndex
 
-PRODUCED_SOURCES: frozenset[str] = frozenset({"ai"})  # W7 A2's AI recognizer (#134); W5a's http and sql are not merged
+PRODUCED_SOURCES: frozenset[str] = frozenset({"ai", "http"})  # W7 A2 (#134), W5a P-http; W5a's sql is not merged
 
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
