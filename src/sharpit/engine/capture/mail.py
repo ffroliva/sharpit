@@ -27,6 +27,7 @@ own ``connect`` opens its own socket).
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import importlib.metadata
 import smtplib
@@ -274,7 +275,8 @@ class MailRecorder:
 
     def arm(self) -> bool:
         """Wrap what can be wrapped now; ``True`` when nothing more can come (``aiosmtplib`` absent or wrapped)."""
-        global _refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free by the wrappers
+        # _refs is swapped whole under the lock and read lock-free by the wrappers
+        global _refs  # noqa: PLW0603
         with _LOCK:
             _prune()  # also drops what a skipped ``_forget`` left
             me = cast("MailRecorder", self)
@@ -486,12 +488,15 @@ class _TrapProtocol:
         return self._response(int(lines[0][:3]), text)
 
     async def execute_command(self, *args: bytes, **_options: object) -> Any:
+        await asyncio.sleep(0)  # aiosmtplib awaits these; the trapped session has nothing to wait for
         return self._answer(_replies(args[0] if args else b""))
 
     async def execute_data_command(self, *_args: object, **_options: object) -> Any:
+        await asyncio.sleep(0)
         return self._answer(_ACCEPTED)
 
     async def start_tls(self, *_args: object, **_options: object) -> Any:
+        await asyncio.sleep(0)
         return self._response(220, _NO_TLS)
 
 
