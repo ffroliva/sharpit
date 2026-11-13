@@ -10,7 +10,8 @@ Deviations from BootUI, for the owner's list:
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
   suspended, from a source not configured, and one event larger than the whole byte bound. An offer whose source
-  cannot be read is counted under a key no source has: ``reentrant`` (made from inside an offer) or ``failed`` (a
+  cannot be read is counted under a key no source has: ``reentrant`` (made by a thread that holds the lock: inside an
+  append or a read) or ``failed`` (a
   non-string source, or an event that raised or nested too deep while it was copied).
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
@@ -234,7 +235,7 @@ class RuntimeJournal:
         self._binding_bound: str | None = None
         self._accepting = True
         self._lock = threading.RLock()
-        self._busy = threading.local()
+        self._owned = cast("Any", self._lock)._is_owned  # noqa: SLF001  # whether THIS thread holds the lock
 
     def offer(self, event: Event) -> bool:
         return self._offer(event, _snapshot)
@@ -250,18 +251,15 @@ class RuntimeJournal:
         return self._offer(event, lambda stored: (stored, size))
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
-        if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
-            self._dropped[REENTRANT] += 1
+        if self._owned():  # made while this thread is inside an append or a read (a finalizer): never recurse
+            self.count_dropped(REENTRANT)  # before any copy of the event, so no host code runs under the lock
             return False
         with self._lock:
-            self._busy.active = True
             try:
                 return self._append(event, store)
             except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
                 self._dropped[FAILED] += 1
                 return False
-            finally:
-                self._busy.active = False
 
     def _append(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
         source = event.get("source")

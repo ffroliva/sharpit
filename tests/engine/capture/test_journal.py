@@ -127,6 +127,31 @@ def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_cou
     assert journal.status()["retainedEvents"] == 2
 
 
+def test_a_nested_offer_during_an_append_is_refused_before_it_copies_anything() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "log"))
+    copied: list[str] = []
+    nested: list[bool] = []
+
+    class Spy(dict):  # type: ignore[type-arg]
+        def items(self) -> Any:
+            copied.append("items")
+            return super().items()
+
+    class Finalized:
+        def __del__(self) -> None:
+            nested.append(journal.offer(Spy(source="log", level="WARN")))
+
+    class Slot(deque):  # type: ignore[type-arg]
+        def append(self, item: Any) -> None:
+            Finalized()
+            super().append(item)
+
+    journal._events = Slot()  # pyright: ignore[reportPrivateUsage]
+    assert journal.offer({"source": "sql", "sql": "select 1"}) is True
+    assert nested == [False]
+    assert copied == []  # refused at entry: no host-side copy under the held lock
+
+
 def test_journal_masks_raw_events_when_records_are_read() -> None:
     module = _journal_module()
     journal = module.RuntimeJournal(
