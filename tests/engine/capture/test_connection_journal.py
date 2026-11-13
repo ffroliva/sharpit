@@ -24,6 +24,10 @@ from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS  # noqa: E402
 pytestmark = pytest.mark.needs_sqlalchemy
 
 NOT_RECORDED = "The runtime journal does not record the {} source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
+NOT_ARMED = (
+    "The {} source is enabled in the runtime journal, but its listener is not armed here "
+    "(SQLAlchemy is not imported, no engine is attached, or SQL capture is suspended): nothing is recorded."
+)
 PASSWORD_CANARY = "zq-password-canary-77"
 FIELDS = {
     "source", "epochMillis", "durationNanos", "traceId", "thread", "requestId", "failedOrSlow", "dataSource",
@@ -253,7 +257,35 @@ def test_connection_journal_source_not_produced_when_the_listener_cannot_run():
     handle.context.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
     suspended = next(c for c in insights_service(handle.context).report()["checks"] if c["kind"] == kind)
     assert suspended["status"] == "NOT_APPLICABLE"
-    assert suspended["reason"] == NOT_RECORDED.format("connection")
+    assert suspended["reason"] == NOT_ARMED.format("connection")  # the setting is right: the listener is what is off
     handle.context.capture.wiring.resume_hook(HOOK_SQLA_LISTENERS)
     _use(handle.engine)
     assert len(_records(handle)) == 1
+
+
+def test_connection_journal_a_source_the_setting_leaves_out_keeps_the_setting_reason():
+    handle = _install(sources=("http",))
+    kind = "connections-per-request"
+    check = next(c for c in insights_service(handle.context).report()["checks"] if c["kind"] == kind)
+    assert check["reason"] == NOT_RECORDED.format("connection")
+
+
+def test_connection_journal_routes_a_release_without_scanning_the_registered_engines():
+    handle = _install()
+    registry = handle.context.capture.engine_registry
+    scans = []
+
+    class Counting(tuple):  # type: ignore[type-arg]
+        __slots__ = ()
+
+        def __iter__(self):
+            scans.append(1)
+            return super().__iter__()
+
+    _use(handle.engine, 0)  # warm: the first release may learn which engine owns the pool
+    registry._snapshot = Counting(registry._snapshot)  # type: ignore[attr-defined]
+    scans.clear()
+    for _ in range(5):
+        _use(handle.engine, 0)
+    assert len(_records(handle)) == 6
+    assert scans == []
