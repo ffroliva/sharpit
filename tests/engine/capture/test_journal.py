@@ -464,7 +464,7 @@ class _Kind(enum.Enum):
 
 @pytest.mark.parametrize("source", [b"sql", _Kind.SQL, object()], ids=["bytes", "enum", "object"])
 def test_a_source_that_is_not_a_string_is_counted_failed_and_not_stored(source: object) -> None:
-    # the release behaviour: the host's own ``source`` is read, not its text copy (``_plain`` turns bytes, an Enum or any
+    # the release behaviour: the host's own ``source`` is read, not its text copy (``_plain`` turns bytes, an Enum or an
     # object into a string), so it never lands under a key of the host's making
     journal = _journal_module().RuntimeJournal(max_events=10)
     assert journal.offer({"source": source, "sql": "select 1"}) is False
