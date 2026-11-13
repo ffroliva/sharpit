@@ -254,6 +254,22 @@ def test_ai_events_that_join_no_retained_request_are_counted_not_dropped() -> No
     assert run.rows() == []
 
 
+# ported: RuntimeInsightsService.visibleEntries (v2.3.0, l.815-823): an AI call whose owner is a left-out request is
+# skipped without a count; only a call linked by trace whose own start is before the loss is counted (aiCallsLeftOut)
+def test_an_ai_call_of_a_left_out_request_is_not_counted_as_joining_no_retained_request() -> None:
+    run = Run(max_events=3)
+    token = REQUEST.set(in_request("r1"))
+    try:
+        run.journal.offer(chat(1000, 10)(1))  # r1's own AI call: the ring evicts it, so r1 lost evidence
+    finally:
+        REQUEST.reset(token)
+    run.request(ASSISTANT, 1, chat(1000, 10))  # r1's http event stays, with a trace-linked AI call
+    run.request(ASSISTANT, 2)
+    reason = str(run.check()["reason"])
+    assert "joined no retained request" not in reason
+    assert "started before events the journal evicted" in reason
+
+
 def test_the_bootui_shaped_case_with_matching_trace_ids_is_observed() -> None:
     run = Run()
     run.request(ASSISTANT, 1, *(chat(9000, 10, "length") for _ in range(9)))
