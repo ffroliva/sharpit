@@ -275,25 +275,25 @@ class RuntimeJournal:
             return False
         self._copying.active = True
         try:
+            source = event.get("source")  # the host's own value, as on release: a copy turns bytes into a string
             prepared = store(event)  # host ``__str__``/``__repr__`` run here, before the lock: no one waits on them
         except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
             self.count_dropped(FAILED)
             return False
         finally:
             self._copying.active = False
+        if not isinstance(source, str):
+            self.count_dropped(FAILED)
+            return False
         with self._lock:
             try:
-                return self._append(prepared)
+                return self._append(prepared, source)
             except Exception:  # noqa: BLE001 - as above
                 self._dropped[FAILED] += 1
                 return False
 
-    def _append(self, prepared: tuple[object, int]) -> bool:
+    def _append(self, prepared: tuple[object, int], source: str) -> bool:
         stored, size = prepared  # the plain copy: the host event's own methods never run under the lock
-        source = cast("Mapping[str, object]", stored).get("source")
-        if not isinstance(source, str):
-            self._dropped[FAILED] += 1
-            return False
         if not self._accepting or (self.sources is not None and source not in self.sources):
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
