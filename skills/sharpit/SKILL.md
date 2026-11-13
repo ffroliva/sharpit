@@ -141,7 +141,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 21 action tools (see Actions below), over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
-| Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason (no agent sensors in this version); actions refused as BootUI refuses them without the agent. MCP: `get_agent_status` |
+| Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason. The `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`, off by default) feed the runtime journal, not these panels; with them on, `POST {api}/java-agent/sensors/files` switches the files sensor, otherwise it is refused (409) as BootUI refuses it without the agent. MCP: `get_agent_status` |
 | Metrics | `GET {api}/metrics`, `GET {api}/metrics/detail` | host Prometheus registry, collected on each read (every host collector runs once); label values and HELP text are masked. MCP and CLI: `get_metrics` / `metrics` |
 | AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
 | Email | `GET {api}/email`, `GET {api}/email/{id}`, `GET {api}/email/{id}/eml`, `DELETE {api}/email` | outgoing mail captured at `smtplib`/`aiosmtplib` `sendmail`, bounded; secret-shaped text masked unless `SHARPIT_EXPOSE_VALUES=FULL`; DELETE clears (refused on a read-only panel). `SHARPIT_EMAIL_DEV_TRAP=true` captures without connecting or sending. MCP: `get_emails`; CLI: `mail` |
@@ -179,8 +179,8 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - Agent sessions: `get_copilot_sessions`, `get_claude_code_sessions`.
 - AI Framework: `get_ai_overview` (CLI: `ai overview`).
 - Email: `get_emails` (CLI: `mail`).
-- Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which ships no agent
-  sensors; the sensor tools (`get_code_inventory`, `get_code_paths`, `get_method_probe`, `get_side_effects`) are not
+- Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which has no agent; the
+  `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. The sensor tools (`get_code_inventory`, `get_code_paths`, `get_method_probe`, `get_side_effects`) are not
   advertised and answer "Tool not available in this application".
 - Advisors and security (a report tool and a per-rule violations tool each, neither starts a scan):
   `get_vulnerabilities_report`; `get_rest_api_report`, `get_rest_api_rule_violations`; `get_security_report`,
@@ -200,7 +200,8 @@ An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharp
   `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
   `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,
   `disable_low_footprint` (CLI and guarded API only).
-- Agent sensors: `enable_agent_sensor`, `disable_agent_sensor` (refused in this version: no agent sensor is armed);
+- Agent sensors: `enable_agent_sensor`, `disable_agent_sensor` (switch the `files` sensor when `SHARPIT_AGENT_SENSORS` arms
+  one; refused otherwise);
   `start_method_probe` is not advertised.
 
 Live Memory also accepts `POST {api}/live-memory/footprint` with `{"enabled": bool}`; its `get_low_footprint` status tool is on MCP and CLI, while the two action tools are CLI and route only. `SHARPIT_FREE_ON_IDLE_ENABLED` defaults to `true`; `SHARPIT_FREE_ON_IDLE_TIMEOUT` defaults to 300 seconds.
