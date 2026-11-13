@@ -1049,3 +1049,60 @@ def test_the_exposed_flags_report_the_settings():
         report = h.emails()
         assert report["devTrapEnabled"] is True
         assert report["maxEntries"] == 7
+
+
+class _AheadFinder(importlib.abc.MetaPathFinder):
+    """Another library's import hook at ``sys.meta_path[0]``: it answers first, so the trap's hook never sees the import."""
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        return importlib.machinery.PathFinder.find_spec(fullname, path) if fullname == "aiosmtplib" else None
+
+
+def test_an_aiosmtplib_loaded_past_the_hook_is_trapped_by_the_next_request(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 review: a finder inserted ahead of the hook loaded aiosmtplib unwrapped, so the trap leaked
+    with harness(email_dev_trap=True) as h:
+        monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
+        module = late_aiosmtplib()
+        assert not _wrapped_after_late_import(module)  # the side door: the hook never ran
+
+        @h.app.get("/send-late")
+        async def send_late() -> dict[str, int]:
+            smtp = module.SMTP()  # type: ignore[attr-defined]
+            with contextlib.suppress(OSError):  # the untrapped connect reaches for a socket: in ``attempts``
+                await smtp.connect()
+            await smtp.sendmail("a@x.test", ["b@x.test"], _message("side door").as_bytes())
+            return {"sent": len(smtp.sent)}
+
+        assert h.client.get("/send-late").json() == {"sent": 0}
+        assert module.attempts == []  # type: ignore[attr-defined]
+        assert [m["subject"] for m in h.emails()["messages"]] == ["side door"]
+
+
+def test_an_aiosmtplib_imported_while_arm_is_between_its_wrap_and_its_watch_is_wrapped(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 review: arm() wrapped, then checked sys.modules to decide on the hook; an import in between got neither
+    reached, imported = threading.Event(), threading.Event()
+    modules: list[types.ModuleType] = []
+
+    def other_thread() -> None:
+        assert reached.wait(5)
+        modules.append(late_aiosmtplib())
+        imported.set()
+
+    real_watch = mail._watch_import  # noqa: SLF001
+
+    def watch_after_the_import() -> None:
+        reached.set()
+        assert imported.wait(5)
+        real_watch()
+
+    monkeypatch.setattr(sys, "meta_path", [f for f in sys.meta_path if f is not mail._FINDER])  # noqa: SLF001
+    monkeypatch.setattr(mail, "_watch_import", watch_after_the_import)
+    worker = threading.Thread(target=other_thread)
+    worker.start()
+    with harness(email_dev_trap=True):
+        worker.join(5)
+        assert _wrapped_after_late_import(modules[0])
