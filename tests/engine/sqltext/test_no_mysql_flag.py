@@ -297,7 +297,7 @@ def _profile(ctx: SharpitContext) -> list[dict[str, Any]]:
 
 
 def _mcp(ctx: SharpitContext) -> list[dict[str, Any]]:
-    return tools._sql_traces_view(ctx, None, 10)["entries"]  # noqa: SLF001
+    return tools._sql_traces_view(ctx, None, 10)["entries"]  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
 
 SURFACES: dict[str, Callable[[SharpitContext], list[dict[str, Any]]]] = {
@@ -322,8 +322,8 @@ def test_no_internal_key_reaches_an_entry(surface: str) -> None:
 
 @pytest.mark.parametrize("surface", SURFACES)
 def test_a_planted_row_key_reaches_an_entry(surface: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    # the check above needs teeth: a key the row gains and ``entry_dto`` does not pop shows on all three; every read
-    # builds its rows through ``compact_dto``, so the key is planted there
+    # the check above needs teeth: a key the entry gains shows on all three surfaces; every read builds its entries
+    # through ``compact_dto``, so the key is planted there
     ctx = _ctx()
     real = sqltrace.compact_dto
 

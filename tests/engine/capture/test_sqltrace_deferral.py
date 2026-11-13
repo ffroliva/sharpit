@@ -15,9 +15,9 @@ from typing import Any, cast
 import pytest
 
 from sharpit.engine.capture import sqltrace, transactions
-from sharpit.engine.capture.sqltrace import (  # pyright: ignore[reportPrivateUsage]
-    _PARAMETERS,  # noqa: PLC2701
-    _PHASE,  # noqa: PLC2701
+from sharpit.engine.capture.sqltrace import (
+    _PARAMETERS,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _PHASE,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     SqlTraceRecorder,
     compact_dto,
     materialize,
@@ -187,7 +187,7 @@ def test_the_counters_are_read_under_the_writers_lock():
             taken.append(1)
             return real.__enter__()
 
-        def __exit__(self, *exc: object) -> object:
+        def __exit__(self, *exc: Any) -> object:
             return real.__exit__(*exc)
 
     _record(recorder)
@@ -219,28 +219,28 @@ def _distinct_recorder() -> SqlTraceRecorder:
 
 
 # the values both views carry, by statement id
-_SHARED = {
+_SHARED: dict[int, dict[str, Any]] = {
     1: {
-        "id": 1, "sql": "select ?", "statementType": "STATEMENT", "category": "SELECT", "durationMicros": 4_321,
+        "id": 1, "sql": "select 1", "statementType": "STATEMENT", "category": "SELECT", "durationMicros": 4_321,
         "durationMillis": 4, "success": True, "errorMessage": None, "affectedRows": 11, "batchSize": 0,
         "connectionId": "conn-a", "thread": "thread-a", "slow": True, "parameters": [], "traceId": None,
         "callSite": "app.one:f:1",
     },
     2: {
-        "id": 2, "sql": "update pets set name = ?", "statementType": "PREPARED", "category": "UPDATE",
+        "id": 2, "sql": "update pets set name = %s", "statementType": "PREPARED", "category": "UPDATE",
         "durationMicros": 1_234, "durationMillis": 1, "success": False, "errorMessage": "boom-err",
         "affectedRows": None, "batchSize": 0, "connectionId": "conn-b", "thread": "thread-b", "slow": False,
         "parameters": ["'rex'"], "traceId": None, "callSite": "app.two:g:2",
     },
     3: {
-        "id": 3, "sql": "insert into pets (name) values (?)", "statementType": "PREPARED", "category": "INSERT",
+        "id": 3, "sql": "insert into pets (name) values (%s)", "statementType": "PREPARED", "category": "INSERT",
         "durationMicros": 7_654, "durationMillis": 7, "success": False, "errorMessage": None, "affectedRows": 5,
         "batchSize": 9, "connectionId": "conn-y", "thread": "thread-x", "slow": True,
         "parameters": ["'rex'", "'fido'"], "traceId": "req-7", "callSite": "app.mod:fn:42",
     },
 }  # fmt: skip
-_PHASES = {1: "STARTUP", 2: "STARTUP", 3: None}  # a request's row has no lifespan phase
-_REQUESTS = {1: None, 2: None, 3: "req-7"}
+_PHASES: dict[int, str | None] = {1: "STARTUP", 2: "STARTUP", 3: None}  # a request's row has no lifespan phase
+_REQUESTS: dict[int, str | None] = {1: None, 2: None, 3: "req-7"}
 
 
 def test_every_entry_key_carries_its_own_recorded_value():
@@ -270,18 +270,18 @@ def test_the_entry_and_the_readable_row_agree_on_every_shared_key():
 
 def test_the_recorder_returns_the_entries_newest_first_without_a_report():
     recorder = _distinct_recorder()
-    assert recorder.entries() == recorder.report([])["entries"]  # pyright: ignore[reportAttributeAccessIssue]
+    assert recorder.entries() == recorder.report([])["entries"]
 
 
 def test_one_call_returns_a_requests_statements_and_entries_together():
     recorder = _distinct_recorder()
     _record(recorder, "select 9", request_id="req-8")
-    statements, entries = recorder.request_view("req-7")  # pyright: ignore[reportAttributeAccessIssue]
+    statements, entries = recorder.request_view("req-7")
     assert [s["id"] for s in statements] == [3]
     assert [e["id"] for e in entries] == [3]
     assert "shape" in statements[0]
     assert "requestId" in entries[0]
-    assert recorder.request_view("nobody") == ([], [])  # pyright: ignore[reportAttributeAccessIssue]
+    assert recorder.request_view("nobody") == ([], [])
 
 
 def test_the_transactions_report_reads_the_entries_without_building_a_sql_report(monkeypatch: pytest.MonkeyPatch):

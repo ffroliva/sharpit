@@ -102,7 +102,7 @@ def context_report(ctx: SharpitContext) -> dict[str, Any]:
         )
         return unavailable_report(reason)
     trace = ctx.capture.sql_trace
-    rows = trace.report([])["entries"] if trace is not None and ctx.settings.sql_trace_enabled else None
+    rows = trace.entries() if trace is not None and ctx.settings.sql_trace_enabled else None
     return recorder.report(rows)
 
 

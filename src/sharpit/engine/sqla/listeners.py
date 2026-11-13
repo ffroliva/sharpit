@@ -153,6 +153,12 @@ def _emit(
     )
 
 
+def _rowcount(cursor: Any) -> int:
+    """The driver's ``rowcount`` as an int: ``-1`` unless it is a non-negative int (a driver may give ``None``)."""
+    count = getattr(cursor, "rowcount", -1)
+    return count if type(count) is int and count >= 0 else -1
+
+
 def after_cursor_execute(
     conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool
 ) -> None:
@@ -160,7 +166,7 @@ def after_cursor_execute(
         start = _pop_start(conn, context)
         if start is not None:
             parameters, rows = _named(parameters, context, executemany)
-            _emit(start, conn, statement, parameters, executemany, getattr(cursor, "rowcount", -1), None, rows)
+            _emit(start, conn, statement, parameters, executemany, _rowcount(cursor), None, rows)
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 

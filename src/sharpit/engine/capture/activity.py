@@ -12,10 +12,8 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla
-from sharpit.engine.capture import sqltrace
 from sharpit.engine.capture.exchanges import DTO_KEYS as EXCHANGE_KEYS
 from sharpit.engine.capture.journal import RuntimeJournal
-from sharpit.engine.capture.sqltrace import CompactRow
 from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
@@ -326,8 +324,9 @@ def request_profile(ctx: SharpitContext, request_id: str) -> dict[str, Any]:
     request = {k: row[k] for k in EXCHANGE_KEYS}
     if not ctx.settings.panels["http-exchanges"].enabled:  # the headers belong to that panel (spec §7.4)
         request.update(requestHeaders=[], responseHeaders=[])
-    compact: list[CompactRow] = found["sql"].request_rows(request_id) if "sql" in found else []
-    statements = [sqltrace.materialize(r) for r in compact]
+    statements: list[dict[str, Any]]
+    entries: list[dict[str, Any]]
+    statements, entries = found["sql"].request_view(request_id) if "sql" in found else ([], [])
     approximate = any(s["timestamp"] > row["endNs"] for s in statements)
     sql_ms = sum(s["durationMillis"] for s in statements)
     total = row["durationMs"]
@@ -335,7 +334,7 @@ def request_profile(ctx: SharpitContext, request_id: str) -> dict[str, Any]:
         "available": True,
         "unavailableReason": None,
         "request": request,
-        "sql": [sqltrace.compact_dto(r) for r in compact],
+        "sql": entries,
         "sqlGroups": _groups(statements, ctx.settings.activity_n_plus_one_threshold),
         "sqlCorrelationApproximate": approximate,
         "exceptions": found["exceptions"].request_occurrences(request_id) if "exceptions" in found else [],
