@@ -124,3 +124,11 @@ def test_a_check_that_reads_only_connection_evidence_is_unavailable_with_sql_cap
         handle.context.capture.journal, [kind], 5, None, lambda: SqlCapture.not_recorded(SQL_OFF)
     ).report()
     assert report["checks"][0]["status"] == "UNAVAILABLE"
+
+
+def test_an_optional_connection_read_with_sql_capture_off_names_the_capture_not_an_unarmed_listener(
+    handles: list[Any],
+) -> None:
+    check = _check(_report(handles, [_HTTP, _SQL], sql_trace_enabled=False), "route-time-breakdown")
+    assert CAVEAT in str(check["reason"])  # the listener is off because capture is, which is the reason to give
+    assert "not armed" not in str(check["reason"])

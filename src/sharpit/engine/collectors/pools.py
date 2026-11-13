@@ -53,7 +53,7 @@ def _pool_dto(ctx: SharpitContext, name: str, engine: Any) -> dict[str, Any]:
         "username": username,
         "driverClassName": f"{engine.url.get_backend_name()}+{engine.dialect.driver} ({kind})",
         "minimumIdle": None,
-        "maximumPoolSize": (pool.size() + pool._max_overflow if pool._max_overflow >= 0 else None) if counted else None,  # noqa: SLF001
+        "maximumPoolSize": sqla.maximum_pool_size(pool),
         "connectionTimeoutMs": _ms(pool._timeout) if counted else None,  # noqa: SLF001
         "idleTimeoutMs": None,
         "maxLifetimeMs": _ms(pool._recycle),  # noqa: SLF001 - every Pool has it; -1 means never recycled

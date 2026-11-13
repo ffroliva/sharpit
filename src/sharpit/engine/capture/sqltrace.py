@@ -233,6 +233,10 @@ class SqlTraceRecorder:
     def _slow(self, millis: int) -> bool:
         return self.slow_query_threshold_millis > 0 and millis >= self.slow_query_threshold_millis
 
+    def slow_held(self, nanos: int) -> bool:
+        """BootUI ``isSlow(heldNanos / 1_000)`` for a connection held ``nanos``: at least the slow-query threshold."""
+        return self._slow(nanos // 1_000_000)
+
     def _parameters(self, parameters: object, executemany: bool) -> list[str]:
         sets: Sequence[object] = cast_sets(parameters, executemany)
         rendered: list[str] = []

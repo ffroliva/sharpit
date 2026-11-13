@@ -183,6 +183,24 @@ def live_engine_drivers() -> set[str]:
     return drivers
 
 
+def maximum_pool_size(pool: Any) -> int | None:
+    """A queue pool's maximum size (its size plus its overflow), else ``None``: other pools and an unbounded overflow
+    have none. Counters only: nothing borrows a connection."""
+    sa = _sqla.sqlalchemy_module()
+    if sa is None or not isinstance(pool, sa.pool.QueuePool) or pool._max_overflow < 0:  # noqa: SLF001
+        return None
+    return pool.size() + pool._max_overflow  # noqa: SLF001
+
+
+def shared_connection_pool(pool: Any) -> str | None:
+    """The class name of a pool that hands one connection to every checkout (``StaticPool``, ``SingletonThreadPool``:
+    in-memory sqlite), else ``None``. A connection checked out inside another is then the same one."""
+    sa = _sqla.sqlalchemy_module()
+    if sa is None or not isinstance(pool, (sa.pool.StaticPool, sa.pool.SingletonThreadPool)):
+        return None
+    return type(pool).__name__
+
+
 class EngineRegistry:
     """The engines one context knows about, held weakly, each with a display name that never carries credentials."""
 
@@ -192,9 +210,9 @@ class EngineRegistry:
         self._bases: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()  # name before any "#n"
         self._lock = threading.RLock()
         self._snapshot: tuple[tuple[weakref.ReferenceType[Any], str], ...] = ()
-        self.seen_any = (
-            False  # write-once: an engine was registered here (engines are held weakly and may be collected)
-        )
+        # write-once: an engine was registered here (engines are held weakly and may be collected)
+        self.seen_any = False
+        self._pool_names: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()  # pool -> engine name
 
     def add(self, engine: object) -> None:
         """Register a sync ``Engine`` or an ``AsyncEngine`` (its ``sync_engine``); anything else is ignored."""
@@ -221,6 +239,33 @@ class EngineRegistry:
 
     def holds(self, engine: object) -> bool:
         return any(ref() is engine for ref, _ in self._snapshot)
+
+    def name_of_pool(self, pool: object) -> str | None:
+        """The display name of the registered engine that owns ``pool`` (what the connection-pools panel shows).
+        Called per checkout: a pool already matched is a dict hit; a miss scans the engines and learns a match."""
+        if pool is None:
+            return None
+        known = self._pool_names.get(pool)
+        if known is not None:
+            return known
+        for ref, name in self._snapshot:
+            engine = ref()
+            if engine is not None and engine.pool is pool:
+                self._pool_names[pool] = (
+                    name  # a disposed engine gets a new pool: that one misses once, the old one dies
+                )
+                return name
+        return None
+
+    def pool_size_of(self, name: str) -> int | None:
+        """The maximum pool size of the registered engine displayed as ``name`` (``DataSourcePoolSizes.apply``)."""
+        engine = next((e for n, e in self.engines() if n == name), None)
+        return None if engine is None else maximum_pool_size(engine.pool)
+
+    def shared_pool_of(self, name: str) -> str | None:
+        """The pool class of the registered engine shown as ``name`` when it shares one connection."""
+        engine = next((e for n, e in self.engines() if n == name), None)
+        return None if engine is None else shared_connection_pool(engine.pool)
 
     def engines(self) -> list[tuple[str, Any]]:
         """``(display name, Engine)`` in registration order."""

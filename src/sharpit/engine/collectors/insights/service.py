@@ -10,6 +10,7 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sharpit.engine import sqla
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
@@ -17,6 +18,9 @@ from sharpit.engine.collectors.insights.snapshot import (
     DEFAULT_AI_TOKEN_THRESHOLD,
     LEFT_OUT_BEFORE_LOSS,
     PanelEnabled,
+    PoolSizes,
+    Producing,
+    SharedPools,
     Snapshot,
     project,
 )
@@ -68,6 +72,14 @@ def _not_recorded(source: str) -> str:
     return f"The runtime journal does not record the {source} source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
 
 
+def _not_armed(source: str) -> str:
+    """The setting enables ``source`` but its listener is off, so no setting is wrong (sharpit only)."""
+    return (
+        f"The {source} source is enabled in the runtime journal, but its listener is not armed here "
+        "(SQLAlchemy is not imported or its listeners are suspended): nothing is recorded."
+    )
+
+
 def _panels_label(panels: Sequence[str]) -> str:
     """``The sql-trace panel`` / ``The a, b and c panels`` (``RuntimeInsightsService.panelsLabel``)."""
     if len(panels) == 1:
@@ -81,6 +93,8 @@ def _verb(panels: Sequence[str]) -> str:
 
 def _missing(snapshot: Snapshot, source: str) -> str:
     """Why a required source is absent (``missingSource``): not journaled, else its disabled panel is named."""
+    if source in snapshot.unarmed:
+        return _not_armed(source)
     if not snapshot.journaled(source):
         return _not_recorded(source)
     panels = snapshot.hidden[source]
@@ -118,6 +132,10 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     for source in sorted(observation.optional_reads):
         if panels := snapshot.hidden.get(source):
             unseen.append(f"{_panels_label(panels)} {_verb(panels)} disabled, so its evidence is not counted.")
+        elif source in snapshot.unarmed:
+            unseen.append(
+                f"Without the {source} source, whose listener is not armed here, its evidence is not counted."
+            )
         elif not snapshot.journaled(source):
             unseen.append(
                 f"Without the {source} source, which the runtime journal does not record, its evidence is not counted."
@@ -245,8 +263,14 @@ class InsightsService:
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
         panel_enabled: PanelEnabled | None = None,
         sql_capture: Callable[[], SqlCapture] | None = None,
+        producing: Producing | None = None,
+        pool_sizes: PoolSizes | None = None,
+        shared_pools: SharedPools | None = None,
     ) -> None:
         self.journal = journal
+        self.shared_pools = shared_pools  # None: no pool is known to share its connection
+        self.pool_sizes = pool_sizes  # None: no pool size is known (``RuntimeInsightsService.setPoolSizes``)
+        self.producing = producing  # None: every produced source's producer can run
         self.sql_capture = sql_capture or SqlCapture.capturing  # RuntimeInsightsService.sqlCapture, default capturing
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
@@ -276,7 +300,14 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
+        snapshot = project(
+            self.journal,
+            self.ai_token_threshold,
+            self.panel_enabled,
+            self.producing,
+            self.pool_sizes,
+            self.shared_pools,
+        )
         capture = self._capture()
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
@@ -379,7 +410,28 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         panel = ctx.settings.panels.get(panel_id)
         return panel is None or panel.enabled
 
+    def producing(source: str) -> bool:  # a source whose listener is not armed here is not recorded, however enabled
+        # no recorder (capture or its panel off): the SQL-capture state already says why, as it does for ``sql``
+        return source != "connection" or ctx.capture.sql_trace is None or sqla.following_connections(ctx)
+
+    def pool_size(name: str) -> int | None:  # ``DataSourcePoolSizes``: the registered engine of that display name
+        registry = ctx.capture.engine_registry
+        return None if registry is None else registry.pool_size_of(name)
+
+    def shared_pool(name: str) -> str | None:
+        registry = ctx.capture.engine_registry
+        return None if registry is None else registry.shared_pool_of(name)
+
     return ctx.lazy(
         "runtime-insights",
-        lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx)),
+        lambda: InsightsService(
+            ctx.capture.journal,
+            None,
+            threshold,
+            panel_enabled,
+            lambda: sql_capture_for(ctx),
+            producing,
+            pool_size,
+            shared_pool,
+        ),
     )

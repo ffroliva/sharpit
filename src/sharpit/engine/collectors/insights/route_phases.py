@@ -5,8 +5,8 @@ time, so a request has two phases: SQL, placed as BootUI places it (``RouteTimeB
 at ``completedNanos`` and began ``durationNanos`` before, both against the request's ``startNanos`` on one
 ``perf_counter_ns`` clock, clipped to the request and unioned so overlapping statements count once), and the
 unattributed rest. A request without ``startNanos`` is unplaced, never guessed from wall clocks.
-Connection waits, REST client calls, authorization, Hibernate flushes and message sends have no producer; AI calls
-carry no wall-clock start, so their time stays unattributed.
+Connection waits (the ``connection`` event's ``waitNanos`` is always 0), REST client calls, authorization, Hibernate
+flushes and message sends have no producer; AI calls carry no wall-clock start, so their time stays unattributed.
 """
 
 from __future__ import annotations
