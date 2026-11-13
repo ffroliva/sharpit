@@ -196,8 +196,8 @@ def test_sql_capture_on_adds_no_capture_text(handles: list[Any]) -> None:
 
     handle = install(app, enabled="ON", show_banner=False, config_scan=False, engines=[engine])
     handles.append(handle)
-    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
-        assert client.get("/w").status_code == 200  # the listeners are attached: SQL capture really records
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    assert client.get("/w").status_code == 200  # the first request attaches: SQL capture really records
     for event in (_HTTP, _SQL):
         assert handle.context.capture.journal.offer(event)
     check = _check(insights_service(handle.context).report(), "safe-method-dml")

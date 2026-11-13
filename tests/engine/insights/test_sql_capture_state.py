@@ -154,3 +154,15 @@ def test_raw_sqlite3_in_use_beside_an_unsupported_sqlalchemy_is_recorded_except_
     assert capture.recorded
     assert "SQLAlchemy 1.4.50" in str(capture.reason)
     assert "only raw sqlite3 statements are counted" in str(capture.reason)
+
+
+def test_a_recorded_except_capture_is_a_caveat_without_the_not_counted_suffix(
+    handles: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sa, "__version__", "1.4.50")
+    ctx = _install(handles).context
+    sqlite3.connect(":memory:").execute("select 1").fetchall()
+    check = _check(ctx, "route-time-breakdown")
+    assert check["status"] != "UNAVAILABLE"
+    assert "SQLAlchemy 1.4.50 is imported, but sharpit needs 2.0 or later, so only raw sqlite3" in str(check["reason"])
+    assert "Its SQL and connection evidence is not counted" not in str(check["reason"])
