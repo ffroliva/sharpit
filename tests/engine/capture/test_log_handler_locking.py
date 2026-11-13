@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import subprocess
 import sys
 import textwrap
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -144,7 +146,8 @@ print({DONE!r})
 """
 
 
-def _run_child(script: str) -> str:
+def _run_child(script: str, tmp_path: Path) -> str:
+    """Run in ``tmp_path`` with its own state dir: the child's install must write nothing under the repo root."""
     try:
         done = subprocess.run(  # noqa: S603 - our own interpreter and a literal script
             [sys.executable, "-c", textwrap.dedent(script)],
@@ -152,6 +155,8 @@ def _run_child(script: str) -> str:
             text=True,
             timeout=CHILD_TIMEOUT,
             check=False,
+            cwd=tmp_path,
+            env={**os.environ, "SHARPIT_STATE_DIR": str(tmp_path / "state")},
         )
     except subprocess.TimeoutExpired:
         pytest.fail(f"deadlock: the child did not finish within {CHILD_TIMEOUT}s")
@@ -159,21 +164,21 @@ def _run_child(script: str) -> str:
     return done.stdout
 
 
-def test_log_handler_never_holds_its_lock_across_the_journal_offer() -> None:
+def test_log_handler_never_holds_its_lock_across_the_journal_offer(tmp_path: Path) -> None:
     """Thread T holds the journal lock (a read) and a GC finalizer on T logs while thread U logs: U must not hold
     the handler's own lock while it waits for the journal's, or T (waiting on that lock) and U hang forever."""
-    assert DONE in _run_child(_LOG_HANDLER_CHILD)
+    assert DONE in _run_child(_LOG_HANDLER_CHILD, tmp_path)
 
 
-def test_exception_handler_never_holds_its_lock_across_the_sink_lock() -> None:
+def test_exception_handler_never_holds_its_lock_across_the_sink_lock(tmp_path: Path) -> None:
     """The pytest plugin's handler had the same cycle: handler lock then sink lock, against sink lock then a finalizer's
     log waiting on the handler lock."""
-    assert DONE in _run_child(_EXCEPTION_HANDLER_CHILD)
+    assert DONE in _run_child(_EXCEPTION_HANDLER_CHILD, tmp_path)
 
 
-def test_clear_does_not_deadlock_on_a_finalizer_that_logs() -> None:
+def test_clear_does_not_deadlock_on_a_finalizer_that_logs(tmp_path: Path) -> None:
     """``clear`` holds the buffer's non-reentrant lock; a finalizer on that thread logs into ``append``."""
-    assert DONE in _run_child(_CLEAR_CHILD)
+    assert DONE in _run_child(_CLEAR_CHILD, tmp_path)
 
 
 def _record() -> logging.LogRecord:
