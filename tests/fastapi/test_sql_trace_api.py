@@ -178,7 +178,7 @@ def test_integrity_error_parameters_dropped():
 def test_recording_toggle_and_bad_body_400():
     # ported: SqlTraceControllerSupport.recording (missing or null `enabled` flips the switch)
     app = FastAPI()
-    _install(app, engines=[sa.create_engine("sqlite://")])  # a wrapped DataSource: SqlTraceControllerSupport.report:65
+    _install(app)
     client = _client(app)
     assert client.post(f"{API}/recording", json={"enabled": False}).json()["capturing"] is False
     assert client.post(f"{API}/recording", content=b"").json()["capturing"] is True
@@ -207,7 +207,7 @@ def test_clear_returns_report():
 
 def test_recording_post_read_only_403():
     app = FastAPI()
-    _install(app, engines=[sa.create_engine("sqlite://")], panels={"sql-trace": {"read_only": True}})
+    _install(app, panels={"sql-trace": {"read_only": True}})
     client = _client(app)
     for path in (f"{API}/recording", f"{API}/clear"):
         resp = client.post(path, json={"enabled": False})
@@ -260,7 +260,7 @@ def test_sql_trace_enabled_false_attaches_nothing():
 
 def test_panel_available_with_sqlalchemy_imported():
     app = FastAPI()
-    _install(app, engines=[sa.create_engine("sqlite://")])  # BootUI: unavailable until a DataSource is wrapped (:65)
+    _install(app)
     panel = next(p for p in _client(app).get("/sharpit/api/panels").json()["panels"] if p["id"] == "sql-trace")
     assert (panel["available"], panel["unavailableReason"]) == (True, None)
 

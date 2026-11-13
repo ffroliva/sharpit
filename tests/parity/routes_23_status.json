@@ -615,14 +615,14 @@
       "panel": "sql-trace",
       "route": "/sharpit/api/sql-trace",
       "status": "partial",
-      "difference": "sql-trace/captured.json parity: dataSources: non-empty golden list requires a non-empty payload list; entries: non-empty golden list requires a non-empty payload list; retention: null in payload, golden has object; not listed in nullable.json; topStatements: non-empty golden list requires a non-empty payload list"
+      "difference": "sql-trace/captured.json parity: entries: non-empty golden list requires a non-empty payload list; retention.reserved: null in payload, golden has number; not listed in nullable.json; retention.reservedCapacity: null in payload, golden has number; not listed in nullable.json; topStatements: non-empty golden list requires a non-empty payload list"
     },
     {
       "golden": "sql-trace/insights.captured.json",
       "panel": "sql-trace",
       "route": "/sharpit/api/sql-trace/insights",
       "status": "partial",
-      "difference": "sql-trace/insights.captured.json parity: attribution.ambiguous.reason: null in payload, golden has string; not listed in nullable.json; attribution.notes: non-empty golden list requires a non-empty payload list; attribution.supportedCorrelations: non-empty golden list requires a non-empty payload list; attribution.unattributed.reason: null in payload, golden has string; not listed in nullable.json; notes: non-empty golden list requires a non-empty payload list; statements: non-empty golden list requires a non-empty payload list; window.newestTimestamp: null in payload, golden has number; not listed in nullable.json; window.oldestTimestamp: null in payload, golden has number; not listed in nullable.json"
+      "difference": "sql-trace/insights.captured.json parity: statements: non-empty golden list requires a non-empty payload list; window.newestTimestamp: null in payload, golden has number; not listed in nullable.json; window.oldestTimestamp: null in payload, golden has number; not listed in nullable.json"
     },
     {
       "golden": "startup/captured.json",

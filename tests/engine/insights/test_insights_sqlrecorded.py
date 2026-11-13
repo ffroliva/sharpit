@@ -1,9 +1,8 @@
 """Whether this context records SQL at all (BootUI ``SqlCapture.of`` + ``SqlTraceRecorder.hasWrappedDataSource``,
-v2.3.0): one per-context fact, read by the insights and, as "in use", by the SQL Trace panel and its reads
-(not ``sqlastats``).
+v2.3.0): one per-context fact, read by the insights (the SQL Trace panel keeps release's availability: a deviation row).
 
-BootUI's fact is known at WRAP time (a DataSource is registered), not when a statement first runs: the SQLAlchemy
-analogue is an engine attached to the context, and raw sqlite3 (no wrap-time object) is a statement delivered to it."""
+BootUI's fact is known at WRAP time (a DataSource is registered): the SQLAlchemy analogue is an engine registered with
+the context; any source also counts once one of its statements was routed to the context (write-once)."""
 
 from __future__ import annotations
 
@@ -18,11 +17,9 @@ import sqlalchemy as sa
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine import sqla, tools
-from sharpit.engine.collectors import sqlastats
+from sharpit.engine import sqla
 from sharpit.engine.collectors.insights import sqlcapture
 from sharpit.engine.collectors.insights.service import insights_service
-from sharpit.engine.tools04 import sql_trace as sql_trace_tools
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS, HOOK_SQLITE_LISTENERS
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -104,6 +101,7 @@ def test_statements_of_an_engine_no_panel_discovered_make_this_context_recorded(
     engine = _engine()
     off = {panel: {"enabled": False} for panel in sqla.DISCOVERY_PANELS}
     ctx = _install(handles, sql_trace_sqlite3_enabled=False, panels=off)
+    assert not sqlcapture.for_context(ctx).recorded  # control: nothing registered, nothing routed yet
     with engine.begin() as conn:
         conn.execute(sa.text("update t set n = 1"))
     assert ctx.capture.sql_trace.rows()
@@ -136,7 +134,7 @@ def test_the_raw_sqlite_fact_does_not_move_the_application_family_evidence(
     ctx = _install(handles)
     _raw_sqlite()
     assert ctx.capture.raw_sqlite_seen  # application_family still reads it; the recorded fact is its own field
-    assert ctx.capture.sqlite_delivered
+    assert "sqlite3" in ctx.capture.sql_delivered
 
 
 def _both_used(handles: list[Any]) -> Any:
@@ -225,50 +223,9 @@ def test_the_flag_off_still_names_the_flag(handles: list[Any]) -> None:
     assert "SHARPIT_SQL_TRACE_ENABLED=false" in str(sqlcapture.for_context(ctx).reason)
 
 
-# ported: SqlTraceInsightsServiceTests.reportsUnavailableWhenNoDataSourceHasBeenWrapped
-# (SqlTraceInsightsService.java:62, SqlTraceControllerSupport.report:65, v2.3.0: no wrapped DataSource: unavailable)
-def test_the_sql_trace_report_is_unavailable_while_no_engine_is_attached(handles: list[Any]) -> None:
-    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
-    report = tools.sql_trace_report(ctx)
-    assert report["available"] is False
-    assert report["unavailableReason"] == NOT_RECORDED
-
-
-def test_the_sql_trace_insights_are_unavailable_while_no_engine_is_attached(handles: list[Any]) -> None:
-    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
-    assert sql_trace_tools.insights(ctx)["available"] is False
-
-
-def test_the_sql_trace_panel_reason_is_set_while_no_engine_is_attached(handles: list[Any]) -> None:
-    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
-    assert tools.sql_trace_unavailable_reason(ctx) == NOT_RECORDED
-
-
-def test_the_sql_trace_report_is_available_once_an_engine_is_attached(handles: list[Any]) -> None:
-    ctx = _install(handles, engines=[_engine()], sql_trace_sqlite3_enabled=False)
-    assert tools.sql_trace_report(ctx)["available"] is True
-
-
-# ported: HibernateStatisticsService.report (v2.3.0): availability follows the session factory, never the SQL recorder,
-# so sqlastats keeps its own reason with no engine attached (PARITY, not a default taken)
-def test_sqlalchemy_statistics_keeps_its_own_availability_with_no_engine_attached(handles: list[Any]) -> None:
-    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
-    assert sqlastats.statistics_report(ctx)["available"] is True
-
-
 def test_a_not_recorded_capture_cannot_carry_a_limitation() -> None:
     with pytest.raises(ValueError, match="no limitation"):
         sqlcapture.SqlCapture(not_recorded_reason="x", limitation="y")
-
-
-# review: a suspended hook is a capture state (BootUI's recorder stays wrapped), never "no database": the panel stays
-# available, shows its rows and says it is not capturing
-def test_the_sql_trace_panel_stays_available_while_its_hooks_are_suspended(handles: list[Any]) -> None:
-    ctx = _both_used(handles)
-    ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
-    ctx.capture.wiring.suspend_hook(HOOK_SQLITE_LISTENERS)
-    assert tools.sql_trace_unavailable_reason(ctx) is None
-    assert tools.sql_trace_report(ctx)["available"] is True
 
 
 # review: the engine registry holds engines weakly; "a database is in use" is known once and does not flip on GC
@@ -279,20 +236,33 @@ def test_a_disposed_engine_leaves_the_context_recorded(handles: list[Any]) -> No
     assert sqlcapture.for_context(ctx).recorded
     del engine
     gc.collect()
+    assert not ctx.capture.engine_registry.has_engines()  # the engine is really gone
     assert sqlcapture.for_context(ctx).recorded
-    assert tools.sql_trace_unavailable_reason(ctx) is None
 
 
-# review: the default install (sqlite3 patch on) with no database reads the same on the panel and on the insights
-def test_the_panel_and_the_insights_agree_with_the_sqlite3_patch_on_and_no_database(handles: list[Any]) -> None:
-    ctx = _install(handles)
-    assert sqlcapture.for_context(ctx).reason == NOT_RECORDED
-    assert tools.sql_trace_unavailable_reason(ctx) == NOT_RECORDED
+# code-review (#185, finding 2): a connection opened before the install records rows here; the fact follows them
+def test_a_connection_opened_before_the_install_makes_the_context_recorded(handles: list[Any]) -> None:
+    engine = _engine()
+    with engine.connect() as conn:  # engine_connect fired before any context existed
+        ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+        conn.execute(sa.text("update t set n = 1"))
+        assert ctx.capture.sql_trace.rows()
+        assert sqlcapture.for_context(ctx).recorded
 
 
-def test_a_raw_sqlite_app_reads_available_on_the_panel_from_its_first_statement(
-    handles: list[Any], no_sqlalchemy: None
-) -> None:
-    ctx = _install(handles)
+# code-review (#185, finding 4): a paused recorder whose journal takes no sql still has its database in use
+def test_a_paused_capture_still_learns_its_database_is_in_use(handles: list[Any], no_sqlalchemy: None) -> None:
+    ctx = _install(handles, runtime_journal_sources=("http",))
+    ctx.capture.sql_trace.set_recording(False)
     _raw_sqlite()
-    assert tools.sql_trace_unavailable_reason(ctx) is None
+    assert sqlcapture.for_context(ctx).recorded
+
+
+# code-review (#185, finding 6): the only database's hook detached, the other source unused: not "its hooks"
+def test_the_only_used_source_suspended_names_every_used_hook_not_both(handles: list[Any]) -> None:
+    ctx = _install(handles, engines=[_engine()], sql_trace_sqlite3_enabled=False)
+    ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+    capture = sqlcapture.for_context(ctx)
+    assert not capture.recorded
+    assert capture.reason == sqla.SUSPENDED_ALL
+    assert "hooks are detached" not in str(capture.reason)
