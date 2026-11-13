@@ -334,3 +334,52 @@ def test_connection_journal_a_checkout_that_failed_after_the_listener_ran_offers
     finally:
         sa.event.remove(sa.pool.Pool, "checkout", refuse)
     assert _records(handle) == ()
+
+
+def _horizon(handle: Any) -> int | None:
+    journal = handle.context.capture.journal
+    assert journal is not None
+    return journal.view([])[3]
+
+
+# ported: EvidenceRing.lost (the loss start rides each event; #181)
+def test_connection_journal_offers_the_loss_start_the_ring_would_compute(monkeypatch: pytest.MonkeyPatch):
+    handle = _install()
+    journal = handle.context.capture.journal
+    offered: list[tuple[dict[str, object], int]] = []
+    original = journal.offer_flat
+
+    def spy(event: Any, size: int | None = None, started: int = -1) -> bool:
+        offered.append((event, started))
+        return original(event, size, started)
+
+    monkeypatch.setattr(journal, "offer_flat", spy)
+    token = _request(handle, "0123456789abcdef")
+    try:
+        _use(handle.engine)
+    finally:
+        REQUEST.reset(token)
+    _use(handle.engine)  # no request, no trace: it names no unit of work
+    (named, started), (unnamed, none) = [pair for pair in offered if pair[0]["source"] == "connection"]
+    assert started == named["epochMillis"]
+    assert none == 0
+    assert unnamed["requestId"] is None
+
+
+def test_connection_event_eviction_moves_the_horizon_to_its_start():
+    handle = _install(("connection",), runtime_journal_max_events=1)
+    token = _request(handle, "0123456789abcdef")
+    try:
+        _use(handle.engine)
+    finally:
+        REQUEST.reset(token)
+    first = _only(handle)
+    _use(handle.engine)  # the ring holds one event: the first connection is evicted
+    assert _horizon(handle) == min(first["epochMillis"], int(time.time() * 1000))
+
+
+def test_connection_event_of_no_request_does_not_move_the_horizon():
+    handle = _install(("connection",), runtime_journal_max_events=1)
+    _use(handle.engine)
+    _use(handle.engine)
+    assert _horizon(handle) is None

@@ -39,14 +39,14 @@ class Run:
         self.requests = 0
         self.pool_sizes = pool_sizes
 
-    def request(self, route: str, *children: Row) -> str:
+    def request(self, route: str, *children: Row, at_ms: int = 1) -> str:
         self.requests += 1
         request_id = f"r{self.requests}"
         method, _, template = route.partition(" ")
         info = RequestInfo(request_id, "ctx", method, template, None, 0, 30_000_000)
         for child in children:
-            self.journal.offer({**child, "requestId": request_id})
-        self.journal.offer(http_event(info, [], 1_000_000, 200, template))
+            self.journal.offer({**child, "requestId": request_id, "epochMillis": at_ms})
+        self.journal.offer(http_event(info, [], at_ms * MS, 200, template))
         return request_id
 
     def service(self) -> InsightsService:
@@ -258,3 +258,15 @@ def test_connections_per_request_a_connection_of_no_request_joins_nothing() -> N
     run.request("GET /a")
     assert run.rows() == []
     assert run.check()["eligibleRequests"] == 1
+
+
+# ported: RuntimeInsightsService.visibleEntries (the left-out rule, #181), applied to this kind
+def test_connections_per_request_a_request_that_lost_an_event_is_left_out() -> None:
+    run = Run()
+    run.journal.max_events = 4
+    run.request("GET /a", connection("db", 10_000, 50_000), connection("db", 20_000, 50_000), at_ms=1_000)
+    run.request("GET /b", connection("db", 10_000, 10_000), at_ms=2_000)  # evicts r1's first connection
+    check = run.check()
+    assert check["eligibleRequests"] == 1  # only r2 is judged
+    assert "1 request or execution started before events the journal evicted or cleared" in str(check["reason"])
+    assert not run.rows()  # r1's retained connection alone is not a pair, and its lost one is not guessed at
