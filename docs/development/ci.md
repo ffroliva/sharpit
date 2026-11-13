@@ -45,7 +45,7 @@ The four files heavier than any shard alone (`tests/_shard.py` `OWN_JOB`: the ma
 
 | Leg | Shards |
 |---|---|
-| Windows 3.14 (the long pole) | 7 |
+| Windows 3.14 (the long pole) | 6 |
 | Ubuntu 3.12, 3.14 (locked deps, push only) | 4 each |
 | `coverage` (the 3.13 leg) | 5 |
 | `lowest` | 4 |
@@ -66,7 +66,7 @@ full matrix runs on every merge before anything ships.
 
 | | Pull request | Push / dispatch |
 |---|---|---|
-| Windows 3.14, 7 shards (`test-shard`) | yes | yes |
+| Windows 3.14, 6 shards (`test-shard`) | yes | yes |
 | Ubuntu 3.12 and 3.14, 4 shards each (`test-shard-locked`) | no | yes |
 | Ubuntu 3.13 under coverage, 5 shards (`coverage-shard`), `sonar`, `coverage` | yes | yes |
 | `lowest` (3.12), `no-sqlalchemy`, masking gates, `live`, `lint`, `ui`, `vitest`, `wheel` | yes | yes |
@@ -106,7 +106,7 @@ layout and runner options (O1-O3 in the 0.6.0 plan's `W0b-ci-method.md`), queued
 What the numbers say:
 
 - **Setup is not the cost.** With uv's cache hot, checkout, setup-uv and `uv sync` take 10-25 s a job.
-- **The pool is.** ~53 jobs share an account-wide pool of ~20 runners with every other lane's runs; in 43183266267
+- **The pool is.** ~52 jobs share an account-wide pool of ~20 runners with every other lane's runs; in 43183266267
   only 10-14 of ours ran at once and Windows shards started 4-8 minutes in. Job order in the file does not change
   which job gets a runner first.
 - **Shard times swing with what shares a worker, not with the weights.** The same `tests/test_safety_matrix.py`
