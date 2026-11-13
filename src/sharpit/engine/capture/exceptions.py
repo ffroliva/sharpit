@@ -46,7 +46,7 @@ _FALLBACK_MAX = 64
 _FALLBACK: dict[tuple[int, str], str] = {}
 _FALLBACK_LOCK = threading.Lock()
 _MARK_LOCK = threading.Lock()  # one check-then-set of a mark at a time: an exception logged on two threads counts once
-# set while this thread holds a store or fallback lock: a record from a finalizer then is dropped, not deadlocked
+# set while this thread holds a store, fallback or mark lock: a record from a finalizer then is dropped, not deadlocked
 _BUSY = threading.local()
 _TOKENS = itertools.count()
 _SLOTS = itertools.count()
@@ -81,20 +81,20 @@ def _set_mark(exc: BaseException, slot: str, mark: str) -> None:
                 del _FALLBACK[next(iter(_FALLBACK))]
 
 
+def _seen_already(prior: str | None, request_id: str | None) -> bool:
+    """Outside a request, an exception already marked is the server's own log of one that escaped a request (uvicorn's
+    "Exception in ASGI application"): not new."""
+    return prior is not None if request_id is None else prior == request_id
+
+
 def mark_seen(exc: BaseException, request_id: str | None, slot: str = "") -> bool:
-    """True the first time ``exc`` is seen in this request by the store owning ``slot``. Outside a request, an
-    exception already marked is the server's own log of one that escaped a request (uvicorn's "Exception in ASGI
-    application"): not new."""
-    with _guarded(_MARK_LOCK):
-        prior = _mark(exc, slot)
-        if request_id is None:
-            if prior is not None:
-                return False
-            _set_mark(exc, slot, f"~{next(_TOKENS)}")
-            return True
-        if prior == request_id:
+    """True the first time ``exc`` is seen in this request by the store owning ``slot``."""
+    if _seen_already(_mark(exc, slot), request_id):  # the common repeat: no lock, no host lookup under one
+        return False
+    with _guarded(_MARK_LOCK):  # only the first sighting: the mark is read again here, then set, as one step
+        if _seen_already(_mark(exc, slot), request_id):
             return False
-        _set_mark(exc, slot, request_id)
+        _set_mark(exc, slot, f"~{next(_TOKENS)}" if request_id is None else request_id)
         return True
 
 

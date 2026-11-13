@@ -12,7 +12,7 @@ import logging
 import secrets
 import threading
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from functools import lru_cache
 from typing import Any, cast
 
@@ -54,32 +54,33 @@ class LogTailBuffer:
     # needs a retry on the deque's RuntimeError.
     def append(self, line: dict[str, Any]) -> int:
         size = len((line.get("message") or "").encode()) + len((line.get("thread") or "").encode())
-        if getattr(self._held, "on", False):  # a GC finalizer logging on the thread that holds the lock
+        held = self._held
+        if getattr(held, "on", False):  # a GC finalizer logging on the thread that holds the lock
             return 0
-        with self._locked():
-            self._seq += 1
-            seq = self._seq
-            self._lines.append((seq, line, size))
-            self._bytes += size
-            while len(self._lines) > self._max_lines or (self._bytes > self._max_bytes and len(self._lines) > 1):
-                self._bytes -= self._lines.popleft()[2]
+        held.on = True  # up before the lock is taken and down after it is released: no gap for a finalizer to wait in
+        try:
+            with self._lock:
+                self._seq += 1
+                seq = self._seq
+                self._lines.append((seq, line, size))
+                self._bytes += size
+                while len(self._lines) > self._max_lines or (self._bytes > self._max_bytes and len(self._lines) > 1):
+                    self._bytes -= self._lines.popleft()[2]
+        finally:
+            held.on = False
         self.stream.signal()
         return seq
 
     def clear(self) -> None:
-        with self._locked():
-            self._lines.clear()
-            self._bytes = 0
+        held = self._held
+        held.on = True  # same order as ``append``
+        try:
+            with self._lock:
+                self._lines.clear()
+                self._bytes = 0
+        finally:
+            held.on = False
         self.stream.signal()
-
-    @contextlib.contextmanager
-    def _locked(self) -> Generator[None]:
-        with self._lock:
-            self._held.on = True
-            try:
-                yield
-            finally:
-                self._held.on = False
 
     def recent(self) -> list[dict[str, Any]]:
         """Oldest first (BootUI ``recent()``)."""
