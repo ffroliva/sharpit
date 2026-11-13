@@ -5,6 +5,7 @@ import importlib.util
 import json
 import threading
 import time
+from collections import deque
 from dataclasses import fields
 from typing import Any
 
@@ -552,3 +553,35 @@ def test_counters_stay_exact_with_producers_count_dropped_and_a_reader(no_side_e
     assert status["dropped"]["other"] == each
     assert status["dropped"]["log"] == each
     assert status["dropped"].get("t", 0) + status["recorded"]["t"] == each
+
+
+def test_a_read_made_while_the_same_thread_drains_neither_raises_nor_reorders() -> None:
+    module = _journal_module()
+    journal = module.RuntimeJournal(max_events=1000, max_bytes=1_000_000, sources=("t",))
+    errors: list[str] = []
+
+    class MidDrainRead(deque[Any]):
+        """Code that runs inside the drain's pop (a finalizer, a GC callback, a signal handler) and reads."""
+
+        reentered = False
+
+        def popleft(self) -> Any:
+            item = super().popleft()
+            if not self.reentered:
+                self.reentered = True
+                try:
+                    journal.status()  # re-enters the drain lock on the draining thread
+                except Exception as exc:  # noqa: BLE001 - the test reports whatever the nested read raised
+                    errors.append(repr(exc))
+            return item
+
+    journal._queue = MidDrainRead()
+    for n in range(5):
+        journal.offer({"source": "t", "n": n})
+    try:
+        journal.status()
+    except Exception as exc:  # noqa: BLE001 - the outer read must survive the nested one
+        errors.append(repr(exc))
+    assert errors == []
+    assert [r["n"] for r in journal.records("t")] == [0, 1, 2, 3, 4], "the nested read did not reorder the ring"
+    assert journal.status()["recorded"] == {"t": 5}
