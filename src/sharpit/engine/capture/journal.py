@@ -222,12 +222,14 @@ class RuntimeJournal:
         max_events: int = 50_000,
         max_bytes: int = DEFAULT_MAX_BYTES,
         queue_capacity: int = 10_000,
+        reserved_queue_percent: int = 10,
         sources: Iterable[str] | None = None,
         masker: Masker | None = None,
     ) -> None:
         self.max_events = max(1, max_events)
         self.max_bytes = max(1, max_bytes)
         self.queue_capacity = max(1, queue_capacity)
+        self.reserved_queue_percent = reserved_queue_percent  # stub: the red tests prove the share is not applied yet
         self._drain_at = max(1, min(DRAIN_AT, self.queue_capacity // 2))  # before the queue is full, whatever its size
         self.sources = None if sources is None else frozenset(sources)  # None: no filter (the wiring always passes one)
         self.masker = masker or Masker(Exposure.MASKED, True)

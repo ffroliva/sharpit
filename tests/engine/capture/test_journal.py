@@ -438,3 +438,117 @@ def test_an_offer_made_while_the_same_thread_drains_neither_deadlocks_nor_raises
     status = journal.status()
     assert status["droppedEvents"] == 0
     assert status["recorded"]["t"] >= 3
+
+
+def _offered_while_a_reader_holds_the_lock(journal: Any, events: list[dict[str, object]]) -> list[bool]:
+    """The outcome of each offer, made on another thread while this one holds the drain lock (nothing can drain)."""
+    outcomes: list[bool] = []
+    worker = threading.Thread(target=lambda: outcomes.extend(journal.offer(event) for event in events))
+    with journal._lock:
+        worker.start()
+        worker.join(2)
+    worker.join(5)
+    return outcomes
+
+
+def test_the_reserved_share_of_the_queue_admits_only_failed_or_slow_events() -> None:
+    # ported: JournalQueueTests.keepsTheReservedShareForFailedOrSlowEventsAndTakesEventsInOrder
+    journal = _journal_module().RuntimeJournal(
+        max_events=100, max_bytes=1_000_000, queue_capacity=4, reserved_queue_percent=50, sources=("t",)
+    )
+    routine = [{"source": "t", "n": n} for n in (1, 2, 3)]
+    slow = [{"source": "t", "n": n, "failedOrSlow": True} for n in (4, 5, 6)]
+    outcomes = _offered_while_a_reader_holds_the_lock(journal, [*routine, *slow])
+    assert outcomes == [True, True, False, True, True, False], "routine stops at its limit, slow at the capacity"
+    assert [r["n"] for r in journal.records("t")] == [1, 2, 4, 5], "in the order offered"
+    assert journal.status()["dropped"] == {"t": 2}
+
+
+def test_the_default_reserved_share_is_ten_percent_of_the_queue() -> None:
+    # ported: RuntimeJournalSettings.routineQueueLimit (:146-149), DEFAULT_RESERVED_SHARE_PERCENT (:38)
+    journal = _journal_module().RuntimeJournal(max_events=100, max_bytes=1_000_000, queue_capacity=10, sources=("t",))
+    events: list[dict[str, object]] = [{"source": "t"}] * 10 + [{"source": "t", "failedOrSlow": True}]
+    outcomes = _offered_while_a_reader_holds_the_lock(journal, events)
+    assert outcomes == [True] * 9 + [False, True], "nine routine events, the tenth refused, the slow one takes the last"
+
+
+def test_routine_offers_never_overshoot_their_share_by_more_than_one_per_producer() -> None:
+    # ported: JournalQueueTests.routineEventsNeverOvershootTheirShareUnderConcurrentOffers (deviation D-JQ4: the
+    # lock-free check and append are two steps, so each concurrent producer can pass the check once at the limit)
+    journal = _journal_module().RuntimeJournal(
+        max_events=100, max_bytes=1_000_000, queue_capacity=1000, reserved_queue_percent=40, sources=("t",)
+    )
+    producers, results = 8, []
+    batch: list[dict[str, object]] = [{"source": "t"}] * 400
+    workers = [
+        threading.Thread(target=lambda: results.append(sum(journal.offer(event) for event in batch)))
+        for _ in range(producers)
+    ]
+    with journal._lock:
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(5)
+    accepted = sum(results)
+    assert accepted >= 600, "the routine share is filled"
+    assert accepted <= 600 + producers, "and overshot by at most one event per concurrent producer"
+
+
+def test_one_offer_moves_only_a_bounded_number_of_events_into_the_ring() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10_000, max_bytes=10_000_000, sources=("t",))
+    growth = []
+    for n in range(2000):
+        before = len(journal._events)
+        journal.offer({"source": "t", "n": n})
+        growth.append(len(journal._events) - before)
+    assert max(growth) <= 16, "a producer's drain is a small constant batch (PRODUCER_BATCH), not the whole queue"
+    assert sum(growth) > 1000, "yet the producers drain: a host with no reader keeps its newest events in the ring"
+
+
+def test_a_read_never_shows_counts_that_disagree_with_the_events_it_returns(no_side_effects: object) -> None:
+    del no_side_effects
+    journal = _journal_module().RuntimeJournal(max_events=5, max_bytes=1_000_000, sources=("t", "u"))
+    for n in range(10):
+        journal.offer({"source": "t" if n % 2 else "u", "n": n})
+    status, records, _ = journal.view(("t", "u"))
+    assert status["queueDepth"] == 0
+    assert sum(status["recorded"].values()) == status["retainedEvents"] + status["evictedEvents"]
+    assert sum(len(found) for found in records.values()) == status["retainedEvents"]
+
+
+def test_counters_stay_exact_with_producers_count_dropped_and_a_reader(no_side_effects: object) -> None:
+    del no_side_effects
+    journal = _journal_module().RuntimeJournal(max_events=100, max_bytes=1_000_000, queue_capacity=300, sources=("t",))
+    producers, per_producer, disagreements, stop = 4, 3000, [], threading.Event()
+
+    def publish() -> None:
+        for i in range(per_producer):
+            if i % 3 == 0:
+                journal.offer({"source": "other"})
+            elif i % 3 == 1:
+                journal.count_dropped("log")
+            else:
+                journal.offer({"source": "t", "n": i})
+
+    def read() -> None:
+        while not stop.is_set():
+            status, records, _ = journal.view(("t",))
+            recorded = sum(status["recorded"].values())
+            if recorded != status["retainedEvents"] + status["evictedEvents"] or len(records["t"]) > 100:
+                disagreements.append(status)
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    workers = [threading.Thread(target=publish) for _ in range(producers)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    stop.set()
+    reader.join()
+    status = journal.status()
+    each = producers * per_producer // 3
+    assert disagreements == []
+    assert status["dropped"]["other"] == each
+    assert status["dropped"]["log"] == each
+    assert status["dropped"].get("t", 0) + status["recorded"]["t"] == each
