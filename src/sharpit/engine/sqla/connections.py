@@ -11,11 +11,12 @@ current at checkout, on whichever thread releases it, as BootUI's ``ConnectionCh
 shortcut: the state sits in one slot of the pool record's ``info``. A pool that hands one record to several concurrent
 checkouts (StaticPool, SingletonThreadPool: sqlite in memory) therefore journals one event for the overlapping
 checkouts, the last one's; upgrade to a state keyed per fairy if such a pool needs one event per checkout.
-UNKNOWN_STATEMENTS = -1  # BootUI gives -1 as unknown only to ``checkoutNanos``: a deviation (module note)
+Deviation: ``statements`` is always -1 (BootUI defines -1 as unknown only for ``checkoutNanos``), where BootUI's
 ``ConnectionCheckout.statementExecuted`` counts per execute. Counting here cost every statement a fairy ``__dict__``
 read and write (+1.5 us paired on the SQL listener, which has no room); the recorder keeps no per-connection count
-(a bounded ring, pausable) to derive it from at checkin. Nothing in sharpit reads it: BootUI uses it only in
-``RequestJournalProfiles`` display text. Upgrade if a profile view needs it: count at checkin, not per statement.
+(a bounded ring, pausable) to derive it from at checkin. In sharpit nothing reads it yet; in BootUI v2.3.0 the
+``ConnectionReacquisition`` kind does (``Math.max(0, r.statements)``, l.109 and l.190), a kind that is still a stub
+here: its port (0.7.0) needs a zero-cost count, taken at checkin, never per statement.
 shortcut: a connection that is invalidated before its release (``checkin`` then gets no DBAPI connection) offers no
 event, since a checkout that failed after our listener looks the same; upgrade with a per-checkout flag.
 shortcut: a connection detached from the pool (``Connection.detach()``) never fires ``checkin``, so it offers no
