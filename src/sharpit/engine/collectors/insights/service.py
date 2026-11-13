@@ -213,6 +213,7 @@ class InsightsService:
         observations: Sequence[Observation] | None = None,
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
         panel_enabled: PanelEnabled | None = None,
+        transactions_not_recorded: Callable[[], str | None] | None = None,
     ) -> None:
         self.journal = journal
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
