@@ -343,8 +343,9 @@ def _live_leg_filters() -> dict[str, str]:
 # ``deselect_by_keyword`` (what ``-k`` runs), instead of one nested collection per leg.
 _LIVE_LEG_COLLECTOR = """
 import json, sys
+from pathlib import Path
 import pytest
-from _pytest.mark import deselect_by_keyword
+from _pytest.mark import deselect_by_keyword  # private: pytest has no public API that applies -k to collected items
 
 expressions, out = json.loads(sys.argv[1]), sys.argv[2]
 
@@ -359,7 +360,7 @@ class Collector:
             deselect_by_keyword(remaining, config)
             selected[leg] = [item.nodeid for item in remaining]
         config.option.keyword = ""
-        json.dump({"all": [item.nodeid for item in items], "legs": selected}, open(out, "w"))
+        Path(out).write_text(json.dumps({"all": [item.nodeid for item in items], "legs": selected}), encoding="utf-8")
 
 
 sys.exit(pytest.main(sys.argv[3:], plugins=[Collector()]))
@@ -399,7 +400,9 @@ def test_the_live_legs_partition_the_live_tests(tmp_path: Path) -> None:
     assert collected.returncode == 0, (collected.stdout + collected.stderr)[-2000:]
     report = json.loads(result_file.read_text(encoding="utf-8"))
     nodeids = [nodeid for nodeid in report["all"] if nodeid.startswith("tests/live/") and "::" in nodeid]
-    assert len(nodeids) >= 21_888, f"live collection unexpectedly small: {len(nodeids)} tests"
+    # 21,888 live tests on 2026-11-13; the floor is ~91 % of that, so one removed test does not red this but a
+    # collection that silently lost a file or a parametrization (thousands of ids) does
+    assert len(nodeids) >= 20_000, f"live collection unexpectedly small: {len(nodeids)} tests"
     assert nodeids
     selected = {leg: set(ids) for leg, ids in report["legs"].items()}
     assert all(selected.values()), f"a live leg selects nothing: {[leg for leg, ids in selected.items() if not ids]}"
