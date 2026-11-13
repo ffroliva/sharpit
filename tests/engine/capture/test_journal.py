@@ -66,8 +66,8 @@ def test_journal_bounds_and_counts_drops() -> None:
     assert sum(status["dropped"].values()) == status["droppedEvents"]
 
 
-def test_an_offer_made_while_the_host_copy_runs_is_accepted_not_reentrant() -> None:
-    """The copy runs before the lock is taken, so an offer from inside it cannot recurse into the append."""
+def test_an_offer_made_while_the_host_copy_runs_is_refused_and_counted() -> None:
+    """The copy runs outside the lock, so only the thread's own flag stops an offer made from inside it."""
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)
     event = {"source": "test", "message": "outer"}
 
@@ -77,8 +77,23 @@ def test_an_offer_made_while_the_host_copy_runs_is_accepted_not_reentrant() -> N
             return super().items()
 
     assert journal.offer(Nested(source="test", message="outer")) is True
-    assert journal.status()["dropped"].get("reentrant", 0) == 0
-    assert journal.status()["retainedEvents"] == 2
+    assert journal.status()["dropped"].get("reentrant", 0) == 1
+    assert journal.status()["retainedEvents"] == 1
+
+
+def test_a_host_repr_that_offers_does_not_recurse() -> None:
+    """A host ``__repr__`` that offers an event holding another such object: bounded at one retained, none failed."""
+    journal = _journal_module().RuntimeJournal(max_events=1000, max_bytes=100_000, sources=("test",))
+
+    class Host:
+        def __repr__(self) -> str:
+            journal.offer({"source": "test", "value": Host()})
+            return "host"
+
+    assert journal.offer({"source": "test", "value": Host()}) is True
+    status = journal.status()
+    assert status["retainedEvents"] == 1
+    assert status["dropped"] == {"reentrant": 1}
 
 
 class _FiresMidWalk(deque):  # type: ignore[type-arg]
@@ -145,6 +160,23 @@ def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_cou
     assert nested == [False]
     assert journal.status()["dropped"] == {**before, "reentrant": 1}
     assert journal.status()["retainedEvents"] == 2
+
+
+def test_a_finalizer_counting_another_key_during_a_counter_walk_does_not_resize_it() -> None:
+    """``count_dropped("log")`` (the log tail's suspended-journal path) from a finalizer mid-walk adds no key."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql",))
+    journal.offer_flat({"source": "unconfigured"})
+    counter = _CounterFiresMidWalk(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+    counter.fire = lambda: journal.count_dropped("log")
+    journal._dropped = counter  # pyright: ignore[reportPrivateUsage]
+    raised: list[str] = []
+    try:
+        journal.status()
+    except RuntimeError as exc:  # the defect: an exception where a read is answered
+        raised.append(str(exc))
+    assert raised == []
+    assert dict(journal._dropped) == {"unconfigured": 1}  # pyright: ignore[reportPrivateUsage]
+    assert journal.status()["dropped"] == {"unconfigured": 1, "reentrant": 1}
 
 
 def test_a_nested_offer_during_an_append_is_refused_before_it_copies_anything() -> None:
