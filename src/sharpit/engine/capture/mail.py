@@ -660,6 +660,8 @@ def ensure_wrapped() -> None:
             return
         if getattr(getattr(module, "__spec__", None), "_initializing", False):  # another thread is importing it now
             return
+        if module in _reported:  # already beyond the trap and said so: never retried at every request start
+            return
         try:
             _wrap_loaded(module, blocking=False)
         # reported below, never raised into the request
