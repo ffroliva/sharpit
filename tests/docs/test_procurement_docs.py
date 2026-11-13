@@ -61,7 +61,6 @@ def test_readme_console_leads_then_gate_and_exact_gflow_proof() -> None:
     )
     assert re.search(r"gflow-cli", readme_text[gate_heading:], re.IGNORECASE), "the gate section must cite gflow-cli"
 
-    assert "5,662" in readme_text or "5662" in readme_text, "gflow-cli proof must mention test count (5,662)"
     assert "N+1" in readme_text, "gflow-cli proof must mention findings (N+1 queries caught)"
 
     proof_header = "### On the author's own project: gflow-cli"
@@ -75,25 +74,20 @@ def test_readme_console_leads_then_gate_and_exact_gflow_proof() -> None:
         "gflow-cli proof must drop 'independent' claim as it was run by sharpit's author"
     )
     assert "sharpit's author" in proof_section.lower(), "gflow-cli proof must state run by sharpit's author"
-    assert "0.3.0 integration branch" in proof_section, "gflow-cli proof must state run on 0.3.0 integration branch"
     assert "sharpit's own report" in proof_section, "gflow-cli proof link text must state it is sharpit's own report"
-    assert "5 failed by sharpit gates" in proof_section, (
-        "gflow-cli proof must mention that 5 tests failed by sharpit gates"
-    )
-    assert "53k" in proof_section, "gflow-cli proof must mention ~53k statements executed"
-    assert "27,997 attributed" in proof_section, "gflow-cli proof must state 27,997 attributed statements"
-    assert "25,092 filtered" in proof_section, "gflow-cli proof must state 25,092 filtered statements"
+    assert "No production code was changed" in proof_section, "gflow-cli proof must say no production code changed"
+
+    # every figure the README states comes from the dated report it links to (the 2026-11-13 0.6.0 re-run)
+    report_link = re.search(r"\(docs/reports/([^)]+\.md)\)", proof_section)
+    assert report_link is not None, "gflow-cli proof must link its dated report under docs/reports/"
+    report_text = (ROOT / "docs" / "reports" / report_link.group(1)).read_text(encoding="utf-8")
+    figures = ["6,804", "4 failed by sharpit gates", "3 min 21 s", "25,772 attributed", "32,583 filtered", "~58k"]
+    for figure in figures:
+        assert figure in proof_section, f"gflow-cli proof must state {figure!r}"
+    for figure in ("6,804", "25,772 attributed", "32,583 filtered", "3 min 21 s", "**0 unattributed**", "~58k"):
+        assert figure in report_text, f"the linked report must back {figure!r}"
     assert "0 unattributed" in proof_section, "gflow-cli proof must state 0 unattributed statements"
-    assert "6 N+1 findings" in proof_section, "gflow-cli proof must state 6 N+1 findings instead of defects"
-    assert "1 was a real defect" in proof_section or "1 real" in proof_section, (
-        "gflow-cli proof must state 1 real defect"
-    )
-    assert "2 were noise" in proof_section or "2 noise" in proof_section, (
-        "gflow-cli proof must state 2 were noise (filtered since 0.3.0)"
-    )
-    assert "3 were expected polling" in proof_section or "3 expected polling" in proof_section, (
-        "gflow-cli proof must state 3 were expected polling"
-    )
+    assert "0 N+1 findings" in proof_section, "gflow-cli proof must state the N+1 count of the run"
 
 
 def test_security_policy_names_supported_versions() -> None:
