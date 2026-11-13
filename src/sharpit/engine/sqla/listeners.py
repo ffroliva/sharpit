@@ -82,10 +82,13 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
-        # the fairy's own dict: ``getattr`` on a fairy without the attribute falls through to the DBAPI connection
-        fairy = conn._dbapi_connection if _counting else None  # noqa: SLF001 - None too when invalidated
-        if fairy is not None and (followed := fairy.__dict__.get(_connections.FAIRY_ATTR)) is not None:
-            followed.statements += 1  # BootUI ``ConnectionCheckout.statementExecuted``: the application's own only
+        try:
+            # the fairy's own dict: ``getattr`` on a fairy without the attribute falls through to the DBAPI connection
+            fairy = conn._dbapi_connection if _counting else None  # noqa: SLF001 - None too when invalidated
+            if fairy is not None and (followed := fairy.__dict__.get(_connections.FAIRY_ATTR)) is not None:
+                followed.statements += 1  # BootUI ``ConnectionCheckout.statementExecuted``: the application's own only
+        except AttributeError:  # a raw DBAPI connection handed to ``Connection`` has no fairy dict: nothing to count
+            pass  # never the statement's trace
         _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
