@@ -8,6 +8,8 @@ Times are explicit milliseconds so the 16 ms slack never makes a neighbouring re
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from sharpit.engine.capture.correlation import RequestInfo
@@ -125,3 +127,76 @@ def test_clearing_the_journal_moves_the_horizon_past_what_it_dropped() -> None:
     journal.offer({**sql("select 1", 1_005), "requestId": "r1"})
     journal.discard()
     assert journal.view([])[3:] == (1_005,)
+
+
+def only_http(journal: RuntimeJournal, started_at: int) -> None:
+    info = RequestInfo("r-only", "ctx", "GET", "/api/items", None, 0, started_at * 1_000_000)
+    journal.offer(http_event(info, [], started_at * 1_000_000, 200, "/api/items"))
+
+
+def after_losing_a_statement_at(lost_at: int, started_at: int) -> RuntimeJournal:
+    """A one-event ring: the statement started at ``lost_at`` is evicted by the http event of the request."""
+    journal = RuntimeJournal(max_events=1)
+    journal.offer({**sql("select 1", lost_at), "requestId": "gone"})
+    only_http(journal, started_at)
+    return journal
+
+
+# ported: EvidenceRing.add (v2.3.0 l.92-93): an event larger than the whole byte bound is lost, and moves the horizon
+def test_an_event_larger_than_the_whole_byte_bound_moves_the_horizon_and_leaves_its_request_out() -> None:
+    journal = RuntimeJournal(max_bytes=1_500)
+    request(journal, 1, 1_000, sql("update t set n = ? /* " + "x" * 5_000 + " */", 1_005))
+    request(journal, 2, 2_000, sql("select id from products", 2_005))
+    assert journal.view([])[3] == 1_005
+
+
+def test_an_oversize_statement_leaves_its_request_out_of_the_safe_method_dml_check() -> None:
+    journal = RuntimeJournal(max_bytes=1_500)
+    request(journal, 1, 1_000, sql("update t set n = ? /* " + "x" * 5_000 + " */", 1_005))
+    request(journal, 2, 2_000, sql("select id from products", 2_005))
+    assert check(journal, SAFE)["reason"] == ONE_LEFT_OUT
+
+
+# BootUI v2.3.0 offers nothing to the ring while paused or for a source it does not record, and calls no ring.lost
+# there (RuntimeJournal.offer l.265-270; the lost() calls on those paths arrive after 2.3.0): the horizon stays put.
+def test_a_statement_refused_while_recording_is_paused_does_not_move_the_horizon() -> None:
+    journal = RuntimeJournal()
+    journal.suspend()
+    journal.offer({**sql("update t set n = ?", 1_005), "requestId": "r1"})
+    assert journal.view([])[3] is None
+
+
+def test_a_statement_of_a_source_not_configured_does_not_move_the_horizon() -> None:
+    journal = RuntimeJournal(sources=["http"])
+    journal.offer({**sql("update t set n = ?", 1_005), "requestId": "r1"})
+    assert journal.view([])[3] is None
+
+
+def test_the_window_counts_only_the_requests_it_still_judges() -> None:
+    journal = RuntimeJournal(max_events=3)
+    request(journal, 1, 1_000, sql("select 1", 1_005))
+    request(journal, 2, 2_000, sql("select 2", 2_005))
+    assert InsightsService(journal).report()["window"]["requests"] == 1  # type: ignore[index]  # r1 is left out
+
+
+def test_the_loss_horizon_never_moves_past_now() -> None:
+    journal = RuntimeJournal(max_events=1)
+    journal.offer({**sql("select 1", 4_000_000_000_000), "requestId": "future"})  # year 2096
+    only_http(journal, 1_000)
+    assert journal.view([])[3] <= time.time_ns() // 1_000_000  # type: ignore[operator]
+
+
+def test_a_request_starting_within_the_slack_of_the_horizon_is_left_out() -> None:
+    journal = after_losing_a_statement_at(1_000, 1_016)  # ported: LOSS_HORIZON_SLACK_MILLIS = 16, inclusive
+    assert ONE_LEFT_OUT in str(check(journal, ROUTE_TIME)["reason"])
+
+
+def test_a_request_starting_after_the_slack_is_judged() -> None:
+    journal = after_losing_a_statement_at(1_000, 1_017)
+    assert LEFT_OUT not in str(check(journal, ROUTE_TIME)["reason"])
+
+
+@pytest.mark.parametrize("kind", [SAFE, ERRORS, ROUTE_TIME])
+def test_every_request_left_out_is_not_request_ids_withheld(kind: str) -> None:
+    journal = after_losing_a_statement_at(1_000, 1_005)
+    assert "withheld" not in str(check(journal, kind)["reason"])
