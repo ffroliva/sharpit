@@ -92,7 +92,7 @@ _TX_FIXED: JournalEvent = dict.fromkeys(_TX_KEYS) | {
 }  # fmt: skip
 # a begin's journal facts, the same for every context: the perf_counter start (BootUI's ``startNanos``, on P-sql's
 # ``completedNanos`` clock), the trace id, nested, savepoint, read-only, isolation and the connection's write count
-type _Facts = tuple[int, str | None, bool, bool, bool, str | None, int]
+type _Facts = tuple[int, str | None, bool, bool, bool, object, int]
 # statements on a connection that were not a SELECT, a running count in ``conn.info``: a rollback undoes something
 # only when it grew since the begin. A write-free rollback is BootUI's read-only commit (coordinator default, r3).
 WRITES = "sharpit_tx_writes"
@@ -115,18 +115,20 @@ def _nests(conn: Any) -> bool:
 
 
 def _autocommit(conn: Any) -> bool:
-    autocommit = getattr(conn, "_is_autocommit_isolation", None)  # SQLAlchemy 2.0+: the option or the engine's level
-    return callable(autocommit) and bool(autocommit())
+    try:
+        return bool(conn._is_autocommit_isolation())  # noqa: SLF001  # SQLAlchemy 2.0+: the option or the engine's level
+    except AttributeError:  # a connection without it is not AUTOCOMMIT
+        return False
 
 
 def _facts(conn: Any, conn_info: dict[str, Any], *, savepoint: bool) -> _Facts:
     options = conn.get_execution_options()
-    level = options.get("isolation_level")
-    isolation = str(level).upper().replace(" ", "_") if level else None
-    nested = savepoint or _nests(conn)
-    read_only = bool(options.get("postgresql_readonly"))
     writes: int = conn_info.get(WRITES, 0)
-    return time.perf_counter_ns(), otel.current_trace_id(), nested, savepoint, read_only, isolation, writes
+    # the isolation level as set: its event text is made once, at completion (``transaction_event``)
+    return (
+        time.perf_counter_ns(), otel.current_trace_id(), savepoint or _nests(conn), savepoint,
+        bool(options.get("postgresql_readonly")), options.get("isolation_level"), writes,
+    )  # fmt: skip
 
 
 def _journal_start(
@@ -144,7 +146,8 @@ def _journal_start(
     recorded transaction only counts its drop (no facts read, no event built). ``facts`` is read once per begin."""
     if journal is None or _autocommit(conn):
         return None
-    if not journal.accepts(JOURNAL_SOURCE):
+    live = journal.live_sources  # the journal's accept flag, an attribute: no call per begin
+    if live is not None and JOURNAL_SOURCE not in live:
         if recording:  # a paused panel offers nothing then (BootUI ``TransactionRecorder.java:208-211``)
             journal.count_dropped(JOURNAL_SOURCE)
         return None
@@ -167,7 +170,8 @@ def transaction_event(
     ``method`` is the row's call site (BootUI's ``@Transactional`` method has no Python twin); ``rollbackOnly`` and the
     ORM counts are unknown (``False``, ``-1``); ``failureClass`` names the error that failed the DBAPI commit;
     ``writes`` is the connection's write count at the end: a rollback with no write since the begin undid nothing."""
-    _, request_id, (started_ns, trace_id, nested, savepoint, read_only, isolation, begun_writes) = start
+    _, request_id, (started_ns, trace_id, nested, savepoint, read_only, level, begun_writes) = start
+    isolation = str(level).upper().replace(" ", "_") if level else None
     thread: str = row["thread"]
     method: str = row["methodName"]
     failure = None if error is None else _class_name(error)

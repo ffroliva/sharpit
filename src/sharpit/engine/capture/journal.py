@@ -225,6 +225,9 @@ class RuntimeJournal:
         self.max_events = max(1, max_events)
         self.max_bytes = max(1, max_bytes)
         self.queue_capacity = max(1, queue_capacity)
+        self._accepting = True
+        self._sources: frozenset[str] | None = None
+        self.live_sources: frozenset[str] | None = None  # what ``accepts`` answers from: see ``_refresh_live``
         self.sources = None if sources is None else frozenset(sources)  # None: no filter (the wiring always passes one)
         self.masker = masker or Masker(Exposure.MASKED, True)
         self.run_id = uuid.uuid4().hex[:8]
@@ -235,10 +238,23 @@ class RuntimeJournal:
         self._evicted = 0
         self._reentrant = 0  # a plain int, never a Counter key: a refusal during a read must not resize what it walks
         self._binding_bound: str | None = None
-        self._accepting = True
         self._lock = threading.RLock()
         self._owned = cast("Any", self._lock)._is_owned  # noqa: SLF001  # whether THIS thread holds the lock
         self._copying = threading.local()  # set while this thread runs the host copy, which runs outside the lock
+
+    @property
+    def sources(self) -> frozenset[str] | None:
+        return self._sources
+
+    @sources.setter
+    def sources(self, value: frozenset[str] | None) -> None:
+        self._sources = value
+        self._refresh_live()
+
+    def _refresh_live(self) -> None:
+        """The one place the accept flag is derived: ``None`` accepts every source, an empty set none. A per-begin
+        producer reads ``live_sources`` as an attribute, not ``accepts`` (one flag, set on every change)."""
+        self.live_sources = frozenset() if not self._accepting else self._sources
 
     def offer(self, event: Event) -> bool:
         return self._offer(event, _snapshot)
@@ -300,7 +316,8 @@ class RuntimeJournal:
 
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
-        return self._accepting and (self.sources is None or source in self.sources)
+        live = self.live_sources
+        return live is None or source in live
 
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
@@ -361,10 +378,12 @@ class RuntimeJournal:
     def suspend(self) -> None:
         with self._lock:
             self._accepting = False
+            self._refresh_live()
 
     def resume(self) -> None:
         with self._lock:
             self._accepting = True
+            self._refresh_live()
 
     def discard(self) -> None:
         with self._lock:

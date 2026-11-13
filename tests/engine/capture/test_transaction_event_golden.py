@@ -1,5 +1,6 @@
-"""The ``transaction`` journal events of one seeded scenario, byte for byte (r7 of #166: the begin path's cheaper facts and
-flags change cost, never an event). ``golden/transaction_events.json`` was generated from 7ed7c6b4, before the cuts.
+"""The ``transaction`` journal events of one seeded scenario, byte for byte (r7 of #166: the begin path's cheaper
+facts and flags change cost, never an event).
+``golden/transaction_events.json`` was generated from 7ed7c6b4, before the cuts.
 
 Volatile fields (clocks) are replaced by their type; the call-site line is replaced by ``L``. Everything else is
 compared as the journal serialises it: key order included.
@@ -20,10 +21,10 @@ import pytest
 
 sa = pytest.importorskip("sqlalchemy")
 
+from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
@@ -79,10 +80,9 @@ def _scenario(tmp_path: Path) -> list[dict[str, Any]]:
             conn.execute(sa.text("select 1"))
         with engine.execution_options(isolation_level="SERIALIZABLE").begin() as conn:  # a carried isolation level
             conn.execute(sa.text("select 1"))
-        with pytest.raises(RuntimeError, match="boom"):  # an exception inside begin() is a rollback
-            with engine.begin() as conn:
-                _write(conn)
-                raise RuntimeError("boom")
+        with pytest.raises(RuntimeError, match="boom"), engine.begin() as conn:  # an exception inside begin()
+            _write(conn)
+            raise RuntimeError("boom")
 
         def failing(_conn: Any) -> None:
             raise RuntimeError("begin failed")
