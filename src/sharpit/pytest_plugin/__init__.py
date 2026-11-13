@@ -24,6 +24,7 @@ from sharpit.engine import sqla
 from sharpit.engine.activation import active_profiles
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.correlation import TEST
+from sharpit.engine.capture.lockfree import LockFreeHandler
 from sharpit.engine.collectors.restapi.service import assess as assess  # compatibility seam for apps.py
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sqltext import load_key
@@ -98,7 +99,7 @@ def _record_config_hook_failure(config: Any, exc: BaseException) -> None:
         _record_hook_failure(state.sink, exc)
 
 
-class _ExceptionHandler(logging.Handler):
+class _ExceptionHandler(LockFreeHandler):
     def __init__(self, sink: TestSessionSink) -> None:
         super().__init__()
         self.sink = sink
