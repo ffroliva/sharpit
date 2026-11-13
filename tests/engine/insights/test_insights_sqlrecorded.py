@@ -16,7 +16,9 @@ import sqlalchemy as sa
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine import sqla
+from sharpit.engine import sqla, tools
+from sharpit.engine.collectors import sqlastats
+from sharpit.engine.tools04 import sql_trace as sql_trace_tools
 from sharpit.engine.collectors.insights import sqlcapture
 from sharpit.engine.collectors.insights.service import insights_service
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS, HOOK_SQLITE_LISTENERS
@@ -210,3 +212,33 @@ def test_the_flag_off_still_names_the_flag(handles: list[Any]) -> None:
     ctx = _install(handles, sql_trace_enabled=False)
     assert "SHARPIT_SQL_TRACE_ENABLED=false" in str(sqlcapture.for_context(ctx).reason)
 
+
+# ported: SqlTraceInsightsServiceTests.reportsUnavailableWhenNoDataSourceHasBeenWrapped
+# (SqlTraceInsightsService.java:62 and SqlTraceControllerSupport.report:65, v2.3.0: no wrapped DataSource -> unavailable)
+def test_the_sql_trace_report_is_unavailable_while_no_engine_is_attached(handles: list[Any]) -> None:
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+    report = tools.sql_trace_report(ctx)
+    assert report["available"] is False
+    assert report["unavailableReason"] == NOT_RECORDED
+
+
+def test_the_sql_trace_insights_are_unavailable_while_no_engine_is_attached(handles: list[Any]) -> None:
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+    assert sql_trace_tools.insights(ctx)["available"] is False
+
+
+def test_the_sql_trace_panel_reason_is_set_while_no_engine_is_attached(handles: list[Any]) -> None:
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+    assert tools.sql_trace_unavailable_reason(ctx) == NOT_RECORDED
+
+
+def test_the_sql_trace_report_is_available_once_an_engine_is_attached(handles: list[Any]) -> None:
+    ctx = _install(handles, engines=[_engine()], sql_trace_sqlite3_enabled=False)
+    assert tools.sql_trace_report(ctx)["available"] is True
+
+
+# ported: HibernateStatisticsService.report (v2.3.0): availability follows the session factory, never the SQL recorder,
+# so sqlastats keeps its own reason with no engine attached (PARITY, not a default taken)
+def test_sqlalchemy_statistics_keeps_its_own_availability_with_no_engine_attached(handles: list[Any]) -> None:
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+    assert sqlastats.statistics_report(ctx)["available"] is True
