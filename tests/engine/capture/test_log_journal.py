@@ -273,7 +273,7 @@ def test_log_journal_reentrant_log_is_dropped_and_counted(
 ) -> None:
     handle = _install(installed)
     journal = handle.context.capture.journal
-    real_append = journal._append  # pyright: ignore[reportPrivateUsage]
+    real_append = journal._offer  # pyright: ignore[reportPrivateUsage]
     fired: list[bool] = []
 
     def logging_append(event: Any, store: Any) -> bool:
@@ -282,7 +282,7 @@ def test_log_journal_reentrant_log_is_dropped_and_counted(
             _emit(handle, "logged from inside the offer")  # a record raised while the journal appends
         return real_append(event, store)
 
-    monkeypatch.setattr(journal, "_append", logging_append)
+    monkeypatch.setattr(journal, "_offer", logging_append)
     _emit(handle, "outer")
     assert [r["template"] for r in _records(handle)] == ["outer"]
     assert journal.status()["dropped"] == {"reentrant": 1}
@@ -474,7 +474,7 @@ def test_log_journal_a_nested_record_is_counted_without_building_an_event(
     journal = handle.context.capture.journal
     handler = _handler(handle)
     real_build = handler._journal_event  # pyright: ignore[reportPrivateUsage]
-    real_append = journal._append  # pyright: ignore[reportPrivateUsage]
+    real_append = journal._offer  # pyright: ignore[reportPrivateUsage]
     built: list[str] = []
 
     def logging_append(event: Any, store: Any) -> bool:
@@ -482,7 +482,7 @@ def test_log_journal_a_nested_record_is_counted_without_building_an_event(
         return real_append(event, store)
 
     monkeypatch.setattr(handler, "_journal_event", lambda r: built.append(str(r.msg)) or real_build(r))
-    monkeypatch.setattr(journal, "_append", logging_append)
+    monkeypatch.setattr(journal, "_offer", logging_append)
     _emit(handle, "outer")
     assert built == ["outer"]
     assert journal.status()["dropped"] == {"reentrant": 1}

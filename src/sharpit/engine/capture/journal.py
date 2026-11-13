@@ -2,10 +2,14 @@
 
 Deviations from BootUI, for the owner's list:
 
-- No drain thread: BootUI's ``JournalQueue`` hands events to a dispatcher thread; here ``offer`` appends to a
-  ``deque`` under a lock in the caller's thread, so ``queueDepth`` is always 0 and ``queue-capacity`` is unused: it is
-  parsed with BootUI's default and reported as ``queueCapacity``, but nothing waits in a queue, so nothing is refused at
-  it. Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted and counted.
+- Queue without a drain thread: BootUI's ``JournalQueue`` is a bounded queue (one short lock per offer) that a
+  dispatcher thread drains into the ring. Here ``offer`` appends to a ``deque`` and takes no lock and writes no counter;
+  the drain (``_drain``) runs under ``_lock`` and is started by a producer that ``try``-acquires it, never waits for
+  it, once ``DRAIN_AT`` events are queued, and by every read, so a read sees every event offered before it and
+  ``queueDepth`` is the live depth. ``queue-capacity`` bounds the queue: a full queue refuses the offer, counted under
+  its source. Not ported: the share of the queue reserved for failed or slow events, and the ``reentrant`` drop key (an
+  offer from a finalizer or a ``__str__`` mid-offer is simply queued). ``recorded`` and ``dropped`` are folded in at the
+  drain, the only writer. Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted, counted.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
@@ -33,6 +37,7 @@ from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
+DRAIN_AT = 128  # queued offers (or refusals) at which a producer drains: bounds the work on one statement
 REENTRANT, FAILED = "reentrant", "failed"  # the dropped keys of offers without a readable source
 _MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
 SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
@@ -223,18 +228,20 @@ class RuntimeJournal:
         self.max_events = max(1, max_events)
         self.max_bytes = max(1, max_bytes)
         self.queue_capacity = max(1, queue_capacity)
+        self._drain_at = max(1, min(DRAIN_AT, self.queue_capacity // 2))  # before the queue is full, whatever its size
         self.sources = None if sources is None else frozenset(sources)  # None: no filter (the wiring always passes one)
         self.masker = masker or Masker(Exposure.MASKED, True)
         self.run_id = uuid.uuid4().hex[:8]
         self._events: deque[tuple[dict[str, object], int, int]] = deque()
+        self._queue: deque[tuple[dict[str, object], int, int, str]] = deque()  # offered, not yet in the ring
+        self._pending_drops: deque[str] = deque()  # keys of refused offers, folded into ``_dropped`` by the drain
         self._bytes = 0
         self._accepted: Counter[str] = Counter()
         self._dropped: Counter[str] = Counter()
         self._evicted = 0
         self._binding_bound: str | None = None
         self._accepting = True
-        self._lock = threading.RLock()
-        self._busy = threading.local()
+        self._lock = threading.RLock()  # the drain's and the readers': a producer only ever try-acquires it
 
     def offer(self, event: Event) -> bool:
         return self._offer(event, _snapshot)
@@ -250,41 +257,56 @@ class RuntimeJournal:
         return self._offer(event, lambda stored: (stored, size))
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
-        if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
-            self._dropped[REENTRANT] += 1
-            return False
-        with self._lock:
-            self._busy.active = True
-            try:
-                return self._append(event, store)
-            except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
-                self._dropped[FAILED] += 1
-                return False
-            finally:
-                self._busy.active = False
+        """Queue the event: no lock is taken or waited for, and no counter is written (only the drain writes them)."""
+        try:
+            source = event.get("source")
+            if not isinstance(source, str):
+                return self._drop(FAILED)
+            if not self._accepting or (self.sources is not None and source not in self.sources):
+                return self._drop(source)  # suspended, or a source not configured: counted, never silently lost
+            stored, size = store(event)
+            queue = self._queue
+            if size > self.max_bytes or len(queue) >= self.queue_capacity:
+                return self._drop(source)  # larger than the whole byte bound, or no room in the queue
+            queue.append((cast("dict[str, object]", stored), size, time.time_ns() // 1_000_000, source))
+            if len(queue) >= self._drain_at:
+                self._try_drain()
+            return True
+        except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
+            return self._drop(FAILED)
 
-    def _append(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
-        source = event.get("source")
-        if not isinstance(source, str):
-            self._dropped[FAILED] += 1
-            return False
-        if not self._accepting or (self.sources is not None and source not in self.sources):
-            self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
-            return False
-        stored, size = store(event)
-        if size > self.max_bytes:
-            self._dropped[source] += 1  # one event larger than the whole byte bound
-            return False
-        stamp = time.time_ns() // 1_000_000
-        while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
-            self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
-            _, removed, _ = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
-            self._bytes -= removed
-            self._evicted += 1
-        self._events.append((cast("dict[str, object]", stored), size, stamp))
-        self._bytes += size
-        self._accepted[source] += 1
-        return True
+    def _drop(self, key: str) -> bool:
+        """Count a refused offer without a lock: the key waits in a deque the next drain folds into ``dropped``."""
+        pending = self._pending_drops
+        pending.append(key)
+        if len(pending) >= self._drain_at:
+            self._try_drain()
+        return False
+
+    def _try_drain(self) -> None:
+        """Drain if nobody else is: a producer never waits for the drain lock (a reader or another producer has it)."""
+        if self._lock.acquire(blocking=False):
+            try:
+                self._drain()
+            finally:
+                self._lock.release()
+
+    def _drain(self) -> None:
+        """Move the queued events into the ring, oldest first, and fold in the refused offers; ``_lock`` is held."""
+        queue, events = self._queue, self._events
+        for _ in range(len(queue)):  # what is queued now: producers appending meanwhile wait for the next drain
+            stored, size, stamp, source = queue.popleft()
+            while events and (len(events) >= self.max_events or self._bytes + size > self.max_bytes):
+                self._binding_bound = "COUNT" if len(events) >= self.max_events else "BYTES"
+                _, removed, _ = events.popleft()  # a ring: the oldest event makes room, counted as evicted
+                self._bytes -= removed
+                self._evicted += 1
+            events.append((stored, size, stamp))
+            self._bytes += size
+            self._accepted[source] += 1
+        pending = self._pending_drops
+        for _ in range(len(pending)):
+            self._dropped[pending.popleft()] += 1
 
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
@@ -292,12 +314,12 @@ class RuntimeJournal:
 
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
-        event). Under the lock the other writers hold, which is reentrant: a producer may call it inside ``offer``."""
-        with self._lock:
-            self._dropped[key] += 1
+        event). Lock-free, like ``offer``: the next drain folds it in."""
+        self._pending_drops.append(key)
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
+            self._drain()
             events = tuple(event for event, _, _ in self._events if event.get("source") == source)
         return self._masked(source, events)
 
@@ -332,6 +354,7 @@ class RuntimeJournal:
         """``status()``, ``records(s)`` per source and the newest event's epoch ms from ONE lock acquisition."""
         held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
         with self._lock:
+            self._drain()
             status = self._status()
             newest = None
             for event, _, stamp in self._events:  # one pass, whatever the number of sources read
@@ -351,11 +374,13 @@ class RuntimeJournal:
 
     def discard(self) -> None:
         with self._lock:
+            self._queue.clear()
             self._events.clear()
             self._bytes = 0
 
     def status(self) -> dict[str, Any]:
         with self._lock:
+            self._drain()
             return self._status()
 
     def _status(self) -> dict[str, Any]:
@@ -372,7 +397,7 @@ class RuntimeJournal:
             "evictedEvents": self._evicted,
             "bindingBound": self._binding_bound,
             "oldestRetainedAt": self._events[0][2] if self._events else None,
-            "queueDepth": 0,
+            "queueDepth": len(self._queue),
             "queueCapacity": self.queue_capacity,
             "recorded": dict(self._accepted),
             "dropped": dict(self._dropped),
