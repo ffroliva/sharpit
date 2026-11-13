@@ -17,6 +17,7 @@ import sqlite3
 import time
 from collections.abc import Generator, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -633,3 +634,57 @@ def test_transaction_journal_disabled_recorder_publishes_nothing():
     with engine.begin() as conn:
         _write(conn)
     assert _records(handle) == ()
+
+
+# ported: ReadOnlyCandidateTransactionTests.mayWrite (the rule, adapted: PRAGMA is session control like SET)
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "with t as (select 1) select * from t",
+        "WITH t AS (SELECT 1) SELECT * FROM t",
+        "show server_version",
+        "/* c */ select 1",
+        "-- c\nselect 1",
+        "(select 1)",
+        "pragma foreign_keys = on",
+        "set search_path = x",
+        "values (1)",
+        "savepoint sa_1",
+        "release savepoint sa_1",
+        "rollback to savepoint sa_1",
+    ],
+)
+def test_tx_statement_a_read_or_session_control_is_not_a_write(statement: str):
+    conn = SimpleNamespace(info={})
+    transactions.tx_statement(conn, None, statement)
+    assert conn.info.get(transactions.WRITES, 0) == 0
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "insert into t values (1)",
+        "update t set a = 1",
+        "with d as (delete from t returning *) select * from d",
+        "select * from t for update",
+        "select nextval('s')",
+        "select a into x from t",
+        "call create_order()",
+        "select 1; delete from t",
+        "/* c */ update t set a = 1",
+        "create table t (a int)",
+        "select 1 -- insert",
+    ],
+)
+def test_tx_statement_a_statement_that_may_write_is_a_write(statement: str):
+    conn = SimpleNamespace(info={})
+    transactions.tx_statement(conn, None, statement)
+    assert conn.info.get(transactions.WRITES, 0) == 1
+
+
+def test_transaction_journal_read_only_with_is_not_rolled_back():
+    handle, engine = _install()
+    with engine.connect() as conn:
+        conn.execute(sa.text("WITH t AS (SELECT 1 AS a) SELECT a FROM t"))
+        conn.rollback()
+    assert [r["rolledBack"] for r in _records(handle)] == [False]
