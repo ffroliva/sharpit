@@ -108,7 +108,7 @@ def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
                 "statements": state.statements,
                 "checkoutNanos": state.obtained_ns,
             },
-            started=state.epoch_ms if state.request_id is not None or state.trace_id is not None else 0,  # its loss start
+            started=state.epoch_ms if state.request_id is not None or state.trace_id is not None else 0,
         )
     except Exception as exc:  # noqa: BLE001
         dispatch._context_failed(ctx, exc, "connection journal")
