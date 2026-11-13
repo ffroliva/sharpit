@@ -16,6 +16,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - In test fixtures, `golden._folder()` honours `fixture_version` when `ROOT` has been patched, selecting the versioned fixture folder instead of an unversioned one.
 - BootUI 2.3.0 test catalog lists test classes outside `src/test`, including abstract base classes in the `bootui-conformance` module (`AbstractMcpConformanceTest`, `AbstractBootUiApiConformanceTest`, `AbstractCliConformanceTest`, `AbstractCorrelationCoverageTest`).
 - MCP negotiates only protocol revision `2025-06-18`, while retaining BootUI's supported-version list in status. A `2026-07-28` header is now refused as BootUI refuses it (it used to be accepted).
+- Email dev trap: an `aiosmtplib` imported after `install()` (inside a handler or a background task) is now wrapped the moment it loads, so the trap holds and its mail is captured; while a dev trap is on, an `aiosmtplib` the hook cannot wrap (a loader it cannot patch, a failed wrap, a registry lock still busy after 5 s, no wrapped `connect`) is not imported: `import aiosmtplib` raises `ImportError` naming the dev trap and none of the package stays loaded, instead of sending real mail unwrapped (BootUI fails open here; with no trap on the module loads as before); a non-ASCII address no longer makes the capture fail.
 
 ### Added
 
@@ -40,7 +41,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `pytest --sharpit-sarif=PATH` (ini `sharpit_sarif`) writes the findings as SARIF 2.1.0: masked text, root-relative URIs, location-free fingerprints, baselined findings as suppressions; written by the xdist controller only.
 - REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
 - REST API rules RAPI-ERR-004, -005, -007, -008, -010 on the error contract; RAPI-ERR-011 kept as retired (BootUI 2.3.0).
-- Runtime Insights panel slot (`runtime-insights`, not yet served), the registry of BootUI's 28 insight kinds as stubs, and SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD and SHARPIT_RESOURCES_JFR_MAX_DURATION.
+- Runtime Insights panel slot (`runtime-insights`), the registry of BootUI's 28 insight kinds (each a stub until ported), and SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD and SHARPIT_RESOURCES_JFR_MAX_DURATION.
 - Runtime Insights engine: the journal projected into a snapshot, a report of per-kind checks, coverage and window over the sources a merged producer publishes (a kind reading an unproduced source is not applicable), and BootUI's per-kind default-listing outcomes. No route or tool yet.
 - Runtime Insights is served: `GET {api}/runtime-insights`, `GET {api}/runtime-insights/insights/{id}`, MCP `get_runtime_insights` and `get_runtime_insight` (CLI `insights list` and `insights show`), and the Profile resources floor (`GET`/`POST {api}/runtime-insights/resource-profile` and `/stop`): sharpit has no resource sampler, so it answers `UNAVAILABLE` and starts nothing.
 - Runtime insight `ai-usage-by-route` (model calls, agent loops, input growth, length-limited stops and tokens per route, read from `ai` events joined to http requests by request or trace id; reads `SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD`) and `work-after-response`, which stays not applicable because no `agent.executors` producer exists.
@@ -68,7 +69,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - BootUI tracker row markers on matched property and MCP/CLI parity tests.
 
 - Attempt-1 CI critical-path table measurement tool (`scripts/ci/ci_walls.py`) reproducing metrics (a) and (b), queue wait, step timings, and noise gain calculations per spec §7.1.
-- Panel GET route parity tests and classification against BootUI 2.3.0 live goldens (W3 lane C1).
 - Panel GET route parity tests and classification against BootUI 2.3.0 live goldens, excluding fixtures with empty lists from matched parity (W3 lane C1).
 - Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
 - Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
@@ -100,19 +100,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Added user documentation for pytest gate failures, exit statuses, fail-closed unknown results, report-only mode and baselines.
 - Every MCP tool and every setting is documented, and the installation page has the panel to library to extra table: the MCP page lists the 37 read tools and, separately, the 17 action tools (CLI endpoint only, never MCP); the settings page lists the 28 settings it was missing (`SHARPIT_APP_PACKAGE`, `SHARPIT_TRANSACTIONS_*`, `SHARPIT_POSTGRESQL_MAX_*`, `SHARPIT_MYSQL_MAX_*`, `SHARPIT_DATABASE_ADVISOR_MAX_*`, `SHARPIT_ARCHITECTURE_MAX_*`, `SHARPIT_SECURITY_LOGS_MAX_LOGS`, `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`) and all 31 panel ids; `tests/test_tracker_docs.py` fails when a registered tool, a setting or an extra is missing from the docs.
-
-### Fixed
-
-- Email dev trap: an `aiosmtplib` imported after `install()` (inside a handler or a background task) is now wrapped the moment it loads, so the trap holds and its mail is captured; while a dev trap is on, an `aiosmtplib` the hook cannot wrap (a loader it cannot patch, a failed wrap, a registry lock still busy after 5 s, no wrapped `connect`) is not imported: `import aiosmtplib` raises `ImportError` naming the dev trap and none of the package stays loaded, instead of sending real mail unwrapped (BootUI fails open here; with no trap on the module loads as before); a non-ASCII address no longer makes the capture fail.
-- The log handler no longer holds its own lock across the journal offer: a GC finalizer logging on a thread that held the journal lock could deadlock against another logging thread, and hang interpreter exit. The pytest plugin's exception handler no longer holds its own lock across the sink's, and the log tail buffer's `append` and `clear` and the exception-mark lock drop a finalizer's record on a thread that already holds them, never wait on it. The finalizer's record on a thread holding the journal lock is counted `reentrant`.
-- Runtime insights treat SQL capture that is switched off as a state, not a clean result (BootUI `SqlCapture.DISABLED`). SQL trace flag off, sql-trace panel on: a check that requires SQL evidence (`safe-method-dml`) is UNAVAILABLE with the capture reason, and a check that reads it optionally is evaluated and carries the caveat. sql-trace panel off, flag on or off: a check that requires SQL evidence is NOT_APPLICABLE (the disabled-panel reason wins), and an optional reader carries the caveat. Both on: unchanged. A default install with no SQLAlchemy imported or hooks suspended still evaluates SQL checks as clean; that is the follow-up task `W5c-sql-recorded-fact`.
-- Runtime journal: an offer made while the same thread holds the journal lock (a garbage-collection finalizer that logs during `records`, `view`, `status` or an append) is refused and counted `reentrant`, instead of raising "deque mutated during iteration" or running host code under the lock. The host copy of an offered event now runs before the lock is taken, and an offer made from inside that copy is refused and counted `reentrant` as before.
-- Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it; with the http-exchanges panel off, a kind that examines requests answers not applicable for its unit-of-work evidence.
-- The live BootUI capture rejects every request outside GET and the allow-listed POSTs, keys uncaptured routes individually, and confines raw output outside git work trees. Machine identity values, including short logins and home path variants, are retained by the artifact leak gate.
-
-- In test fixtures, `golden._folder()` honours `fixture_version` when `ROOT` has been patched, selecting the versioned fixture folder instead of an unversioned one.
-- BootUI 2.3.0 test catalog lists test classes outside `src/test`, including abstract base classes in the `bootui-conformance` module (`AbstractMcpConformanceTest`, `AbstractBootUiApiConformanceTest`, `AbstractCliConformanceTest`, `AbstractCorrelationCoverageTest`).
-- MCP negotiates only protocol revision `2025-06-18`, while retaining BootUI's supported-version list in status. A `2026-07-28` header is now refused as BootUI refuses it (it used to be accepted).
 
 ## [0.5.0] - 2026-11-08
 
