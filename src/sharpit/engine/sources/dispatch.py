@@ -88,6 +88,26 @@ def _targets(engine: object | None) -> list[SharpitContext]:
     return held or (contexts if len(contexts) == 1 else [])
 
 
+def _raw_sqlite_seen() -> None:
+    info = REQUEST.get()
+    for ref in _refs:
+        ctx = ref()
+        if (
+            ctx is not None
+            and ctx.settings.sql_trace_sqlite3_enabled
+            and (info is None or ctx.context_id == info.context_id)
+        ):
+            ctx.capture.raw_sqlite_seen = True
+
+
+def _records(ctx: SharpitContext) -> bool:
+    """Recording, or paused while the journal records sql (BootUI SqlTraceRecorder.java:730-731)."""
+    recorder = ctx.capture.sql_trace
+    return recorder is not None and (
+        recorder.recording or (ctx.capture.journal is not None and ctx.capture.journal.accepts("sql"))
+    )
+
+
 def _pool_targets(pool: object) -> list[SharpitContext]:
     """``_targets`` for a pool: the contexts whose engines own it. Not shared with ``_targets``: that one runs per
     statement and takes no extra call (+0.2 µs measured), so the two routes stay apart."""
@@ -119,27 +139,17 @@ def connection_targets(pool: object, source: str) -> list[SharpitContext]:
 
 
 def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
-    """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on."""
+    """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on.
+
+    Each routed context with the source on learns, once, that a database of ``source`` is in use there
+    (``sql_delivered``), before the pause and suspend filters: a paused or suspended capture still has its database."""
     if source == "sqlite3":
-        info = REQUEST.get()
-        for ref in _refs:
-            ctx = ref()
-            if (
-                ctx is not None
-                and ctx.settings.sql_trace_sqlite3_enabled
-                and (info is None or ctx.context_id == info.context_id)
-            ):
-                ctx.capture.raw_sqlite_seen = True
-    targets = [
-        c
-        for c in _targets(engine)
-        if c.capture.sql_trace is not None
-        # a paused panel still feeds the journal when it records sql (BootUI SqlTraceRecorder.java:730-731)
-        and (c.capture.sql_trace.recording or (c.capture.journal is not None and c.capture.journal.accepts("sql")))
-        and (source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled)
-        and source not in c.capture.suspended_sources
-    ]
-    return targets
+        _raw_sqlite_seen()
+    routed = [c for c in _targets(engine) if source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled]
+    for c in routed:
+        if source not in c.capture.sql_delivered:
+            c.capture.sql_delivered.add(source)
+    return [c for c in routed if _records(c) and source not in c.capture.suspended_sources]
 
 
 _SQL_KEYS = (

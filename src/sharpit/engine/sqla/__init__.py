@@ -51,6 +51,51 @@ def sqlite3_traced(ctx: SharpitContext) -> bool:
     return ctx.settings.sql_trace_sqlite3_enabled and sqlite.is_attached()
 
 
+SQLALCHEMY, SQLITE3 = "sqlalchemy", "sqlite3"  # the two SQL sources, as ``dispatch`` names them
+# SqlCapture.NOT_RECORDED with sharpit's recorders
+NOT_RECORDED = (
+    "This application's database access is not recorded: sharpit records statements through SQLAlchemy (2.0+) and"
+    " the sqlite3 module, and no SQLAlchemy engine is attached to it and no sqlite3 statement has reached it."
+)
+SUSPENDED_ALL = (
+    "SQL capture is suspended (the SQL hook of every database in use here is detached), so no statement is recorded."
+)
+_SUSPENDED = {
+    SQLALCHEMY: "SQL capture is suspended for SQLAlchemy (its hook is detached), so its statements are not counted.",
+    SQLITE3: "SQL capture is suspended for sqlite3 (its hook is detached), so its statements are not counted.",
+}
+
+
+def _in_use(ctx: SharpitContext) -> dict[str, bool]:
+    """Which SQL sources have a database in use here: a statement routed here, or (SQLAlchemy) an engine registered."""
+    capture = ctx.capture
+    registry = capture.engine_registry
+    return {
+        # seen_any is write-once: the registry holds engines weakly, so a collected engine stays a database used here
+        SQLALCHEMY: SQLALCHEMY in capture.sql_delivered or (registry is not None and registry.seen_any),
+        SQLITE3: SQLITE3 in capture.sql_delivered,
+    }
+
+
+def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
+    """``SqlCapture.of``'s second branch for ``ctx``: is a database in use here, and is its hook attached.
+
+    BootUI's fact is known at wrap time (``SqlTraceRecorder.hasWrappedDataSource``): a SQLAlchemy engine registered
+    with this context is the analogue, and any source counts once one of its statements was routed here
+    (``dispatch.recording``, write-once, so a paused or suspended capture keeps its database). A hook detached from a
+    source in use is named (``recordedExcept``); every one detached: not recorded.
+    """
+    used = _in_use(ctx)
+    suspended = ctx.capture.suspended_sources
+    live = [s for s, in_use in used.items() if in_use and s not in suspended]
+    missed = [s for s, in_use in used.items() if in_use and s in suspended]
+    unsupported = unavailable_reason()
+    extra = [] if unsupported in {None, UNAVAILABLE} else [f"{unsupported}, so its statements are not counted."]
+    if live:
+        return True, " ".join([*(_SUSPENDED[s] for s in missed), *extra]) or None
+    return False, " ".join([SUSPENDED_ALL if missed else NOT_RECORDED, *extra])
+
+
 def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
     """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
     if not ctx.settings.sql_trace_enabled:
@@ -150,6 +195,11 @@ __all__ = [
     "run_db_read",
     "set_identity_key",
     "set_unbounded_read_factor",
+    "SQLALCHEMY",
+    "SQLITE3",
+    "NOT_RECORDED",
+    "SUSPENDED_ALL",
+    "sources_recorded",
     "sql_trace_unavailable_reason",
     "sqlalchemy_module",
     "sqlite3_traced",

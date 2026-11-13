@@ -78,6 +78,8 @@ class CaptureState:
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
     raw_sqlite_seen: bool = False
+    # write-once, per SQL source: a statement from it was routed to this context (a database in use here)
+    sql_delivered: set[str] = field(default_factory=set[str])
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
     hooks: HookRegistry = field(default_factory=HookRegistry)

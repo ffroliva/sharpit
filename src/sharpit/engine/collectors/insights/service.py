@@ -349,14 +349,15 @@ class InsightsService:
         if not capture.recorded and reads_sql:
             return _check(observation, "UNAVAILABLE", 0, 0, capture.reason), []
         partial, unseen = _partial(observation, snapshot), _unseen(observation, snapshot)
-        if caveat := _sql_capture_caveat(observation, snapshot, capture):
+        caveat = _sql_capture_caveat(observation, snapshot, capture)
+        if caveat:
             unseen.append(caveat)
         try:
             evaluation: Evaluation = evaluate(snapshot)
         except Exception:  # noqa: BLE001 - a kind never crashes the host or the other kinds
             logger.debug("insights kind %s could not be evaluated", observation.kind)  # the id only, never the error
             return _check(observation, "UNAVAILABLE", 0, 0, NOT_EVALUATED), []
-        reasons = [partial] if partial else list(unseen)
+        reasons = _lead_reasons(partial, unseen, caveat)
         if evaluation.uncounted:
             reasons.append(
                 self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
@@ -370,6 +371,13 @@ class InsightsService:
         return check, [_row(observation, f, partial, unseen, self._mask) for f in evaluation.findings]
 
 
+def _lead_reasons(partial: str | None, unseen: list[str], caveat: str | None) -> list[str]:
+    """BootUI drops the unseen caveats on a PARTIAL check; the SQL-capture caveat stays (a deviation row)."""
+    if not partial:
+        return list(unseen)
+    return [partial, caveat] if caveat else [partial]
+
+
 def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: SqlCapture) -> str | None:
     """The SQL-capture caveat for a read of SQL (required or optional) while a SQL source is enabled and producing for
     the journal (BootUI ``snapshot.records``: the source is on, not that statements exist), else None."""
@@ -377,7 +385,7 @@ def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: S
         return None
     if not (observation.reads | observation.optional_reads) & SQL_SOURCES:
         return None
-    return capture.reason + NOT_RECORDED_SUFFIX
+    return capture.reason if capture.recorded else capture.reason + NOT_RECORDED_SUFFIX
 
 
 def _detail(
