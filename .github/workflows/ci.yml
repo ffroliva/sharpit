@@ -595,7 +595,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/4, 2/4, 3/4, 4/4]
+        shard: [1/3, 2/3, 3/3]
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -646,7 +646,7 @@ jobs:
           retention-days: 7
       # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
       # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
-      - if: ${{ !cancelled() && (matrix.shard == '4/4') }}
+      - if: ${{ !cancelled() && (matrix.shard == '3/3') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
         run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
@@ -695,14 +695,16 @@ jobs:
           test "${{ needs.lowest-shard.result }}" = success
 
   no-sqlalchemy-shard:
-    # SQLAlchemy is optional: sharpit must install, import and serve every panel without it
+    # SQLAlchemy is optional: sharpit must install, import and serve every panel without it. Push and dispatch only
+    # (owner's wall-clock rule, 2026-11-13): every one of its tests also runs on a PR's Windows and coverage legs, and the
+    # import-boundary AST test (tests/engine/test_import_boundary.py) fails a PR that imports sqlalchemy outside engine/sqla.
     name: no-sqlalchemy shard (${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/3, 2/3, 3/3]
+        shard: [1/2, 2/2]
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -752,7 +754,7 @@ jobs:
           retention-days: 7
       # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
       # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
-      - if: ${{ !cancelled() && (matrix.shard == '3/3') }}
+      - if: ${{ !cancelled() && (matrix.shard == '2/2') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
         run: uv run --no-sync python -m pytest -q -n 0 -m "not needs_sqlalchemy" "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
@@ -798,6 +800,10 @@ jobs:
         run: |
           test "${{ needs.changes.result }}" = success
           if [ "$CODE_CHANGED" = false ]; then exit 0; fi
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "Pull request: the no-SQLAlchemy shards run on push to main, mvp and release/**, not here."
+            exit 0
+          fi
           test "${{ needs.no-sqlalchemy-shard.result }}" = success
 
   masking-gates:

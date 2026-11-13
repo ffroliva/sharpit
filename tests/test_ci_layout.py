@@ -621,10 +621,16 @@ def _matrix_jobs(body: str) -> int:
     return product + sum(1 for line in block if line.startswith("          - "))
 
 
+def test_no_sqlalchemy_shards_run_on_push_only_and_a_pull_request_passes_the_check_with_a_note() -> None:
+    assert "github.event_name != 'pull_request'" in JOBS["no-sqlalchemy-shard"]
+    assert 'GITHUB_EVENT_NAME" = pull_request' in JOBS["no-sqlalchemy"]
+    assert (Path(__file__).parent / "engine" / "test_import_boundary.py").is_file()
+
+
 def test_the_job_count_never_rises() -> None:
     """Every job pays setup and a slot in a 20-runner pool: lower these pins when a job goes, never raise them."""
     assert len(JOBS) == 19
-    assert sum(_matrix_jobs(body) for body in JOBS.values()) == 52
+    assert sum(_matrix_jobs(body) for body in JOBS.values()) == 50
 
 
 def test_the_required_critical_path_is_listed_before_live() -> None:
