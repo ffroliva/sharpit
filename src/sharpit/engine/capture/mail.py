@@ -284,8 +284,8 @@ class MailRecorder:
     # --- arming -------------------------------------------------------------------------------------------------------
 
     def arm(self) -> bool:
-        """Wrap what can be wrapped now and watch for a later ``aiosmtplib``; ``True`` once ``smtplib`` and ``aiosmtplib``
-        are both wrapped (``False`` without ``aiosmtplib``: the attacher is retried and torn down at uninstall)."""
+        """Wrap what can be wrapped now and watch for a later ``aiosmtplib``; ``True`` once ``smtplib`` and
+        ``aiosmtplib`` are both wrapped (``False`` without it: retried by the attacher, torn down at uninstall)."""
         # _refs is swapped whole under the lock and read lock-free by the wrappers
         global _refs  # noqa: PLW0603
         with _LOCK:
