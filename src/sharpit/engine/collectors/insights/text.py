@@ -19,6 +19,20 @@ def counted(count: int, noun: str, plural: str | None = None) -> str:
     return f"{count} {noun if count == 1 else plural or noun + 's'}"
 
 
+def simple_name(name: object) -> str:
+    """``InsightText.simpleName``: the part after the last dot, ``?`` for none."""
+    return name.rsplit(".", 1)[-1] if isinstance(name, str) and name.strip() else "?"
+
+
+MAX_QUOTED = 80  # InsightText.MAX_QUOTED_SQL: the longest text quoted in a sentence
+
+
+def quoted(text: str | None) -> str:
+    """``InsightText.quoted``: whitespace flattened, cut to 80 characters with an ellipsis."""
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= MAX_QUOTED else flat[: MAX_QUOTED - 1] + "…"
+
+
 # repeated-selects' default floor (RepeatedSelects.java:44-61); the kind's lane shares these literals, not a copy
 MIN_REQUESTS, HIGH_REPEAT_KEEP = 3, 10
 UNDER_DEFAULT_FLOOR = (

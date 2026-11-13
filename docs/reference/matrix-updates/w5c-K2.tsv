@@ -1,3 +1,1 @@
 kind:errors-behind-2xx	partial	Implemented over transaction, exception, log and rest-client events joined to 2xx http requests by request id (ErrorsBehind2xx.java:63-424); those four sources have no producer, so it answers not applicable today; no recovered group, task failures or downstream path; fault-tolerance not listed as an optional read (BootUI lists it; sharpit does not evaluate recovery)
-kind:exception-hotspots	partial	Registered, not applicable: the exception source has no producer (ExceptionHotspots.java:83-100); evaluation not ported
-kind:framework-warnings-by-route	partial	Registered, not applicable: the log source has no producer (FrameworkWarningsByRoute.java:67-84); evaluation not ported

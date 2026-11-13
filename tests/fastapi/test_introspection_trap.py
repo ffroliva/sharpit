@@ -29,6 +29,7 @@ from sharpit.engine import sqla
 from sharpit.engine.sources import sqlite
 from sharpit.engine.tools import TOOLS
 from sharpit.fastapi.introspector import FastApiIntrospector
+from sharpit.settings import SharpitSettings
 
 LOCAL = ("127.0.0.1", 50000)
 TOUCHED: list[str] = []
@@ -113,7 +114,18 @@ CLI_TOOLS = sorted({"rest_api_scan"} | set(_lane_surfaces("CLI_TOOLS")))
 def test_trap_route_untouched_by_every_introspecting_surface():
     TOUCHED.clear()
     app = _trap_app()
-    install(app, enabled="ON", show_banner=False, config_scan=False, mcp_enabled="ON", cli_enabled=True)
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        mcp_enabled="ON",
+        cli_enabled=True,
+        # a stream ends after this (the 3 s default made eight streams 24 s); it must outlive the agent-sessions
+        # debounce, or that stream's loop body never runs in the sweep
+        stream_max_seconds=max(SharpitSettings.copilot_stream_debounce, SharpitSettings.claude_code_stream_debounce)
+        + 0.25,
+    )
     TOUCHED.clear()  # install() itself is not a read surface
     with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
         for path in GET_PATHS:

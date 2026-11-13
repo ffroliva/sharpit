@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import prometheus_client  # noqa: F401  the metrics goldens assume the observed registry is loaded (isolated run)
 import pytest
 from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
