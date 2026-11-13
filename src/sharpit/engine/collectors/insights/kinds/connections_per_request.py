@@ -10,6 +10,8 @@ Deviations (proposed, by field):
   and says so: "nothing found" over connections it could not place is never a clean result.
 - ``not_applicable``: http records exist but none names a request id (the exposure withheld them), so no connection can
   be placed in a request.
+- ``shared pool``: SQLAlchemy's ``StaticPool`` and ``SingletonThreadPool`` (in-memory sqlite) hand one connection to
+  every checkout, so a nested checkout is one event and cannot overlap anything; the check says so in its reason.
 - the pool size is a queue pool's size plus its overflow (``DataSourcePoolSizes`` reads Hikari's maximum); another pool
   or an unbounded overflow has none, and the estimate then uses P.
 """
@@ -138,10 +140,28 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
         route_findings, skipped = _route_findings(snapshot, route, requests)
         findings += route_findings
         unplaced += skipped
-    uncounted = None
-    if unplaced:
-        uncounted = (
-            f"{counted(unplaced, 'connection')} had no data source name or checkout time, so "
-            f"{'it is' if unplaced == 1 else 'they are'} not counted as held together."
-        )
-    return Evaluation(len(snapshot.requests), findings, uncounted)
+    notes = [*_unplaced_note(unplaced), *_shared_pool_notes(snapshot)]
+    return Evaluation(len(snapshot.requests), findings, " ".join(notes) or None)
+
+
+def _unplaced_note(unplaced: int) -> list[str]:
+    if not unplaced:
+        return []
+    return [
+        f"{counted(unplaced, 'connection')} had no data source name or checkout time, so "
+        f"{'it is' if unplaced == 1 else 'they are'} not counted as held together."
+    ]
+
+
+def _shared_pool_notes(snapshot: Snapshot) -> list[str]:
+    """A pool that hands one connection to every checkout journals a nested checkout as one event, so nothing it
+    holds can be told apart as held together: say so rather than read it as "none held together"."""
+    names = dict.fromkeys(
+        name for event in snapshot.records.get("connection", ()) if isinstance(name := event.get("dataSource"), str)
+    )
+    return [
+        f"The pool of `{name}` ({pool}) hands one connection to every checkout, so a connection held inside another "
+        "is journaled once and cannot be counted as held together."
+        for name in names
+        if (pool := snapshot.shared_pool(name))
+    ]

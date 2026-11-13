@@ -318,7 +318,8 @@ def following_connections(ctx: SharpitContext) -> bool:
     """Whether the pool listener runs for ``ctx``: the ``connection`` journal event can be produced.
     shortcut: a connection detached with ``Connection.detach()`` never fires ``checkin``, so it offers no event."""
     with _lock:
-        return ctx.context_id in _statement_contexts and all(attached()[name] for name in POOL_EVENTS)
+        armed = attached()
+        return ctx.context_id in _statement_contexts and all(armed[name] for name in POOL_EVENTS)
 
 
 def note_request_captured() -> None:

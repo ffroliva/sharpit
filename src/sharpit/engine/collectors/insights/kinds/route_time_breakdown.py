@@ -111,6 +111,16 @@ def _ai(snapshot: Snapshot, warm: list[Breakdown]) -> list[str]:
     ]
 
 
+def _pool_wait(snapshot: Snapshot) -> list[str]:
+    """The ``connection`` source is recorded but its ``waitNanos`` is always 0: a pool wait is not a phase."""
+    if not snapshot.available("connection"):
+        return []
+    return [
+        "A wait for a pooled connection is not measured (SQLAlchemy reports none), so it stays in the span it "
+        "happened in."
+    ]
+
+
 def _limitations(snapshot: Snapshot, cold_known: bool, unplaced: int, warm: list[Breakdown]) -> list[str]:
     return [
         *_evicted(snapshot, cold_known),
@@ -118,6 +128,7 @@ def _limitations(snapshot: Snapshot, cold_known: bool, unplaced: int, warm: list
         "sharpit marks no handler or response phase, so filters, handler, and response write are one unattributed "
         "span around the recorded SQL statements.",
         *_ai(snapshot, warm),
+        *_pool_wait(snapshot),
     ]
 
 

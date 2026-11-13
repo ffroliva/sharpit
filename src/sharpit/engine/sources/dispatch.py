@@ -7,7 +7,7 @@ import threading
 import time
 import weakref
 from collections.abc import Callable, Sized
-from typing import TYPE_CHECKING, NamedTuple, Protocol
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
@@ -75,18 +75,27 @@ def _context_failed(ctx: SharpitContext, exc: BaseException, hook: str = "sql st
         routing_failed(exc)
 
 
-def _route(holds: Callable[[EngineRegistry], bool]) -> list[SharpitContext]:
-    """In a request: its own context only. Outside: the contexts whose engines satisfy ``holds``, else the only one."""
+def _route(holds: Callable[[EngineRegistry, Any], bool], subject: Any) -> list[SharpitContext]:
+    """In a request: its own context only. Outside: the contexts whose engines ``holds`` the subject (an engine or a
+    pool), else the only one. A module-level ``holds``, so the per-statement path builds no closure."""
     contexts = [c for r in _refs if (c := r()) is not None]
     info = REQUEST.get()
     if info is not None:
         return [c for c in contexts if c.context_id == info.context_id]
-    held = [c for c in contexts if c.capture.engine_registry is not None and holds(c.capture.engine_registry)]
+    held = [c for c in contexts if c.capture.engine_registry is not None and holds(c.capture.engine_registry, subject)]
     return held or (contexts if len(contexts) == 1 else [])
 
 
+def _holds_engine(registry: EngineRegistry, engine: object | None) -> bool:
+    return engine is not None and registry.holds(engine)
+
+
+def _holds_pool(registry: EngineRegistry, pool: object) -> bool:
+    return registry.name_of_pool(pool) is not None
+
+
 def _targets(engine: object | None) -> list[SharpitContext]:
-    return _route(lambda registry: engine is not None and registry.holds(engine))
+    return _route(_holds_engine, engine)
 
 
 def connection_targets(pool: object, source: str) -> list[SharpitContext]:
@@ -96,7 +105,7 @@ def connection_targets(pool: object, source: str) -> list[SharpitContext]:
     ``checkoutConnection``: logical connections only feed the journal)."""
     return [
         c
-        for c in _route(lambda registry: registry.name_of_pool(pool) is not None)
+        for c in _route(_holds_pool, pool)
         if c.capture.sql_trace is not None
         and c.capture.journal is not None
         and c.capture.journal.accepts(source)

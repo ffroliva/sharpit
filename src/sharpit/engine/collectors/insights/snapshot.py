@@ -41,6 +41,7 @@ SOURCE_PANELS: Mapping[str, tuple[str, ...]] = {
 }  # fmt: skip
 PanelEnabled = Callable[[str], bool]
 PoolSizes = Callable[[str], int | None]  # a data source's maximum pool size by the name its connections carry
+SharedPools = Callable[[str], str | None]  # the pool class of a data source whose checkouts share one connection
 Producing = Callable[[str], bool]  # whether this install's producer of a source can run now (its listener is armed)
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
@@ -56,6 +57,7 @@ class Snapshot:
         default_factory=dict[str, tuple[str, ...]]
     )  # source -> its off panels
     pool_sizes: PoolSizes | None = None  # ``InsightsSnapshot.poolSizes``
+    shared_pools: SharedPools | None = None  # sharpit only: pools whose checkouts are one connection
     # enabled sources whose producer is not armed here: not recorded, though no setting says so
     unarmed: frozenset[str] = frozenset()
 
@@ -88,6 +90,15 @@ class Snapshot:
             return None
         return size if size is not None and size > 0 else None
 
+    def shared_pool(self, data_source: str) -> str | None:
+        """The pool class of ``data_source`` when every checkout of it is one connection, else ``None``."""
+        if self.shared_pools is None:
+            return None
+        try:
+            return self.shared_pools(data_source)
+        except Exception:  # noqa: BLE001 - as ``pool_size``: unknown is not shared
+            return None
+
     def dropped(self, source: str) -> int:
         return int(self.status["dropped"].get(source, 0))
 
@@ -106,6 +117,7 @@ def project(
     panel_enabled: PanelEnabled | None = None,
     producing: Producing | None = None,
     pool_sizes: PoolSizes | None = None,
+    shared_pools: SharedPools | None = None,
 ) -> Snapshot:
     """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear.
     ``panel_enabled`` None: every panel is enabled. ``producing`` None: every produced source's producer can run."""
@@ -115,5 +127,12 @@ def project(
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
     status, records, newest = journal.view([s for s in produced if s not in hidden])
     return Snapshot(
-        status, records, newest, ai_token_threshold, hidden, pool_sizes, frozenset(enabled_produced) - set(produced)
+        status,
+        records,
+        newest,
+        ai_token_threshold,
+        hidden,
+        pool_sizes,
+        shared_pools,
+        frozenset(enabled_produced) - set(produced),
     )

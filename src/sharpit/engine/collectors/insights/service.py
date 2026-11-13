@@ -19,6 +19,7 @@ from sharpit.engine.collectors.insights.snapshot import (
     PanelEnabled,
     PoolSizes,
     Producing,
+    SharedPools,
     Snapshot,
     project,
 )
@@ -241,8 +242,10 @@ class InsightsService:
         sql_capture: Callable[[], SqlCapture] | None = None,
         producing: Producing | None = None,
         pool_sizes: PoolSizes | None = None,
+        shared_pools: SharedPools | None = None,
     ) -> None:
         self.journal = journal
+        self.shared_pools = shared_pools  # None: no pool is known to share its connection
         self.pool_sizes = pool_sizes  # None: no pool size is known (``RuntimeInsightsService.setPoolSizes``)
         self.producing = producing  # None: every produced source's producer can run
         self.sql_capture = sql_capture or SqlCapture.capturing  # RuntimeInsightsService.sqlCapture, default capturing
@@ -274,7 +277,14 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled, self.producing, self.pool_sizes)
+        snapshot = project(
+            self.journal,
+            self.ai_token_threshold,
+            self.panel_enabled,
+            self.producing,
+            self.pool_sizes,
+            self.shared_pools,
+        )
         capture = self._capture()
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
@@ -376,9 +386,20 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         registry = ctx.capture.engine_registry
         return None if registry is None else registry.pool_size_of(name)
 
+    def shared_pool(name: str) -> str | None:
+        registry = ctx.capture.engine_registry
+        return None if registry is None else registry.shared_pool_of(name)
+
     return ctx.lazy(
         "runtime-insights",
         lambda: InsightsService(
-            ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx), producing, pool_size
+            ctx.capture.journal,
+            None,
+            threshold,
+            panel_enabled,
+            lambda: sql_capture_for(ctx),
+            producing,
+            pool_size,
+            shared_pool,
         ),
     )

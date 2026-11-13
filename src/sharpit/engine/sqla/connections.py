@@ -11,6 +11,9 @@ current at checkout, on whichever thread releases it, as BootUI's ``ConnectionCh
 shortcut: the state sits in one slot of the pool record's ``info``. A pool that hands one record to several concurrent
 checkouts (StaticPool, SingletonThreadPool: sqlite in memory) therefore journals one event for the overlapping
 checkouts, the last one's; upgrade to a state keyed per fairy if such a pool needs one event per checkout.
+shortcut: a connection detached from the pool (``Connection.detach()``) never fires ``checkin``, so it offers no
+event; a state left by a listener gap is popped only at the next checkout made while the listener is on. Upgrade if a
+re-armed listener (``suspend_hook`` then resume) must not misattribute a release.
 """
 
 # pyright: reportPrivateUsage=false
