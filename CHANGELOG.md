@@ -89,6 +89,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The log handler no longer holds its own lock across the journal offer: a GC finalizer logging on a thread that held the journal lock could deadlock against another logging thread, and hang interpreter exit.
 - Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it; with the http-exchanges panel off, a kind that examines requests answers not applicable for its unit-of-work evidence.
 - The live BootUI capture rejects every request outside GET and the allow-listed POSTs, keys uncaptured routes individually, and confines raw output outside git work trees. Machine identity values, including short logins and home path variants, are retained by the artifact leak gate.
 

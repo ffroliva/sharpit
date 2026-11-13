@@ -182,6 +182,22 @@ class SharpitLogHandler(logging.Handler):
         self._failed = False
         self.template_cache = lru_cache(maxsize=TEMPLATE_CACHE)(self._cached_template)
 
+    # No handler lock (as ``logging.NullHandler``): ``Handler.handle`` would hold it across ``emit``, which waits on the
+    # journal lock, while a thread holding the journal lock logs from a GC finalizer and waits on this one. ``emit``
+    # keeps its state in thread-locals and the buffer and journal lock themselves. ``acquire``/``release`` (used by
+    # ``logging.shutdown``) are no-ops without a lock; ``handle`` is overridden because 3.13+ does ``with self.lock``.
+    def createLock(self) -> None:
+        self.lock = None
+
+    def _at_fork_reinit(self) -> None:
+        pass
+
+    def handle(self, record: logging.LogRecord) -> bool:
+        result = self.filter(record)
+        if result:
+            self.emit(result if isinstance(result, logging.LogRecord) else record)
+        return bool(result)
+
     def handleError(self, record: logging.LogRecord) -> None:
         """A bad record never prints a traceback from sharpit."""
 
