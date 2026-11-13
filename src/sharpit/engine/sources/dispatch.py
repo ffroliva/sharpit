@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 import time
 import weakref
@@ -12,7 +11,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
-from sharpit.engine.capture.journal import RecordFields, value_bytes
+from sharpit.engine.capture.journal import SCALAR_BYTES, RecordFields, value_bytes
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.context import application_family
 from sharpit.engine.sqla.dialect_source import event_dialect
@@ -117,11 +116,13 @@ _SQL_FIELDS = RecordFields(
     "sql", "sql", "traceId", "requestId", "thread", "durationNanos", "startedAt", "dataSource", "failed", "phase",
     "completedNanos", "codePathStamp", "provenance", "batchSize", "callSite",
 )  # fmt: skip
-# what the journal charges of a record before its variable texts: the layout's key bytes and a record whose variable
-# fields are empty ("" costs nothing) or zero, with the constants in place (``source``, ``phase`` and ``dataSource``
-# None, ``codePathStamp`` 0, ``provenance``)
+# what the journal charges of a record before its variable texts, derived from the layout: its key bytes, the value of
+# each field that never varies, and ``SCALAR_BYTES`` for each number or flag; the texts are charged per statement
+_SQL_CONSTANTS = {"source": "sql", "dataSource": None, "phase": None, "codePathStamp": 0, "provenance": "EXECUTION"}
+_SQL_TEXTS = ("sql", "traceId", "requestId", "thread", "callSite")  # a text, or None: ``value_bytes`` per statement
 _SQL_CONSTANT_BYTES = _SQL_FIELDS.key_bytes + sum(
-    map(value_bytes, ("sql", "", "", "", "", 0, 0, None, False, None, 0, 0, "EXECUTION", 0, ""))
+    value_bytes(_SQL_CONSTANTS[key]) if key in _SQL_CONSTANTS else 0 if key in _SQL_TEXTS else SCALAR_BYTES
+    for key in _SQL_FIELDS.keys
 )
 
 
@@ -208,9 +209,7 @@ def _trace_text(
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
     info = REQUEST.get()
     site = (
-        call_site(sys._getframe(1))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]  # start above _record
-        if any(c.capture.sql_trace and c.capture.sql_trace.capture_call_site for c in targets)
-        else None
+        call_site(None) if any(c.capture.sql_trace and c.capture.sql_trace.capture_call_site for c in targets) else None
     )
     thread = threading.current_thread().name
     for ctx in targets:

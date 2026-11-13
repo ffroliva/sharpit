@@ -9,15 +9,16 @@ Deviations from BootUI, for the owner's list:
 - The synchronous path is kept cheap instead (owner, 2026-11-12): an event is stored as a compact record (its keys, one
   tuple the journal shares among the records of a layout, and a tuple of its values), sized and copied before the lock,
   which is held for the append only. The dict a reader sees is built when it reads. ``offer_record`` is the offer
-  without a dict. An offer made by this thread while it holds the lock (a finalizer that logs in the middle of an
-  append or a read) is refused at entry and counted ``reentrant``, before it copies anything.
+  without a dict. An offer made by this thread while it holds the journal's own lock (a finalizer that logs in the
+  middle of an append or a read) is refused at entry and counted ``reentrant``, before it copies anything. A lock held
+  by something else (a logging handler's, say) is not the journal's to see: that case is the producer's to handle.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
   suspended, from a source not configured, and one event larger than the whole byte bound. An offer whose source
   cannot be read is counted under a key no source has: ``reentrant`` (made by the event's own code while ``offer``
-  copies it, or by a finalizer during an append) or ``failed`` (a non-string source, an event that raised or nested
-  too deep while it was copied, or a record that is not its layout's).
+  copies it, or by this thread while it holds the lock for an append or a read) or ``failed`` (a non-string source, an
+  event that raised or nested too deep while it was copied, or a record that is not its layout's).
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
 source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-paths``), is added to
@@ -127,8 +128,9 @@ def _copied(event: Event) -> Record:
 
 
 def value_bytes(value: object) -> int:
-    """What a value is charged: the length of a text (exactly ``str``: no host ``__len__`` runs), else a scalar's."""
-    return len(value) if type(value) is str else SCALAR_BYTES
+    """What a value is charged: the length of a text (any ``str``, read as text: no host ``__len__`` runs), else a
+    scalar's."""
+    return str.__len__(value) if isinstance(value, str) else SCALAR_BYTES
 
 
 def _flat(event: Event) -> Record:
@@ -291,7 +293,6 @@ class RuntimeJournal:
         self._accepting = True
         self._lock = threading.RLock()
         self._busy = _Busy()
-        self._nested = 0  # offers refused while this thread held the lock: an int, as a counter may be mid-copy
         self._owned = cast("Any", self._lock)._is_owned  # noqa: SLF001  # whether THIS thread holds the lock
 
     def offer(self, event: Event) -> bool:
@@ -310,18 +311,18 @@ class RuntimeJournal:
         ``offer_flat``.
         """
         if self._busy.active or self._owned():  # offered by an event's own code, or under this thread's lock
-            self._refuse_nested()
+            self.count_dropped(REENTRANT)
             return False
         try:  # nothing in here runs host code, so it never marks the thread busy
             source = fields.source
             if self.sources is not None and source not in self.sources:
                 self.count_dropped(source)
                 return False
-            if (
+            if (  # the exact-type check before any comparison: no host ``__eq__`` or ``__ne__`` runs
                 type(values) is not tuple
                 or len(values) != len(fields.keys)
-                or values[0] != source
                 or not _PLAIN.issuperset(map(type, values))
+                or values[0] != source
             ):
                 raise ValueError("not the layout's record")  # noqa: TRY301 - counted failed below, as any bad offer
             if size is None or size < 1:
@@ -335,17 +336,10 @@ class RuntimeJournal:
         """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy."""
         return self._offer(event, _flat)
 
-    def _refuse_nested(self) -> None:
-        """Count an offer that came from inside this thread's own copy or lock, and drop it."""
-        if self._owned():  # the lock is ours, so nobody else writes ``_nested``; a counter may be mid-copy
-            self._nested += 1
-        else:
-            self.count_dropped(REENTRANT)
-
     def _offer(self, event: Event, record: Callable[[Event], Record]) -> bool:
         busy = self._busy
         if busy.active or self._owned():  # made while this thread copies another's event or holds the lock
-            self._refuse_nested()
+            self.count_dropped(REENTRANT)
             return False
         busy.active = True  # the copy runs the event's own code (``items``, ``str``): what it offers is dropped
         try:
@@ -474,8 +468,6 @@ class RuntimeJournal:
     def _status(self) -> dict[str, Any]:
         """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
         dropped = dict(self._dropped)
-        if self._nested:
-            dropped[REENTRANT] = dropped.get(REENTRANT, 0) + self._nested
         return {
             "enabled": True,
             "runId": self.run_id,
