@@ -66,17 +66,19 @@ def test_journal_bounds_and_counts_drops() -> None:
     assert sum(status["dropped"].values()) == status["droppedEvents"]
 
 
-def test_reentrant_append_is_dropped_and_counted() -> None:
+def test_an_offer_made_while_the_host_copy_runs_is_accepted_not_reentrant() -> None:
+    """The copy runs before the lock is taken, so an offer from inside it cannot recurse into the append."""
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)
     event = {"source": "test", "message": "outer"}
 
-    class Reentrant(dict):
+    class Nested(dict):
         def items(self):
             journal.offer(event)
             return super().items()
 
-    assert journal.offer(Reentrant(source="test", message="outer")) is True
-    assert journal.status()["dropped"].get("reentrant", 0) == 1
+    assert journal.offer(Nested(source="test", message="outer")) is True
+    assert journal.status()["dropped"].get("reentrant", 0) == 0
+    assert journal.status()["retainedEvents"] == 2
 
 
 @pytest.mark.parametrize(
