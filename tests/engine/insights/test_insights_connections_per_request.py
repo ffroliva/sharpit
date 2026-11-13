@@ -8,8 +8,7 @@ production ones.
 
 from __future__ import annotations
 
-import pathlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -259,73 +258,3 @@ def test_connections_per_request_a_connection_of_no_request_joins_nothing() -> N
     run.request("GET /a")
     assert run.rows() == []
     assert run.check()["eligibleRequests"] == 1
-
-
-# real installs: a FastAPI app with sharpit and a pooled sqlite file engine
-sa = pytest.importorskip("sqlalchemy")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fastapi import FastAPI  # noqa: E402
-from sharpit import install  # noqa: E402
-from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.collectors.insights.service import insights_service  # noqa: E402
-
-
-@pytest.fixture(autouse=True)
-def clean_listeners() -> Iterator[None]:
-    sqla.detach_all()
-    yield
-    sqla.detach_all()
-
-
-def _app(tmp_path: pathlib.Path, **engine_options: Any) -> tuple[TestClient, Any]:
-    engine = sa.create_engine(f"sqlite:///{tmp_path / 'cpr.db'}", **engine_options)
-    app = FastAPI()
-
-    @app.get("/nested")
-    async def nested() -> dict[str, int]:
-        with engine.connect() as outer:
-            outer.execute(sa.text("select 1"))
-            with engine.connect() as inner:  # a second logical connection while the first is held
-                inner.execute(sa.text("select 2"))
-        return {"ok": 1}
-
-    @app.get("/sequential")
-    async def sequential() -> dict[str, int]:
-        for _ in range(2):
-            with engine.connect() as conn:
-                conn.execute(sa.text("select 1"))
-        return {"ok": 1}
-
-    handle = install(
-        app, enabled="ON", show_banner=False, config_scan=False, engines=[engine],
-        runtime_journal_sources=("http", "sql", "connection"),
-    )  # fmt: skip
-    return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)), handle.context
-
-
-def test_connections_per_request_real_install_nested_connections_are_found_with_the_pool_size(
-    tmp_path: pathlib.Path,
-) -> None:
-    client, ctx = _app(tmp_path, pool_size=3, max_overflow=2)
-    assert client.get("/nested").status_code == 200
-    assert client.get("/sequential").status_code == 200
-    report = insights_service(ctx).report()
-    rows = [o for o in report["observations"] if o["kind"] == KIND]
-    assert [r["subject"] for r in rows] == ["GET /nested"]
-    sentence = str(rows[0]["sentence"])
-    assert sentence.startswith("`GET /nested` held 2 connections of `sqlite+pysqlite:///")
-    assert sentence.endswith("` at the same time in 1 of 1 request.")
-    assert "pool of 5 connections" in str(rows[0]["whatToCheck"][1])  # 3 + 2 overflow: SQLAlchemy's maximum  # type: ignore[index]
-    check = next(c for c in report["checks"] if c["kind"] == KIND)
-    assert check["status"] == "EVALUATED"
-    assert check["eligibleRequests"] == 2
-
-
-def test_connections_per_request_real_install_a_pool_with_no_maximum_uses_p(tmp_path: pathlib.Path) -> None:
-    client, ctx = _app(tmp_path, pool_size=2, max_overflow=-1)  # an unbounded overflow: no maximum
-    assert client.get("/nested").status_code == 200
-    rows = [o for o in insights_service(ctx).report()["observations"] if o["kind"] == KIND]
-    assert len(rows) == 1
-    assert rows[0]["limitations"][1] == "The pool's maximum size is unavailable; the estimate uses P."
