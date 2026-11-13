@@ -593,7 +593,7 @@ def _wrap_loaded_or_refuse(module: Any, *, blocking: bool = True) -> None:
         _wrap_loaded(module, blocking=blocking)
     except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
         if _trap_on():  # none of the package may stay loaded: ``from aiosmtplib.smtp import ...`` would skip the hook
-            for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
+            for name in [n for n in list(sys.modules) if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
                 sys.modules.pop(name, None)
         _refuse_or_pass(exc)
 
@@ -624,11 +624,13 @@ def ensure_wrapped() -> None:
     request start. Never blocks the event loop (a busy registry skips this request), never from a read (a GET patches
     nothing); with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
     module = sys.modules.get("aiosmtplib")
-    if module is None or not _refs or (_seen is not None and _seen() is getattr(module, "SMTP", None)):
+    if module is None or not _refs:
         return
-    if getattr(getattr(module, "__spec__", None), "_initializing", False):  # another thread is importing it now
-        return
-    with contextlib.suppress(Exception):  # a refusal has already dropped the package; the request goes on
+    with contextlib.suppress(Exception):  # a hostile module, or a refusal that already dropped the package
+        if _seen is not None and _seen() is getattr(module, "SMTP", None):
+            return
+        if getattr(getattr(module, "__spec__", None), "_initializing", False):  # another thread is importing it now
+            return
         _wrap_loaded_or_refuse(module, blocking=False)
 
 
