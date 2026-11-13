@@ -176,7 +176,8 @@ def _coverage(snapshot: Snapshot) -> list[Row]:
     rows: list[Row] = []
     index = snapshot.request_index
     for source, retained in snapshot.records.items():
-        events = [e for e in retained if not index.left_out_event(e)]  # InsightsSnapshot.of reads the visible entries
+        # InsightsSnapshot.of reads the visible entries; with nothing left out they are all of them
+        events = [e for e in retained if not index.left_out_event(e)] if index.left_out else list(retained)
         if not events:
             continue
         linked = [_link(snapshot, event) for event in events]

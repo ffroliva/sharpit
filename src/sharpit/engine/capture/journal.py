@@ -307,14 +307,16 @@ class RuntimeJournal:
             lost, removed, lost_at = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
             self._bytes -= removed
             self._evicted += 1
-            self._lose(lost, lost_at, stamp)
+            started = _lost_start(lost, lost_at, stamp)  # EvidenceRing.lost, inline: one int compared, none allocated
+            if started is not None and started > (self._loss_horizon or 0):
+                self._loss_horizon = started
         self._events.append((cast("dict[str, object]", stored), size, stamp))
         self._bytes += size
         self._accepted[source] += 1
         return True
 
     def _lose(self, event: Mapping[str, object], at: int, now: int) -> None:
-        """``EvidenceRing.lost`` for an evicted event: one int compared and stored under the lock, no allocation."""
+        """``EvidenceRing.lost`` for the oversize event, a cold path (the eviction loop does the same inline)."""
         started = _lost_start(event, at, now)
         if started is not None and started > (self._loss_horizon or 0):
             self._loss_horizon = started
@@ -395,10 +397,13 @@ class RuntimeJournal:
             with self._lock:
                 cleared, self._events, self._bytes = self._events, deque(), 0
             now = time.time_ns() // 1_000_000
-            lost = [s for event, _, at in cleared if (s := _lost_start(event, at, now)) is not None]
-            if lost:  # a running request loses what it recorded before the clear
+            latest = 0  # a running max: no list of up to ``max_events`` starts is built
+            for event, _, at in cleared:
+                if (started := _lost_start(event, at, now)) is not None and started > latest:
+                    latest = started
+            if latest:  # a running request loses what it recorded before the clear
                 with self._lock:
-                    self._loss_horizon = max(lost + [self._loss_horizon or 0])
+                    self._loss_horizon = max(latest, self._loss_horizon or 0)
 
     def status(self) -> dict[str, Any]:
         with self._lock:
