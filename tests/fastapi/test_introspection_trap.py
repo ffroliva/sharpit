@@ -113,7 +113,15 @@ CLI_TOOLS = sorted({"rest_api_scan"} | set(_lane_surfaces("CLI_TOOLS")))
 def test_trap_route_untouched_by_every_introspecting_surface():
     TOUCHED.clear()
     app = _trap_app()
-    install(app, enabled="ON", show_banner=False, config_scan=False, mcp_enabled="ON", cli_enabled=True)
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        mcp_enabled="ON",
+        cli_enabled=True,
+        stream_max_seconds=0.05,  # a stream ends after this; the 3 s default made eight streams 24 s of the sweep
+    )
     TOUCHED.clear()  # install() itself is not a read surface
     with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
         for path in GET_PATHS:

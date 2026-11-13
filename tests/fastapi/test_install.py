@@ -125,7 +125,7 @@ def _get_routes(app: FastAPI) -> list[str]:
 
 def test_a_read_creates_no_key(no_side_effects: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir), stream_max_seconds=0.05)
     assert (no_side_effects.state_dir / "identity.key").is_file()
     no_side_effects.rebaseline()
     calls = _spy_on_load_key(monkeypatch)
