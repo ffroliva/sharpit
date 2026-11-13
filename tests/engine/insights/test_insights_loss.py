@@ -14,6 +14,7 @@ from typing import Any, cast
 
 import pytest
 
+from sharpit.engine.capture import journal as journal_module
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.exchanges import http_event
 from sharpit.engine.capture.journal import RuntimeJournal
@@ -295,6 +296,16 @@ def test_coverage_and_the_window_agree_on_the_requests_judged() -> None:
     assert http["events"] == report["window"]["requests"]  # type: ignore[index]
 
 
+def test_a_report_with_no_request_left_out_asks_no_event_whether_it_was(monkeypatch: pytest.MonkeyPatch) -> None:
+    journal = RuntimeJournal()
+    journal.offer({**sql("select 1", 1_005), "requestId": "r1"})
+    asked: list[object] = []
+    real = RequestIndex.left_out_event
+    monkeypatch.setattr(RequestIndex, "left_out_event", lambda self, event: asked.append(event) or real(self, event))
+    InsightsService(journal).report()
+    assert asked == []
+
+
 class HostEvent(dict[str, object]):
     """An event whose ``get`` is host code: it must never run while the journal's lock is held."""
 
@@ -330,7 +341,7 @@ def test_an_eviction_is_accounted_before_the_horizon_moves(monkeypatch: pytest.M
     def explode(*_: object) -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(journal, "_lose", explode)
+    monkeypatch.setattr(journal_module, "_lost_start", explode)
     journal.offer({**sql("select 2", 2_005), "requestId": "r2"})  # counted failed, never raised into the host
     assert journal.status()["evictedEvents"] == 1  # r1 left the ring, so it is counted
     assert journal._bytes == 0  # noqa: SLF001  # and its bytes are given back
