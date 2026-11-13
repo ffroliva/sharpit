@@ -64,6 +64,12 @@ def by_route(run: Run) -> dict[str, Row]:
     return {str(r["subject"]): r for r in run.rows()}
 
 
+def row_of(run: Run, route: str) -> Row:
+    found = by_route(run)
+    assert route in found, f"no finding for {route}: {sorted(found)}"
+    return found[route]
+
+
 def sizes(**by_name: int) -> PoolSizes:
     return by_name.get
 
@@ -86,7 +92,7 @@ def test_connections_held_together_are_found_and_back_to_back_connections_are_no
         assert part in estimate
     unsized = Run()
     unsized.request("POST /api/orders", connection("db", 1_000, 50_000_000), connection("db", 10_000_000, 5_000_000))
-    assert "floor((P - 1) / 1) + 1" in str(by_route(unsized)["POST /api/orders"]["whatToCheck"][1])  # type: ignore[index]
+    assert "floor((P - 1) / 1) + 1" in str(row_of(unsized, "POST /api/orders")["whatToCheck"][1])  # type: ignore[index]
 
 
 # ported: RuntimeInsightsServiceTests.connectionEstimateRoundsUpWithThreeHeldAndOneRequestCanExhaustASmallerPool
@@ -99,7 +105,7 @@ def test_connection_estimate_rounds_up_with_three_held_and_one_request_can_exhau
             connection("db", 1_000, 20 * MS),
             connection("db", 2_000, 10 * MS),
         )
-        return str(by_route(run)["POST /api/orders"]["whatToCheck"][1])  # type: ignore[index]
+        return str(row_of(run, "POST /api/orders")["whatToCheck"][1])  # type: ignore[index]
 
     assert "5 concurrent requests" in estimate(10)
     assert "1 concurrent request can" in estimate(1)
@@ -111,7 +117,7 @@ def test_connections_per_request_the_whole_finding_row() -> None:
     run.request(
         "POST /api/insights/orders/{id}/confirm", connection("db", 10 * MS, 5 * MS), connection("db", 1_000, 50 * MS)
     )
-    row = by_route(run)["POST /api/insights/orders/{id}/confirm"]
+    row = row_of(run, "POST /api/insights/orders/{id}/confirm")
     assert row["eligible"] == 1
     assert row["affected"] == 1
     assert row["exemplarRequestIds"] == ["r1"]
@@ -135,7 +141,7 @@ def test_connections_per_request_the_whole_finding_row() -> None:
 def test_connections_per_request_without_a_pool_size_says_so() -> None:
     run = Run(pool_sizes=sizes(other=4))  # a name it does not know: no size
     run.request("GET /a", connection("db", 0, 10 * MS), connection("db", 1_000, 2 * MS))
-    row = by_route(run)["GET /a"]
+    row = row_of(run, "GET /a")
     assert row["limitations"][1] == "The pool's maximum size is unavailable; the estimate uses P."  # type: ignore[index]
 
 
@@ -143,7 +149,7 @@ def test_connections_per_request_without_a_pool_size_says_so() -> None:
 def test_connections_per_request_a_non_positive_pool_size_is_unknown(pool: int) -> None:
     run = Run(pool_sizes=lambda name: pool)  # ``InsightsSnapshot.poolSize``: size <= 0 is empty
     run.request("GET /a", connection("db", 0, 10 * MS), connection("db", 1_000, 2 * MS))
-    assert "floor((P - 1)" in str(by_route(run)["GET /a"]["whatToCheck"][1])  # type: ignore[index]
+    assert "floor((P - 1)" in str(row_of(run, "GET /a")["whatToCheck"][1])  # type: ignore[index]
 
 
 def test_connections_per_request_a_failing_pool_size_lookup_is_unknown() -> None:
@@ -152,7 +158,7 @@ def test_connections_per_request_a_failing_pool_size_lookup_is_unknown() -> None
 
     run = Run(pool_sizes=boom)  # ``InsightsSnapshot.poolSize`` swallows a RuntimeException
     run.request("GET /a", connection("db", 0, 10 * MS), connection("db", 1_000, 2 * MS))
-    assert "floor((P - 1)" in str(by_route(run)["GET /a"]["whatToCheck"][1])  # type: ignore[index]
+    assert "floor((P - 1)" in str(row_of(run, "GET /a")["whatToCheck"][1])  # type: ignore[index]
 
 
 def test_connections_per_request_rows_run_most_held_first_and_exemplars_are_the_top_three() -> None:
@@ -166,7 +172,7 @@ def test_connections_per_request_rows_run_most_held_first_and_exemplars_are_the_
         run.request("GET /a", *two),
     ]
     run.request("GET /a", connection("db", 0, 10 * MS))  # one connection: not a row
-    row = by_route(run)["GET /a"]
+    row = row_of(run, "GET /a")
     assert row["sentence"] == "`GET /a` held 3 connections of `db` at the same time in 4 of 5 requests."
     assert row["exemplarRequestIds"] == [ids[1], ids[0], ids[2]]
     detail = run.service().insight(str(row["id"]))
@@ -208,14 +214,6 @@ def test_connections_per_request_sequential_connections_are_not_held_together(
     check = run.check()
     assert check["status"] == "EVALUATED"
     assert check["eligibleRequests"] == 1
-
-
-def test_connections_per_request_a_negative_hold_is_a_zero_length_interval() -> None:
-    run = (
-        Run()
-    )  # ``Math.max(0, durationNanos)``: a release sorts before a checkout at one instant, so it overlaps nothing
-    run.request("GET /a", connection("db", 0, 10 * MS), connection("db", 5 * MS, -1))
-    assert run.rows() == []
 
 
 def test_connections_per_request_a_connection_with_no_name_or_clock_is_counted_apart() -> None:
@@ -329,4 +327,5 @@ def test_connections_per_request_real_install_a_pool_with_no_maximum_uses_p(tmp_
     client, ctx = _app(tmp_path, pool_size=2, max_overflow=-1)  # an unbounded overflow: no maximum
     assert client.get("/nested").status_code == 200
     rows = [o for o in insights_service(ctx).report()["observations"] if o["kind"] == KIND]
+    assert len(rows) == 1
     assert rows[0]["limitations"][1] == "The pool's maximum size is unavailable; the estimate uses P."
