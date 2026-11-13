@@ -78,6 +78,7 @@ class CaptureState:
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
     raw_sqlite_seen: bool = False
+    sqlite3_delivered: bool = False  # a raw sqlite3 statement was delivered to THIS context (the recorded fact)
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
     hooks: HookRegistry = field(default_factory=HookRegistry)

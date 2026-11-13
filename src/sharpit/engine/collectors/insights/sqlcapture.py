@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 
 # SqlCapture.DISABLED with sharpit's env name
 DISABLED = "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
+# SqlCapture.NOT_RECORDED with sharpit's recorders
+NOT_RECORDED = (
+    "This application's database access is not recorded: sharpit records statements through SQLAlchemy (2.0+) and"
+    " the sqlite3 module, and neither is in use."
+)
 # RuntimeInsightsService.sqlCapture: a supplier that throws
 UNREADABLE = "Whether this application's SQL is recorded could not be read ({}), so no statement is counted."
 NOT_RECORDED_SUFFIX = " Its SQL and connection evidence is not counted."  # RuntimeInsightsService.java:1001-1002
