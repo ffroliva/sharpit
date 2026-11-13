@@ -40,6 +40,7 @@ SOURCE_PANELS: Mapping[str, tuple[str, ...]] = {
     "processes": ("side-effects",), "files": ("side-effects",),
 }  # fmt: skip
 PanelEnabled = Callable[[str], bool]
+PoolSizes = Callable[[str], int | None]  # a data source's maximum pool size by the name its connections carry
 Producing = Callable[[str], bool]  # whether this install's producer of a source can run now (its listener is armed)
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
@@ -54,9 +55,9 @@ class Snapshot:
     hidden: Mapping[str, tuple[str, ...]] = field(
         default_factory=dict[str, tuple[str, ...]]
     )  # source -> its off panels
-    unarmed: frozenset[str] = (
-        frozenset()
-    )  # enabled sources whose producer is not armed here (not recorded, by no setting)
+    pool_sizes: PoolSizes | None = None  # ``InsightsSnapshot.poolSizes``
+    # enabled sources whose producer is not armed here: not recorded, though no setting says so
+    unarmed: frozenset[str] = frozenset()
 
     @cached_property
     def request_index(self) -> RequestIndex:
@@ -77,6 +78,16 @@ class Snapshot:
         """BootUI ``available`` = ``records && visible``: journaled and its panel enabled."""
         return source in self.records
 
+    def pool_size(self, data_source: str) -> int | None:
+        """``InsightsSnapshot.poolSize``: ``data_source``'s maximum pool size when known (positive, no failure)."""
+        if self.pool_sizes is None:
+            return None
+        try:
+            size = self.pool_sizes(data_source)
+        except Exception:  # noqa: BLE001 - BootUI swallows a RuntimeException: the size is then unknown
+            return None
+        return size if size is not None and size > 0 else None
+
     def dropped(self, source: str) -> int:
         return int(self.status["dropped"].get(source, 0))
 
@@ -94,6 +105,7 @@ def project(
     ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
     panel_enabled: PanelEnabled | None = None,
     producing: Producing | None = None,
+    pool_sizes: PoolSizes | None = None,
 ) -> Snapshot:
     """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear.
     ``panel_enabled`` None: every panel is enabled. ``producing`` None: every produced source's producer can run."""
@@ -102,4 +114,6 @@ def project(
     produced = [s for s in enabled_produced if producing is None or producing(s)]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
     status, records, newest = journal.view([s for s in produced if s not in hidden])
-    return Snapshot(status, records, newest, ai_token_threshold, hidden, frozenset(enabled_produced) - set(produced))
+    return Snapshot(
+        status, records, newest, ai_token_threshold, hidden, pool_sizes, frozenset(enabled_produced) - set(produced)
+    )

@@ -183,6 +183,15 @@ def live_engine_drivers() -> set[str]:
     return drivers
 
 
+def maximum_pool_size(pool: Any) -> int | None:
+    """A queue pool's maximum size (its size plus its overflow), else ``None``: other pools and an unbounded overflow
+    have none. Counters only: nothing borrows a connection."""
+    sa = _sqla.sqlalchemy_module()
+    if sa is None or not isinstance(pool, sa.pool.QueuePool) or pool._max_overflow < 0:  # noqa: SLF001
+        return None
+    return pool.size() + pool._max_overflow  # noqa: SLF001
+
+
 class EngineRegistry:
     """The engines one context knows about, held weakly, each with a display name that never carries credentials."""
 
@@ -235,6 +244,11 @@ class EngineRegistry:
                 )
                 return name
         return None
+
+    def pool_size_of(self, name: str) -> int | None:
+        """The maximum pool size of the registered engine displayed as ``name`` (``DataSourcePoolSizes.apply``)."""
+        engine = next((e for n, e in self.engines() if n == name), None)
+        return None if engine is None else maximum_pool_size(engine.pool)
 
     def engines(self) -> list[tuple[str, Any]]:
         """``(display name, Engine)`` in registration order."""

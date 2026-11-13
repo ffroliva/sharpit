@@ -17,6 +17,7 @@ from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import (
     DEFAULT_AI_TOKEN_THRESHOLD,
     PanelEnabled,
+    PoolSizes,
     Producing,
     Snapshot,
     project,
@@ -239,8 +240,10 @@ class InsightsService:
         panel_enabled: PanelEnabled | None = None,
         sql_capture: Callable[[], SqlCapture] | None = None,
         producing: Producing | None = None,
+        pool_sizes: PoolSizes | None = None,
     ) -> None:
         self.journal = journal
+        self.pool_sizes = pool_sizes  # None: no pool size is known (``RuntimeInsightsService.setPoolSizes``)
         self.producing = producing  # None: every produced source's producer can run
         self.sql_capture = sql_capture or SqlCapture.capturing  # RuntimeInsightsService.sqlCapture, default capturing
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
@@ -271,7 +274,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled, self.producing)
+        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled, self.producing, self.pool_sizes)
         capture = self._capture()
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
@@ -369,9 +372,13 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         # no recorder (capture or its panel off): the SQL-capture state already says why, as it does for ``sql``
         return source != "connection" or ctx.capture.sql_trace is None or sqla.following_connections(ctx)
 
+    def pool_size(name: str) -> int | None:  # ``DataSourcePoolSizes``: the registered engine of that display name
+        registry = ctx.capture.engine_registry
+        return None if registry is None else registry.pool_size_of(name)
+
     return ctx.lazy(
         "runtime-insights",
         lambda: InsightsService(
-            ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx), producing
+            ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx), producing, pool_size
         ),
     )
