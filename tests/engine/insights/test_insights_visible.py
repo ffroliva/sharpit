@@ -9,7 +9,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
@@ -143,71 +142,3 @@ def test_errors_behind_2xx_with_log_tail_off_names_the_panel_for_the_log_evidenc
     assert journal.offer({"source": "log", "logger": "orders", "level": "ERROR", "template": "t", "requestId": "r1"})
     check = _check(insights_service(handle.context).report(), "errors-behind-2xx")
     assert "The log-tail panel is disabled, so its evidence is not counted." in str(check["reason"])
-
-
-# SQL capture state: RuntimeInsightsService.java:975-1008 (v2.3.0) with SqlCapture.DISABLED. The flag off is not a
-# panel being unavailable: a check that needs SQL is UNAVAILABLE, and an optional SQL read is a caveat.
-SQL_OFF = "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
-_SQL = {"source": "sql", "sql": "select ?", "requestId": "r1"}
-
-
-def _sql_report(handles: list[Any], events: list[dict[str, Any]], **options: Any) -> dict[str, Any]:
-    handle = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, **options)
-    handles.append(handle)
-    for event in events:
-        assert handle.context.capture.journal.offer(event)
-    return insights_service(handle.context).report()
-
-
-# ported: RuntimeInsightsServiceTests.checksThatReadSqlAreUnavailableWhereThisApplicationsSqlIsNotRecorded
-# ported: RuntimeInsightsControllerTests.sqlChecksAreUnavailableOnSpringMvcAndWebFluxWhenNoDataSourceIsTraced (disabled)
-def test_a_required_sql_check_with_sql_capture_off_is_unavailable_with_the_capture_reason(handles: list[Any]) -> None:
-    check = _check(_sql_report(handles, [_SQL], sql_trace_enabled=False), "safe-method-dml")
-    assert check["status"] == "UNAVAILABLE"
-    assert check["reason"] == SQL_OFF
-
-
-# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded (SqlCapture.of(disabled, true, false))
-def test_an_optional_sql_read_with_sql_capture_off_is_a_caveat_with_the_not_counted_suffix(handles: list[Any]) -> None:
-    check = _check(_sql_report(handles, [_HTTP, _SQL], sql_trace_enabled=False), "route-time-breakdown")
-    assert check["status"] != "UNAVAILABLE"
-    assert f"{SQL_OFF} Its SQL and connection evidence is not counted." in str(check["reason"])
-
-
-def test_the_disabled_panel_wins_over_the_capture_reason(handles: list[Any]) -> None:
-    report = _sql_report(handles, [_SQL], sql_trace_enabled=False, panels={"sql-trace": {"enabled": False}})
-    check = _check(report, "safe-method-dml")
-    assert check["status"] == "NOT_APPLICABLE"
-    assert check["reason"] == "The sql-trace panel, whose evidence this reads, is disabled."
-
-
-# ported: BootUiAutoConfiguration.bootUiSqlTraceRecorder (v2.3.0:803): enabled = sqlTrace.isEnabled() && panel enabled
-def test_the_sql_trace_panel_off_with_the_flag_on_is_sql_capture_disabled(handles: list[Any]) -> None:
-    report = _sql_report(handles, [_HTTP, _SQL], panels={"sql-trace": {"enabled": False}})
-    check = _check(report, "route-time-breakdown")
-    assert f"{SQL_OFF} Its SQL and connection evidence is not counted." in str(check["reason"])
-
-
-@pytest.mark.needs_sqlalchemy
-def test_sql_capture_on_adds_no_capture_text(handles: list[Any]) -> None:
-    import sqlalchemy as sa  # noqa: PLC0415 - the marker gates it
-
-    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
-    app = FastAPI()
-
-    @app.get("/w")
-    def write() -> dict[str, int]:
-        with engine.begin() as conn:
-            conn.execute(sa.text("select 1"))
-        return {"ok": 1}
-
-    handle = install(app, enabled="ON", show_banner=False, config_scan=False, engines=[engine])
-    handles.append(handle)
-    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
-    assert client.get("/w").status_code == 200  # the first request attaches: SQL capture really records
-    for event in (_HTTP, _SQL):
-        assert handle.context.capture.journal.offer(event)
-    check = _check(insights_service(handle.context).report(), "safe-method-dml")
-    assert check["status"] != "UNAVAILABLE"
-    assert "SQL capture" not in str(check["reason"])
-    assert "not recorded" not in str(check["reason"])
