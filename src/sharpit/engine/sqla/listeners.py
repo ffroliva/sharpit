@@ -211,6 +211,7 @@ def _sync_listeners() -> None:
     if sa is None:
         return
     followed = any(_records_connections(c) for c in _statement_contexts.values())
+    _connections.set_following(followed)
     wanted = {
         DISCOVERY_EVENT: bool(_discovery_contexts),
         **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts) or _session),
@@ -221,7 +222,10 @@ def _sync_listeners() -> None:
         present = sa.event.contains(target, name, fn)
         if wanted[name] and not present:
             sa.event.listen(target, name, fn)
-        elif present and not wanted[name]:
+        elif present and not wanted[name] and name not in POOL_EVENTS:
+            # pool listeners are never removed once added: SQLAlchemy runs them by iterating the class's listener
+            # collection on every checkout and checkin, and removing one while another thread does that can fail the
+            # host's ``connect()`` or ``close()`` (and leak a pool slot); ``set_following(False)`` makes them inert
             sa.event.remove(target, name, fn)
 
 
@@ -314,7 +318,12 @@ def following_connections(ctx: SharpitContext) -> bool:
     """Whether the pool listener runs for ``ctx``: the ``connection`` journal event can be produced."""
     with _lock:
         armed = attached()
-        return ctx.context_id in _statement_contexts and all(armed[name] for name in POOL_EVENTS)
+        # the pool listeners stay installed once added (see ``_sync_listeners``): the flag says whether they act
+        return (
+            ctx.context_id in _statement_contexts
+            and _connections.following()
+            and all(armed[name] for name in POOL_EVENTS)
+        )
 
 
 def note_request_captured() -> None:
@@ -325,8 +334,13 @@ def note_request_captured() -> None:
 
 
 def attached() -> dict[str, bool]:
-    """Event name -> whether sharpit's class-level listener is on ``Engine`` (``Pool`` for the pool events)."""
+    """Event name -> whether sharpit's class-level listener acts: on ``Engine`` (``Pool`` for the pool events). A pool
+    listener stays installed once added (see ``_sync_listeners``), so it counts as attached only while it follows."""
     sa = _sqla.sqlalchemy_module()
     if sa is None:
         return dict.fromkeys(_LISTENERS, False)
-    return {name: bool(sa.event.contains(_target(sa, name), name, fn)) for name, fn in _LISTENERS.items()}
+    following = _connections.following()
+    return {
+        name: bool(sa.event.contains(_target(sa, name), name, fn)) and (following or name not in POOL_EVENTS)
+        for name, fn in _LISTENERS.items()
+    }
