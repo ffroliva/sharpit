@@ -100,5 +100,5 @@ def test_sql_journal_event_overhead_budget_on_a_full_ring(handle: SharpitHandle)
     finally:
         REQUEST.reset(token)
     assert full.status()["evictedEvents"] > 0
-    assert full._loss_horizon is not None  # noqa: SLF001 - the evicted events named a request
+    assert getattr(full, "_loss_horizon", 0) is not None  # the evicted events named a request (the base has no horizon)
     check_budget("SQL journal event per statement, full ring", result, BUDGET_NS, "µs", 1000)
