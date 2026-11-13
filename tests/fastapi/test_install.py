@@ -25,11 +25,14 @@ from sharpit.engine.guard import (
 from sharpit.engine.headers import CSP
 from sharpit.engine.sqltext import identity
 from sharpit.fastapi.adapter import SharpitMount
+from sharpit.settings import SharpitSettings
 from surface import BASE_PANEL_IDS, expected_panel_ids
 
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
 TOKEN = "test-token"
+# A stream must outlive the agent-sessions debounce, or its loop body (refresh, resend) never runs in the sweep.
+STREAM_SWEEP_SECONDS = max(SharpitSettings.copilot_stream_debounce, SharpitSettings.claude_code_stream_debounce) + 0.25
 AUTH_REQUIRED = {"error": "sharpit authentication required"}
 
 
@@ -125,7 +128,13 @@ def _get_routes(app: FastAPI) -> list[str]:
 
 def test_a_read_creates_no_key(no_side_effects: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        state_dir=str(no_side_effects.state_dir),
+        stream_max_seconds=STREAM_SWEEP_SECONDS,
+    )
     assert (no_side_effects.state_dir / "identity.key").is_file()
     no_side_effects.rebaseline()
     calls = _spy_on_load_key(monkeypatch)
