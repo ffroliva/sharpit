@@ -15,6 +15,9 @@ from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
+from sharpit.engine.collectors.insights.txncapture import NOT_RECORDED_SUFFIX as TRANSACTIONS_NOT_RECORDED_SUFFIX
+from sharpit.engine.collectors.insights.txncapture import SOURCE as TRANSACTION
+from sharpit.engine.collectors.insights.txncapture import reason_for as transactions_not_recorded
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -216,6 +219,7 @@ class InsightsService:
         transactions_not_recorded: Callable[[], str | None] | None = None,
     ) -> None:
         self.journal = journal
+        self.transactions_not_recorded = transactions_not_recorded or (lambda: None)  # default: capturing
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
         self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
@@ -247,8 +251,9 @@ class InsightsService:
         snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
+        not_recorded = self.transactions_not_recorded()  # asked once per report
         for observation in self.observations:
-            check, rows = self._evaluate(observation, snapshot)
+            check, rows = self._evaluate(observation, snapshot, not_recorded)
             checks.append(check)
             found += rows
         found.sort(
@@ -259,7 +264,9 @@ class InsightsService:
             str(row["id"]): (row, finding) for row, finding in found
         }
 
-    def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[tuple[Row, Finding]]]:
+    def _evaluate(
+        self, observation: Observation, snapshot: Snapshot, transactions_off: str | None = None
+    ) -> tuple[Row, list[tuple[Row, Finding]]]:
         missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
         if missing is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, _missing(snapshot, missing)), []
@@ -272,7 +279,11 @@ class InsightsService:
         evaluate = observation.evaluate
         if evaluate is None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, NOT_IMPLEMENTED), []
+        if transactions_off and TRANSACTION in observation.reads:  # owner ruling 2026-11-12: stricter than BootUI
+            return _check(observation, "UNAVAILABLE", 0, 0, transactions_off), []
         partial, unseen = _partial(observation, snapshot), _unseen(observation, snapshot)
+        if transactions_off and TRANSACTION in observation.optional_reads and snapshot.available(TRANSACTION):
+            unseen.append(transactions_off + TRANSACTIONS_NOT_RECORDED_SUFFIX)
         try:
             evaluation: Evaluation = evaluate(snapshot)
         except Exception:  # noqa: BLE001 - a kind never crashes the host or the other kinds
@@ -313,4 +324,9 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         panel = ctx.settings.panels.get(panel_id)
         return panel is None or panel.enabled
 
-    return ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled))
+    return ctx.lazy(
+        "runtime-insights",
+        lambda: InsightsService(
+            ctx.capture.journal, None, threshold, panel_enabled, lambda: transactions_not_recorded(ctx)
+        ),
+    )

@@ -90,6 +90,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Runtime insights with `SHARPIT_TRANSACTIONS_ENABLED=false`: a check that reads transactions is unavailable ("Transaction capture is disabled ..., so no transaction is recorded.") and an optional read says its transaction evidence is not counted, instead of analysing an empty set silently (stricter than BootUI 2.3.0, owner ruling).
 - Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it; with the http-exchanges panel off, a kind that examines requests answers not applicable for its unit-of-work evidence.
 - The live BootUI capture rejects every request outside GET and the allow-listed POSTs, keys uncaptured routes individually, and confines raw output outside git work trees. Machine identity values, including short logins and home path variants, are retained by the artifact leak gate.
 

@@ -21,4 +21,4 @@ def reason_for(ctx: SharpitContext) -> str | None:
     """Why transactions are not recorded, ``None`` when they are: the flag ``install`` gates the recorder on
     (``fastapi/install.py``, with the panel). A disabled panel is not this question: the snapshot already names it
     (missing source first), so only the flag is reported here."""
-    return None  # stub
+    return None if ctx.settings.transactions_enabled else DISABLED
