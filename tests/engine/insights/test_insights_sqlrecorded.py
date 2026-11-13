@@ -6,6 +6,7 @@ analogue is an engine attached to the context, and raw sqlite3 (no wrap-time obj
 
 from __future__ import annotations
 
+import gc
 import sqlite3
 import sys
 from collections.abc import Iterator
@@ -257,3 +258,40 @@ def test_sqlalchemy_statistics_keeps_its_own_availability_with_no_engine_attache
 def test_a_not_recorded_capture_cannot_carry_a_limitation() -> None:
     with pytest.raises(ValueError, match="no limitation"):
         sqlcapture.SqlCapture(not_recorded_reason="x", limitation="y")
+
+
+# review: a suspended hook is a capture state (BootUI's recorder stays wrapped), never "no database": the panel stays
+# available, shows its rows and says it is not capturing
+def test_the_sql_trace_panel_stays_available_while_its_hooks_are_suspended(handles: list[Any]) -> None:
+    ctx = _both_used(handles)
+    ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+    ctx.capture.wiring.suspend_hook(HOOK_SQLITE_LISTENERS)
+    assert tools.sql_trace_unavailable_reason(ctx) is None
+    assert tools.sql_trace_report(ctx)["available"] is True
+
+
+# review: the engine registry holds engines weakly; "a database is in use" is known once and does not flip on GC
+def test_a_disposed_engine_leaves_the_context_recorded(handles: list[Any]) -> None:
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+    engine = _engine()
+    ctx.capture.engine_registry.add(engine)
+    assert sqlcapture.for_context(ctx).recorded
+    del engine
+    gc.collect()
+    assert sqlcapture.for_context(ctx).recorded
+    assert tools.sql_trace_unavailable_reason(ctx) is None
+
+
+# review: the default install (sqlite3 patch on) with no database reads the same on the panel and on the insights
+def test_the_panel_and_the_insights_agree_with_the_sqlite3_patch_on_and_no_database(handles: list[Any]) -> None:
+    ctx = _install(handles)
+    assert sqlcapture.for_context(ctx).reason == NOT_RECORDED
+    assert tools.sql_trace_unavailable_reason(ctx) == NOT_RECORDED
+
+
+def test_a_raw_sqlite_app_reads_available_on_the_panel_from_its_first_statement(
+    handles: list[Any], no_sqlalchemy: None
+) -> None:
+    ctx = _install(handles)
+    _raw_sqlite()
+    assert tools.sql_trace_unavailable_reason(ctx) is None
