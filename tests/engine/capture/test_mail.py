@@ -1052,7 +1052,7 @@ def test_the_exposed_flags_report_the_settings():
 
 
 class _AheadFinder(importlib.abc.MetaPathFinder):
-    """Another library's import hook at ``sys.meta_path[0]``: it answers first, so the trap's hook never sees the import."""
+    """Another library's import hook at ``sys.meta_path[0]``: it answers first, so the trap's hook never sees it."""
 
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
         return importlib.machinery.PathFinder.find_spec(fullname, path) if fullname == "aiosmtplib" else None

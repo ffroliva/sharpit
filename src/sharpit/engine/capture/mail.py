@@ -29,6 +29,7 @@ own ``connect`` opens its own socket).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import importlib.abc
 import smtplib
@@ -259,6 +260,7 @@ class MailRecorder:
     # --- reads --------------------------------------------------------------------------------------------------------
 
     def entries(self) -> list[MailEntry]:
+        ensure_wrapped()
         with self._lock:
             return list(self._entries)
 
@@ -293,8 +295,8 @@ class MailRecorder:
             me = cast("MailRecorder", self)
             if not any(r is me for r in _live()):
                 _refs = (*_refs, weakref.ref(me, _forget))
+            _watch_import()  # first: an import after this line meets the hook, one before it is in sys.modules below
             _wrap_senders(trap=any(r.dev_trap for r in _live()))
-            _watch_import()
             return "smtplib" in _WRAPPED and "aiosmtplib" in _WRAPPED
 
     def disarm(self) -> None:
@@ -571,6 +573,7 @@ class _LateImport(importlib.abc.MetaPathFinder):
 
 _FINDER = _LateImport()
 _PATCHED = "__sharpit_late_import__"
+_seen: weakref.ref[Any] | None = None  # the aiosmtplib module the senders were last wrapped on
 _REFUSED = "sharpit's dev trap could not wrap aiosmtplib, so it is not imported: unwrapped it would send real mail"
 
 
@@ -610,6 +613,17 @@ def _wrap_loaded() -> None:
         _LOCK.release()
 
 
+def ensure_wrapped() -> None:
+    """The second layer behind ``_LateImport``: an ``aiosmtplib`` that loaded past the hook (another library's finder
+    answered first) is wrapped, or refused as the hook refuses, at the next point sharpit runs. Called at request start
+    and from the recorder's reads; with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
+    module = sys.modules.get("aiosmtplib")
+    if module is None or not _refs or (_seen is not None and _seen() is module):
+        return
+    with contextlib.suppress(Exception):  # a refusal has already dropped the package; the request goes on
+        _wrap_loaded_or_refuse()
+
+
 def _watch_import() -> None:
     """Until ``aiosmtplib`` is imported, watch for it. The hook stays on ``sys.meta_path`` (inert with no recorder
     armed): removing it could shift a list the import system is iterating."""
@@ -639,6 +653,8 @@ def _wrap_senders(*, trap: bool) -> None:
     if not isinstance(owner, type):
         return
     _wrap_one("aiosmtplib", owner, "sendmail", _async_sendmail)
+    global _seen  # noqa: PLW0603
+    _seen = weakref.ref(module)
     response = getattr(module, "SMTPResponse", None)
     if trap and callable(response):  # without it the trap stays sendmail-only for this aiosmtplib
         _wrap_one(_AIOSMTPLIB_CONNECT, owner, "_create_connection", _async_create_connection(response))

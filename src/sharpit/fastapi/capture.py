@@ -30,6 +30,7 @@ from sharpit.engine.capture.exchanges import exchange_row, http_event
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.mail import HOOK as MAIL_HOOK
+from sharpit.engine.capture.mail import ensure_wrapped as ensure_mail_wrapped
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
 from sharpit.engine.context import application_family
@@ -630,6 +631,7 @@ class CaptureMiddleware:
         try:
             if not wiring.started:
                 wiring.on_first_request(self.ctx)
+            ensure_mail_wrapped()
             if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
                 if buffer is not None:
                     buffer.count_hidden_self()
