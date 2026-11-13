@@ -52,7 +52,7 @@ COLUMNS = ["Request", "Status", "Executions", "Call site"]
 
 def not_applicable(snapshot: Snapshot) -> str | None:
     """http records exist but none names a request id: the exposure withheld them, so no write can be placed."""
-    return IDS_WITHHELD if snapshot.records.get("http") and not snapshot.requests else None
+    return IDS_WITHHELD if snapshot.ids_withheld else None
 
 
 def _readable(text: object) -> bool:

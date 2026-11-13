@@ -62,7 +62,7 @@ def not_applicable(snapshot: Snapshot) -> str | None:
     Ids the exposure withheld: no request to place evidence behind."""
     if not any(snapshot.available(source) for source in EVIDENCE_SOURCES):
         return NOT_APPLICABLE
-    return IDS_WITHHELD if not snapshot.requests and snapshot.records.get("http") else None
+    return IDS_WITHHELD if snapshot.ids_withheld else None
 
 
 def _simple_name(value: object) -> str:

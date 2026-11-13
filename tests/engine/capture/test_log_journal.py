@@ -276,11 +276,11 @@ def test_log_journal_reentrant_log_is_dropped_and_counted(
     real_append = journal._append  # pyright: ignore[reportPrivateUsage]
     fired: list[bool] = []
 
-    def logging_append(event: Any, store: Any) -> bool:
+    def logging_append(prepared: Any, source: str) -> bool:
         if not fired:
             fired.append(True)
             _emit(handle, "logged from inside the offer")  # a record raised while the journal appends
-        return real_append(event, store)
+        return real_append(prepared, source)
 
     monkeypatch.setattr(journal, "_append", logging_append)
     _emit(handle, "outer")
@@ -477,9 +477,9 @@ def test_log_journal_a_nested_record_is_counted_without_building_an_event(
     real_append = journal._append  # pyright: ignore[reportPrivateUsage]
     built: list[str] = []
 
-    def logging_append(event: Any, store: Any) -> bool:
+    def logging_append(prepared: Any, source: str) -> bool:
         _emit(handle, "from inside the offer")
-        return real_append(event, store)
+        return real_append(prepared, source)
 
     monkeypatch.setattr(handler, "_journal_event", lambda r: built.append(str(r.msg)) or real_build(r))
     monkeypatch.setattr(journal, "_append", logging_append)

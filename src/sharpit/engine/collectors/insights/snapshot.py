@@ -41,6 +41,10 @@ SOURCE_PANELS: Mapping[str, tuple[str, ...]] = {
 }  # fmt: skip
 PanelEnabled = Callable[[str], bool]
 
+# RuntimeInsightsService.LOSS_HORIZON_SLACK_MILLIS: how long after the horizon a request may still have lost an event
+LOSS_HORIZON_SLACK_MILLIS = 16
+LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"  # RuntimeInsightsService constant
+
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
 
 
@@ -53,17 +57,25 @@ class Snapshot:
     hidden: Mapping[str, tuple[str, ...]] = field(
         default_factory=dict[str, tuple[str, ...]]
     )  # source -> its off panels
+    loss_horizon: int | None = None  # the latest start of an evicted or cleared unit-of-work event; None while none
 
     @cached_property
     def request_index(self) -> RequestIndex:
         """The http requests, projected once per snapshot however many kinds read them."""
         from sharpit.engine.collectors.insights.requests import RequestIndex  # noqa: PLC0415 - requests imports this
 
-        return RequestIndex(self.records.get("http", ()))
+        return RequestIndex(self.records.get("http", ()), self.loss_horizon)
 
     @property
     def requests(self) -> tuple[Request, ...]:
         return self.request_index.requests
+
+    @property
+    def ids_withheld(self) -> bool:
+        """http events were recorded but none kept its request id (the exposure withheld them). A request left out
+        before a loss kept its id, so it is not this."""
+        index = self.request_index
+        return not index.requests and not index.left_out and bool(self.records.get("http"))
 
     def journaled(self, source: str) -> bool:
         """BootUI ``records``: the journal records ``source`` (a source with its panel off is still journaled)."""
@@ -93,5 +105,5 @@ def project(
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
     produced = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
-    status, records, newest = journal.view([s for s in produced if s not in hidden])
-    return Snapshot(status, records, newest, ai_token_threshold, hidden)
+    status, records, newest, horizon = journal.view([s for s in produced if s not in hidden])
+    return Snapshot(status, records, newest, ai_token_threshold, hidden, horizon)
