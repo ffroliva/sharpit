@@ -326,7 +326,7 @@ class InsightsService:
         except Exception:  # noqa: BLE001 - a kind never crashes the host or the other kinds
             logger.debug("insights kind %s could not be evaluated", observation.kind)  # the id only, never the error
             return _check(observation, "UNAVAILABLE", 0, 0, NOT_EVALUATED), []
-        reasons = [partial, caveat] if partial and caveat else [partial] if partial else list(unseen)
+        reasons = _lead_reasons(partial, unseen, caveat)
         if evaluation.uncounted:
             reasons.append(
                 self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
@@ -338,6 +338,13 @@ class InsightsService:
         reason = " ".join(r for r in reasons if r) or None
         check = _check(observation, status, evaluation.eligible, len(evaluation.findings), reason)
         return check, [_row(observation, f, partial, unseen, self._mask) for f in evaluation.findings]
+
+
+def _lead_reasons(partial: str | None, unseen: list[str], caveat: str | None) -> list[str]:
+    """BootUI drops the unseen caveats on a PARTIAL check; the SQL-capture caveat stays (a deviation row)."""
+    if not partial:
+        return list(unseen)
+    return [partial, caveat] if caveat else [partial]
 
 
 def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: SqlCapture) -> str | None:
