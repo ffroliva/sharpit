@@ -181,6 +181,13 @@ def test_the_disabled_panel_wins_over_the_capture_reason(handles: list[Any]) -> 
     assert check["reason"] == "The sql-trace panel, whose evidence this reads, is disabled."
 
 
+# ported: BootUiAutoConfiguration.bootUiSqlTraceRecorder (v2.3.0:803): enabled = sqlTrace.isEnabled() && panel enabled
+def test_the_sql_trace_panel_off_with_the_flag_on_is_sql_capture_disabled(handles: list[Any]) -> None:
+    report = _sql_report(handles, [_HTTP, _SQL], panels={"sql-trace": {"enabled": False}})
+    check = _check(report, "route-time-breakdown")
+    assert f"{SQL_OFF} Its SQL and connection evidence is not counted." in str(check["reason"])
+
+
 @pytest.mark.needs_sqlalchemy
 def test_sql_capture_on_adds_no_capture_text(handles: list[Any]) -> None:
     import sqlalchemy as sa  # noqa: PLC0415 - the marker gates it
