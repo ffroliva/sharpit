@@ -22,6 +22,7 @@ source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-pat
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
 import uuid
@@ -100,6 +101,12 @@ def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
         items = [_snapshot(item, depth + 1) for item in cast("Sequence[object]", plain)]
         return [item for item, _ in items], sum(size for _, size in items)
     return plain, SCALAR_BYTES
+
+
+def _copied(event: Event) -> tuple[object, int, int]:
+    """``_snapshot`` with no start known: ``_append`` reads it from the copy."""
+    stored, size = _snapshot(event)
+    return stored, size, -1
 
 
 def _flat(event: Event) -> tuple[object, int]:
@@ -207,19 +214,26 @@ def _mask(value: object, name: str, masker: Masker) -> object:
     return shown
 
 
-def _lost_start(event: Mapping[str, object], at: int, now: int) -> int | None:
-    """Where losing ``event`` moves the loss horizon: the start of a request, an execution or a trace's event
-    (``epochMillis``, else the sql event's ``startedAt``, else ``at``, when it was offered), never past ``now``, so a
-    stepped-back clock cannot hide every request until the restart. None for an event of none of them."""
+def _started(event: Mapping[str, object], at: int) -> int:
+    """The start of a request, an execution or a trace's event (``epochMillis``, else the sql event's ``startedAt``,
+    else ``at``, when it was offered), the number its loss moves the horizon to; 0 for an event of none of them (it
+    never moves it, as a start before the epoch cannot). A producer that built the event passes it to ``offer_flat``."""
     get = event.get
     if get("requestId") is None and get("executionId") is None and get("traceId") is None:
-        return None
+        return 0
     started = get("epochMillis")
     if type(started) is not int:  # the stored copy holds plain types: no helper call, no bool
         started = get("startedAt")
         if type(started) is not int:
             started = at
-    return min(now, started)
+    return max(started, 0)
+
+
+def _lost_start(event: Mapping[str, object], at: int, now: int) -> int | None:
+    """Where losing ``event`` moves the loss horizon (BootUI ``EvidenceRing.lost``): its ``_started``, never past
+    ``now``, so a stepped-back clock cannot hide every request until the restart. None for an event of no unit."""
+    started = _started(event, at)
+    return min(now, started) if started else None
 
 
 class RuntimeJournal:
@@ -242,7 +256,7 @@ class RuntimeJournal:
         self.sources = None if sources is None else frozenset(sources)  # None: no filter (the wiring always passes one)
         self.masker = masker or Masker(Exposure.MASKED, True)
         self.run_id = uuid.uuid4().hex[:8]
-        self._events: deque[tuple[dict[str, object], int, int]] = deque()
+        self._events: deque[tuple[dict[str, object], int, int, int]] = deque()  # event, size, offered at, loss start
         self._bytes = 0
         self._accepted: Counter[str] = Counter()
         self._dropped: Counter[str] = Counter()
@@ -257,19 +271,21 @@ class RuntimeJournal:
         self._copying = threading.local()  # set while this thread runs the host copy, which runs outside the lock
 
     def offer(self, event: Event) -> bool:
-        return self._offer(event, _snapshot)
+        return self._offer(event, _copied)
 
-    def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None) -> bool:
+    def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1) -> bool:
         """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy.
 
         A per-statement producer passes ``size``, which must equal what ``_flat`` charges (its test proves it); a size
-        below 1 is not trusted, and the event is walked instead, so it never bypasses ``max_bytes``.
+        below 1 is not trusted, and the event is walked instead, so it never bypasses ``max_bytes``. ``started`` is
+        what ``_started`` answers for the event, which a producer that built it knows without a lookup (an eviction
+        then reads one int); below 0 it is read from the event.
         """
         if size is None or size < 1:
-            return self._offer(event, _flat)
-        return self._offer(event, lambda stored: (stored, size))
+            return self._offer(event, lambda stored: (*_flat(stored), started))
+        return self._offer(event, lambda stored: (stored, size, started))
 
-    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
+    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int, int]]) -> bool:
         if self._owned() or getattr(self._copying, "active", False):  # in an append, read or copy: never recurse
             self.count_dropped(REENTRANT)  # before any copy of the event
             return False
@@ -292,8 +308,8 @@ class RuntimeJournal:
                 self._dropped[FAILED] += 1
                 return False
 
-    def _append(self, prepared: tuple[object, int], source: str) -> bool:
-        stored, size = prepared  # the plain copy: the host event's own methods never run under the lock
+    def _append(self, prepared: tuple[object, int, int], source: str) -> bool:
+        stored, size, started = prepared  # the plain copy: the host event's own methods never run under the lock
         if not self._accepting or (self.sources is not None and source not in self.sources):
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
@@ -304,13 +320,17 @@ class RuntimeJournal:
             return False
         while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
             self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
-            lost, removed, lost_at = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
+            _, removed, _, lost = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
             self._bytes -= removed
             self._evicted += 1
-            started = _lost_start(lost, lost_at, stamp)  # EvidenceRing.lost: one helper call, one int compared
-            if started is not None and started > (self._loss_horizon or 0):
-                self._loss_horizon = started
-        self._events.append((cast("dict[str, object]", stored), size, stamp))
+            lost = min(lost, stamp)  # EvidenceRing.lost (v2.3.0): the start the event recorded, never past now
+            if lost > (self._loss_horizon or 0):
+                self._loss_horizon = lost
+        if started < 0:  # a producer that did not say where this event starts
+            started = (
+                _lost_start(cast("Mapping[str, object]", stored), stamp, sys.maxsize) or 0
+            )  # uncapped: now is later
+        self._events.append((cast("dict[str, object]", stored), size, stamp, started))
         self._bytes += size
         self._accepted[source] += 1
         return True
@@ -338,7 +358,7 @@ class RuntimeJournal:
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
-            events = tuple(event for event, _, _ in self._events if event.get("source") == source)
+            events = tuple(event for event, _, _, _ in self._events if event.get("source") == source)
         return self._masked(source, events)
 
     def _masked(
@@ -377,7 +397,7 @@ class RuntimeJournal:
             status = self._status()
             horizon = self._loss_horizon
             newest = None
-            for event, _, stamp in self._events:  # one pass, whatever the number of sources read
+            for event, _, stamp, _ in self._events:  # one pass, whatever the number of sources read
                 if (bucket := held.get(cast("str", event.get("source")))) is not None:
                     bucket.append(event)
                 newest = stamp if newest is None or stamp > newest else newest  # BootUI takes the max epoch
@@ -398,7 +418,7 @@ class RuntimeJournal:
                 cleared, self._events, self._bytes = self._events, deque(), 0
             now = time.time_ns() // 1_000_000
             latest = 0  # a running max: no list of up to ``max_events`` starts is built
-            for event, _, at in cleared:
+            for event, _, at, _ in cleared:
                 if (started := _lost_start(event, at, now)) is not None and started > latest:
                     latest = started
             if latest:  # a running request loses what it recorded before the clear

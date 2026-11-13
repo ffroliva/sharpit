@@ -307,3 +307,28 @@ def test_sql_journal_event_request_id_only_for_a_request_of_its_own_context():
     assert built["requestId"] is None
     built, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", own, "t", None)  # pyright: ignore[reportPrivateUsage]
     assert built["requestId"] == "r-own"
+
+
+@pytest.mark.parametrize("in_request", [True, False])
+def test_the_loss_start_the_sql_producer_hands_the_ring_is_the_one_the_ring_would_read(in_request: bool):
+    """``dispatch`` passes ``started`` so an eviction reads an int: it must equal what ``_started`` finds."""
+    from sharpit.engine.capture.journal import _started  # noqa: PLC0415  # pyright: ignore[reportPrivateUsage]
+
+    handle, engine = _install()
+    journal = handle.context.capture.journal
+    assert journal is not None
+    token = (
+        REQUEST.set(RequestInfo("r-hint", handle.context.context_id, "GET", "/x", None, 0, None))
+        if in_request
+        else None
+    )
+    try:
+        _run(engine)
+    finally:
+        if token is not None:
+            REQUEST.reset(token)
+    ring = journal._events  # pyright: ignore[reportPrivateUsage]
+    assert len(ring) == 1
+    event, _, at, started = ring[0]
+    assert started == _started(event, at)
+    assert (started > 0) is in_request

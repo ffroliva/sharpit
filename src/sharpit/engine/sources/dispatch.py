@@ -7,7 +7,7 @@ import threading
 import time
 import weakref
 from collections.abc import Sized
-from typing import TYPE_CHECKING, NamedTuple, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
@@ -219,7 +219,10 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
         journal = ctx.capture.journal
         if journal is not None and text is not None:
             try:  # its own guard: a journal failure is never reported as the SQL hook's
-                journal.offer_flat(*_journal_event(ctx, recorder, event, text, info, thread, site))
+                record, size = _journal_event(ctx, recorder, event, text, info, thread, site)
+                # what the journal's ``_lost_start`` would read from the record: its start, if it names a unit of work
+                started = record["startedAt"] if record["requestId"] is not None or record["traceId"] is not None else 0
+                journal.offer_flat(record, size, cast("int", started))
             except Exception as exc:  # noqa: BLE001
                 _context_failed(ctx, exc, "sql journal")
 
