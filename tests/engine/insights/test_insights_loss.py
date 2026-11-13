@@ -361,15 +361,24 @@ def test_the_oversize_branch_reads_the_stored_copy_never_the_host_event_under_th
     assert journal.view([])[3] == 1_005  # and the horizon still moved
 
 
-def test_an_eviction_is_accounted_before_the_horizon_moves(monkeypatch: pytest.MonkeyPatch) -> None:
-    journal = RuntimeJournal(max_events=1)
+class HorizonThatRefusesToMove(RuntimeJournal):
+    """A journal whose loss horizon cannot be raised: the eviction loop assigns it inline, so this is its real seam."""
+
+    @property
+    def _loss_horizon(self) -> int | None:
+        return self.__dict__.get("_horizon")
+
+    @_loss_horizon.setter
+    def _loss_horizon(self, value: int | None) -> None:
+        if value is not None:
+            raise RuntimeError("boom")
+        self.__dict__["_horizon"] = value
+
+
+def test_an_eviction_is_accounted_before_the_horizon_moves() -> None:
+    journal = HorizonThatRefusesToMove(max_events=1)
     journal.offer({**sql("select 1", 1_005), "requestId": "r1"})
-
-    def explode(*_: object) -> None:
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(journal_module, "_lost_start", explode)
-    journal.offer({**sql("select 2", 2_005), "requestId": "r2"})  # counted failed, never raised into the host
+    journal.offer({**sql("select 2", 2_005), "requestId": "r2"})  # the horizon raise fails: counted, never raised
     assert journal.status()["evictedEvents"] == 1  # r1 left the ring, so it is counted
     assert journal._bytes == 0  # noqa: SLF001  # and its bytes are given back
 
