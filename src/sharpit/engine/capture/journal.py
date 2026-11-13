@@ -215,11 +215,11 @@ def _lost_start(event: Mapping[str, object], at: int, now: int) -> int | None:
     if get("requestId") is None and get("executionId") is None and get("traceId") is None:
         return None
     started = get("epochMillis")
-    if not _count(started):
+    if type(started) is not int:  # the stored copy holds plain types: no helper call, no bool
         started = get("startedAt")
-        if not _count(started):
+        if type(started) is not int:
             started = at
-    return min(cast("int", started), now)
+    return min(now, started)
 
 
 class RuntimeJournal:
@@ -316,7 +316,7 @@ class RuntimeJournal:
     def _lose(self, event: Mapping[str, object], at: int, now: int) -> None:
         """``EvidenceRing.lost`` for an evicted event: one int compared and stored under the lock, no allocation."""
         started = _lost_start(event, at, now)
-        if started is not None and (self._loss_horizon is None or started > self._loss_horizon):
+        if started is not None and started > (self._loss_horizon or 0):
             self._loss_horizon = started
 
     def accepts(self, source: str) -> bool:
