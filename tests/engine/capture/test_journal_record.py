@@ -379,3 +379,46 @@ def test_equal_layouts_share_one_keys_tuple() -> None:
         assert journal.offer({"source": "log", "a": 1}) is True
     keys = [held[1] for held in journal._events]  # pyright: ignore[reportPrivateUsage]
     assert all(k is keys[0] for k in keys)
+
+
+class _Text(str):
+    """A ``str`` subclass (a ``StrEnum`` is one): its length is its text's, whatever a host's ``__len__`` says."""
+
+
+def test_a_str_subclass_value_is_charged_its_length_through_offer_flat() -> None:
+    """As on the base: a text of any ``str`` type is charged its length, so it cannot slip past ``max_bytes``."""
+    journal = RuntimeJournal(max_bytes=200, sources=("log",))
+    assert journal.offer_flat({"source": "log", "message": _Text("x" * 5000)}) is False
+    assert journal.status()["dropped"] == {"log": 1}
+    assert journal.status()["retainedBytes"] == 0
+
+
+def test_a_compact_offer_of_a_str_subclass_is_refused() -> None:
+    """``offer_record`` takes exact plain types only: a subclass is refused (counted failed), never stored."""
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql",))
+    offer, fields = _compact(journal)
+    layout = fields("sql", "sql")
+    assert offer(layout, ("sql", _Text("select 1"))) is False
+    assert journal.status()["dropped"] == {"failed": 1}
+
+
+def test_the_exact_type_check_runs_before_a_host_comparison() -> None:
+    """``values[0]`` is compared to the source only once it is known to be a plain value: no host ``__ne__`` runs."""
+    journal = RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql",))
+    offer, fields = _compact(journal)
+    called: list[str] = []
+
+    class Nosy(str):
+        def __ne__(self, other: object) -> bool:
+            called.append("__ne__")
+            return False
+
+        def __eq__(self, other: object) -> bool:
+            called.append("__eq__")
+            return True
+
+        __hash__ = str.__hash__
+
+    assert offer(fields("sql", "sql"), (Nosy("sql"), "select 1")) is False
+    assert called == []
+    assert journal.status()["dropped"] == {"failed": 1}

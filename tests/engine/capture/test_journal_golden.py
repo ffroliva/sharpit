@@ -23,6 +23,7 @@ from sharpit.engine.capture import journal as journal_module
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights import snapshot
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sources import dispatch
 from sharpit.settings_registry import JOURNAL_SOURCES
 
 GOLDEN = Path(__file__).parents[2] / "fixtures" / "journal" / "read_golden.json"
@@ -171,12 +172,22 @@ def _pin_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(journal_module, "time", SimpleNamespace(time_ns=lambda: next(ticks)))
 
 
-def _fill(journal: RuntimeJournal) -> None:
+def _offer_sql(journal: RuntimeJournal, event: dict[str, Any], by_record: bool) -> bool:
+    """One sql event: as the base offered it (``offer_flat``) or as P-sql does (``offer_record``, the real layout)."""
+    if not by_record:
+        return journal.offer_flat(dict(event))
+    fields = dispatch._SQL_FIELDS  # pyright: ignore[reportPrivateUsage]
+    assert list(event) == list(fields.keys)  # the fixture's key order is the producer's layout
+    values = tuple(event[key] for key in fields.keys)
+    return journal.offer_record(fields, values, fields.key_bytes + sum(map(journal_module.value_bytes, values)))  # pyright: ignore[reportArgumentType]
+
+
+def _fill(journal: RuntimeJournal, by_record: bool = False) -> None:
     journal.run_id = "golden00"
     for event in (*HTTP, *LOG, *MAIL, *AI):
         assert journal.offer_flat(dict(event)) is True  # type: ignore[arg-type]
     for event in SQL:
-        assert journal.offer_flat(dict(event)) is True  # type: ignore[arg-type]
+        assert _offer_sql(journal, event, by_record) is True
     for event in (*EXCEPTION, RAW):
         assert journal.offer(event) is True
     assert journal.offer({"source": UNCONFIGURED, "port": 5}) is False  # a source not configured: counted
@@ -196,13 +207,13 @@ def _read(journal: RuntimeJournal) -> dict[str, Any]:
     }
 
 
-def _api() -> dict[str, Any]:
+def _api(by_record: bool = False) -> dict[str, Any]:
     app = FastAPI()
     handle = install(app, enabled="ON", show_banner=False, config_scan=False)
     try:
         journal = handle.context.capture.journal
         assert journal is not None
-        _fill(journal)
+        _fill(journal, by_record)
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             insights = client.get("/sharpit/api/runtime-insights").json()
             return {
@@ -218,7 +229,7 @@ def _api() -> dict[str, Any]:
         handle.uninstall_capture()
 
 
-def observed(monkeypatch: pytest.MonkeyPatch) -> str:
+def observed(monkeypatch: pytest.MonkeyPatch, by_record: bool = False) -> str:
     _pin_clock(monkeypatch)
     out: dict[str, Any] = {}
     for name, masker in (
@@ -227,12 +238,12 @@ def observed(monkeypatch: pytest.MonkeyPatch) -> str:
         ("FULL", Masker(Exposure.FULL, False)),
     ):
         journal = RuntimeJournal(sources=SOURCES, masker=masker)
-        _fill(journal)
+        _fill(journal, by_record)
         out[name] = _read(journal)
     ring = RuntimeJournal(max_events=5, max_bytes=2000, sources=SOURCES)  # both bounds evict
-    _fill(ring)
+    _fill(ring, by_record)
     out["ring"] = _read(ring)
-    out["api"] = _api()
+    out["api"] = _api(by_record)
     text = json.dumps(out, indent=1, ensure_ascii=False) + "\n"
     return text.replace(SECRET, "<canary>")  # FULL exposure shows the canary: the fixture never holds it
 
@@ -244,3 +255,8 @@ def test_the_unconfigured_source_can_never_be_configured() -> None:
 
 def test_the_journal_reads_exactly_what_the_base_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert observed(monkeypatch) == GOLDEN.read_text(encoding="utf-8")
+
+
+def test_the_production_sql_path_reads_exactly_what_the_flat_offer_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P-sql offers through ``offer_record``: MASKED, METADATA_ONLY, FULL, the ring and the API read the same."""
+    assert observed(monkeypatch, by_record=True) == GOLDEN.read_text(encoding="utf-8")

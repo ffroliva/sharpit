@@ -358,3 +358,52 @@ def test_sql_journal_record_is_this_exact_ordered_dict(monkeypatch: pytest.Monke
         ("batchSize", 7),
         ("callSite", "app/x.py:12"),
     ]
+
+
+def test_sql_journal_call_site_walk_starts_where_the_transaction_tracker_starts(monkeypatch: pytest.MonkeyPatch):
+    """The trace row, the journal event and the transaction share one walk (``call_site(None)``): at the 64-frame limit
+    a walk that starts higher would name a site the transaction's walk does not."""
+    from sharpit.engine.sources import dispatch  # noqa: PLC0415
+
+    starts: list[object] = []
+    walk = dispatch.call_site
+
+    def spy(frame: object) -> str | None:
+        starts.append(frame)
+        return walk(frame)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(dispatch, "call_site", spy)
+    handle, engine = _install()
+    _run(engine)
+    assert starts == [None]
+    assert handle.context.capture.journal is not None
+
+
+def test_sql_journal_size_is_the_journals_own_count_in_every_shape(monkeypatch: pytest.MonkeyPatch):
+    """The producer's size (a constant plus the variable texts) equals the journal's count of the same record, with
+    each variable field None, empty or a text."""
+    import itertools  # noqa: PLC0415
+
+    from sharpit.engine import otel  # noqa: PLC0415
+    from sharpit.engine.capture.journal import value_bytes  # noqa: PLC0415
+    from sharpit.engine.sources import dispatch  # noqa: PLC0415
+
+    shown: list[str | None] = []
+    monkeypatch.setattr(otel, "current_trace_id", lambda: shown[0])
+    handle, _ = _install()
+    recorder = handle.context.capture.sql_trace
+    recorder.capture_call_site = True
+    fields = dispatch._SQL_FIELDS  # pyright: ignore[reportPrivateUsage]
+    texts = ("", "select ?", "select * from pets where id = ? " * 40)
+    optional = (None, "", "4bf92f3577b34da6a3ce929d0e0e4736")
+    for text, thread, request_id, site, trace_id in itertools.product(
+        texts, ("", "MainThread"), optional, optional, optional
+    ):
+        shown[:] = [trace_id]
+        info = (
+            RequestInfo(request_id, handle.context.context_id, "GET", "/x", None, 0, None)
+            if request_id is not None
+            else None
+        )
+        values, size = dispatch._journal_event(handle.context, recorder, _event(), text, info, thread, site)  # pyright: ignore[reportPrivateUsage]
+        assert size == fields.key_bytes + sum(map(value_bytes, values)), (text[:8], thread, request_id, site, trace_id)
