@@ -151,6 +151,21 @@ def test_connection_journal_second_checkin_is_ignored():
     assert len(_records(handle)) == 1
 
 
+def test_connection_journal_a_stale_checkout_is_not_offered_at_a_later_release():
+    # review finding: a state left by a checkout whose checkin listener was gone must not surface at the next release
+    from sharpit.engine.sqla import connections  # noqa: PLC0415
+
+    handle = _install()
+    with handle.engine.connect() as conn:
+        record = conn.connection._connection_record  # noqa: SLF001
+    baseline = len(_records(handle))
+    record.info[connections.CHECKOUT_KEY] = connections.Checkout([handle.context], None, None)  # left behind
+    with internal():
+        connections.checkout(None, record, None)  # sharpit's own reuse of the record follows nothing
+    connections.checkin(None, record)
+    assert len(_records(handle)) == baseline
+
+
 def test_connection_journal_not_offered_for_sharpit_internal_work():
     handle = _install()
     with internal():
@@ -164,7 +179,8 @@ def test_connection_journal_not_offered_when_source_disabled():
     disabled = _install(sources=("http",))
     _use(disabled.engine)
     assert _records(disabled) == ()
-    assert "connection" not in disabled.context.capture.journal.status()["dropped"]  # BootUI follows and counts nothing then
+    dropped = disabled.context.capture.journal.status()["dropped"]
+    assert "connection" not in dropped  # BootUI follows and counts nothing then
     assert not sqla.attached()["checkout"]  # and no pool listener runs for it
     enabled = _install()  # control: the same release is offered when the source is enabled
     _use(enabled.engine)
