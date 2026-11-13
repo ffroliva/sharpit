@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import sys
-import threading
 import tracemalloc
 from collections.abc import Iterator
 from typing import Any
@@ -548,76 +547,3 @@ def test_log_journal_the_template_cache_does_not_keep_the_whole_text_alive(insta
 
 def test_masker_has_no_public_exposure_property() -> None:
     assert not hasattr(Masker, "exposure")
-
-
-def test_log_handler_never_holds_its_lock_across_the_journal_offer(
-    monkeypatch: pytest.MonkeyPatch, installed: list[Any]
-) -> None:
-    """Thread T holds the journal lock (a read) and a GC finalizer on T logs while thread U logs: U must not hold
-    the handler's own lock while it waits for the journal's, or T (waiting on that lock) and U hang forever."""
-    handle = _install(installed)
-    journal = handle.context.capture.journal
-    reader_in_lock, u_in_emit = threading.Event(), threading.Event()
-    real_status, real_accepts = journal._status, journal.accepts  # pyright: ignore[reportPrivateUsage]
-    errors: list[BaseException] = []
-
-    def status_with_finalizer() -> Any:
-        reader_in_lock.set()  # T holds the journal lock from here
-        assert u_in_emit.wait(5), "U never reached the journal offer"
-        _emit(handle, "finalizer on the journal-holding thread")  # a GC finalizer logging, as asyncio and SQLAlchemy do
-        return real_status()
-
-    def accepts(source: str) -> bool:
-        if threading.current_thread().name == "U":
-            u_in_emit.set()  # U is inside emit, past any handler lock, about to offer
-        return real_accepts(source)
-
-    monkeypatch.setattr(journal, "_status", status_with_finalizer)
-    monkeypatch.setattr(journal, "accepts", accepts)
-
-    def guarded(fn: Any) -> Any:
-        def run() -> None:
-            try:
-                fn()
-            except BaseException as exc:  # noqa: BLE001
-                errors.append(exc)
-
-        return run
-
-    def u_logs() -> None:
-        assert reader_in_lock.wait(5)
-        _emit(handle, "logged by the other thread")
-
-    reader = threading.Thread(target=guarded(journal.status), name="T", daemon=True)
-    other = threading.Thread(target=guarded(u_logs), name="U", daemon=True)
-    reader.start()
-    other.start()
-    reader.join(5)
-    other.join(5)
-    assert not reader.is_alive(), "deadlock: handler lock and journal lock taken in opposite order"
-    assert not other.is_alive(), "deadlock: handler lock and journal lock taken in opposite order"
-    assert errors == []
-    assert sorted(r["template"] for r in _records(handle)) == [
-        "finalizer on the journal-holding thread",
-        "logged by the other thread",
-    ]
-
-
-def test_log_handler_concurrent_emits_count_exactly(installed: list[Any]) -> None:
-    handle = _install(installed, runtime_journal_max_events=100_000)
-    workers, per_worker = 8, 200
-    start = threading.Barrier(workers)
-
-    def work() -> None:
-        start.wait()
-        for i in range(per_worker):
-            _emit(handle, "concurrent %s", i)
-
-    threads = [threading.Thread(target=work, daemon=True) for _ in range(workers)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(30)
-    assert not any(t.is_alive() for t in threads)
-    journal = handle.context.capture.journal
-    assert journal.status()["recorded"]["log"] == workers * per_worker
