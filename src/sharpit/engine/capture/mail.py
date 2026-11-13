@@ -4,9 +4,9 @@ and ``aiosmtplib``.
 The capture point is ``smtplib.SMTP.sendmail`` and ``aiosmtplib.SMTP.sendmail`` only (W0 spike c): ``send_message``,
 the SMTP subclasses and fastapi-mail all end in ``sendmail``, so one message is captured once. ``aiosmtplib`` is never
 imported here: it is wrapped when the host has already imported it, or the moment the host imports it later (a
-``sys.meta_path`` finder scoped to that one name, removed with the last recorder). The wrap is process-wide and holds
-every armed recorder (one per ``install()``) by a weak reference, so an app
-dropped without shutting down stops capturing once it is garbage-collected; the last one out restores the originals.
+``sys.meta_path`` finder scoped to that one name, left in place and inert without a recorder). The wrap is
+process-wide and holds every armed recorder (one per ``install()``) by a weak reference, so an app dropped without
+shutting down stops capturing once it is garbage-collected; the last one out restores the originals.
 In a request, only that app's recorder records the message and only its trap decides; outside a request (a worker
 thread, a websocket handler, startup, a script) the message is no app's, so every live recorder records it and the trap
 holds it only when every live armed app has the trap on (a non-trap app's real mail is never swallowed).
