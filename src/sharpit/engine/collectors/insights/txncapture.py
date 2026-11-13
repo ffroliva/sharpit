@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 DISABLED = "Transaction capture is disabled (SHARPIT_TRANSACTIONS_ENABLED=false), so no transaction is recorded."
 NOT_RECORDED_SUFFIX = " Its transaction evidence is not counted."  # SqlCapture's suffix, for transactions
+UNREADABLE = (
+    "Whether this application's transactions are recorded could not be read ({}), so no transaction is counted."
+)
 SOURCE = "transaction"
 
 

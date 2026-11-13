@@ -20,6 +20,7 @@ from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_cap
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 from sharpit.engine.collectors.insights.txncapture import NOT_RECORDED_SUFFIX as TRANSACTIONS_NOT_RECORDED_SUFFIX
 from sharpit.engine.collectors.insights.txncapture import SOURCE as TRANSACTION
+from sharpit.engine.collectors.insights.txncapture import UNREADABLE as TXN_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.txncapture import TransactionCapture
 from sharpit.engine.collectors.insights.txncapture import for_context as transaction_capture_for
 
@@ -283,7 +284,7 @@ class InsightsService:
         try:
             return self.transaction_capture() or TransactionCapture.capturing()
         except Exception as error:  # noqa: BLE001 - the report never fails over this question
-            return TransactionCapture.not_recorded(SQL_CAPTURE_UNREADABLE.format(type(error).__name__))
+            return TransactionCapture.not_recorded(TXN_CAPTURE_UNREADABLE.format(type(error).__name__))
 
     def _evaluate(
         self, observation: Observation, snapshot: Snapshot, capture: SqlCapture, transactions: TransactionCapture

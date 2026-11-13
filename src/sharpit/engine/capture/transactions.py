@@ -303,8 +303,10 @@ class TransactionRecorder:
             entry_id = next(self._ids)
             if self.recording:
                 self._make_room_locked()
-            elif len(self._open) >= 2 * self.max_entries:
-                self._open.pop(next(iter(self._open)))  # the oldest: an abandoned journal-only row never ends
+            if len(self._open) >= 2 * self.max_entries:  # the oldest: an abandoned row never ends
+                abandoned = self._open.pop(next(iter(self._open)))
+                if (start := abandoned["_journal"]) is not None:
+                    start[0].count_dropped(JOURNAL_SOURCE)
             row = _ROW_FIXED.copy()
             row["id"] = entry_id
             row["methodName"] = method or "unknown"
@@ -330,8 +332,7 @@ class TransactionRecorder:
         if len(self._entries) >= 2 * self.max_entries:
             # Open rows may outlive capacity (a long transaction) but never twice it: a connection dropped
             # without an end event would otherwise grow the ring forever.
-            stale = self._entries.popleft()
-            self._open.pop(stale["id"], None)
+            self._entries.popleft()  # still in ``_open``: its event outlives the panel row (BootUI's ``active`` map)
             self._evicted += 1
             self._evicted_open += 1
 
@@ -388,17 +389,14 @@ class TransactionRecorder:
     def _evict_completed_locked(self) -> bool:
         for row in self._entries:
             if row["endTimestamp"] is not None:
-                self._entries.remove(row)
-                self._unsettled.pop(row["id"], None)
+                self._entries.remove(row)  # an unsettled row stays in ``_unsettled``: its event is still to come
                 self._evicted += 1
                 return True
         return False
 
     def clear(self) -> None:
         with self._lock:
-            self._entries.clear()
-            self._open.clear()
-            self._unsettled.clear()
+            self._entries.clear()  # open and unsettled rows go on to their event, as BootUI's ``active`` map does
         self.changes.signal()
 
     def set_recording(self, enabled: bool) -> None:
@@ -672,11 +670,15 @@ def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
         dispatch.routing_failed(exc)
 
 
+# a SELECT and the savepoint statements undo nothing on rollback (BootUI has no write count: sharpit's own rule)
+_NO_WRITE = ("select", "savepoint", "release savepoint", "rollback to savepoint")
+
+
 def tx_statement(conn: Any, _cursor: Any, statement: str, *_: object) -> None:
     """Count a statement that is not a SELECT (``WRITES``). Leading comments, ``WITH`` and anything else count as a
     write: a rollback is then reported, never hidden."""
     try:
-        if statement[:16].lstrip()[:6].lower() != "select":
+        if not statement.lstrip()[:21].lower().startswith(_NO_WRITE):
             info = conn.info
             info[WRITES] = info.get(WRITES, 0) + 1
     except Exception as exc:  # noqa: BLE001 - never affect the application's statement
