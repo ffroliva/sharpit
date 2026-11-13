@@ -599,9 +599,11 @@ def _refuse_or_pass(cause: Exception) -> None:
 def _wrap_loaded_or_refuse(module: Any) -> None:
     try:
         _wrap_loaded(module)
-    except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
+    # the capture never fails a host's import, unless a trap must hold
+    except Exception as exc:  # noqa: BLE001
         if _trap_on():  # none of the package may stay loaded: ``from aiosmtplib.smtp import ...`` would skip the hook
-            for name in [n for n in list(sys.modules) if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
+            loaded = list(sys.modules)  # a snapshot: another thread may import while this walks it
+            for name in [n for n in loaded if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
                 sys.modules.pop(name, None)
         _refuse_or_pass(exc)
 
@@ -660,7 +662,8 @@ def ensure_wrapped() -> None:
             return
         try:
             _wrap_loaded(module, blocking=False)
-        except Exception:  # noqa: BLE001 - reported below, never raised into the request
+        # reported below, never raised into the request
+        except Exception:  # noqa: BLE001
             if _trap_on():
                 _report_untrapped(module)
 
