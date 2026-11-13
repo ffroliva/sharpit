@@ -192,8 +192,9 @@ def test_cli_scan_tool(tmp_path: Path):
     assert "SEC-CORS-002" in response.text
 
 
-def test_trap_route_untouched_by_every_introspecting_surface():
-    # PLAN.md Review Focus 4: the shared trap test, run with this lane's surfaces (trap_surfaces_security.py)
+def test_the_shared_trap_sweep_reaches_the_security_surfaces():
+    # PLAN.md Review Focus 4: test_introspection_trap.py runs the sweep once over every lane's surfaces
+    # (trap_surfaces_*.py); this lane only proves its surfaces are among them, not a second identical sweep.
     path = Path(__file__).parent / "test_introspection_trap.py"
     spec = importlib.util.spec_from_file_location("_trap_for_security", path)
     assert spec is not None
@@ -201,8 +202,9 @@ def test_trap_route_untouched_by_every_introspecting_surface():
     trap = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(trap)
     assert "/sharpit/api/security" in get_paths()  # the route is mounted, so the sweep really reaches it
+    assert "/sharpit/api/security" in trap.GET_PATHS
+    assert "get_security_report" in trap.MCP_TOOLS
     assert "security_scan" in trap.CLI_TOOLS
-    trap.test_trap_route_untouched_by_every_introspecting_surface()
 
 
 class _HandWrapper:

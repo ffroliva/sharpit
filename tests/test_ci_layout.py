@@ -1,5 +1,6 @@
 """CI layout costs, pinned by count, never by wall clock: where lint runs, how a leg is sharded, the tracer."""
 
+import json
 import os
 import re
 import shutil
@@ -338,17 +339,48 @@ def _live_leg_filters() -> dict[str, str]:
     return result
 
 
+# One collection of tests/live, then each leg's CI ``-k`` filter applied to those items by pytest's own
+# ``deselect_by_keyword`` (what ``-k`` runs), instead of one nested collection per leg.
+_LIVE_LEG_COLLECTOR = """
+import json, sys
+from pathlib import Path
+import pytest
+from _pytest.mark import deselect_by_keyword  # private: pytest has no public API that applies -k to collected items
+
+expressions, out = json.loads(sys.argv[1]), sys.argv[2]
+
+
+class Collector:
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(self, config, items):
+        selected = {}
+        for leg, expression in expressions.items():
+            remaining = list(items)
+            config.option.keyword = expression
+            deselect_by_keyword(remaining, config)
+            selected[leg] = [item.nodeid for item in remaining]
+        config.option.keyword = ""
+        Path(out).write_text(json.dumps({"all": [item.nodeid for item in items], "legs": selected}), encoding="utf-8")
+
+
+sys.exit(pytest.main(sys.argv[3:], plugins=[Collector()]))
+"""
+
+
 @pytest.mark.needs_sqlalchemy  # it collects tests/live, which imports the SQLAlchemy stack
-@pytest.mark.timeout(300)  # five nested collections; see NESTED_RUN_TESTS
-def test_the_live_legs_partition_the_live_tests() -> None:
+@pytest.mark.timeout(300)  # a nested collection of 22k tests; see NESTED_RUN_TESTS
+def test_the_live_legs_partition_the_live_tests(tmp_path: Path) -> None:
     root = Path(__file__).parent.parent
     collection_environment = os.environ.copy()
     collection_environment.pop("SHARPIT_SHARD", None)
+    result_file = tmp_path / "live-legs.json"
     collected = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "pytest",
+            "-c",
+            _LIVE_LEG_COLLECTOR,
+            json.dumps(_live_leg_filters()),
+            str(result_file),
             "--collect-only",
             "-q",
             "-W",
@@ -365,38 +397,15 @@ def test_the_live_legs_partition_the_live_tests() -> None:
         check=False,
         timeout=900,
     )
-    nodeids = [line for line in collected.stdout.splitlines() if line.startswith("tests/live/") and "::" in line]
-    assert len(nodeids) >= 21_888, f"live collection unexpectedly small: {len(nodeids)} tests"
-    assert collected.returncode == 0, collected.stderr[-2000:]
+    assert collected.returncode == 0, (collected.stdout + collected.stderr)[-2000:]
+    report = json.loads(result_file.read_text(encoding="utf-8"))
+    nodeids = [nodeid for nodeid in report["all"] if nodeid.startswith("tests/live/") and "::" in nodeid]
+    # 21,888 live tests on 2026-11-13; the floor is ~91 % of that, so one removed test does not red this but a
+    # collection that silently lost a file or a parametrization (thousands of ids) does
+    assert len(nodeids) >= 20_000, f"live collection unexpectedly small: {len(nodeids)} tests"
     assert nodeids
-    test_paths = sorted({nodeid.split("[", 1)[0] for nodeid in nodeids})
-    selected: dict[str, set[str]] = {}
-    for leg, expression in _live_leg_filters().items():
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "--collect-only",
-                "-q",
-                "-W",
-                "ignore::pytest.PytestDeprecationWarning",
-                "-n",
-                "0",
-                *test_paths,
-                "--live",
-                "-k",
-                expression,
-            ],
-            cwd=root,
-            env=collection_environment,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=900,
-        )
-        assert result.returncode == 0, f"{leg}: {result.stderr[-2000:]}"
-        selected[leg] = {line for line in result.stdout.splitlines() if line.startswith("tests/live/") and "::" in line}
+    selected = {leg: set(ids) for leg, ids in report["legs"].items()}
+    assert all(selected.values()), f"a live leg selects nothing: {[leg for leg, ids in selected.items() if not ids]}"
     assigned = set().union(*selected.values())
     assert assigned == set(nodeids), f"unassigned live tests: {set(nodeids) - assigned}"
     overlaps = {
