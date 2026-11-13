@@ -375,7 +375,7 @@ class RuntimeJournal:
         """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
         dropped = dict(self._dropped)
         if self._reentrant:
-            dropped[REENTRANT] = self._reentrant
+            dropped[REENTRANT] = dropped.get(REENTRANT, 0) + self._reentrant  # add: never hide a source of that name
         return {
             "enabled": True,
             "runId": self.run_id,
