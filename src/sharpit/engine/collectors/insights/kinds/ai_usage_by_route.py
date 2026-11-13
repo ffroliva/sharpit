@@ -2,9 +2,9 @@
 
 Deviations (proposed): an operation joins its request by request id, else by trace id (sharpit's AI event carries no
 start time for BootUI's time-window join, and there is no PROPAGATED tier: REQUEST_ID is a request-id join, TRACE_ID
-the rest); an operation that joins no retained request, and is no left-out request's, is counted in the check's ``uncounted`` text; a call without
-``durationNanos`` is left out of the median, which is then not stated; the not-applicable reason names no Java
-framework.
+the rest); an operation that joins no retained request, and is no left-out request's, is counted in the check's
+``uncounted`` text; a call without ``durationNanos`` is left out of the median, which is then not stated;
+the not-applicable reason names no Java framework.
 """
 
 from __future__ import annotations
