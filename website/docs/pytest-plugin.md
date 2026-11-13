@@ -2,7 +2,7 @@
 
 The sharpit pytest plugin turns runtime capture into findings you can gate CI on.
 Running `pytest --sharpit` requires no changes to your application code. It tags every SQL statement
-and observable exception with the running test, checks query budgets and N+1 patterns, runs offline advisors,
+and observable exception with the running test, checks query budgets and N+1 patterns, runs the REST API advisor,
 and generates JSON and JUnit reports.
 
 The plugin reads `sharpit.yml` from the state directory given by `SHARPIT_STATE_DIR` (or the default), not from an
@@ -15,7 +15,8 @@ When invoked with `--sharpit`, the plugin:
 - Attaches capture hooks for SQLAlchemy and raw `sqlite3` before any tests run.
 - Correlates queries and observable exceptions to the active test using context variables.
 - Evaluates per-test query budgets, N+1 query patterns, and swallowed exceptions during the `call` phase.
-- Runs offline static advisors (such as the REST API advisor) across all discovered ASGI applications.
+- Runs the REST API advisor across all discovered ASGI applications (the security, database, architecture and
+  FastAPI advisors need a running app and are not part of the pytest run).
 - Writes a consolidated `sharpit-report/1` JSON report and optional JUnit XML.
 - Returns exit code 1 if any gate fails, or if capture was incomplete (`unknown` status).
 

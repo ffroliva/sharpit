@@ -1,6 +1,6 @@
 # The safety gate
 
-`pytest --sharpit` runs sharpit's existing test-session gates and advisors. The run fails when a finding meets the
+`pytest --sharpit` runs sharpit's test-session gates and the REST API advisor. The run fails when a finding meets the
 configured severity threshold (`--sharpit-fail-on`, default `HIGH`), or when sharpit cannot establish that the run was
 fully observed. INFO findings and dismissed findings do not fail. With a baseline, existing findings do not fail; new
 findings do.
