@@ -748,6 +748,21 @@ def test_a_loader_the_hook_cannot_wrap_never_fails_the_hosts_import(
         assert late_aiosmtplib().SMTP  # type: ignore[attr-defined]
 
 
+def test_the_real_aiosmtplib_imported_after_install_is_trapped(
+    no_smtp_server: list[object], monkeypatch: pytest.MonkeyPatch
+):
+    # the real package, not the stand-in: its ``send`` must be captured and never reach a socket
+    for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
+        monkeypatch.delitem(sys.modules, name)
+    with harness(email_dev_trap=True) as h:
+        real = importlib.import_module("aiosmtplib")
+        errors, reply = asyncio.run(real.send(_message("real late"), hostname="smtp.example.test", port=587))
+        assert errors == {}
+        assert reply
+        assert no_smtp_server == []
+        assert [m["subject"] for m in h.emails()["messages"]] == ["real late"]
+
+
 class _BusyLock:
     """A registry lock another thread holds past the wait: ``acquire`` gives up at once."""
 
