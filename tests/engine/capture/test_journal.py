@@ -106,14 +106,20 @@ def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_cou
         def __iter__(self) -> Any:  # a Counter that iterates its own way is copied through ``keys()``
             return super().__iter__()
 
-        def keys(self) -> Any:  # ``dict(counter)`` reads the keys, then the values
+        def keys(self) -> Any:  # ``dict(counter)`` iterates the keys: the finalizer runs in the MIDDLE of that walk
+            for n, key in enumerate(super().keys()):
+                yield key
+                if n == 0 and not nested:
+                    Finalized()
             if not nested:
                 Finalized()
-            return super().keys()
 
+    before: dict[str, int] = {}
     if where == "ring":
         journal._events = Ring(journal._events)  # pyright: ignore[reportPrivateUsage]
     else:
+        journal.offer_flat({"source": "unconfigured"})  # one key to iterate, so a refusal adds a SECOND while it runs
+        before = {"unconfigured": 1}
         journal._dropped = Spy(journal._dropped)  # pyright: ignore[reportPrivateUsage]
     reads = {"records": lambda: journal.records("sql"), "view": lambda: journal.view(["sql"]), "status": journal.status}
     raised: list[str] = []
@@ -123,7 +129,7 @@ def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_cou
         raised.append(f"{type(exc).__name__}: {exc}")
     assert raised == []
     assert nested == [False]
-    assert journal.status()["dropped"] == {"reentrant": 1}
+    assert journal.status()["dropped"] == {**before, "reentrant": 1}
     assert journal.status()["retainedEvents"] == 2
 
 
@@ -150,6 +156,21 @@ def test_a_nested_offer_during_an_append_is_refused_before_it_copies_anything() 
     assert journal.offer({"source": "sql", "sql": "select 1"}) is True
     assert nested == [False]
     assert copied == []  # refused at entry: no host-side copy under the held lock
+
+
+def test_the_host_copy_of_an_event_runs_outside_the_lock() -> None:
+    """``__str__``/``__repr__`` of a host object run in ``_snapshot``: another thread must not wait on them."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("log",))
+    held: list[bool] = []
+
+    class Host:
+        def __repr__(self) -> str:
+            held.append(journal._owned())  # pyright: ignore[reportPrivateUsage]
+            return "host"
+
+    assert journal.offer({"source": "log", "value": Host()}) is True
+    assert held
+    assert held == [False] * len(held)
 
 
 def test_journal_masks_raw_events_when_records_are_read() -> None:
