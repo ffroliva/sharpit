@@ -13,6 +13,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -145,21 +146,30 @@ print({DONE!r})
 
 
 def _run_child(script: str, tmp_path: Path) -> str:
-    """Run in ``tmp_path`` with its own state dir: the child's install must write nothing under the repo root."""
-    try:
-        done = subprocess.run(  # noqa: S603 - our own interpreter and a literal script
+    """Run in ``tmp_path`` with its own state dir: the child's install must write nothing under the repo root.
+
+    A hung child is the defect, so it is an assertion (polled against a deadline, output to files so no pipe fills),
+    never a ``TimeoutExpired`` crash."""
+    out, err = tmp_path / "child.out", tmp_path / "child.err"
+    with out.open("w") as stdout, err.open("w") as stderr:
+        child = subprocess.Popen(  # noqa: S603 - our own interpreter and a literal script
             [sys.executable, "-c", textwrap.dedent(script)],
-            capture_output=True,
+            stdout=stdout,
+            stderr=stderr,
             text=True,
-            timeout=CHILD_TIMEOUT,
-            check=False,
             cwd=tmp_path,
             env={**os.environ, "SHARPIT_STATE_DIR": str(tmp_path / "state")},
         )
-    except subprocess.TimeoutExpired:
-        pytest.fail(f"deadlock: the child did not finish within {CHILD_TIMEOUT}s")
-    assert done.returncode == 0, done.stderr
-    return done.stdout
+        deadline = time.monotonic() + CHILD_TIMEOUT
+        while child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        finished = child.poll() is not None
+        if not finished:
+            child.kill()
+            child.wait()
+    assert finished, f"deadlock: the child did not finish within {CHILD_TIMEOUT}s"
+    assert child.returncode == 0, err.read_text()
+    return out.read_text()
 
 
 def test_log_handler_never_holds_its_lock_across_the_journal_offer(tmp_path: Path) -> None:
