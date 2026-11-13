@@ -850,6 +850,13 @@ def test_an_aiosmtplib_that_is_not_installed_still_raises_module_not_found_under
             importlib.import_module("aiosmtplib")
 
 
+def _import_or_the_refusal(name: str) -> types.ModuleType | ImportError:
+    try:
+        return importlib.import_module(name)
+    except ImportError as exc:
+        return exc
+
+
 class _SharedLoader(importlib.abc.Loader):
     """One loader instance for several modules, as zipimporter or a frozen importer is."""
 
@@ -881,7 +888,9 @@ def test_a_probe_of_aiosmtplib_does_not_break_other_modules_of_a_shared_loader(m
         with harness(email_dev_trap=True):
             _behind_the_hook(monkeypatch, _SharedLoaderFinder(loader))
             assert importlib.util.find_spec("aiosmtplib")  # an availability probe, no import
-            assert importlib.import_module("sharpit_probe_other").VALUE == 1
+            other = _import_or_the_refusal("sharpit_probe_other")
+            assert isinstance(other, types.ModuleType), other
+            assert other.VALUE == 1  # type: ignore[attr-defined]
     finally:
         sys.modules.pop("sharpit_probe_other", None)
         _purge_aiosmtplib()
@@ -904,7 +913,7 @@ def test_a_late_aiosmtplib_whose_connect_cannot_be_wrapped_is_refused_while_the_
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ):
     # code-review finding 2: only sendmail was required; ``connect`` is the wrap that stops the socket
-    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB.replace("class SMTPResponse", "class _NotAResponse"))
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB.replace("SMTPResponse", "NotAResponse"))
     try:
         with harness(email_dev_trap=True):
             _import_refused_without_a_socket([])
@@ -936,7 +945,9 @@ def test_a_meta_path_finder_without_find_spec_does_not_refuse_the_import(
     # code-review finding 4: the hook's AttributeError became a refusal of an installed, wrappable module
     with harness(email_dev_trap=True):
         _behind_the_hook(monkeypatch, _FindModuleOnly())  # type: ignore[arg-type]
-        assert _wrapped_after_late_import(late_aiosmtplib())
+        module = _import_or_the_refusal("aiosmtplib")
+        assert isinstance(module, types.ModuleType), module
+        assert _wrapped_after_late_import(module)
 
 
 def test_mail_journal_event_is_metadata_only():
