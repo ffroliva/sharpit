@@ -10,9 +10,9 @@ Deviations from BootUI, for the owner's list:
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
   suspended, from a source not configured, and one event larger than the whole byte bound. An offer whose source
-  cannot be read is counted under a key no source has: ``reentrant`` (made by a thread that holds the lock: inside an
-  append or a read) or ``failed`` (a
-  non-string source, or an event that raised or nested too deep while it was copied).
+  cannot be read is counted under a key no source has: ``reentrant`` (made by a thread that holds the lock or is
+  copying an event: inside an append, a read or a copy) or ``failed`` (a non-string source, or an event that raised or
+  nested too deep while it was copied).
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
 source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-paths``), is added to
@@ -237,6 +237,7 @@ class RuntimeJournal:
         self._accepting = True
         self._lock = threading.RLock()
         self._owned = cast("Any", self._lock)._is_owned  # noqa: SLF001  # whether THIS thread holds the lock
+        self._copying = threading.local()  # set while this thread runs the host copy, which runs outside the lock
 
     def offer(self, event: Event) -> bool:
         return self._offer(event, _snapshot)
@@ -252,14 +253,17 @@ class RuntimeJournal:
         return self._offer(event, lambda stored: (stored, size))
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
-        if self._owned():  # made while this thread is inside an append or a read (a finalizer): never recurse
+        if self._owned() or getattr(self._copying, "active", False):  # in an append, read or copy: never recurse
             self.count_dropped(REENTRANT)  # before any copy of the event
             return False
+        self._copying.active = True
         try:
             prepared = store(event)  # host ``__str__``/``__repr__`` run here, before the lock: no one waits on them
         except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
             self.count_dropped(FAILED)
             return False
+        finally:
+            self._copying.active = False
         with self._lock:
             try:
                 return self._append(event, prepared)
@@ -296,9 +300,11 @@ class RuntimeJournal:
 
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
-        event). Under the lock the other writers hold, which is reentrant: a producer may call it inside ``offer``."""
+        event). Under the lock the other writers hold. A call from a thread that already holds it (a finalizer inside a
+        read) is counted ``reentrant`` whatever its key: it must not add a key to a counter that read is walking."""
+        held = self._owned()  # before taking the (reentrant) lock, which makes every caller its owner
         with self._lock:
-            if key == REENTRANT:
+            if key == REENTRANT or held:
                 self._reentrant += 1
             else:
                 self._dropped[key] += 1

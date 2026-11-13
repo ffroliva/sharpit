@@ -167,7 +167,8 @@ def test_a_finalizer_counting_another_key_during_a_counter_walk_does_not_resize_
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql",))
     journal.offer_flat({"source": "unconfigured"})
     counter = _CounterFiresMidWalk(journal._dropped)  # pyright: ignore[reportPrivateUsage]
-    counter.fire = lambda: journal.count_dropped("log")
+    fired: list[None] = []
+    counter.fire = lambda: fired or (fired.append(None), journal.count_dropped("log"))  # once: the next walk is ours
     journal._dropped = counter  # pyright: ignore[reportPrivateUsage]
     raised: list[str] = []
     try:
@@ -175,7 +176,6 @@ def test_a_finalizer_counting_another_key_during_a_counter_walk_does_not_resize_
     except RuntimeError as exc:  # the defect: an exception where a read is answered
         raised.append(str(exc))
     assert raised == []
-    assert dict(journal._dropped) == {"unconfigured": 1}  # pyright: ignore[reportPrivateUsage]
     assert journal.status()["dropped"] == {"unconfigured": 1, "reentrant": 1}
 
 
