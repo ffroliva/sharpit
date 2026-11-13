@@ -70,10 +70,9 @@ for t in threads:
     t.start()
 for t in threads:
     t.join()
-assert sorted(r["template"] for r in journal.records("log")) == [
-    "finalizer on the journal-holding thread",
-    "logged by the other thread",
-]
+journal._status = real_status  # the finalizer fires once: this read is ours
+assert [r["template"] for r in journal.records("log")] == ["logged by the other thread"]  # stored: only U's
+assert journal.status()["dropped"] == {{"reentrant": 1}}  # the finalizer's record: refused and counted, never stored
 print({DONE!r})
 """
 
@@ -166,7 +165,8 @@ def _run_child(script: str, tmp_path: Path) -> str:
 
 def test_log_handler_never_holds_its_lock_across_the_journal_offer(tmp_path: Path) -> None:
     """Thread T holds the journal lock (a read) and a GC finalizer on T logs while thread U logs: U must not hold
-    the handler's own lock while it waits for the journal's, or T (waiting on that lock) and U hang forever."""
+    the handler's own lock while it waits for the journal's, or T (waiting on that lock) and U hang forever. Both
+    finish, and the finalizer's record is refused and counted ``reentrant`` (#178), never stored."""
     assert DONE in _run_child(_LOG_HANDLER_CHILD, tmp_path)
 
 
@@ -199,62 +199,106 @@ def test_handle_returns_what_the_filters_return(kind: str) -> None:
     assert not handler.handle(record)
 
 
-def test_fail_warns_once_when_threads_fail_at_the_same_time(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The handler lock used to serialise the ``_failed`` check-then-set: with none, two threads could both warn."""
-    meet = threading.Barrier(4)
+def test_fail_reads_the_failed_flag_only_with_its_lock_held(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The handler lock used to serialise the ``_failed`` check-then-set; ``_fail_lock`` must now cover every read."""
     warnings: list[logging.LogRecord] = []
 
     class Sink(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
             warnings.append(record)
 
-    class Racy(SharpitLogHandler):
-        """Every thread reads ``_failed`` while it is still unset and waits there for the others."""
+    reads: list[bool] = []
 
+    class Watched(SharpitLogHandler):
         _flag = False
 
         @property
         def _failed(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
-            seen = self._flag
-            if not seen:
-                with contextlib.suppress(threading.BrokenBarrierError):
-                    meet.wait(0.3)
-            return seen
+            reads.append(self._fail_lock.locked())
+            return self._flag
 
         @_failed.setter
         def _failed(self, value: bool) -> None:
             self._flag = value
 
     monkeypatch.setattr(logging, "lastResort", Sink())
-    handler = Racy(Masker(Exposure.MASKED, True), None, lambda: None)
+    handler = Watched(Masker(Exposure.MASKED, True), None, lambda: None)
     threads = [threading.Thread(target=handler._fail, args=(RuntimeError("x"),)) for _ in range(4)]  # pyright: ignore[reportPrivateUsage]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
+    assert reads == [True] * 4
     assert len(warnings) == 1
 
 
-def test_mark_seen_counts_one_exception_logged_on_two_threads_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both threads read the mark before either writes it: the store's lock must make the second one see the first's."""
-    meet = threading.Barrier(2)
-    real = exceptions_module._mark  # pyright: ignore[reportPrivateUsage]
+class _Seen(Exception):
+    """An exception whose mark lookup reports whether ``_MARK_LOCK`` is held while the host's ``__getattr__`` runs."""
 
-    def mark_then_meet(exc: BaseException, slot: str) -> str | None:
-        prior = real(exc, slot)
-        with contextlib.suppress(threading.BrokenBarrierError):
-            meet.wait(0.3)
-        return prior
+    def __init__(self) -> None:
+        super().__init__("seen")
+        self.lookups: list[bool] = []
 
-    monkeypatch.setattr(exceptions_module, "_mark", mark_then_meet)
+    def __getattr__(self, name: str) -> object:
+        if name.startswith("__sharpit_seen"):
+            self.__dict__.setdefault("lookups", []).append(exceptions_module._MARK_LOCK.locked())  # pyright: ignore[reportPrivateUsage]
+        raise AttributeError(name)
+
+
+def test_mark_seen_runs_no_host_lookup_under_the_lock_for_an_exception_already_marked() -> None:
+    """The common repeat (the same exception logged again in the same request) needs no lock and no host call under it."""
+    error = _Seen()
+    assert exceptions_module.mark_seen(error, "req-1", "_lookup") is True
+    error.lookups.clear()
+    exceptions_module._FALLBACK[(id(error), "_lookup")] = "req-1"  # pyright: ignore[reportPrivateUsage]
+    assert exceptions_module.mark_seen(error, "req-1", "_lookup") is False
+    assert error.lookups == [False]
+
+
+def test_mark_seen_counts_one_exception_logged_on_two_threads_once() -> None:
+    """Both threads see no mark: the lock must make the second one re-read and see the first's."""
     error = ValueError("one exception")
     firsts: list[bool] = []
-    threads = [
-        threading.Thread(target=lambda: firsts.append(exceptions_module.mark_seen(error, None, "_race")))
-        for _ in range(2)
-    ]
+    start = threading.Barrier(2, timeout=5)
+
+    def mark() -> None:
+        start.wait()
+        firsts.append(exceptions_module.mark_seen(error, None, "_race"))
+
+    threads = [threading.Thread(target=mark) for _ in range(2)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
     assert firsts.count(True) == 1
+
+
+class _ProbeLock:
+    """The buffer's lock, recording whether this thread's flag is up when the lock is taken and when it is left."""
+
+    def __init__(self, held: threading.local) -> None:
+        self.held, self.real = held, threading.Lock()
+        self.entered: list[bool] = []
+        self.leaving: list[bool] = []
+
+    def __enter__(self) -> bool:
+        self.entered.append(getattr(self.held, "on", False))
+        return self.real.__enter__()
+
+    def __exit__(self, *exc: object) -> None:
+        self.leaving.append(getattr(self.held, "on", False))
+        self.real.__exit__(*exc)
+
+
+def test_the_buffer_flag_is_up_before_the_lock_is_taken_and_down_after_it_is_released() -> None:
+    """A finalizer in either gap must be dropped, not wait on the lock this thread holds: the same order as
+    ``exceptions._guarded``."""
+    from sharpit.engine.capture.logtail import LogTailBuffer
+
+    buffer = LogTailBuffer(10, 10_000)
+    probe = _ProbeLock(buffer._held)  # pyright: ignore[reportPrivateUsage]
+    buffer._lock = probe  # pyright: ignore[reportPrivateUsage,reportAttributeAccessIssue]
+    buffer.append({"message": "m", "thread": "t"})
+    buffer.clear()
+    assert probe.entered == [True, True]
+    assert probe.leaving == [True, True]
