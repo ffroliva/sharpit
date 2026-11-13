@@ -4,6 +4,7 @@ at capture, secrets never reach an output, and the journal event holds metadata 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import smtplib
 import socket
@@ -620,10 +621,8 @@ def test_an_aiosmtplib_imported_after_install_is_trapped(late_aiosmtplib: Callab
 
         async def session() -> object:
             smtp = module.SMTP()  # type: ignore[attr-defined]
-            try:
+            with contextlib.suppress(OSError):  # the untrapped connect reaches for a socket: in ``attempts``
                 await smtp.connect()
-            except OSError:  # the untrapped connect reaches for a socket: recorded in ``attempts``
-                pass
             await smtp.sendmail("a@x.test", ["b@x.test"], _message("late trapped").as_bytes())
             return smtp.sent
 

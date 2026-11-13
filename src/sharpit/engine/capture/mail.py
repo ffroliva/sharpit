@@ -3,8 +3,9 @@ and ``aiosmtplib``.
 
 The capture point is ``smtplib.SMTP.sendmail`` and ``aiosmtplib.SMTP.sendmail`` only (W0 spike c): ``send_message``,
 the SMTP subclasses and fastapi-mail all end in ``sendmail``, so one message is captured once. ``aiosmtplib`` is never
-imported here: it is wrapped when the host has already imported it (the attacher is retried at startup and on the first
-request). The wrap is process-wide and holds every armed recorder (one per ``install()``) by a weak reference, so an app
+imported here: it is wrapped when the host has already imported it, or the moment the host imports it later (a
+``sys.meta_path`` finder scoped to that one name, removed with the last recorder). The wrap is process-wide and holds
+every armed recorder (one per ``install()``) by a weak reference, so an app
 dropped without shutting down stops capturing once it is garbage-collected; the last one out restores the originals.
 In a request, only that app's recorder records the message and only its trap decides; outside a request (a worker
 thread, a websocket handler, startup, a script) the message is no app's, so every live recorder records it and the trap
@@ -29,7 +30,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import importlib.metadata
+import importlib.abc
+import importlib.machinery
 import smtplib
 import sys
 import threading
@@ -104,7 +106,15 @@ class MailEntry(NamedTuple):
 
 def _addresses(message: EmailMessage, name: str) -> tuple[str, ...]:
     values = [str(value) for value in message.get_all(name, [])]
-    return tuple(formataddr(pair) for pair in getaddresses(values) if pair[1] or pair[0])
+    return tuple(_address(pair) for pair in getaddresses(values) if pair[1] or pair[0])
+
+
+def _address(pair: tuple[str, str]) -> str:
+    try:
+        return formataddr(pair)
+    except UnicodeEncodeError:  # SMTPUTF8: formataddr only encodes ASCII; keep the text as written
+        name, address = pair
+        return f"{name} <{address}>" if name and address else address or name
 
 
 def _content(part: EmailMessage | None) -> str | None:
@@ -183,7 +193,6 @@ class MailRecorder:
         self.max_body_length = max(1, max_body_length)
         self.dev_trap = dev_trap
         self.paused = False
-        self.teardown_registered = False
         self._strict = Masker(Exposure.MASKED, True, token, identity_key=masker.identity_key)
         self._capture = capture
         self.context_id = context_id
@@ -274,7 +283,7 @@ class MailRecorder:
     # --- arming -------------------------------------------------------------------------------------------------------
 
     def arm(self) -> bool:
-        """Wrap what can be wrapped now; ``True`` when nothing more can come (``aiosmtplib`` absent or wrapped)."""
+        """Wrap what can be wrapped now and watch for a later ``aiosmtplib``; ``True`` once ``smtplib`` is wrapped."""
         # _refs is swapped whole under the lock and read lock-free by the wrappers
         global _refs  # noqa: PLW0603
         with _LOCK:
@@ -283,10 +292,10 @@ class MailRecorder:
             if not any(r is me for r in _live()):
                 _refs = (*_refs, weakref.ref(me, _forget))
             _wrap_senders(trap=any(r.dev_trap for r in _live()))
-            return "smtplib" in _WRAPPED and not _aiosmtplib_pending()
+            _watch_import()
+            return "smtplib" in _WRAPPED
 
     def disarm(self) -> None:
-        self.teardown_registered = False
         with _LOCK:
             _prune(drop=self)
 
@@ -515,14 +524,52 @@ def _async_create_connection(response: Callable[[int, str], Any]) -> Callable[[C
     return make
 
 
-def _aiosmtplib_pending() -> bool:
-    """The library is installed but the host has not imported it yet: the attacher is retried later."""
-    if "aiosmtplib" in sys.modules:
+class _LateImport(importlib.abc.MetaPathFinder):
+    """Scoped to ``aiosmtplib`` alone: when the host imports it after ``install()`` (inside a handler, a background
+    task) the module is wrapped the moment it finishes loading, before the host can use it. BootUI's post-processor
+    wraps every ``JavaMailSender`` bean as it is created, so a late one is never missed either."""
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname != "aiosmtplib":
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        loader = getattr(spec, "loader", None)
+        exec_module = getattr(loader, "exec_module", None)
+        if spec is None or exec_module is None:
+            return spec
+
+        def wrapped(module: Any) -> None:
+            exec_module(module)
+            _wrap_loaded()
+
+        loader.exec_module = wrapped  # type: ignore[union-attr]
+        return spec
+
+
+def _wrap_loaded() -> None:
+    """``aiosmtplib`` has just loaded: wrap it for every armed recorder. Never an error into the host's import."""
+    try:
+        with _LOCK:
+            live = _live()
+            if live:
+                _wrap_senders(trap=any(r.dev_trap for r in live))
+    except Exception:  # noqa: BLE001, S110 - the host's import never fails on the capture
+        pass
+
+
+def _watch_import() -> None:
+    """Under ``_LOCK``: until ``aiosmtplib`` is imported, watch for it; the watch ends with the last recorder."""
+    if "aiosmtplib" in sys.modules or "aiosmtplib.import" in _WRAPPED:
+        return
+    finder = _LateImport()
+    sys.meta_path.insert(0, finder)
+    _WRAPPED["aiosmtplib.import"] = lambda: _drop_finder(finder)
+
+
+def _drop_finder(finder: _LateImport) -> bool:
+    if finder not in sys.meta_path:
         return False
-    try:  # the distribution's metadata: nothing is imported (find_spec belongs to appsource alone)
-        importlib.metadata.distribution("aiosmtplib")
-    except importlib.metadata.PackageNotFoundError:
-        return False
+    sys.meta_path.remove(finder)
     return True
 
 
@@ -554,13 +601,8 @@ def _wrap_senders(*, trap: bool) -> None:
 
 
 def attach(ctx: Any) -> Callable[[], None] | None:
-    """A ``CaptureState.attachers`` entry: arm, and answer the remover once every sender that can be wrapped is."""
+    """A ``CaptureState.attachers`` entry: arm (an ``aiosmtplib`` imported later is wrapped by ``_LateImport``)."""
     recorder: MailRecorder | None = ctx.capture.mail
     if recorder is None:
         return None
-    if recorder.arm():
-        return recorder.disarm
-    if not recorder.teardown_registered:  # aiosmtplib is installed but not imported: retried, undone at uninstall
-        recorder.teardown_registered = True
-        ctx.capture.teardowns.append(recorder.disarm)
-    return None
+    return recorder.disarm if recorder.arm() else None
