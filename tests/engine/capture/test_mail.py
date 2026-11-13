@@ -1290,3 +1290,22 @@ def test_an_unwrappable_aiosmtplib_is_counted_and_warned_once_per_module_object(
         warned = [r for r in caplog.records if "dev email trap cannot hold" in r.getMessage()]
         assert len(warned) == 1
         assert "aiosmtplib imported before it could wrap it" in warned[0].getMessage()
+
+
+# coordinator review (#182): a module already reported as beyond the trap is not wrapped again at every request start
+def test_a_reported_unwrappable_aiosmtplib_is_not_retried_at_every_request_start(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    with harness(email_dev_trap=True) as h:
+        _unwrappable_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        attempts: list[object] = []
+        real = mail._wrap_loaded  # pyright: ignore[reportPrivateUsage]
+
+        def counting(module: object, **kwargs: object) -> None:
+            attempts.append(module)
+            real(module, **kwargs)  # pyright: ignore[reportArgumentType]
+
+        monkeypatch.setattr(mail, "_wrap_loaded", counting)
+        for _ in range(3):
+            mail.ensure_wrapped()
+        assert len(attempts) == 1
