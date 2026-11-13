@@ -2,20 +2,43 @@
 
 Deviations from BootUI, for the owner's list:
 
-- Queue without a drain thread: BootUI's ``JournalQueue`` is a bounded queue (one short lock per offer) that a
-  dispatcher thread drains into the ring. Here ``offer`` appends to a ``deque`` and takes no lock and writes no counter;
-  the drain (``_drain``) runs under ``_lock`` and is started by a producer that ``try``-acquires it, never waits for
-  it, once ``DRAIN_AT`` events are queued, and by every read, so a read sees every event offered before it and
-  ``queueDepth`` is the live depth. ``queue-capacity`` bounds the queue: a full queue refuses the offer, counted under
-  its source. Not ported: the share of the queue reserved for failed or slow events, and the ``reentrant`` drop key (an
-  offer from a finalizer or a ``__str__`` mid-offer is simply queued). ``recorded`` and ``dropped`` are folded in at the
-  drain, the only writer. Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted, counted.
+- Queue without a drain thread: BootUI's ``JournalQueue`` is a bounded queue (one short lock per offer,
+  ``JournalQueue.java:85-113``) that a dispatcher thread drains into the ring (``RuntimeJournal.java:431-470``, batches
+  of ``BATCH_SIZE`` 512, :62). Here ``offer`` appends to a ``deque`` and takes no lock and writes no counter; the drain
+  (``_drain``) runs under ``_lock``. A producer ``try``-acquires it, never waits for it, once ``wakeAt`` events are
+  queued (``JournalQueue.java:61``, ``max(1, routineLimit / 2)``, at most ``DRAIN_AT``) and moves at most
+  ``PRODUCER_BATCH`` of them, so its added work is O(1) amortised and a single offer's worst case is a constant. Every
+  read drains the whole queue first, so a read sees every event offered before it (BootUI's readers see the ring only,
+  :164) and ``queueDepth`` is the live depth (``current.size()``, :943). No drain thread: a thread per journal is a
+  bigger change than the cost it removes (``predict-journal-queue.md``, Architect).
+- Reserved queue share, ported: ``queue-capacity`` bounds the queue; a routine event is refused from
+  ``routineQueueLimit`` (``RuntimeJournalSettings.java:146-149``: ``capacity - min(capacity * 10 / 100, capacity - 1)``,
+  at least 1) and an event with ``failedOrSlow`` true may use the whole capacity (``JournalQueue.java:95``). A refusal
+  is counted under the event's source (``RuntimeJournal.enqueue`` :337). The producers that set ``failedOrSlow`` are
+  BootUI's (exceptions, ERROR logs); the percentage is BootUI's default, not a setting (BootUI has no property for it).
+  Deviation: the check and the append are two steps without a lock, so a share can be overshot by at most one event per
+  producer offering at that instant.
+- Re-entrancy follows BootUI, which has no re-entrancy guard in ``enqueue`` (:321-340): an offer made from inside an
+  offer (a ``__str__``, a finalizer) is queued like any other. The journal no longer produces the ``reentrant`` key;
+  the log tail's own guard still counts it through ``count_dropped``. A read made while this thread drains (a finalizer,
+  a GC callback) does not drain again: the nested drain returns, the outer one finishes in order.
+- Counters: ``recorded`` counts an event when it enters the ring, BootUI counts it at offer under the queue's lock
+  (``JournalQueue.java:99-101``). Python's ``+=`` is not atomic (not under free threading, nor across bytecodes
+  under the GIL), so only the drain, under ``_lock``, writes a counter; refusals made by producers wait in a
+  second ``deque`` the drain folds in. Every read drains first, so ``recorded`` always equals
+  ``retainedEvents + evictedEvents`` and never disagrees with the events the same read returns; an event offered during
+  the read is in ``queueDepth`` only.
+- Free-threaded Python (3.13t/3.14t) is NOT verified: no such interpreter is installed here. The design assumes
+  ``deque.append`` and ``deque.popleft`` are atomic per call (documented thread-safe, per-object critical sections in
+  free-threaded builds) and that ``len(deque)`` is a racy read that may be one off, which only moves a bound by one.
+  Known limit, not a claim.
+- Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted, counted.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
   suspended, from a source not configured, and one event larger than the whole byte bound. An offer whose source
-  cannot be read is counted under a key no source has: ``reentrant`` (made from inside an offer) or ``failed`` (a
-  non-string source, or an event that raised or nested too deep while it was copied).
+  cannot be read is counted under a key no source has: ``failed`` (a non-string source, or an event that raised or
+  nested too deep while it was copied).
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
 source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-paths``), is added to
@@ -37,8 +60,11 @@ from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
-DRAIN_AT = 128  # queued offers (or refusals) at which a producer drains: bounds the work on one statement
-REENTRANT, FAILED = "reentrant", "failed"  # the dropped keys of offers without a readable source
+DRAIN_AT = 128  # queued offers (or refusals) at which a producer drains, for a queue whose routine share is 256 or more
+PRODUCER_BATCH = 16  # the most events one producer moves in one offer: its added work is a constant
+RESERVED_QUEUE_PERCENT = 10  # BootUI DEFAULT_RESERVED_SHARE_PERCENT: the queue share kept for failed or slow events
+REENTRANT = "reentrant"  # the log tail's own guard counts it; the journal itself queues a re-entrant offer
+FAILED = "failed"  # the dropped key of an offer without a readable source or one that raised
 _MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
 SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
 _COUNTS = {"ai": frozenset({"inputTokens", "outputTokens"})}  # AiPayload's Long token counts: numbers, not secrets
@@ -222,15 +248,16 @@ class RuntimeJournal:
         max_events: int = 50_000,
         max_bytes: int = DEFAULT_MAX_BYTES,
         queue_capacity: int = 10_000,
-        reserved_queue_percent: int = 10,
+        reserved_queue_percent: int = RESERVED_QUEUE_PERCENT,
         sources: Iterable[str] | None = None,
         masker: Masker | None = None,
     ) -> None:
         self.max_events = max(1, max_events)
         self.max_bytes = max(1, max_bytes)
         self.queue_capacity = max(1, queue_capacity)
-        self.reserved_queue_percent = reserved_queue_percent  # stub: the red tests prove the share is not applied yet
-        self._drain_at = max(1, min(DRAIN_AT, self.queue_capacity // 2))  # before the queue is full, whatever its size
+        reserved = self.queue_capacity * min(100, max(0, reserved_queue_percent)) // 100
+        self.routine_queue_limit = max(1, self.queue_capacity - min(reserved, self.queue_capacity - 1))  # :146-149
+        self._drain_at = max(1, min(DRAIN_AT, self.routine_queue_limit // 2))  # JournalQueue wakeAt (:61)
         self.sources = None if sources is None else frozenset(sources)  # None: no filter (the wiring always passes one)
         self.masker = masker or Masker(Exposure.MASKED, True)
         self.run_id = uuid.uuid4().hex[:8]
@@ -243,6 +270,7 @@ class RuntimeJournal:
         self._evicted = 0
         self._binding_bound: str | None = None
         self._accepting = True
+        self._draining = False  # set under ``_lock`` by the drain: a nested drain on the same thread returns
         self._lock = threading.RLock()  # the drain's and the readers': a producer only ever try-acquires it
 
     def offer(self, event: Event) -> bool:
@@ -268,8 +296,9 @@ class RuntimeJournal:
                 return self._drop(source)  # suspended, or a source not configured: counted, never silently lost
             stored, size = store(event)
             queue = self._queue
-            if size > self.max_bytes or len(queue) >= self.queue_capacity:
-                return self._drop(source)  # larger than the whole byte bound, or no room in the queue
+            limit = self.queue_capacity if event.get("failedOrSlow") is True else self.routine_queue_limit  # :95
+            if size > self.max_bytes or len(queue) >= limit:
+                return self._drop(source)  # larger than the whole byte bound, or no room under the bound that applies
             queue.append((cast("dict[str, object]", stored), size, time.time_ns() // 1_000_000, source))
             if len(queue) >= self._drain_at:
                 self._try_drain()
@@ -286,17 +315,30 @@ class RuntimeJournal:
         return False
 
     def _try_drain(self) -> None:
-        """Drain if nobody else is: a producer never waits for the drain lock (a reader or another producer has it)."""
+        """Drain a batch if nobody else is: a producer never waits for the drain lock (a reader or another producer has
+        it) and moves at most ``PRODUCER_BATCH`` events."""
         if self._lock.acquire(blocking=False):
             try:
-                self._drain()
+                self._drain(PRODUCER_BATCH)
             finally:
                 self._lock.release()
 
-    def _drain(self) -> None:
-        """Move the queued events into the ring, oldest first, and fold in the refused offers; ``_lock`` is held."""
-        queue, events = self._queue, self._events
-        for _ in range(len(queue)):  # what is queued now: producers appending meanwhile wait for the next drain
+    def _drain(self, limit: int | None = None) -> None:
+        """Move up to ``limit`` queued events (all, by default) into the ring, oldest first, and fold in as many refused
+        offers; ``_lock`` is held. A drain started while this thread already drains (a finalizer or a GC callback that
+        reads the journal) returns: the outer one finishes, in order."""
+        if self._draining:
+            return
+        self._draining = True
+        try:
+            self._move(limit)
+        finally:
+            self._draining = False
+
+    def _move(self, limit: int | None) -> None:
+        queue, events, pending = self._queue, self._events, self._pending_drops
+        # what is queued now: producers appending meanwhile wait for the next drain
+        for _ in range(len(queue) if limit is None else min(limit, len(queue))):
             stored, size, stamp, source = queue.popleft()
             while events and (len(events) >= self.max_events or self._bytes + size > self.max_bytes):
                 self._binding_bound = "COUNT" if len(events) >= self.max_events else "BYTES"
@@ -306,8 +348,7 @@ class RuntimeJournal:
             events.append((stored, size, stamp))
             self._bytes += size
             self._accepted[source] += 1
-        pending = self._pending_drops
-        for _ in range(len(pending)):
+        for _ in range(len(pending) if limit is None else min(limit, len(pending))):
             self._dropped[pending.popleft()] += 1
 
     def accepts(self, source: str) -> bool:
