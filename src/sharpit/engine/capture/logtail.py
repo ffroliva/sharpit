@@ -20,6 +20,7 @@ from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
 from sharpit.engine.capture.exceptions import class_name
 from sharpit.engine.capture.journal import REENTRANT, JournalSink
+from sharpit.engine.capture.lockfree import LockFreeHandler
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, log_statement
@@ -42,6 +43,9 @@ class LogTailBuffer:
         self._bytes = 0
         self._seq = 0
         self._lock = threading.Lock()
+        self._held = (
+            threading.local()
+        )  # set while this thread holds ``_lock``: a finalizer's line is dropped, not waited on
         self.boot_nonce = secrets.token_hex(8)  # per process start: an SSE id from another process replays all
         self.stream = LineStream(self.after)
 
@@ -50,20 +54,32 @@ class LogTailBuffer:
     # needs a retry on the deque's RuntimeError.
     def append(self, line: dict[str, Any]) -> int:
         size = len((line.get("message") or "").encode()) + len((line.get("thread") or "").encode())
-        with self._lock:
-            self._seq += 1
-            seq = self._seq
-            self._lines.append((seq, line, size))
-            self._bytes += size
-            while len(self._lines) > self._max_lines or (self._bytes > self._max_bytes and len(self._lines) > 1):
-                self._bytes -= self._lines.popleft()[2]
+        held = self._held
+        if getattr(held, "on", False):  # a GC finalizer logging on the thread that holds the lock
+            return 0
+        held.on = True  # up before the lock is taken and down after it is released: no gap for a finalizer to wait in
+        try:
+            with self._lock:
+                self._seq += 1
+                seq = self._seq
+                self._lines.append((seq, line, size))
+                self._bytes += size
+                while len(self._lines) > self._max_lines or (self._bytes > self._max_bytes and len(self._lines) > 1):
+                    self._bytes -= self._lines.popleft()[2]
+        finally:
+            held.on = False
         self.stream.signal()
         return seq
 
     def clear(self) -> None:
-        with self._lock:
-            self._lines.clear()
-            self._bytes = 0
+        held = self._held
+        held.on = True  # same order as ``append``
+        try:
+            with self._lock:
+                self._lines.clear()
+                self._bytes = 0
+        finally:
+            held.on = False
         self.stream.signal()
 
     def recent(self) -> list[dict[str, Any]]:
@@ -162,7 +178,7 @@ def _record_message(record: logging.LogRecord, masker: Masker, dialect: Dialect)
         return record.msg if type(record.msg) is str else type(record.msg).__name__
 
 
-class SharpitLogHandler(logging.Handler):
+class SharpitLogHandler(LockFreeHandler):
     """Level ``NOTSET``: it sees what the app's logger levels let through and changes no level (spec §7.5)."""
 
     def __init__(
@@ -180,6 +196,7 @@ class SharpitLogHandler(logging.Handler):
         self.context_id: str | None = None  # the installed context a request's id must belong to to be offered
         self._local = threading.local()
         self._failed = False
+        self._fail_lock = threading.Lock()  # taken only on the failure path: one warning with no handler lock
         self.template_cache = lru_cache(maxsize=TEMPLATE_CACHE)(self._cached_template)
 
     def handleError(self, record: logging.LogRecord) -> None:
@@ -332,9 +349,10 @@ class SharpitLogHandler(logging.Handler):
 
     def _fail(self, exc: Exception) -> None:
         """One warning, straight to ``lastResort`` (no traceback, never back into this handler)."""
-        if self._failed:
-            return
-        self._failed = True
+        with self._fail_lock:
+            if self._failed:
+                return
+            self._failed = True
         last = logging.lastResort
         if last is not None:
             warning = logging.makeLogRecord(

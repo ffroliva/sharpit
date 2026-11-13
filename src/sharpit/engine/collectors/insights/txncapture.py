@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sharpit.engine.collectors.insights.capturestate import CaptureState
+
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
@@ -17,8 +19,13 @@ NOT_RECORDED_SUFFIX = " Its transaction evidence is not counted."  # SqlCapture'
 SOURCE = "transaction"
 
 
-def reason_for(ctx: SharpitContext) -> str | None:
-    """Why transactions are not recorded, ``None`` when they are: the flag ``install`` gates the recorder on
-    (``fastapi/install.py``, with the panel). A disabled panel is not this question: the snapshot already names it
-    (missing source first), so only the flag is reported here."""
-    return None if ctx.settings.transactions_enabled else DISABLED
+class TransactionCapture(CaptureState):
+    """Whether this application's transactions are recorded."""
+
+
+def for_context(ctx: SharpitContext) -> TransactionCapture:
+    """The flag ``install`` gates the recorder on (``fastapi/install.py``, with the panel). A disabled panel is not this
+    question: the snapshot already names it (missing source first), so only the flag is reported here."""
+    if ctx.settings.transactions_enabled:
+        return TransactionCapture.capturing()
+    return TransactionCapture.not_recorded(DISABLED)

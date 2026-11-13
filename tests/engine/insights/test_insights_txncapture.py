@@ -16,7 +16,7 @@ from sharpit import install
 from sharpit.engine.collectors.insights.finding import Evaluation
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.service import InsightsService, insights_service
-from sharpit.engine.collectors.insights.txncapture import reason_for
+from sharpit.engine.collectors.insights.txncapture import for_context
 
 LOCAL = ("127.0.0.1", 50000)
 OFF = "Transaction capture is disabled (SHARPIT_TRANSACTIONS_ENABLED=false), so no transaction is recorded."
@@ -48,7 +48,7 @@ def _seed(handle: Any) -> None:
     ctx.lazy(
         "runtime-insights",
         lambda: InsightsService(
-            ctx.capture.journal, [NeedsTransaction(), *KINDS], 8000, panel_enabled, lambda: reason_for(ctx)
+            ctx.capture.journal, [NeedsTransaction(), *KINDS], 8000, panel_enabled, None, lambda: for_context(ctx)
         ),
     )
 

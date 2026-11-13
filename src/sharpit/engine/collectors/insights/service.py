@@ -14,10 +14,14 @@ from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
+from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
+from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
+from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 from sharpit.engine.collectors.insights.txncapture import NOT_RECORDED_SUFFIX as TRANSACTIONS_NOT_RECORDED_SUFFIX
 from sharpit.engine.collectors.insights.txncapture import SOURCE as TRANSACTION
-from sharpit.engine.collectors.insights.txncapture import reason_for as transactions_not_recorded
+from sharpit.engine.collectors.insights.txncapture import TransactionCapture
+from sharpit.engine.collectors.insights.txncapture import for_context as transaction_capture_for
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -216,10 +220,12 @@ class InsightsService:
         observations: Sequence[Observation] | None = None,
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
         panel_enabled: PanelEnabled | None = None,
-        transactions_not_recorded: Callable[[], str | None] | None = None,
+        sql_capture: Callable[[], SqlCapture] | None = None,
+        transaction_capture: Callable[[], TransactionCapture] | None = None,
     ) -> None:
         self.journal = journal
-        self.transactions_not_recorded = transactions_not_recorded or (lambda: None)  # default: capturing
+        self.sql_capture = sql_capture or SqlCapture.capturing  # RuntimeInsightsService.sqlCapture, default capturing
+        self.transaction_capture = transaction_capture or TransactionCapture.capturing
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
         self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
@@ -249,11 +255,12 @@ class InsightsService:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
         snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
+        capture = self._capture()
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
-        not_recorded = self.transactions_not_recorded()  # asked once per report
+        transactions = self._transactions()
         for observation in self.observations:
-            check, rows = self._evaluate(observation, snapshot, not_recorded)
+            check, rows = self._evaluate(observation, snapshot, capture, transactions)
             checks.append(check)
             found += rows
         found.sort(
@@ -264,8 +271,22 @@ class InsightsService:
             str(row["id"]): (row, finding) for row, finding in found
         }
 
+    def _capture(self) -> SqlCapture:
+        """RuntimeInsightsService.sqlCapture: asked once per report; null is capturing, a failure is not recorded."""
+        try:
+            return self.sql_capture() or SqlCapture.capturing()
+        except Exception as error:  # noqa: BLE001 - the report never fails over this question
+            return SqlCapture.not_recorded(SQL_CAPTURE_UNREADABLE.format(type(error).__name__))
+
+    def _transactions(self) -> TransactionCapture:
+        """Asked once per report, like the SQL question; a failure is not recorded, never a failed report."""
+        try:
+            return self.transaction_capture() or TransactionCapture.capturing()
+        except Exception as error:  # noqa: BLE001 - the report never fails over this question
+            return TransactionCapture.not_recorded(SQL_CAPTURE_UNREADABLE.format(type(error).__name__))
+
     def _evaluate(
-        self, observation: Observation, snapshot: Snapshot, transactions_off: str | None = None
+        self, observation: Observation, snapshot: Snapshot, capture: SqlCapture, transactions: TransactionCapture
     ) -> tuple[Row, list[tuple[Row, Finding]]]:
         missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
         if missing is not None:
@@ -279,11 +300,10 @@ class InsightsService:
         evaluate = observation.evaluate
         if evaluate is None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, NOT_IMPLEMENTED), []
-        if transactions_off and TRANSACTION in observation.reads:  # owner ruling 2026-11-12: stricter than BootUI
-            return _check(observation, "UNAVAILABLE", 0, 0, transactions_off), []
+        if (off := _capture_off(observation, capture, transactions)) is not None:
+            return _check(observation, "UNAVAILABLE", 0, 0, off), []
         partial, unseen = _partial(observation, snapshot), _unseen(observation, snapshot)
-        if transactions_off and TRANSACTION in observation.optional_reads and snapshot.available(TRANSACTION):
-            unseen.append(transactions_off + TRANSACTIONS_NOT_RECORDED_SUFFIX)
+        unseen += _capture_caveats(observation, snapshot, capture, transactions)
         try:
             evaluation: Evaluation = evaluate(snapshot)
         except Exception:  # noqa: BLE001 - a kind never crashes the host or the other kinds
@@ -300,6 +320,35 @@ class InsightsService:
         reason = " ".join(r for r in reasons if r) or None
         check = _check(observation, status, evaluation.eligible, len(evaluation.findings), reason)
         return check, [_row(observation, f, partial, unseen, self._mask) for f in evaluation.findings]
+
+
+def _capture_off(observation: Observation, capture: SqlCapture, transactions: TransactionCapture) -> str | None:
+    """Why a kind that requires SQL or transactions cannot be evaluated: its recorder is off. Transactions are stricter
+    than BootUI (owner ruling 2026-11-12)."""
+    if not capture.recorded and observation.reads & SQL_SOURCES:
+        return capture.reason
+    if not transactions.recorded and TRANSACTION in observation.reads:
+        return transactions.reason
+    return None
+
+
+def _capture_caveats(
+    observation: Observation, snapshot: Snapshot, capture: SqlCapture, transactions: TransactionCapture
+) -> list[str]:
+    caveats = [c for c in [_sql_capture_caveat(observation, snapshot, capture)] if c]
+    if transactions.reason and TRANSACTION in observation.optional_reads and snapshot.available(TRANSACTION):
+        caveats.append(transactions.reason + TRANSACTIONS_NOT_RECORDED_SUFFIX)
+    return caveats
+
+
+def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: SqlCapture) -> str | None:
+    """The SQL-capture caveat for a read of SQL (required or optional) while a SQL source is enabled and producing for
+    the journal (BootUI ``snapshot.records``: the source is on, not that statements exist), else None."""
+    if capture.reason is None or not any(snapshot.journaled(s) for s in SQL_SOURCES):
+        return None
+    if not (observation.reads | observation.optional_reads) & SQL_SOURCES:
+        return None
+    return capture.reason + NOT_RECORDED_SUFFIX
 
 
 def _detail(
@@ -327,6 +376,11 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
     return ctx.lazy(
         "runtime-insights",
         lambda: InsightsService(
-            ctx.capture.journal, None, threshold, panel_enabled, lambda: transactions_not_recorded(ctx)
-        ),
+            ctx.capture.journal,
+            None,
+            threshold,
+            panel_enabled,
+            lambda: sql_capture_for(ctx),
+            lambda: transaction_capture_for(ctx),
+        ),  # fmt: skip
     )
