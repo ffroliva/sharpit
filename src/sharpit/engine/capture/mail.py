@@ -531,7 +531,11 @@ class _LateImport(importlib.abc.MetaPathFinder):
     """Scoped to ``aiosmtplib`` alone: when the host imports it after ``install()`` (inside a handler, a background
     task) the module is wrapped the moment it finishes loading, before the host can use it. BootUI's post-processor
     wraps every ``JavaMailSender`` bean as it is created, so a late one is never missed either. It answers from the
-    finders behind it, so another import hook still sees the import, and it is inert without an armed recorder."""
+    finders behind it, so another import hook still sees the import, and it is inert without an armed recorder.
+
+    Fails closed while a dev trap is on (a sharpit-only choice: BootUI fails open, returning a bean it could not wrap):
+    a module that cannot be wrapped is not imported, ``ImportError`` naming the trap, because loaded unwrapped it would
+    send real mail. With no trap on, the module loads unwrapped, as it always did."""
 
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
         if fullname != "aiosmtplib" or not _refs:
@@ -539,33 +543,52 @@ class _LateImport(importlib.abc.MetaPathFinder):
         try:
             behind = sys.meta_path[sys.meta_path.index(self) + 1 :]
             spec = next((s for f in behind if (s := f.find_spec(fullname, path, target)) is not None), None)
-            exec_module = spec.loader.exec_module  # type: ignore[union-attr]
+            if spec is None:  # not installed: nothing loads, so nothing can send
+                return None
+            exec_module = spec.loader.exec_module
 
             def wrapped(module: Any) -> None:
                 exec_module(module)
-                _wrap_loaded()
+                _wrap_loaded_or_refuse()
 
-            spec.loader.exec_module = wrapped  # type: ignore[union-attr]
-        except Exception:  # noqa: BLE001 - never an error into the host's import: the module then loads unwrapped
-            return None
+            spec.loader.exec_module = wrapped
+        except Exception as exc:  # noqa: BLE001 - never a bare error into the host's import
+            return _refuse_or_pass(exc)
         return spec
 
 
 _FINDER = _LateImport()
+_REFUSED = "sharpit's dev trap could not wrap aiosmtplib, so it is not imported: unwrapped it would send real mail"
+
+
+def _trap_on() -> bool:
+    return any(r.dev_trap for r in _live())
+
+
+def _refuse_or_pass(cause: Exception) -> None:
+    """With a trap on, refuse the import; otherwise ``None`` (load as it is)."""
+    if _trap_on():
+        raise ImportError(_REFUSED, name="aiosmtplib") from cause
+
+
+def _wrap_loaded_or_refuse() -> None:
+    try:
+        _wrap_loaded()
+    except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
+        _refuse_or_pass(exc)
 
 
 def _wrap_loaded() -> None:
-    """``aiosmtplib`` has just loaded: wrap it (again, for a re-import) for every armed recorder. Never an error into
-    the host's import."""
+    """``aiosmtplib`` has just loaded: wrap it (again, for a re-import) for every armed recorder, or raise."""
     if not _LOCK.acquire(timeout=5):  # a finalizer on the thread inside arm() must not hang the import
-        return
+        raise TimeoutError("the mail registry stayed locked")
     try:
         live = _live()
         if live:
             _unwrap((_AIOSMTPLIB_CONNECT, "aiosmtplib"))  # a stale record of an earlier module object
             _wrap_senders(trap=any(r.dev_trap for r in live))
-    except Exception:  # noqa: BLE001, S110 - the host's import never fails on the capture
-        pass
+            if _trap_on() and "aiosmtplib" not in _WRAPPED:
+                raise RuntimeError("aiosmtplib.SMTP.sendmail could not be wrapped")
     finally:
         _LOCK.release()
 
