@@ -16,6 +16,7 @@ from sharpit import install
 from sharpit.engine.collectors.insights import profile
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.collectors.insights.sqlcapture import SqlCapture
 from sharpit.engine.guard import PANEL_ACCESS_DENIED
 
 LOCAL = ("127.0.0.1", 50000)
@@ -68,6 +69,49 @@ def test_get_returns_the_report_with_every_bootui_key() -> None:
     assert list(body) == REPORT_KEYS
     assert body["available"] is True
     assert len(body["checks"]) == 28
+
+
+# ported: RuntimeInsightsControllerTests.sqlChecksAreUnavailableOnSpringMvcAndWebFluxWhenNoDataSourceIsTraced (disabled)
+def test_get_reports_sql_capture_off_as_unavailable_through_the_route() -> None:
+    client, ctx = _client(sql_trace_enabled=False)
+    assert ctx.capture.journal.offer({"source": "sql", "sql": "select ?", "requestId": "r1"})
+    check = next(c for c in client.get(API).json()["checks"] if c["kind"] == "safe-method-dml")
+    assert check["status"] == "UNAVAILABLE"
+    assert check["reason"] == "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
+
+
+def _sql_check(client: TestClient) -> dict[str, Any]:
+    response = client.get(API)
+    assert response.status_code == 200
+    return next(c for c in response.json()["checks"] if c["kind"] == "safe-method-dml")
+
+
+# ported: RuntimeInsightsService.sqlCapture (v2.3.0): a supplier that throws -> notRecorded("...could not be read")
+def test_get_with_a_raising_capture_supplier_is_unavailable_and_still_200() -> None:
+    client, ctx = _client()
+
+    def boom() -> Any:
+        raise RuntimeError("secret detail")
+
+    ctx.lazy("runtime-insights", lambda: InsightsService(ctx.capture.journal, None, 5, None, boom))
+    client = TestClient(client.app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False)
+    check = _sql_check(client)
+    assert check["status"] == "UNAVAILABLE"
+    assert check["reason"] == (
+        "Whether this application's SQL is recorded could not be read (RuntimeError), so no statement is counted."
+    )
+
+
+def test_the_capture_supplier_is_asked_once_per_report() -> None:
+    _, ctx = _client()
+    calls: list[int] = []
+
+    def supplier() -> SqlCapture:
+        calls.append(1)
+        return SqlCapture.capturing()
+
+    InsightsService(ctx.capture.journal, None, 5, None, supplier).report()
+    assert len(calls) == 1
 
 
 def test_the_panel_is_listed_now_that_it_is_implemented() -> None:
