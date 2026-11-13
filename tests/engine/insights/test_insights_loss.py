@@ -9,15 +9,19 @@ Times are explicit milliseconds so the 16 ms slack never makes a neighbouring re
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.exchanges import http_event
 from sharpit.engine.capture.journal import RuntimeJournal
-from sharpit.engine.collectors.insights.requests import project_requests
+from sharpit.engine.collectors.insights.finding import Evaluation
+from sharpit.engine.collectors.insights.requests import RequestIndex, project_requests
 from sharpit.engine.collectors.insights.service import InsightsService
 from sharpit.engine.collectors.insights.snapshot import project
+from sharpit.engine.masking import Exposure, Masker
 
 LEFT_OUT = "started before events the journal evicted or cleared"
 ONE_LEFT_OUT = f"1 request or execution {LEFT_OUT}, so it is left out: some of its events may be missing."
@@ -320,3 +324,54 @@ def test_clearing_walks_the_cleared_events_outside_the_ring_lock() -> None:
     assert held
     assert True not in held
     assert journal.view([])[3] == 1_005
+
+
+# the branches of the loss horizon and of the left-out gate that no test above reaches
+def test_a_check_that_reads_no_request_names_no_left_out_request() -> None:
+    kind = SimpleNamespace(
+        kind="no-requests", title="t", minimum_tier="TIME_WINDOW", reads=frozenset(), optional_reads=frozenset(),
+        uses_requests=False, evaluate=lambda _snapshot: Evaluation(0),
+    )  # fmt: skip
+    report = InsightsService(after_losing_a_statement_at(1_000, 1_005), [kind], 5, None, cast(Any, lambda: None))
+    assert LEFT_OUT not in str(report.report()["checks"][0]["reason"])  # type: ignore[index]
+
+
+def test_a_request_with_no_start_time_is_left_out_once_anything_was_lost() -> None:
+    record: Row = {"requestId": "r1", "route": "GET /x", "traceId": None, "method": "GET", "status": 200}
+    assert RequestIndex((record,), 1_000).left_out == 1  # it cannot be placed: fail closed
+
+
+def test_a_request_with_no_start_time_is_judged_while_nothing_was_lost() -> None:
+    record: Row = {"requestId": "r1", "route": "GET /x", "traceId": None, "method": "GET", "status": 200}
+    assert RequestIndex((record,), None).left_out == 0
+
+
+@pytest.mark.parametrize("ids", [{"executionId": "e1"}, {"traceId": "t1"}], ids=["execution", "trace"])
+def test_an_evicted_execution_or_trace_only_event_moves_the_horizon(ids: Row) -> None:
+    journal = RuntimeJournal(max_events=1)
+    journal.offer({"source": "sql", "epochMillis": 1_000, **ids})
+    journal.offer({"source": "sql", "epochMillis": 2_000, **ids})
+    assert journal.view([])[3] == 1_000
+
+
+def test_clearing_events_that_name_no_request_no_execution_and_no_trace_moves_no_horizon() -> None:
+    journal = RuntimeJournal()
+    journal.offer({"source": "log", "epochMillis": 1_000, "traceId": None})
+    journal.discard()
+    assert journal.view([])[3] is None
+
+
+def test_clearing_never_lowers_a_horizon_an_eviction_already_set() -> None:
+    journal = RuntimeJournal(max_events=1)
+    journal.offer({"source": "sql", "epochMillis": 5_000, "requestId": "r1"})
+    journal.offer({"source": "sql", "epochMillis": 1_000, "requestId": "r2"})  # evicts r1: horizon 5000
+    journal.discard()  # clears r2, which started earlier
+    assert journal.view([])[3] == 5_000
+
+
+def test_at_metadata_only_a_loss_reads_as_withheld_ids_never_as_a_clean_check() -> None:
+    journal = RuntimeJournal(max_events=1, masker=Masker(Exposure.METADATA_ONLY, True))
+    journal.offer({**sql("select 1", 1_005), "requestId": "gone"})
+    only_http(journal, 1_010)  # evicts the statement
+    reason = str(check(journal, ROUTE_TIME)["reason"])
+    assert "withheld" in reason
