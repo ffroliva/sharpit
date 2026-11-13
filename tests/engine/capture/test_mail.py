@@ -1107,3 +1107,43 @@ def test_an_aiosmtplib_imported_while_arm_is_between_its_wrap_and_its_watch_is_w
     with harness(email_dev_trap=True):
         worker.join(5)
         assert _wrapped_after_late_import(modules[0])
+
+
+def test_a_request_does_not_purge_an_aiosmtplib_another_thread_is_still_importing(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 code-review: the second layer read a half-initialised module as one that bypassed the hook
+    gate = types.SimpleNamespace(reached=threading.Event(), release=threading.Event())
+    monkeypatch.setitem(sys.modules, "_sharpit_gate", gate)
+    _late_package(
+        tmp_path, monkeypatch, "import _sharpit_gate as g
+g.reached.set()
+g.release.wait(5)
+" + _LATE_AIOSMTPLIB
+    )
+    modules: list[types.ModuleType | ImportError] = []
+    worker = threading.Thread(target=lambda: modules.append(_import_or_the_refusal("aiosmtplib")))
+    try:
+        with harness(email_dev_trap=True):
+            worker.start()
+            assert gate.reached.wait(5)
+            mail.ensure_wrapped()  # a request on another thread, mid-import
+            gate.release.set()
+            worker.join(5)
+            assert isinstance(modules[0], types.ModuleType)
+            assert _wrapped_after_late_import(modules[0])
+    finally:
+        gate.release.set()
+        _purge_aiosmtplib()
+
+
+def test_reading_the_emails_never_wraps_aiosmtplib(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 code-review: a GET must not patch host classes (AGENTS.md: reads have no side effects)
+    with harness(email_dev_trap=True) as h:
+        h.client.get("/warm-up")
+        monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
+        module = late_aiosmtplib()
+        assert h.emails()["messages"] == []
+        assert not _wrapped_after_late_import(module)
