@@ -694,7 +694,7 @@ def test_a_late_import_still_reaches_the_finders_behind_the_trap_hook(
 ):
     # code-review finding 2: the hook answered from PathFinder alone, so later finders never saw the import
     seen = _SeesTheImport()
-    monkeypatch.setattr(sys, "meta_path", [*sys.meta_path, seen])
+    monkeypatch.setattr(sys, "meta_path", [seen, *sys.meta_path])  # ahead of PathFinder, as such hooks are
     with harness(email_dev_trap=True):
         late_aiosmtplib()
     assert "aiosmtplib" in seen.seen
@@ -736,7 +736,7 @@ def test_a_loader_the_hook_cannot_wrap_never_fails_the_hosts_import(
     late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
 ):
     # code-review finding 4: an error inside the hook reached the host's ``import aiosmtplib``
-    monkeypatch.setattr(sys, "meta_path", [*sys.meta_path, _FrozenLoaderFinder()])
+    monkeypatch.setattr(sys, "meta_path", [_FrozenLoaderFinder(), *sys.meta_path])
     with harness():
         assert late_aiosmtplib().SMTP  # type: ignore[attr-defined]
 
