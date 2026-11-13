@@ -383,3 +383,18 @@ def test_connection_event_of_no_request_does_not_move_the_horizon():
     _use(handle.engine)
     _use(handle.engine)
     assert _horizon(handle) is None
+
+
+# code-review finding: the statement count must never cost the statement its trace
+def test_connection_journal_a_dbapi_connection_without_a_dict_still_starts_the_statement_trace():
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from sharpit.engine.sqla import listeners  # noqa: PLC0415
+
+    class SlottedConnection:  # a C-extension driver's connection: no ``__dict__``
+        __slots__ = ()
+
+    handle = _install()
+    conn = SimpleNamespace(_dbapi_connection=SlottedConnection(), engine=handle.engine, info={})
+    listeners.before_cursor_execute(conn, None, "select 1", (), None, False)
+    assert listeners.START_KEY in conn.info
