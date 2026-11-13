@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import functools
 import importlib.abc
+import logging
 import smtplib
 import sys
 import threading
@@ -56,6 +57,8 @@ PANEL = "email"
 SOURCE = "mail"
 HOOK = "mail"
 TAG = "mail"
+UNTRAPPED = "mail-trap"  # the journal's dropped key for an aiosmtplib the trap could not wrap
+logger = logging.getLogger("sharpit")
 TRUNCATED = "\n…[truncated, showing {limit} of {total} characters]"
 _ORIGINAL = "__sharpit_original__"  # wraps.wrap's marker on a wrapper
 # what aiosmtplib's sendmail answers when every recipient was accepted
@@ -297,6 +300,11 @@ class MailRecorder:
             _watch_import()  # first: an import after this line meets the hook, one before it is in sys.modules below
             _wrap_senders(sys.modules.get("aiosmtplib"), trap=_trap_on())
             return "smtplib" in _WRAPPED and "aiosmtplib" in _WRAPPED
+
+    def count_untrapped(self) -> None:
+        journal = self._capture.journal
+        if journal is not None:
+            journal.count_dropped(UNTRAPPED)
 
     def disarm(self) -> None:
         self.teardown_registered = False
@@ -588,9 +596,9 @@ def _refuse_or_pass(cause: Exception) -> None:
         raise ImportError(_REFUSED, name="aiosmtplib") from cause
 
 
-def _wrap_loaded_or_refuse(module: Any, *, blocking: bool = True) -> None:
+def _wrap_loaded_or_refuse(module: Any) -> None:
     try:
-        _wrap_loaded(module, blocking=blocking)
+        _wrap_loaded(module)
     except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
         if _trap_on():  # none of the package may stay loaded: ``from aiosmtplib.smtp import ...`` would skip the hook
             for name in [n for n in list(sys.modules) if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
@@ -618,20 +626,43 @@ def _wrap_loaded(module: Any, *, blocking: bool = True) -> None:
         _LOCK.release()
 
 
+_reported: weakref.WeakSet[Any] = weakref.WeakSet()  # the modules already reported as beyond the trap
+
+
+def _report_untrapped(module: Any) -> None:
+    """A module the host already holds cannot be wrapped: say so once per module object. Never evict it: the host's
+    reference stays, and a later import would make a second module object that breaks its ``isinstance`` checks."""
+    try:
+        if module in _reported:
+            return
+        _reported.add(module)
+    except TypeError:  # not weak-referenceable: reported each time rather than never
+        pass
+    logger.warning("the dev email trap cannot hold for an aiosmtplib imported before it could wrap it")
+    for recorder in _live():
+        if recorder.dev_trap:
+            recorder.count_untrapped()
+
+
 def ensure_wrapped() -> None:
     """The second layer behind ``_LateImport``: an ``aiosmtplib`` that loaded past the hook (another library's finder
-    answered first), or whose ``SMTP`` class a reload replaced, is wrapped, or refused as the hook refuses, at the next
-    request start. Never blocks the event loop (a busy registry skips this request), never from a read (a GET patches
-    nothing); with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
+    answered first), or whose ``SMTP`` class a reload replaced, is wrapped at the next request start. One that cannot be
+    wrapped stays loaded (the host may hold it) and is reported once, as ``UNTRAPPED``. Never blocks the event loop (a
+    busy registry skips this request), never from a read (a GET patches nothing); with nothing changed it costs one
+    ``sys.modules`` lookup and an identity check."""
     module = sys.modules.get("aiosmtplib")
     if module is None or not _refs:
         return
-    with contextlib.suppress(Exception):  # a hostile module, or a refusal that already dropped the package
+    with contextlib.suppress(Exception):  # a hostile module: the request goes on
         if _seen is not None and _seen() is getattr(module, "SMTP", None):
             return
         if getattr(getattr(module, "__spec__", None), "_initializing", False):  # another thread is importing it now
             return
-        _wrap_loaded_or_refuse(module, blocking=False)
+        try:
+            _wrap_loaded(module, blocking=False)
+        except Exception:  # noqa: BLE001 - reported below, never raised into the request
+            if _trap_on():
+                _report_untrapped(module)
 
 
 def _watch_import() -> None:
