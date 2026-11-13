@@ -59,6 +59,12 @@ def _records(handle: Any, source: str = "connection") -> tuple[dict[str, object]
     return journal.records(source)
 
 
+def _only(handle: Any, source: str = "connection") -> dict[str, object]:
+    records = _records(handle, source)
+    assert len(records) == 1
+    return records[0]
+
+
 def _use(engine: Any, statements: int = 1) -> None:
     with engine.connect() as conn:
         for n in range(statements):
@@ -78,7 +84,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
         _use(handle.engine, 2)
     finally:
         REQUEST.reset(token)
-    (record,) = _records(handle)
+    record = _only(handle)
     assert set(record) == FIELDS
     assert record["source"] == "connection"
     assert record["requestId"] == "0123456789abcdef"
@@ -107,8 +113,7 @@ def test_connection_journal_statements_count_the_connections_own_statements():
 def test_connection_journal_checkout_nanos_on_the_sql_clock():
     handle = _install()
     _use(handle.engine)
-    (connection,) = _records(handle)
-    (statement,) = _records(handle, "sql")
+    connection, statement = _only(handle), _only(handle, "sql")
     checkout, held, completed = connection["checkoutNanos"], connection["durationNanos"], statement["completedNanos"]
     assert isinstance(checkout, int)
     assert isinstance(held, int)
@@ -125,7 +130,7 @@ def test_connection_journal_data_source_never_carries_the_url_or_password(exposu
     )
     handle = _install(engine=engine, expose_values=exposure)
     _use(engine)
-    (record,) = _records(handle)
+    record = _only(handle)
     assert PASSWORD_CANARY not in json.dumps(record)
     assert "app:" not in str(record["dataSource"])
     assert record["dataSource"] == pools_report(handle.context)["pools"][0]["beanName"]  # the panel's name, not the URL
@@ -147,6 +152,8 @@ def test_connection_journal_not_offered_for_sharpit_internal_work():
     with internal():
         _use(handle.engine)
     assert _records(handle) == ()
+    _use(handle.engine)  # control: the same release outside sharpit's own work is offered
+    assert len(_records(handle)) == 1
 
 
 def test_connection_journal_not_offered_when_source_disabled():
