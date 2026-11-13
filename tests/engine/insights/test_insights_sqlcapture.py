@@ -124,9 +124,9 @@ def test_a_check_that_reads_only_connection_evidence_is_unavailable_with_sql_cap
     assert report["checks"][0]["status"] == "UNAVAILABLE"
 
 
-def test_a_connection_only_check_with_sql_capture_off_names_the_capture_not_an_unarmed_listener(
+def test_an_optional_connection_read_with_sql_capture_off_names_the_capture_not_an_unarmed_listener(
     handles: list[Any],
 ) -> None:
-    check = _check(_report(handles, [], sql_trace_enabled=False), "connections-per-request")
-    assert check["status"] == "UNAVAILABLE"
-    assert check["reason"] == SQL_OFF  # the listener is off because capture is, which is the reason to give
+    check = _check(_report(handles, [_HTTP, _SQL], sql_trace_enabled=False), "route-time-breakdown")
+    assert CAVEAT in str(check["reason"])  # the listener is off because capture is, which is the reason to give
+    assert "not armed" not in str(check["reason"])
