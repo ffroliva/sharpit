@@ -1,7 +1,9 @@
 """Whether this application's SQL can be recorded at all (BootUI ``insights/SqlCapture.java``, v2.3.0).
 
-The ``sql`` and ``connection`` sources depend on it. Without it a check that reads only SQL would run over nothing and
-report no finding, which must never read as a healthy result.
+The ``sql`` and ``connection`` sources depend on it. This module guarantees one thing: the SQL trace flag off, or the
+sql-trace panel off, is DISABLED, so a check that reads SQL is UNAVAILABLE rather than a healthy result. The wider fact
+(no engine attached, hooks suspended, raw sqlite3 only) is not decided here; that is task W5c-sql-recorded-fact, and
+until it lands a SQL-only check with no database can still read as evaluated with no finding.
 """
 
 from __future__ import annotations
@@ -22,18 +24,21 @@ SQL_SOURCES = frozenset({"sql", "connection"})  # RuntimeInsightsService.readsSq
 
 @dataclass(frozen=True)
 class SqlCapture:
-    """``recorded``: statements can be recorded. ``reason``: why not, or what they still miss; ``None`` when nothing."""
+    """``reason`` is why statements are not recorded; ``None`` means they are. One field, so no state is illegal."""
 
-    recorded: bool
     reason: str | None
+
+    @property
+    def recorded(self) -> bool:
+        return self.reason is None
 
     @classmethod
     def capturing(cls) -> SqlCapture:
-        return cls(True, None)
+        return cls(None)
 
     @classmethod
     def not_recorded(cls, reason: str) -> SqlCapture:
-        return cls(False, reason)
+        return cls(reason)
 
 
 def for_context(ctx: SharpitContext) -> SqlCapture:

@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Runtime insights: with the SQL trace flag off, or the sql-trace panel off, a check that reads SQL is UNAVAILABLE with the capture reason and a check that optionally reads it carries the caveat (BootUI `SqlCapture.DISABLED`); whether a database is in use at all is not decided yet.
 - Runtime insights `safe-method-dml` (a GET or HEAD request that executed an INSERT, UPDATE, DELETE or MERGE, one finding per route naming the verb, never the statement); `lazy-sql-after-handler` answers not applicable because sharpit marks no handler end.
 - Email panel (GET /email, /email/{id}, /email/{id}/eml, DELETE /email, get_emails, CLI mail): outgoing mail captured at `smtplib` and `aiosmtplib` `sendmail`, bounded, with SHARPIT_EMAIL_MAX_ENTRIES, _MAX_BODY_LENGTH, _DEV_TRAP and _MASK_CONTENT; secret-shaped text is masked even when content is shown, unless the exposure is FULL; the dev trap never connects.
 - Internal: a shared class-method wrap helper for capture integrations (`engine/capture/wraps.py`).

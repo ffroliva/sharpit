@@ -317,7 +317,7 @@ def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: S
         return None
     if not (observation.reads | observation.optional_reads) & SQL_SOURCES:
         return None
-    return capture.reason if capture.recorded else capture.reason + NOT_RECORDED_SUFFIX
+    return capture.reason + NOT_RECORDED_SUFFIX
 
 
 def _detail(
