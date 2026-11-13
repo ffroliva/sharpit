@@ -9,6 +9,7 @@ import gc
 import importlib
 import importlib.abc
 import importlib.machinery
+import importlib.util
 import smtplib
 import socket
 import sys
@@ -601,20 +602,32 @@ class SMTP:
 """
 
 
+def _purge_aiosmtplib() -> None:
+    for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
+        del sys.modules[name]
+
+
+def _late_package(tmp_path: Any, monkeypatch: pytest.MonkeyPatch, source: str, **submodules: str) -> None:
+    """A stand-in ``aiosmtplib`` package on the path, not imported."""
+    package = tmp_path / "aiosmtplib"
+    package.mkdir()
+    (package / "__init__.py").write_text(source, encoding="utf-8")
+    for name, text in submodules.items():
+        (package / f"{name}.py").write_text(text, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _purge_aiosmtplib()
+
+
 @pytest.fixture
 def late_aiosmtplib(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[], types.ModuleType]]:
     """``aiosmtplib`` on the path but not imported: the host imports it later, inside a handler or a task."""
-    package = tmp_path / "aiosmtplib"
-    package.mkdir()
-    (package / "__init__.py").write_text(_LATE_AIOSMTPLIB, encoding="utf-8")
-    monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.delitem(sys.modules, "aiosmtplib", raising=False)
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB)
 
     def import_it() -> types.ModuleType:
         return importlib.import_module("aiosmtplib")
 
     yield import_it
-    sys.modules.pop("aiosmtplib", None)
+    _purge_aiosmtplib()
 
 
 def test_an_aiosmtplib_imported_after_install_is_trapped(late_aiosmtplib: Callable[[], types.ModuleType]):
@@ -748,19 +761,18 @@ def test_a_loader_the_hook_cannot_wrap_never_fails_the_hosts_import(
         assert late_aiosmtplib().SMTP  # type: ignore[attr-defined]
 
 
-def test_the_real_aiosmtplib_imported_after_install_is_trapped(
-    no_smtp_server: list[object], monkeypatch: pytest.MonkeyPatch
-):
-    # the real package, not the stand-in: its ``send`` must be captured and never reach a socket
-    for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
-        monkeypatch.delitem(sys.modules, name)
-    with harness(email_dev_trap=True) as h:
-        real = importlib.import_module("aiosmtplib")
-        errors, reply = asyncio.run(real.send(_message("real late"), hostname="smtp.example.test", port=587))
-        assert errors == {}
-        assert reply
-        assert no_smtp_server == []
-        assert [m["subject"] for m in h.emails()["messages"]] == ["real late"]
+def test_the_real_aiosmtplib_imported_after_install_is_trapped(no_smtp_server: list[object]):
+    # the real package, not the stand-in: its ``send`` must be captured; without the hook it reaches for the network
+    _purge_aiosmtplib()
+    try:
+        with harness(email_dev_trap=True) as h:
+            real = importlib.import_module("aiosmtplib")
+            errors, reply = asyncio.run(real.send(_message("real late"), hostname="smtp.example.test", port=587))
+            assert errors == {}
+            assert reply
+            assert [m["subject"] for m in h.emails()["messages"]] == ["real late"]
+    finally:
+        _purge_aiosmtplib()
 
 
 class _BusyLock:
@@ -780,8 +792,8 @@ def _wrapped_after_late_import(module: types.ModuleType) -> bool:
 def _import_refused_without_a_socket(attempts: list[object]) -> None:
     with pytest.raises(ImportError, match="dev trap"):
         importlib.import_module("aiosmtplib")
-    assert "aiosmtplib" not in sys.modules  # nothing that could send is left loaded
-    assert attempts == []
+    assert [n for n in sys.modules if n.startswith("aiosmtplib")] == []  # nothing that could send is left loaded
+    assert attempts == []  # an import opens no connection of its own
 
 
 def test_a_loader_the_hook_cannot_wrap_refuses_the_import_while_the_trap_is_on(
@@ -836,6 +848,95 @@ def test_an_aiosmtplib_that_is_not_installed_still_raises_module_not_found_under
         patch.setattr(sys, "path", [])
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module("aiosmtplib")
+
+
+class _SharedLoader(importlib.abc.Loader):
+    """One loader instance for several modules, as zipimporter or a frozen importer is."""
+
+    def __init__(self, sources: dict[str, str]) -> None:
+        self.sources = sources
+
+    def create_module(self, _spec: Any) -> None:
+        return None
+
+    def exec_module(self, module: types.ModuleType) -> None:
+        exec(self.sources[module.__name__], module.__dict__)  # noqa: S102 - a test stand-in's own source
+
+
+class _SharedLoaderFinder(importlib.abc.MetaPathFinder):
+    def __init__(self, loader: _SharedLoader) -> None:
+        self.loader = loader
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname in self.loader.sources:
+            return importlib.util.spec_from_loader(fullname, self.loader)
+        return None
+
+
+def test_a_probe_of_aiosmtplib_does_not_break_other_modules_of_a_shared_loader(monkeypatch: pytest.MonkeyPatch):
+    # code-review finding 1: the patch stayed on the shared loader and refused every later module it loaded
+    _purge_aiosmtplib()
+    loader = _SharedLoader({"aiosmtplib": _LATE_AIOSMTPLIB, "sharpit_probe_other": "VALUE = 1"})
+    try:
+        with harness(email_dev_trap=True):
+            _behind_the_hook(monkeypatch, _SharedLoaderFinder(loader))
+            assert importlib.util.find_spec("aiosmtplib")  # an availability probe, no import
+            assert importlib.import_module("sharpit_probe_other").VALUE == 1
+    finally:
+        sys.modules.pop("sharpit_probe_other", None)
+        _purge_aiosmtplib()
+
+
+def test_repeated_probes_patch_a_shared_loader_once(monkeypatch: pytest.MonkeyPatch):
+    loader = _SharedLoader({"aiosmtplib": _LATE_AIOSMTPLIB})
+    original = loader.exec_module
+    patched: list[object] = []
+    with harness(email_dev_trap=True):
+        _behind_the_hook(monkeypatch, _SharedLoaderFinder(loader))
+        for _ in range(3):
+            importlib.util.find_spec("aiosmtplib")
+            patched.append(loader.__dict__.get("exec_module"))
+    assert len({id(p) for p in patched}) == 1  # the same wrapper each time, not a new layer over the last
+    assert original is not patched[0]
+
+
+def test_a_late_aiosmtplib_whose_connect_cannot_be_wrapped_is_refused_while_the_trap_is_on(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 2: only sendmail was required; ``connect`` is the wrap that stops the socket
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB.replace("class SMTPResponse", "class _NotAResponse"))
+    try:
+        with harness(email_dev_trap=True):
+            _import_refused_without_a_socket([])
+    finally:
+        _purge_aiosmtplib()
+
+
+def test_a_refused_aiosmtplib_leaves_none_of_its_submodules_loaded(tmp_path: Any, monkeypatch: pytest.MonkeyPatch):
+    # code-review finding 3: ``from aiosmtplib.smtp import SMTP`` would then bypass the refusal
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB + "\nfrom . import smtp\n", smtp="VALUE = 1")
+    try:
+        with harness(email_dev_trap=True):
+            monkeypatch.setattr(mail, "_wrap_senders", unittest.mock.Mock(side_effect=RuntimeError("wrap failed")))
+            _import_refused_without_a_socket([])
+    finally:
+        _purge_aiosmtplib()
+
+
+class _FindModuleOnly:
+    """A legacy finder: no ``find_spec``, which the import system skips."""
+
+    def find_module(self, fullname: str, path: Any = None) -> None:
+        return None
+
+
+def test_a_meta_path_finder_without_find_spec_does_not_refuse_the_import(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 4: the hook's AttributeError became a refusal of an installed, wrappable module
+    with harness(email_dev_trap=True):
+        _behind_the_hook(monkeypatch, _FindModuleOnly())  # type: ignore[arg-type]
+        assert _wrapped_after_late_import(late_aiosmtplib())
 
 
 def test_mail_journal_event_is_metadata_only():
