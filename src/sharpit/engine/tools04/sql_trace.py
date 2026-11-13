@@ -9,7 +9,7 @@ from sharpit.engine.tools import _NONE, Tool  # pyright: ignore[reportPrivateUsa
 
 
 def insights(ctx: Any) -> dict[str, Any]:
-    """``SqlTraceInsightsReport`` over the retained ring; unavailable while tracing is off or no database is used."""
+    """``SqlTraceInsightsReport`` over the retained ring; unavailable while tracing is off or SQLAlchemy is absent."""
     report = insights_report(ctx.capture.sql_trace, ctx.capture.exchanges, sql_trace_unavailable_reason(ctx))
     service = ctx.peek("low-footprint")
     if isinstance(service, LowFootprintService) and service.enabled:

@@ -2,8 +2,8 @@
 
 The ``sql`` and ``connection`` sources depend on it. ``for_context`` ports ``SqlCapture.of``: disabled (flag or panel
 off) -> DISABLED, no database in use -> NOT_RECORDED, a hook detached from a database in use -> ``recordedExcept``.
-The database fact itself is ``sqla.sources_recorded``; the SQL Trace panel and its reads share the "in use" half
-(``sqla.sql_trace_unavailable_reason``); ``sqlastats`` keeps its own reason (BootUI's follows the session factory).
+The database fact itself is ``sqla.sources_recorded``. The SQL Trace panel and its reads keep release's availability
+(tracing off, no SQLAlchemy 2.0+ and no sqlite3 patch), not the "in use" fact: a deviation row.
 """
 
 from __future__ import annotations

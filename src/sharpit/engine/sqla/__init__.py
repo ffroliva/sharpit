@@ -57,7 +57,9 @@ NOT_RECORDED = (
     "This application's database access is not recorded: sharpit records statements through SQLAlchemy (2.0+) and"
     " the sqlite3 module, and no SQLAlchemy engine is attached to it and no sqlite3 statement has reached it."
 )
-SUSPENDED_ALL = "SQL capture is suspended (its SQL hooks are detached), so no statement is recorded."
+SUSPENDED_ALL = (
+    "SQL capture is suspended (the SQL hook of every database in use here is detached), so no statement is recorded."
+)
 _SUSPENDED = {
     SQLALCHEMY: "SQL capture is suspended for SQLAlchemy (its hook is detached), so its statements are not counted.",
     SQLITE3: "SQL capture is suspended for sqlite3 (its hook is detached), so its statements are not counted.",
@@ -65,13 +67,13 @@ _SUSPENDED = {
 
 
 def _in_use(ctx: SharpitContext) -> dict[str, bool]:
-    """Which SQL sources have a database in use here (nothing runs per statement; see ``sources_recorded``)."""
+    """Which SQL sources have a database in use here: a statement routed here, or (SQLAlchemy) an engine registered."""
     capture = ctx.capture
     registry = capture.engine_registry
     return {
         # seen_any is write-once: the registry holds engines weakly, so a collected engine stays a database used here
-        SQLALCHEMY: capture.engines_unseen or (registry is not None and registry.seen_any),
-        SQLITE3: capture.sqlite_delivered,
+        SQLALCHEMY: SQLALCHEMY in capture.sql_delivered or (registry is not None and registry.seen_any),
+        SQLITE3: SQLITE3 in capture.sql_delivered,
     }
 
 
@@ -79,10 +81,9 @@ def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
     """``SqlCapture.of``'s second branch for ``ctx``: is a database in use here, and is its hook attached.
 
     BootUI's fact is known at wrap time (``SqlTraceRecorder.hasWrappedDataSource``): a SQLAlchemy engine registered
-    with this context is the analogue; raw sqlite3 (no wrap-time object) counts once a statement was delivered to this
-    context. Nothing here runs per statement: engines are registered when they connect; with no discovery panel the
-    engines are unknown, and attaching the SQL listeners (``engines_unseen``) is the fact (a deviation row). A hook
-    detached from a source in use is named (``recordedExcept``); every one detached: not recorded.
+    with this context is the analogue, and any source counts once one of its statements was routed here
+    (``dispatch.recording``, write-once, so a paused or suspended capture keeps its database). A hook detached from a
+    source in use is named (``recordedExcept``); every one detached: not recorded.
     """
     used = _in_use(ctx)
     suspended = ctx.capture.suspended_sources
@@ -95,27 +96,11 @@ def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
     return False, " ".join([SUSPENDED_ALL if missed else NOT_RECORDED, *extra])
 
 
-def tracing_unavailable_reason(ctx: SharpitContext) -> str | None:
-    """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app.
-
-    ``sqlastats`` reads this one: BootUI's Hibernate statistics follow the session factory, never the SQL recorder
-    (``HibernateStatisticsService.report``, v2.3.0), so no engine attached does not make them unavailable."""
+def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
     if not ctx.settings.sql_trace_enabled:
         return TRACING_DISABLED
     return None if sqlite3_traced(ctx) else unavailable_reason()
-
-
-def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
-    """The SQL Trace panel and its insights: ``tracing_unavailable_reason``, then no database in use here.
-
-    BootUI reports both unavailable while no DataSource is wrapped (``SqlTraceControllerSupport.report`` and
-    ``SqlTraceInsightsService.insights``, v2.3.0), and a suspended hook is a capture state, not an absent database, so
-    only "in use" counts here (the insights also name a suspended hook). One text replaces BootUI's two (a deviation
-    row)."""
-    reason = tracing_unavailable_reason(ctx)
-    if reason is not None or any(_in_use(ctx).values()):
-        return reason
-    return sources_recorded(ctx)[1]
 
 
 # the submodules import the names above, so they load after them
@@ -212,7 +197,6 @@ __all__ = [
     "SUSPENDED_ALL",
     "sources_recorded",
     "sql_trace_unavailable_reason",
-    "tracing_unavailable_reason",
     "sqlalchemy_module",
     "sqlite3_traced",
     "unavailable_reason",
