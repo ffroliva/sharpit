@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import itertools
+import re
 import sys
 import threading
 import time
@@ -676,15 +678,44 @@ def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
         dispatch.routing_failed(exc)
 
 
-# a SELECT and the savepoint statements undo nothing on rollback (BootUI has no write count: sharpit's own rule)
-_NO_WRITE = ("select", "savepoint", "release savepoint", "rollback to savepoint")
+# ported: ReadOnlyCandidateTransaction.READ_FIRST / WRITE_ANYWHERE / mayWrite (v2.3.0, java:49-57, 279-293); the one
+# adaptation: PRAGMA is session control like SET (SQLite), so it is read-first too
+_READ_FIRST = frozenset(
+    ("select", "with", "values", "show", "set", "pragma", "savepoint", "release", "commit", "rollback")
+)
+_WRITE_ANYWHERE = re.compile(
+    r"\b(insert|update|delete|merge|into|lock|nextval|setval|lastval|next\s+value"
+    r"|for\s+share|for\s+key\s+share|for\s+no\s+key\s+update)\b",
+    re.IGNORECASE,
+)
+_LEADING = re.compile(r"(?:\s+|\(|--[^\n]*\n|/\*.*?\*/)*", re.DOTALL)  # whitespace, comments, parentheses
+_FIRST_WORD = re.compile(r"[a-z]*", re.IGNORECASE)
+_CACHED_MAX = 1024  # a longer statement is rarely repeated: not worth keeping
+
+
+def _may_write_uncached(sql: str) -> bool:
+    head = sql[_LEADING.match(sql).end() :]  # type: ignore[union-attr]  # the pattern matches the empty string
+    first = _FIRST_WORD.match(head)
+    if first is None or first.group().lower() not in _READ_FIRST:
+        return True
+    body = head.rstrip().removesuffix(";")
+    return ";" in body or _WRITE_ANYWHERE.search(head) is not None
+
+
+_may_write_cached = functools.lru_cache(maxsize=512)(_may_write_uncached)
+
+
+def may_write(sql: str) -> bool:
+    """Whether ``sql`` may write: BootUI's rule, which only calls a single query or session control a read, and not
+    one naming a DML verb, ``INTO``, a lock or a sequence. A function a query calls cannot be seen (``SELECT f()`` is a
+    read, as in BootUI); an unreadable or unrecognised statement is a write, so a rollback is reported, not hidden."""
+    return _may_write_cached(sql) if len(sql) <= _CACHED_MAX else _may_write_uncached(sql)
 
 
 def tx_statement(conn: Any, _cursor: Any, statement: str, *_: object) -> None:
-    """Count a statement that is not a SELECT (``WRITES``). Leading comments, ``WITH`` and anything else count as a
-    write: a rollback is then reported, never hidden."""
+    """Count a statement that may write (``WRITES``)."""
     try:
-        if not statement.lstrip()[:21].lower().startswith(_NO_WRITE):
+        if may_write(statement):
             info = conn.info
             info[WRITES] = info.get(WRITES, 0) + 1
     except Exception as exc:  # noqa: BLE001 - never affect the application's statement
