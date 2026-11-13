@@ -1115,12 +1115,8 @@ def test_a_request_does_not_purge_an_aiosmtplib_another_thread_is_still_importin
     # PR #182 r3 code-review: the second layer read a half-initialised module as one that bypassed the hook
     gate = types.SimpleNamespace(reached=threading.Event(), release=threading.Event())
     monkeypatch.setitem(sys.modules, "_sharpit_gate", gate)
-    _late_package(
-        tmp_path, monkeypatch, "import _sharpit_gate as g
-g.reached.set()
-g.release.wait(5)
-" + _LATE_AIOSMTPLIB
-    )
+    held = "import _sharpit_gate as g; g.reached.set(); g.release.wait(5)"
+    _late_package(tmp_path, monkeypatch, f"{held}\n{_LATE_AIOSMTPLIB}")
     modules: list[types.ModuleType | ImportError] = []
     worker = threading.Thread(target=lambda: modules.append(_import_or_the_refusal("aiosmtplib")))
     try:
