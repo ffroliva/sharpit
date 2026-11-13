@@ -210,11 +210,14 @@ def test_sql_journal_event_size_is_what_the_flat_walk_charges(
     event = dispatch.SqlEvent(
         "sqlalchemy", "select 1", None, True, 4, 0, 7, 1, None, None, None, Dialect.SQLITE
     )  # fmt: skip
-    built, size = dispatch._journal_event(  # pyright: ignore[reportPrivateUsage]
+    built, size, loss_start = dispatch._journal_event(  # pyright: ignore[reportPrivateUsage]
         handle.context, recorder, event, "select ?", request, "worker-7", site
     )
     assert built["traceId"] == trace_id
     assert size == _flat(built)[1]
+    # the journal's loss start: the event's start when it names a unit of work (a request or a trace), else 0
+    names_work = built["requestId"] is not None or built["traceId"] is not None
+    assert loss_start == (built["startedAt"] if names_work else 0)
     assert tuple(built) == getattr(dispatch, "_SQL_KEYS", None)  # the size constant is derived from these keys
 
 
@@ -303,7 +306,32 @@ def test_sql_journal_event_request_id_only_for_a_request_of_its_own_context():
     recorder = handle.context.capture.sql_trace
     other = RequestInfo("r-other", "another-context", "GET", "/x", None, 0, None)
     own = RequestInfo("r-own", handle.context.context_id, "GET", "/x", None, 0, None)
-    built, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", other, "t", None)  # pyright: ignore[reportPrivateUsage]
+    built, _, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", other, "t", None)  # pyright: ignore[reportPrivateUsage]
     assert built["requestId"] is None
-    built, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", own, "t", None)  # pyright: ignore[reportPrivateUsage]
+    built, _, _ = dispatch._journal_event(handle.context, recorder, _event(), "select ?", own, "t", None)  # pyright: ignore[reportPrivateUsage]
     assert built["requestId"] == "r-own"
+
+
+@pytest.mark.parametrize("in_request", [True, False])
+def test_the_loss_start_the_sql_producer_hands_the_ring_is_the_one_the_ring_would_read(in_request: bool):
+    """``dispatch`` passes ``started`` so an eviction reads an int: it must equal what ``_started`` finds."""
+    from sharpit.engine.capture.journal import _started  # noqa: PLC0415  # pyright: ignore[reportPrivateUsage]
+
+    handle, engine = _install()
+    journal = handle.context.capture.journal
+    assert journal is not None
+    token = (
+        REQUEST.set(RequestInfo("r-hint", handle.context.context_id, "GET", "/x", None, 0, None))
+        if in_request
+        else None
+    )
+    try:
+        _run(engine)
+    finally:
+        if token is not None:
+            REQUEST.reset(token)
+    ring = journal._events  # pyright: ignore[reportPrivateUsage]
+    assert len(ring) == 1
+    event, _, at, started = ring[0]
+    assert started == _started(event, at)
+    assert (started > 0) is in_request

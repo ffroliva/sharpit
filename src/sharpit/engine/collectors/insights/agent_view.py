@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sharpit.engine.collectors.insights.service import UNKNOWN_PREFIX, UNKNOWN_SUFFIX
+from sharpit.engine.collectors.insights.snapshot import LEFT_OUT_BEFORE_LOSS
 from sharpit.engine.collectors.insights.text import HIGH_REPEAT_KEEP, MIN_REQUESTS, UNDER_DEFAULT_FLOOR
 
 Row = dict[str, Any]
@@ -25,7 +26,6 @@ SECURITY_KINDS = frozenset({"anonymous-data-reach", "anonymous-success-on-restri
 NEW_MARK = "not observed in the previous run"
 JOURNAL_SETTINGS = "SHARPIT_RUNTIME_JOURNAL"
 NON_HTTP_PREFIX = "Retained non-HTTP executions, which requests does not count:"
-LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"
 _JUDGED = (
     re.compile(  # JudgedWithoutFinding.SENTENCES: judged and not reported, as opposed to what a check could not see
         r"(?:Examined \d+ collections that reclaimed old-generation space; their retained occupancy did not meet this "
