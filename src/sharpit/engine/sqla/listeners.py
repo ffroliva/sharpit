@@ -315,17 +315,10 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
 
 
 def following_connections(ctx: SharpitContext) -> bool:
-    """Whether the pool listener runs for ``ctx``: the ``connection`` journal event can be produced."""
+    """Whether the pool listener runs for ``ctx``: the ``connection`` journal event can be produced.
+    shortcut: a connection detached with ``Connection.detach()`` never fires ``checkin``, so it offers no event."""
     with _lock:
-        return ctx.context_id in _statement_contexts and all(attached_pool_events().values())
-
-
-def attached_pool_events() -> dict[str, bool]:
-    sa = _sqla.sqlalchemy_module()
-    return {
-        name: sa is not None and bool(sa.event.contains(_target(sa, name), name, _LISTENERS[name]))
-        for name in POOL_EVENTS
-    }
+        return ctx.context_id in _statement_contexts and all(attached()[name] for name in POOL_EVENTS)
 
 
 def note_request_captured() -> None:

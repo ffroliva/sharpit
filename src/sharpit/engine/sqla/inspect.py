@@ -222,6 +222,8 @@ class EngineRegistry:
     def name_of_pool(self, pool: object) -> str | None:
         """The display name of the registered engine that owns ``pool`` (what the connection-pools panel shows).
         Called per checkout: a pool already matched is a dict hit; a miss scans the engines and learns a match."""
+        if pool is None:
+            return None
         known = self._pool_names.get(pool)
         if known is not None:
             return known

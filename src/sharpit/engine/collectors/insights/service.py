@@ -73,7 +73,7 @@ def _not_armed(source: str) -> str:
     """The setting enables ``source`` but its listener is off, so no setting is wrong (sharpit only)."""
     return (
         f"The {source} source is enabled in the runtime journal, but its listener is not armed here "
-        "(SQLAlchemy is not imported, no engine is attached, or SQL capture is suspended): nothing is recorded."
+        "(SQLAlchemy is not imported or its listeners are suspended): nothing is recorded."
     )
 
 
@@ -366,7 +366,8 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         return panel is None or panel.enabled
 
     def producing(source: str) -> bool:  # a source whose listener is not armed here is not recorded, however enabled
-        return source != "connection" or sqla.following_connections(ctx)
+        # no recorder (capture or its panel off): the SQL-capture state already says why, as it does for ``sql``
+        return source != "connection" or ctx.capture.sql_trace is None or sqla.following_connections(ctx)
 
     return ctx.lazy(
         "runtime-insights",
