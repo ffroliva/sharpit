@@ -5,9 +5,11 @@ import importlib.util
 import json
 import threading
 import time
+from collections import Counter, deque
 from dataclasses import fields
 from typing import Any
 
+import pytest
 from tests.overhead import check_budget, paired
 
 from sharpit.engine.capture import CaptureState
@@ -75,6 +77,54 @@ def test_reentrant_append_is_dropped_and_counted() -> None:
 
     assert journal.offer(Reentrant(source="test", message="outer")) is True
     assert journal.status()["dropped"].get("reentrant", 0) == 1
+
+
+@pytest.mark.parametrize(
+    ("where", "read"), [("ring", "records"), ("ring", "view"), ("counters", "status"), ("counters", "view")]
+)
+def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_counted(where: str, read: str) -> None:
+    """A finalizer (garbage collection) can run in the middle of a read's iteration or counter copy, on this thread."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "log"))
+    journal.offer_flat({"source": "sql", "sql": "select 1"})
+    journal.offer_flat({"source": "sql", "sql": "select 2"})
+    nested: list[bool] = []
+    # the ring case appends if it is let in; the counters case counts a refusal into the counter being copied
+    offered = {"source": "log", "level": "WARN"} if where == "ring" else {"source": "other"}
+
+    class Finalized:
+        def __del__(self) -> None:
+            nested.append(journal.offer_flat(dict(offered)))
+
+    class Ring(deque):  # type: ignore[type-arg]
+        def __iter__(self) -> Any:
+            for n, item in enumerate(super().__iter__()):
+                yield item
+                if n == 0 and not nested:
+                    Finalized()
+
+    class Spy(Counter):  # type: ignore[type-arg]
+        def __iter__(self) -> Any:  # a Counter that iterates its own way is copied through ``keys()``
+            return super().__iter__()
+
+        def keys(self) -> Any:  # ``dict(counter)`` reads the keys, then the values
+            if not nested:
+                Finalized()
+            return super().keys()
+
+    if where == "ring":
+        journal._events = Ring(journal._events)  # pyright: ignore[reportPrivateUsage]
+    else:
+        journal._dropped = Spy(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+    reads = {"records": lambda: journal.records("sql"), "view": lambda: journal.view(["sql"]), "status": journal.status}
+    raised: list[str] = []
+    try:
+        reads[read]()
+    except (ValueError, RuntimeError) as exc:  # the defect: an exception where a read is answered
+        raised.append(f"{type(exc).__name__}: {exc}")
+    assert raised == []
+    assert nested == [False]
+    assert journal.status()["dropped"] == {"reentrant": 1}
+    assert journal.status()["retainedEvents"] == 2
 
 
 def test_journal_masks_raw_events_when_records_are_read() -> None:
