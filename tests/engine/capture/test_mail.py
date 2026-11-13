@@ -10,11 +10,11 @@ import importlib
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import logging
 import smtplib
 import socket
 import sys
 import threading
-import time
 import types
 import unittest.mock
 import weakref
@@ -1157,17 +1157,31 @@ def _loaded_past_the_hook(
 def test_a_request_start_never_waits_for_the_mail_registry_lock(
     late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
 ):
-    # PR #182 r4 review: the check blocked the event loop up to 5 s while another thread held the registry lock
+    # PR #182 r4 review: the check blocked the event loop up to 5 s while another thread held the registry lock;
+    # r5: no wall-clock threshold, a blocking request start shows as a join timeout while the holder still holds
     with harness(email_dev_trap=True) as h:
         module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
-        assert mail._LOCK.acquire(timeout=1)  # noqa: SLF001 - another thread is inside arm()
-        try:
-            started = time.perf_counter()
-            mail.ensure_wrapped()
-            waited = time.perf_counter() - started
-        finally:
-            mail._LOCK.release()  # noqa: SLF001
-        assert waited < 0.05
+        holding, release = threading.Event(), threading.Event()
+        still_held: list[bool] = []
+
+        def holder() -> None:
+            with mail._LOCK:  # noqa: SLF001 - another thread is inside arm()
+                holding.set()
+                release.wait(10)
+                still_held.append(mail._LOCK.locked())  # noqa: SLF001
+
+        holder_thread = threading.Thread(target=holder)
+        holder_thread.start()
+        assert holding.wait(5)
+        request = threading.Thread(target=mail.ensure_wrapped)
+        request.start()
+        request.join(2)
+        returned = not request.is_alive()
+        release.set()  # only after the request start had its chance to return
+        request.join(10)
+        holder_thread.join(10)
+        assert returned
+        assert still_held == [True]
         assert not _wrapped_after_late_import(module)
         mail.ensure_wrapped()  # the next request start covers it
         assert _wrapped_after_late_import(module)
@@ -1240,3 +1254,39 @@ def test_a_hostile_aiosmtplib_module_never_raises_into_the_request_start(monkeyp
         except Exception as exc:  # noqa: BLE001 - the assertion below names it
             raised = exc
         assert raised is None
+
+
+def _unwrappable_past_the_hook(
+    h: Harness, late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+) -> types.ModuleType:
+    module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+    monkeypatch.setattr(mail, "_wrap_senders", unittest.mock.Mock(side_effect=RuntimeError("wrap failed")))
+    return module
+
+
+def test_a_request_start_leaves_the_hosts_aiosmtplib_module_loaded_when_it_cannot_wrap_it(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r5 decision: evicting cannot stop a host holding the module, and a later import makes a second module
+    # object, which breaks the host's isinstance checks
+    with harness(email_dev_trap=True) as h:
+        module = _unwrappable_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        mail.ensure_wrapped()
+        assert sys.modules.get("aiosmtplib") is module
+        assert importlib.import_module("aiosmtplib") is module
+        assert module.SMTP  # type: ignore[attr-defined]
+
+
+def test_an_unwrappable_aiosmtplib_is_counted_and_warned_once_per_module_object(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    with harness(email_dev_trap=True) as h, caplog.at_level(logging.WARNING, logger="sharpit"):
+        _unwrappable_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        for _ in range(3):
+            mail.ensure_wrapped()
+        journal = h.handle.context.capture.journal
+        assert journal is not None
+        assert journal.status()["dropped"].get("mail-trap") == 1
+        warned = [r for r in caplog.records if "dev email trap cannot hold" in r.getMessage()]
+        assert len(warned) == 1
+        assert "aiosmtplib imported before it could wrap it" in warned[0].getMessage()
