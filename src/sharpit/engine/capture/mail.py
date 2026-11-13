@@ -545,13 +545,13 @@ class _LateImport(importlib.abc.MetaPathFinder):
             spec = next((s for f in behind if (s := f.find_spec(fullname, path, target)) is not None), None)
             if spec is None:  # not installed: nothing loads, so nothing can send
                 return None
-            exec_module = spec.loader.exec_module
+            exec_module = spec.loader.exec_module  # type: ignore[union-attr]
 
             def wrapped(module: Any) -> None:
                 exec_module(module)
                 _wrap_loaded_or_refuse()
 
-            spec.loader.exec_module = wrapped
+            spec.loader.exec_module = wrapped  # type: ignore[union-attr]
         except Exception as exc:  # noqa: BLE001 - never a bare error into the host's import
             return _refuse_or_pass(exc)
         return spec
