@@ -309,7 +309,8 @@ class MailRecorder:
 _LOCK = threading.Lock()
 _refs: tuple[weakref.ref[MailRecorder], ...] = ()  # every armed recorder, held weakly
 _WRAPPED: dict[str, Callable[[], bool]] = {}  # wrapped method -> its remover, in wrap order
-_TRAP_WRAPS = ("smtplib.connect", "smtplib.starttls", "aiosmtplib.connect")  # in place only while a trap is on
+_AIOSMTPLIB_CONNECT = "aiosmtplib.connect"
+_TRAP_WRAPS = ("smtplib.connect", "smtplib.starttls", _AIOSMTPLIB_CONNECT)  # in place only while a trap is on
 
 
 def _live() -> list[MailRecorder]:
@@ -561,7 +562,7 @@ def _wrap_loaded() -> None:
     try:
         live = _live()
         if live:
-            _unwrap(("aiosmtplib.connect", "aiosmtplib"))  # a stale record of an earlier module object
+            _unwrap((_AIOSMTPLIB_CONNECT, "aiosmtplib"))  # a stale record of an earlier module object
             _wrap_senders(trap=any(r.dev_trap for r in live))
     except Exception:  # noqa: BLE001, S110 - the host's import never fails on the capture
         pass
@@ -600,7 +601,7 @@ def _wrap_senders(*, trap: bool) -> None:
     _wrap_one("aiosmtplib", owner, "sendmail", _async_sendmail)
     response = getattr(module, "SMTPResponse", None)
     if trap and callable(response):  # without it the trap stays sendmail-only for this aiosmtplib
-        _wrap_one("aiosmtplib.connect", owner, "_create_connection", _async_create_connection(response))
+        _wrap_one(_AIOSMTPLIB_CONNECT, owner, "_create_connection", _async_create_connection(response))
 
 
 def attach(ctx: Any) -> Callable[[], None] | None:
