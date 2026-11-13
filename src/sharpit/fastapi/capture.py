@@ -631,12 +631,12 @@ class CaptureMiddleware:
         try:
             if not wiring.started:
                 wiring.on_first_request(self.ctx)
-            ensure_mail_wrapped()
             if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
                 if buffer is not None:
                     buffer.count_hidden_self()
                 await self.app(scope, receive, send)
                 return
+            ensure_mail_wrapped()  # the host's traffic only: a read of sharpit's own routes patches nothing
             extensions: dict[str, Any] = scope.get("extensions") or {}
             if not extensions.get(PROBE_EXTENSION) and any(
                 k == PROBE_HEADER for k, _ in scope["headers"]

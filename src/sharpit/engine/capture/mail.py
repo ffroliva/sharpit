@@ -260,7 +260,6 @@ class MailRecorder:
     # --- reads --------------------------------------------------------------------------------------------------------
 
     def entries(self) -> list[MailEntry]:
-        ensure_wrapped()
         with self._lock:
             return list(self._entries)
 
@@ -593,7 +592,7 @@ def _wrap_loaded_or_refuse() -> None:
     except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
         if _trap_on():  # none of the package may stay loaded: ``from aiosmtplib.smtp import ...`` would skip the hook
             for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
-                del sys.modules[name]
+                sys.modules.pop(name, None)
         _refuse_or_pass(exc)
 
 
@@ -615,10 +614,12 @@ def _wrap_loaded() -> None:
 
 def ensure_wrapped() -> None:
     """The second layer behind ``_LateImport``: an ``aiosmtplib`` that loaded past the hook (another library's finder
-    answered first) is wrapped, or refused as the hook refuses, at the next point sharpit runs. Called at request start
-    and from the recorder's reads; with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
+    answered first) is wrapped, or refused as the hook refuses, at the next request start. Never from a read (a GET
+    patches nothing); with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
     module = sys.modules.get("aiosmtplib")
     if module is None or not _refs or (_seen is not None and _seen() is module):
+        return
+    if getattr(getattr(module, "__spec__", None), "_initializing", False):  # another thread is importing it now
         return
     with contextlib.suppress(Exception):  # a refusal has already dropped the package; the request goes on
         _wrap_loaded_or_refuse()
