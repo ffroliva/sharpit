@@ -196,6 +196,8 @@ class FakePgEngine:
 
 
 class FakeRegistry:
+    seen_any = True  # EngineRegistry's write-once "an engine was registered"
+
     def __init__(self, *engines: tuple[str, Any]) -> None:
         self._engines = list(engines)
         self.calls = 0

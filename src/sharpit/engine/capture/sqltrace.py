@@ -149,9 +149,10 @@ def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
         "requestId": row["traceId"],
         "executionId": None,
         "threadKind": None,
-        "requestPhase": None,
+        "requestPhase": row.get("phase"),
     }
     dto.pop("shape", None)  # internal: kept for grouping without re-normalising
+    dto.pop("phase", None)  # internal: the lifespan phase, shown as ``requestPhase``
     return dto
 
 
@@ -204,6 +205,8 @@ class SqlTraceRecorder:
         self._n_plus_one_threshold = n_plus_one_threshold
         self.capture_call_site = capture_call_site
         self.recording = recording
+        # STARTUP or SHUTDOWN while the adapter observes the host's lifespan in that phase; None (unknown) otherwise
+        self.lifespan_phase: str | None = None
         self._entries: deque[dict[str, Any]] = deque(maxlen=max_entries)
         self._aggregates: OrderedDict[str, _Aggregate] = OrderedDict()
         self._ids = itertools.count(1)
@@ -229,6 +232,10 @@ class SqlTraceRecorder:
 
     def _slow(self, millis: int) -> bool:
         return self.slow_query_threshold_millis > 0 and millis >= self.slow_query_threshold_millis
+
+    def slow_held(self, nanos: int) -> bool:
+        """BootUI ``isSlow(heldNanos / 1_000)`` for a connection held ``nanos``: at least the slow-query threshold."""
+        return self._slow(nanos // 1_000_000)
 
     def _parameters(self, parameters: object, executemany: bool) -> list[str]:
         sets: Sequence[object] = cast_sets(parameters, executemany)
@@ -265,15 +272,21 @@ class SqlTraceRecorder:
         request_id: str | None = None,
         call_site: str | None = None,
         batch_size: int | None = None,
-    ) -> None:
-        """Build the masked row once, at capture time; a paused recorder returns before any work."""
+    ) -> str | None:
+        """Build the masked row once, at capture time; a paused recorder returns before any work.
+
+        Returns the literal-free statement text (never the raw SQL), which the journal event carries; ``None`` paused.
+        """
         if not self.recording:
-            return
+            return None
         masker = self._masker
         shape: Shape = self._shape(sql, dialect)
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
-        stored = (masker.mask_text(sql) or "") if raw else shape.text
+        text = _truncate(
+            shape.text, self._max_sql_length
+        )  # the journal event's text (``journal_text``), the row's unless raw
+        stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
         error_message: str | None = None
         if error is not None:
             masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")
@@ -285,7 +298,7 @@ class SqlTraceRecorder:
         row = {
             "id": 0,
             "timestamp": time.time_ns(),  # epoch ns, for ordering; entry_dto converts to the contract's epoch ms
-            "sql": _truncate(stored, self._max_sql_length),
+            "sql": stored,
             "statementType": "PREPARED" if has_parameters else "STATEMENT",
             "category": category,
             "durationMicros": duration_ns // 1_000,
@@ -305,6 +318,7 @@ class SqlTraceRecorder:
             "traceId": request_id,
             "callSite": site,
             "shape": shape,
+            "phase": self.lifespan_phase if request_id is None else None,
         }
         with self._lock:
             row["id"] = next(self._ids)
@@ -334,6 +348,11 @@ class SqlTraceRecorder:
                 if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
                     aggregate.call_sites[site] = None
         self.changes.signal()
+        return text
+
+    def journal_text(self, sql: str, dialect: Dialect) -> str:
+        """The literal-free text ``record`` returns, for the journal while the panel is paused (no row is kept)."""
+        return _truncate(self._shape(sql, dialect).text, self._max_sql_length)
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""

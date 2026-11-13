@@ -1,0 +1,11 @@
+{
+  "$.state": [
+    "NOT_ATTACHED"
+  ],
+  "$.setup.buildTool": [
+    "UNKNOWN"
+  ],
+  "$.setup.snippets[].label": [
+    "JAVA_TOOL_OPTIONS"
+  ]
+}

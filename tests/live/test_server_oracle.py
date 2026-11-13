@@ -6,15 +6,13 @@ not read here. So PostgreSQL, which has no readings in the corpus, runs its 128 
 rows on both settings.
 That leg proves no more than those statements: nothing seeded on PostgreSQL ever ran through it.
 
-Red on today's code by design: Tasks 16 to 19 turn those rows green, and nothing is fixed or skipped here. The legs and
-counts need ``-n 0``: ``test_every_session_leg_ran`` reads this process's report, and runs last (``conftest.py``).
+The leg counts are checked from JUnit by ``scripts/ci/check_live_tests.py``, so this suite can use xdist.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
@@ -37,26 +35,6 @@ pytestmark = [pytest.mark.live, pytest.mark.needs_sqlalchemy]
 
 ROOT = Path(__file__).resolve().parents[2]
 PLANT_SECONDS = 900  # a leg twice: the base here, the plant in a child
-
-# The rows each leg runs: each text once, so a repeated reading counts one. Pinned, so a lost leg or a shrunk corpus
-# fails; nothing here is derived from the corpus it checks.
-PINNED: dict[tuple[str, str], int] = {
-    ("mysql84", ""): 2150,
-    ("mysql84", "NO_BACKSLASH_ESCAPES"): 2150,
-    ("mysql84", "ANSI_QUOTES"): 1388,
-    ("mysql80", ""): 1995,
-    ("mysql80", "NO_BACKSLASH_ESCAPES"): 1995,
-    ("mysql80", "ANSI_QUOTES"): 1233,
-    ("mariadb", ""): 1996,
-    ("mariadb", "NO_BACKSLASH_ESCAPES"): 1996,
-    ("mariadb", "ANSI_QUOTES"): 1233,
-    ("mariadb", "MSSQL"): 1403,
-    ("mariadb", "ORACLE"): 1233,
-    ("postgresql", "on"): 138,
-    ("postgresql", "off"): 138,
-    ("sqlite", ""): 2817,
-}
-ROW_ID = re.compile(r"test_oracle_row\[(\w+)-(\w+)-\d+\]$")
 
 
 def _leg_id(key: str, session: str) -> str:
@@ -163,8 +141,8 @@ def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path
 # reaches the recorder: a wrong dialect on the event alone conflicts with its engine, and since Task 29 a conflict hides
 # whole, so that plant leaked nothing (test_live_anchors.py::test_the_wrong_wired_plant_reaches_the_recorder)
 WRONG_WIRED = Mutant(
-    "dialect=event_dialect(event, lambda ctx=ctx: application_family(ctx)),",
-    "dialect=Dialect.POSTGRESQL,",
+    "dialect = event_dialect(event, lambda ctx=ctx: application_family(ctx))",
+    "dialect = Dialect.POSTGRESQL",
     "",
     "",
     "engine/sources/dispatch.py",
@@ -263,27 +241,3 @@ def test_the_inverse_plant_shows_five_rows_on_off(live_servers: Callable[[str], 
     """
     gained = _gained(live_servers("postgresql"), "off", NEVER_ESCAPES, tmp_path)
     assert gained == FIVE_ON_OFF
-
-
-# --- every leg ran: a skip of a row is this failing, so the live job cannot pass on a server that never answered ------
-
-
-def _counted(config: pytest.Config) -> tuple[dict[tuple[str, str], int], dict[tuple[str, str], int]]:
-    reporter = config.pluginmanager.get_plugin("terminalreporter")
-    assert reporter is not None, "no report in this process: run the oracle with -n 0"
-    ran: dict[tuple[str, str], int] = {}
-    returned: dict[tuple[str, str], int] = {}
-    for report in (*reporter.stats.get("passed", ()), *reporter.stats.get("failed", ())):
-        found = ROW_ID.search(report.nodeid)
-        if report.when == "call" and found:
-            leg = found[1], "" if found[2] == "default" else found[2]
-            ran[leg] = ran.get(leg, 0) + 1
-            returned[leg] = returned.get(leg, 0) + bool(dict(report.user_properties).get("returned"))
-    return ran, returned
-
-
-@pytest.mark.parametrize(("key", "session"), PINNED, ids=[_leg_id(*leg) for leg in PINNED])
-def test_every_session_leg_ran(key: str, session: str, request: pytest.FixtureRequest) -> None:
-    ran, returned = _counted(request.config)
-    assert ran.get((key, session), 0) == PINNED[key, session]
-    assert returned.get((key, session), 0) > 0, "no row returned its marker: the leg proved nothing"

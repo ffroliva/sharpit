@@ -5,10 +5,131 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-13
+
+### Fixed
+
+- Runtime insights leave out, and count in the check's reason and the report's limitations, a request that started before events the journal evicted or cleared (BootUI's `LEFT_OUT_BEFORE_LOSS`): a request that lost its statements is no longer reported clean, including one whose statement was larger than the journal's whole byte bound, and the window's request count and the coverage no longer include a left-out request or its events, and a trace-only event of one joins no later request that shares its trace.
+- The log handler no longer holds its own lock across the journal offer: a GC finalizer logging on a thread that held the journal lock could deadlock against another logging thread, and hang interpreter exit. The pytest plugin's exception handler no longer holds its own lock across the sink's, and the log tail buffer's `append` and `clear` and the exception-mark lock drop a finalizer's record on a thread that already holds them, never wait on it. The finalizer's record on a thread holding the journal lock is counted `reentrant`.
+- Runtime insights treat SQL capture that is switched off as a state, not a clean result (BootUI `SqlCapture.DISABLED`). SQL trace flag off, sql-trace panel on: a check that requires SQL evidence (`safe-method-dml`) is UNAVAILABLE with the capture reason, and a check that reads it optionally is evaluated and carries the caveat. sql-trace panel off, flag on or off: a check that requires SQL evidence is NOT_APPLICABLE (the disabled-panel reason wins), and an optional reader carries the caveat. Both on: unchanged. Whether SQL is recorded at all is one per-context fact (BootUI `SqlCapture.of`, `hasWrappedDataSource`): a SQLAlchemy engine registered with the context, or any SQL statement routed to it (write-once, so a paused or suspended capture keeps it). With neither, a SQL-reading check is UNAVAILABLE (`NOT_RECORDED`); with the hook of one database in use suspended it is evaluated with a caveat naming what is missed; with every such hook suspended it is UNAVAILABLE. The sql-trace panel off with the flag on no longer names the flag. The SQL Trace panel and its reads keep their availability (BootUI makes them unavailable until a DataSource is wrapped: a deviation row).
+- Runtime journal: an offer made while the same thread holds the journal lock (a garbage-collection finalizer that logs during `records`, `view`, `status` or an append) is refused and counted `reentrant`, instead of raising "deque mutated during iteration" or running host code under the lock. The host copy of an offered event now runs before the lock is taken, and an offer made from inside that copy is refused and counted `reentrant` as before.
+- Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it; with the http-exchanges panel off, a kind that examines requests answers not applicable for its unit-of-work evidence.
+- The live BootUI capture rejects every request outside GET and the allow-listed POSTs, keys uncaptured routes individually, and confines raw output outside git work trees. Machine identity values, including short logins and home path variants, are retained by the artifact leak gate.
+- In test fixtures, `golden._folder()` honours `fixture_version` when `ROOT` has been patched, selecting the versioned fixture folder instead of an unversioned one.
+- BootUI 2.3.0 test catalog lists test classes outside `src/test`, including abstract base classes in the `bootui-conformance` module (`AbstractMcpConformanceTest`, `AbstractBootUiApiConformanceTest`, `AbstractCliConformanceTest`, `AbstractCorrelationCoverageTest`).
+- MCP negotiates only protocol revision `2025-06-18`, while retaining BootUI's supported-version list in status. A `2026-07-28` header is now refused as BootUI refuses it (it used to be accepted).
+- Email dev trap: an `aiosmtplib` imported after `install()` (inside a handler or a background task) is now wrapped the moment it loads, so the trap holds and its mail is captured; while a dev trap is on, an `aiosmtplib` the hook cannot wrap (a loader it cannot patch, a failed wrap, a registry lock still busy after 5 s, no wrapped `connect`) is not imported: `import aiosmtplib` raises `ImportError` naming the dev trap and none of the package stays loaded, instead of sending real mail unwrapped (BootUI fails open here; with no trap on the module loads as before); a non-ASCII address no longer makes the capture fail.
+
+### Added
+
+- Runtime insights `safe-method-dml` (a GET or HEAD request that executed an INSERT, UPDATE, DELETE or MERGE, one finding per route naming the verb, never the statement); `lazy-sql-after-handler` answers not applicable because sharpit marks no handler end.
+- Email panel (GET /email, /email/{id}, /email/{id}/eml, DELETE /email, get_emails, CLI mail): outgoing mail captured at `smtplib` and `aiosmtplib` `sendmail`, bounded, with SHARPIT_EMAIL_MAX_ENTRIES, _MAX_BODY_LENGTH, _DEV_TRAP and _MASK_CONTENT; secret-shaped text is masked even when content is shown, unless the exposure is FULL; the dev trap never connects.
+- Internal: a shared class-method wrap helper for capture integrations (`engine/capture/wraps.py`).
+- Runtime journal `sql` source: one literal- and parameter-free event per executed statement (BootUI `SqlPayload`), joined to its request by `requestId` or `traceId`; the runtime insights now treat `sql` as recorded when enabled.
+- Runtime journal `connection` source: one event per logical connection the application releases (BootUI `ConnectionPayload`: data source, held time, monotonic checkout time; `statements` is always -1, unknown, so no statement pays for a count), joined to its request by `requestId`; `waitNanos` is always 0 because SQLAlchemy reports no wait.
+- Runtime insights `connections-per-request` (BootUI `ConnectionsPerRequest`): a route whose request held two or more connections of one data source at the same time, from the `connection` journal events' checkout time and held time, with the hold-and-wait pool estimate when the pool's maximum size is known (a queue pool's size plus overflow); a connection with no data source name is counted apart and named in the check reason.
+- Agent sensors `processes` and `files` (`SHARPIT_AGENT_SENSORS`, off by default): one resident, inert `sys.addaudithook` dispatcher records the commands the app starts (file name only) and the files it opens, deletes, moves and copies (path patterns only) into the runtime journal; the `files` sensor switches through the Java Agent sensor action.
+- Runtime journal `exception` source: the exception store offers one metadata-only event per captured exception (class, group id, line-free signature, class chain up to 8 causes deep; never the message, `args` or a frame; BootUI `ExceptionPayload`), so the insights treat `exception` as recorded when enabled.
+- Runtime journal `log` source: the log handler offers one event per WARN-or-above record (logger, `WARN`/`ERROR`, the unformatted `msg` template masked and cut at 500 characters, exception class), so `framework-warnings-by-route` and `errors-behind-2xx` see them whenever `log` is in `runtime_journal_sources`, even with the Log Tail and Exceptions panels off (as BootUI installs its journal appender with the journal). An argument never enters the journal, but an f-string (or `str(exc)` concatenated into the message) IS `msg`: it is shown masked at MASKED and unmasked at FULL, withheld at METADATA_ONLY (BootUI `LogPayload` has the same limit).
+- Exceptions panel: an exception's detail lists up to 8 causes, as BootUI 2.3.0 (`ExceptionStore.MAX_CAUSE_DEPTH`); it was 5.
+- Runtime journal `http` source: the capture middleware offers one metadata-only event per finished request (method, masked path, route template, status, duration, request and trace id; BootUI `RequestCorrelationFilter.publish`), so `ai-usage-by-route` (the only insight reading real requests today) sees them when `http` is in `runtime_journal_sources`.
+- Alembic panel: `POST /alembic/migrate` runs `python -m alembic upgrade heads` in a child process (confirm must be `true`, single-flight, gated like BootUI's Flyway migrate).
+- Alembic panel: `POST /alembic/clean` runs `python -m alembic downgrade base` in a child process, off by default (`SHARPIT_ALEMBIC_CLEAN_ENABLED=true`, checked before `confirm: true`); it shares migrate's single-flight and the report's `cleanEnabled` is now real.
+- Cache clear action (REST POST {api}/cache/clear, BootUI parity) behind confirmation and SHARPIT_CACHE_CLEAR_ENABLED (off by default) for functools and cachetools caches; reachable once the Cache read panel lands.
+- GitHub dashboard (`GET /github`, `get_github_dashboard`, CLI `github`): local repository identity and cached report, read without network access.
+- GitHub refresh action (`POST /github/refresh`, REST only): calls the GitHub REST API with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`, never follows redirects, refused when the panel is read-only.
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
+- SQL Trace `requestPhase` is `STARTUP` or `SHUTDOWN` for statements outside a request while sharpit observes the host's lifespan in that phase; null (unknown) otherwise.
+- `pytest --sharpit-sarif=PATH` (ini `sharpit_sarif`) writes the findings as SARIF 2.1.0: masked text, root-relative URIs, location-free fingerprints, baselined findings as suppressions; written by the xdist controller only.
+- REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
+- REST API rules RAPI-ERR-004, -005, -007, -008, -010 on the error contract; RAPI-ERR-011 kept as retired (BootUI 2.3.0).
+- Runtime Insights panel slot (`runtime-insights`), the registry of BootUI's 28 insight kinds (each a stub until ported), and SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD and SHARPIT_RESOURCES_JFR_MAX_DURATION.
+- Runtime Insights engine: the journal projected into a snapshot, a report of per-kind checks, coverage and window over the sources a merged producer publishes (a kind reading an unproduced source is not applicable), and BootUI's per-kind default-listing outcomes. No route or tool yet.
+- Runtime Insights is served: `GET {api}/runtime-insights`, `GET {api}/runtime-insights/insights/{id}`, MCP `get_runtime_insights` and `get_runtime_insight` (CLI `insights list` and `insights show`), and the Profile resources floor (`GET`/`POST {api}/runtime-insights/resource-profile` and `/stop`): sharpit has no resource sampler, so it answers `UNAVAILABLE` and starts nothing.
+- Runtime insight `ai-usage-by-route` (model calls, agent loops, input growth, length-limited stops and tokens per route, read from `ai` events joined to http requests by request or trace id; reads `SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD`) and `work-after-response`, which stays not applicable because no `agent.executors` producer exists.
+- Runtime insight `route-time-breakdown` (a route's warm requests split into SQL and unattributed time, cold request apart, overlapping statements counted once; statements are placed on the request by the monotonic clocks the http and sql events carry, and sharpit records no handler, authentication, connection, REST client or authorization phases).
+- Runtime insight `errors-behind-2xx` (2xx requests behind a rolled-back transaction, an exception, an ERROR log or a failed downstream call): it reads `transaction`, `exception`, `log` and `rest-client` events that no sharpit producer writes yet, so it answers not applicable.
+- Runtime insights `exception-hotspots` (exception groups per route, a specific check for well-known SQLAlchemy exceptions, groups seen only behind 4xx counted in one row) and `framework-warnings-by-route` (WARN and ERROR events from uvicorn, starlette, fastapi, sqlalchemy and other framework loggers, per route, plus framework ERRORs with no request id): both read only journal fields, never an argument or message, and say so when METADATA_ONLY withholds the request ids.
+- Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
+- Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
+- Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
+- AI Framework panel (GET /ai/overview, /ai/chats, /ai/chats/{spanId}, /ai/tokens, get_ai_overview, CLI ai overview): GenAI spans from the app's own OpenTelemetry SDK; prompt and completion content hidden unless SHARPIT_EXPOSE_VALUES=FULL.
+- Agent-sensor panel floor (Java Agent, Code Inventory, Code Paths, Side Effects; get_agent_status, enable/disable_agent_sensor, CLI agent status): BootUI's shapes, unavailable with the reason; sensor actions refused as BootUI refuses them without the agent.
+- Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
+- Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
+- Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
+- Free on idle (`SHARPIT_FREE_ON_IDLE_ENABLED`, on by default as in BootUI 2.3.0; `SHARPIT_FREE_ON_IDLE_TIMEOUT`, 300 s):
+  after the console has been idle for the timeout, sharpit suspends its capture hooks and releases their buffers; the
+  next console request resumes them, so capture refills from live traffic. Set it to `false` to keep recording
+  continuously.
+- Metrics panel (GET /metrics, /metrics/detail, get_metrics, CLI metrics) over the host's prometheus_client registry, label values masked.
+- Config overrides actions (`POST {api}/config/overrides`, `DELETE {api}/config/overrides/{name}`), REST only, behind the guard, the Configuration panel gate and read-only; the config report now flags overridden properties (`override`, `overrideCount`, `overridesOnly`).
+- W8 action groundwork: the Configuration panel is action-capable as in BootUI (read-only now reports and refuses its writes), Cache and Dev Services panel slots, and SHARPIT_OVERRIDES_FILE, SHARPIT_ALEMBIC_CLEAN_ENABLED, SHARPIT_DEV_SERVICES_RESTART_ENABLED, SHARPIT_CACHE_CLEAR_ENABLED.
+- BootUI 2.3.0 parity tests for the security advisor rules with location-only assertions and leak prevention.
+- Production-gated the five security rules BootUI suppresses outside production and added a partial local JWT audience check.
+- BootUI 2.3.0 parity tests and tracker markers for architecture advisor rules (`ARCH-*`) in `tests/parity/test_rules_architecture_23.py`.
+- Architecture rules ARCH-CODE-009 (uses of PEP 702 deprecated application symbols, incl. same-module and relative imports) and ARCH-SPRING-015 (mutable pydantic `BaseSettings` fields, per field, subclasses included), Python analogues of BootUI's rules.
+- BootUI 2.3.0 rule markers and source citations for existing REST API fire/pass tests.
+- BootUI 2.3.0 REST API rule parity tests (`tests/parity/test_rules_rapi_23.py`): fire and pass cases per rule, 2.3.0 severities, handler locations, and a planted-secret leak test.
+- REST API RAPI-VER-001 no longer counts generated documentation routes (`/v3/api-docs`, `swagger-ui`) as API handlers (BootUI 2.3.0 `isNonApiEndpoint`).
+- BootUI tracker row markers on matched property and MCP/CLI parity tests.
+
+- Attempt-1 CI critical-path table measurement tool (`scripts/ci/ci_walls.py`) reproducing metrics (a) and (b), queue wait, step timings, and noise gain calculations per spec §7.1.
+- Panel GET route parity tests and classification against BootUI 2.3.0 live goldens, excluding fixtures with empty lists from matched parity (W3 lane C1).
+- Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
+- Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
+- Sanitised BootUI 2.3.0 live goldens with route completeness and empty-list metadata.
+
+- A bounded in-memory runtime journal behind a `JournalSink` port (`NULL_SINK` when off), with the
+  `runtime-journal.enabled/max-events/max-bytes/queue-capacity/sources` settings (BootUI defaults; `max-bytes` is a
+  fixed 32 MiB), drop counters by source, read-time masking, and a live `GET /activity/journal` status. It is a
+  capture-hook registry entry (`runtime-journal`): suspending it refuses events and counts them.
+
+### Changed
+
+- `import sharpit` no longer imports `sharpit.fastapi` or FastAPI: `sharpit.install`, `attach_sql_sources`,
+  `detach_sql_sources` and `record_security_event` are imported on first access, so the pytest plugin starts faster.
+- Added an engine-owned capture-hook registry and low-footprint suspend/resume service; each capture hook the FastAPI wiring installs (middleware recording, exception handlers, log handler, security-log hook, SQLAlchemy and sqlite3 listeners, traces and transactions lanes) is its own registry entry, suspended and resumed alone.
+- MCP method dispatch now uses a method-to-handler table while preserving existing response construction.
+- The golden sanitiser now validates nested capture versions from the source, rejects encoded and provider token variants, and limits 2.3.0 raw enum snapshots to 64 enum constants per key path; versioned shaping retains the 0.6.0 default for existing callers.
+- CI can be dispatched manually for attempt-1 noise measurements, and an always-running `live-check` now aggregates
+  every live leg. The workflow must first reach the default branch for GitHub to dispatch it.
+- The Ubuntu 3.14 test-shard and masking-gates legs install the `full-extras` dependency group and publish JUnit evidence
+  under the artifact names the reader already accepts; the live legs install the same locked driver versions through
+  that group.
+- Every CI artifact upload is scanned for planted canary values before upload; an artifact carrying a canary in any
+  form (raw, URL-encoded, JSON-escaped, base64) is withheld and skips the upload.
+- The masking linearity gate reuses first-attempt timings across adjacent size steps.
+- The masking mutant gate computes each unmutated baseline once per surface and seed set in each worker.
+
+### Documentation
+
+- Added user documentation for pytest gate failures, exit statuses, fail-closed unknown results, report-only mode and baselines.
+- Every MCP tool and every setting is documented, and the installation page has the panel to library to extra table: the MCP page lists the 37 read tools and, separately, the 17 action tools (CLI endpoint only, never MCP); the settings page lists the 28 settings it was missing (`SHARPIT_APP_PACKAGE`, `SHARPIT_TRANSACTIONS_*`, `SHARPIT_POSTGRESQL_MAX_*`, `SHARPIT_MYSQL_MAX_*`, `SHARPIT_DATABASE_ADVISOR_MAX_*`, `SHARPIT_ARCHITECTURE_MAX_*`, `SHARPIT_SECURITY_LOGS_MAX_LOGS`, `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`) and all 31 panel ids; `tests/test_tracker_docs.py` fails when a registered tool, a setting or an extra is missing from the docs.
+
+### Known limitations
+
+- SQLAlchemy's class-level listeners (`Engine` statement events, `Pool` checkout and checkin, `Mapper` load, the
+  transactions panel's checkin) are added and removed at runtime when a hook is first attached, suspended, resumed or
+  uninstalled. A host call that SQLAlchemy is dispatching at that moment on another thread can fail with "deque
+  mutated during iteration". This was already true in 0.5.0; a fix for every class-level listener is planned for 0.7.0.
+- `connection` journal events: `statements` is always -1 (unknown, so no SQL statement pays for a count; only BootUI's
+  `ConnectionReacquisition`, not built yet, reads it) and `waitNanos` is always 0 (SQLAlchemy reports no pool wait).
+- The SQL Trace panel, its report, insights and MCP/CLI reads stay available before any database is in use; BootUI
+  makes them unavailable until a DataSource is wrapped (planned for 0.7.0).
+- Runtime insights: after a SQLAlchemy listener attach that failed (or after `uninstall_capture()`) with an engine
+  registered, a SQL-reading check still reads as recorded.
+- On SQLite, a double-quoted run that names no column is a string, so with parameter capture off sharpit can show a
+  literal value it reads as an identifier (#59, unchanged since 0.4.0).
+- sharpit can mask a quoted text twice, so its masked text can differ from BootUI's, which masks it once (cosmetic;
+  planned for 0.7.0).
+- The transactions journal source (P-transaction) is not in this release (planned for 0.7.0).
+
 ## [0.5.0] - 2026-11-08
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - `transactions` panel: SQLAlchemy transactions per request (status, duration, savepoint depth, connection hold time) in a bounded ring, with slow-transaction and connection-hold thresholds; error messages masked; MCP read tool. Settings `transactions_*`.
 - `mysql` panel: MySQL and MariaDB vital signs, sessions, statements, indexes, tables, lock waits, replication and settings, read on an explicit `POST {api}/mysql/read` through a verified read-only session with statement and lock timeouts and row limits; statement text normalised, masked and truncated at 400 characters. Settings `mysql_max_*`. `asyncmy` and `mysqlclient` are untested.
 - `security-logs` panel: 401 and 403 responses recorded as `AUTHENTICATION_FAILURE` / `AUTHORIZATION_FAILURE`, filterable by principal, type and time, with a stream and MCP `get_security_logs`. Needs the capture middleware.
@@ -110,6 +231,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - `traces` panel: OpenTelemetry spans from the application's own SDK `TracerProvider`, with SQL literals in `db.statement` normalised and masked; MCP `get_traces`. sharpit never imports OpenTelemetry or installs a provider, it attaches one span processor to the provider the app already set up.
 - `data` panel: SQLAlchemy 2.0 mapped classes (table, primary-key type, relationships) from the new `install(models=...)` keyword (a declarative base, registry, or a list of them or of mapped classes); MCP `get_data_repositories`. sharpit never configures mappers or runs SQL to read them.
 - `postgresql` panel: vital signs, sessions, statements, indexes, tables, vacuum, replication and settings, read on an explicit `POST {api}/postgresql/read` in one read-only transaction with statement and lock timeouts, a read budget and row limits; query text masked (numbers and comments too). `GET` returns the last read; MCP `get_postgresql_report`. `pg_stat_statements` created but not preloaded makes that section `SKIPPED`.
@@ -143,6 +265,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - Finding contract (`Finding`, `AdvisorRun`) and advisor registry with pass/fail/unknown status semantics (#19).
 - `pytest --sharpit` plugin with test-id tagging, unattributed bucket, phase split, xdist merge, and JSON (`sharpit-report/1`) and JUnit reports (#20). Count gates (queries per test with `--sharpit-max-queries`, N+1, swallowed exceptions) fail the test; advisor findings at or above `--sharpit-fail-on` fail the run; `unknown` fails it unless `--sharpit-allow-unknown` (limit for unattributed SQL: `--sharpit-max-unattributed`).
 - Per-test budget marker `@pytest.mark.sharpit(max_queries=..., allow_n_plus_one=..., max_exceptions=...)` (#21).
@@ -163,6 +286,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - F1 (HTTP Exchanges): `http-exchanges` panel and endpoint with a ring buffer of recent HTTP requests, duration, headers, status code, and path masking.
 - F2 (Exceptions): `exceptions` panel and endpoints capturing unhandled errors from middleware, wrapped handlers, and log records, grouped by class and innermost application frame.
 - F3 (SQL Trace): `sql-trace` panel, endpoints, and live SSE stream capturing SQLAlchemy queries via class-level events with statement categorization, normalized SQL, and slow query alerts.
@@ -203,6 +327,7 @@ First release: an embedded, local-only developer console for FastAPI apps, porte
 
 ### Added
 
+- Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
 - `sharpit.install(app, settings=..., **options)` mounts the console at `/sharpit` and a BootUI-compatible JSON API at
   `/sharpit/api`. `settings=` takes pydantic-settings instances so the Config panel can show each value's source.
 - Panels: Overview, Configuration (environment, `.env`, pydantic-settings and `os.getenv` keys, masked), Mappings,
@@ -243,7 +368,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0

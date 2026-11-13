@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
-from sharpit.engine.sources import dispatch
-from sharpit.engine.sources.dispatch import SqlEvent
+from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports this package
 from sharpit.engine.sqla import _lock
+from sharpit.engine.sqla import connections as _connections
 from sharpit.engine.sqla import orm as _orm
 from sharpit.engine.sqla.dialect_source import engine_dialect
 from sharpit.engine.sqla.orm import (
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 STATEMENT_EVENTS = ("before_cursor_execute", "after_cursor_execute", "handle_error")
+POOL_EVENTS = ("checkout", "checkin")  # the connection journal event: follow a connection, offer it when released
 DISCOVERY_EVENT = "engine_connect"
 DISCOVERY_PANELS = (
     "alembic",
@@ -136,7 +137,7 @@ def _emit(
     # replaced, so the check proves the engine did not move, not which server answered.
     dialect = engine_dialect(conn)
     dispatch.deliver(
-        SqlEvent(
+        dispatch.SqlEvent(
             "sqlalchemy",
             statement,
             parameters,
@@ -185,7 +186,20 @@ _LISTENERS: dict[str, Callable[..., None]] = {
     "before_cursor_execute": before_cursor_execute,
     "after_cursor_execute": after_cursor_execute,
     "handle_error": handle_error,
+    "checkout": _connections.checkout,
+    "checkin": _connections.checkin,
 }
+
+
+def _records_connections(ctx: SharpitContext) -> bool:
+    """Whether ``ctx``'s journal is configured for ``connection`` (BootUI ``journal.records(CONNECTION)``)."""
+    journal = ctx.capture.journal
+    return journal is not None and (journal.sources is None or _connections.SOURCE in journal.sources)
+
+
+def _target(sa: Any, name: str) -> Any:
+    """The class a listener sits on: the pool events belong to ``Pool``, the rest to ``Engine``."""
+    return sa.pool.Pool if name in POOL_EVENTS else sa.engine.Engine
 
 
 def _sync_listeners() -> None:
@@ -196,16 +210,19 @@ def _sync_listeners() -> None:
     sa = _sqla.sqlalchemy_module()
     if sa is None:
         return
+    followed = any(_records_connections(c) for c in _statement_contexts.values())
     wanted = {
         DISCOVERY_EVENT: bool(_discovery_contexts),
         **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts) or _session),
+        **dict.fromkeys(POOL_EVENTS, followed),
     }
     for name, fn in _LISTENERS.items():
-        present = sa.event.contains(sa.engine.Engine, name, fn)
+        target = _target(sa, name)
+        present = sa.event.contains(target, name, fn)
         if wanted[name] and not present:
-            sa.event.listen(sa.engine.Engine, name, fn)
+            sa.event.listen(target, name, fn)
         elif present and not wanted[name]:
-            sa.event.remove(sa.engine.Engine, name, fn)
+            sa.event.remove(target, name, fn)
 
 
 def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
@@ -232,6 +249,11 @@ def remove(ctx: SharpitContext) -> None:
         _statement_contexts.pop(ctx.context_id, None)
         _discovery_contexts.pop(ctx.context_id, None)
         _sync_listeners()
+
+
+def routes_statements(ctx: SharpitContext) -> bool:
+    """``ctx`` still takes SQLAlchemy events: ``add`` routed it, and no suspend or uninstall (``remove``) has since."""
+    return _statement_contexts.get(ctx.context_id) is ctx
 
 
 def detach_all() -> None:
@@ -293,6 +315,13 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
         return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
 
 
+def following_connections(ctx: SharpitContext) -> bool:
+    """Whether the pool listener runs for ``ctx``: the ``connection`` journal event can be produced."""
+    with _lock:
+        armed = attached()
+        return ctx.context_id in _statement_contexts and all(armed[name] for name in POOL_EVENTS)
+
+
 def note_request_captured() -> None:
     if not _session:
         return
@@ -301,8 +330,8 @@ def note_request_captured() -> None:
 
 
 def attached() -> dict[str, bool]:
-    """Event name -> whether sharpit's class-level listener is on ``Engine``."""
+    """Event name -> whether sharpit's class-level listener is on ``Engine`` (``Pool`` for the pool events)."""
     sa = _sqla.sqlalchemy_module()
     if sa is None:
         return dict.fromkeys(_LISTENERS, False)
-    return {name: bool(sa.event.contains(sa.engine.Engine, name, fn)) for name, fn in _LISTENERS.items()}
+    return {name: bool(sa.event.contains(_target(sa, name), name, fn)) for name, fn in _LISTENERS.items()}

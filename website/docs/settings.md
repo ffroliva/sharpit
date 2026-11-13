@@ -22,13 +22,14 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_AUTHENTICATION_TOKEN` | `authentication_token` | generated | bearer token for untrusted sources |
 | `SHARPIT_READ_ONLY` | `read_only` | `false` | refuse every write action |
 | `SHARPIT_PANELS_<ID>_ENABLED` | `panels={"<id>": {"enabled": ...}}` | `true` | per-panel switch |
-| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `ACTIVITY`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `MCP_SERVER`, `CLI` |
+| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI`, `ACTIVITY`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `LIVE_MEMORY`, `DATA`, `TRANSACTIONS`, `POSTGRESQL`, `MYSQL`, `TRACES`, `SECURITY`, `SECURITY_LOGS`, `DATABASE_ADVISOR`, `ARCHITECTURE`, `SQLALCHEMY_STATISTICS`, `FASTAPI_SECURITY`, `FASTAPI`, `METRICS`, `STARTUP`, `PROFILE_DIFF`, `SCHEDULED`, `COPILOT`, `CLAUDE_CODE`, `GITHUB`, `AI`, `JAVA_AGENT`, `CODE_INVENTORY`, `CODE_PATHS`, `SIDE_EFFECTS`, `EMAIL`, `CACHE`, `DEV_SERVICES`, `RUNTIME_INSIGHTS` |
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (FULL logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values; sharpit's own token is masked even when `false` |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
 | `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | holds `sharpit.yml` (dismissed rules and findings, created on first write) and `identity.key` (created by an active `install()` or `pytest --sharpit`, with a `.gitignore` naming it: never commit the key) |
 | `SHARPIT_IDENTITY_KEY` | `identity_key` | unset | optional shared key (at least 32 UTF-8 bytes) for stable SQLite statement identities, overriding `identity.key`, so CI and laptops share baselines; masked by value in every exposure, `FULL` included. One repeated character warns |
 | `SHARPIT_CONFIG_SCAN` | `config_scan` | `true` | `true` scans your top-level package for `os.getenv` keys, `false` disables, or a list of package names |
+| `SHARPIT_APP_PACKAGE` | `app_package` | unset | the dotted package the advisors and the Config scan read; resolved through `sys.modules` only, never imported. Unset: sharpit infers it from the app |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
 | `SHARPIT_VULNERABILITIES_OSV_BASE_URI` | `vulnerabilities_osv_base_uri` | `https://api.osv.dev` | OSV endpoint, `http` or `https` only |
 | `SHARPIT_VULNERABILITIES_EPSS_ENABLED` | `vulnerabilities_epss_enabled` | `true` | enrich findings with EPSS scores |
@@ -37,6 +38,8 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_VULNERABILITIES_MAX_PACKAGES` | `vulnerabilities_max_packages` | `500` | packages sent to OSV |
 | `SHARPIT_VULNERABILITIES_MAX_ADVISORIES` | `vulnerabilities_max_advisories` | `200` | advisories kept per scan |
 | `SHARPIT_MCP_ENABLED` | `mcp_enabled` | `OFF` | `ON` enables the MCP endpoint |
+| `SHARPIT_FREE_ON_IDLE_ENABLED` | `free_on_idle_enabled` | `true` | suspend capture hooks after API inactivity |
+| `SHARPIT_FREE_ON_IDLE_TIMEOUT` | `free_on_idle_timeout` | `300` | idle seconds before suspending capture hooks |
 | `SHARPIT_MCP_MAX_RESULTS` | `mcp_max_results` | `200` | cap on items per tool call |
 | `SHARPIT_MCP_MAX_PAYLOAD_BYTES` | `mcp_max_payload_bytes` | `1048576` | largest request body |
 | `SHARPIT_MCP_MAX_CONCURRENT_CALLS` | `mcp_max_concurrent_calls` | `20` | parallel tool calls |
@@ -63,6 +66,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_ACTIVITY_MAX_ENTRIES` | `activity_max_entries` | `200` | max entries returned by activity queries |
 | `SHARPIT_ACTIVITY_REQUEST_SLOW_THRESHOLD_MS` | `activity_request_slow_threshold_ms` | `1000` | slow request threshold in milliseconds |
 | `SHARPIT_ACTIVITY_N_PLUS_ONE_THRESHOLD` | `activity_n_plus_one_threshold` | `5` | per-request query threshold for N+1 detection (min 2) |
+| `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR` | `activity_unbounded_read_factor` | `2` | the `sharpit.unbounded-read` test gate flags an ORM read that loads at least this many times the bound page size in a request to an endpoint with paging parameters (min 2) |
 | `SHARPIT_LOG_TAIL_MAX_LINES` | `log_tail_max_lines` | `500` | max lines kept in log tail buffer |
 | `SHARPIT_LOG_TAIL_MAX_BYTES` | `log_tail_max_bytes` | `1048576` | max memory in bytes for log tail buffer (must be > 0) |
 | `SHARPIT_ALEMBIC_CONFIG` | `alembic_config` | `alembic.ini` | path to Alembic configuration file |
@@ -71,6 +75,80 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_THREADS_MAX_STACK_FRAMES` | `threads_max_stack_frames` | `64` | max stack frames per thread or task |
 | `SHARPIT_ADVISORS_MAX_RETAINED_VIOLATIONS` | `advisors_max_retained_violations` | `10000` | max retained violations per advisor scan |
 | `SHARPIT_STREAM_MAX_SECONDS` | `stream_max_seconds` | `3s` | duration before closing and rotating SSE streams |
+| `SHARPIT_AI_TOKEN_SERIES_MINUTES` | `ai_token_series_minutes` | `60` | default AI token-series window in minutes |
+| `SHARPIT_AI_MAX_RECENT_CHATS` | `ai_max_recent_chats` | `100` | maximum recent chats in the AI overview |
+| `SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER` | `ai_show_content_capture_banner` | `true` | show the AI prompt/completion capture banner |
+| `SHARPIT_RUNTIME_JOURNAL_ENABLED` | `runtime_journal_enabled` | `true` | keep the in-memory runtime journal; `false` allocates nothing |
+| `SHARPIT_RUNTIME_JOURNAL_MAX_EVENTS` | `runtime_journal_max_events` | `50000` | events the journal retains |
+| `SHARPIT_RUNTIME_JOURNAL_MAX_BYTES` | `runtime_journal_max_bytes` | `32MB` | estimated bytes the retained events may use (`B`, `KB`, `MB`, `GB`) |
+| `SHARPIT_RUNTIME_JOURNAL_QUEUE_CAPACITY` | `runtime_journal_queue_capacity` | `10000` | parsed for BootUI parity; unused, since sharpit records in the caller's thread with no queue |
+| `SHARPIT_RUNTIME_JOURNAL_SOURCES` | `runtime_journal_sources` | every source | comma-separated BootUI journal sources to record (`http`, `sql`, `log`, ...); a list naming an unknown source is ignored whole (every source) with a warning |
+| `SHARPIT_AGENT_SENSORS` | `agent_sensors` | none | comma-separated agent sensors to run: `processes` and `files` are built (BootUI's default set is on; sharpit's is off, because the audit hook this installs cannot be removed from the process); the other BootUI ids are accepted and not built yet; a list naming an unknown id is ignored whole (none) with a warning. Needs the runtime journal, which records them as the `processes` and `files` sources. A process row keeps the command's file name only; a file row keeps a path pattern only |
+| `SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD` | `runtime_insights_ai_token_threshold` | `8000` | tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone; must be positive |
+| `SHARPIT_RESOURCES_JFR_MAX_DURATION` | `resources_jfr_max_duration` | `30s` | how long a Runtime Insights resource profile records once started, `1s` to `600s` (outside the range: the default, with a warning); sharpit has no sampler yet, so no profile starts |
+| `SHARPIT_STARTUP_ENABLED` | `startup_enabled` | `true` | record the host's startup timeline for the Startup panel |
+| `SHARPIT_STARTUP_CAPACITY` | `startup_capacity` | `4096` | startup steps the timeline retains |
+| `SHARPIT_COPILOT_ENABLED` | `copilot_enabled` | `AUTO` | Copilot panel; `AUTO` turns it on only when the session-state directory exists |
+| `SHARPIT_COPILOT_SESSION_STATE_DIR` | `copilot_session_state_dir` | `~/.copilot/session-state` | directory scanned for Copilot CLI sessions |
+| `SHARPIT_COPILOT_MAX_EVENTS_PER_SESSION` | `copilot_max_events_per_session` | `2000` | activity events retained per session |
+| `SHARPIT_COPILOT_MAX_SESSIONS` | `copilot_max_sessions` | `100` | recent sessions returned to the session explorer |
+| `SHARPIT_COPILOT_MAX_PARSED_SESSIONS` | `copilot_max_parsed_sessions` | `100` | recent session files parsed and kept in memory |
+| `SHARPIT_COPILOT_STREAM_DEBOUNCE` | `copilot_stream_debounce` | `400ms` | wait after a file change before refreshing sessions and notifying stream subscribers |
+| `SHARPIT_COPILOT_ALLOW_RAW_REVEAL` | `copilot_allow_raw_reveal` | `false` | serve the opt-in raw-event endpoint; `false` answers 404 |
+| `SHARPIT_CLAUDE_CODE_ENABLED` | `claude_code_enabled` | `AUTO` | Claude Code panel; `AUTO` turns it on only when the session directory exists |
+| `SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR` | `claude_code_session_state_dir` | `~/.claude/projects` | directory scanned for Claude Code sessions |
+| `SHARPIT_CLAUDE_CODE_MAX_EVENTS_PER_SESSION` | `claude_code_max_events_per_session` | `2000` | activity events retained per session |
+| `SHARPIT_CLAUDE_CODE_MAX_SESSIONS` | `claude_code_max_sessions` | `100` | recent sessions returned to the session explorer |
+| `SHARPIT_CLAUDE_CODE_MAX_PARSED_SESSIONS` | `claude_code_max_parsed_sessions` | `100` | recent session files parsed and kept in memory |
+| `SHARPIT_CLAUDE_CODE_STREAM_DEBOUNCE` | `claude_code_stream_debounce` | `400ms` | wait after a file change before refreshing sessions and notifying stream subscribers |
+| `SHARPIT_CLAUDE_CODE_ALLOW_RAW_REVEAL` | `claude_code_allow_raw_reveal` | `false` | serve the opt-in raw-event endpoint; `false` answers 404 |
+| `SHARPIT_GITHUB_API_ENABLED` | `github_api_enabled` | `true` | allow the GitHub refresh action to call GitHub APIs |
+| `SHARPIT_GITHUB_REQUEST_TIMEOUT` | `github_request_timeout` | `5s` | timeout per GitHub API request |
+| `SHARPIT_GITHUB_MAX_PULL_REQUESTS` | `github_max_pull_requests` | `10` | pull requests returned by a dashboard refresh |
+| `SHARPIT_GITHUB_MAX_ISSUES` | `github_max_issues` | `25` | issues returned by a dashboard refresh |
+| `SHARPIT_GITHUB_MAX_SECURITY_ALERTS` | `github_max_security_alerts` | `50` | Dependabot alert details listed by one refresh |
+| `SHARPIT_GITHUB_MAX_WORKFLOW_RUNS` | `github_max_workflow_runs` | `20` | workflow runs returned by one refresh |
+| `SHARPIT_GITHUB_QUOTA_SAFETY_THRESHOLD` | `github_quota_safety_threshold` | `10` | threshold below which optional API calls are skipped |
+| `SHARPIT_GITHUB_MAX_API_CALLS` | `github_max_api_calls` | `17` | API requests issued by one refresh |
+| `SHARPIT_GITHUB_ALLOWED_API_HOSTS` | `github_allowed_api_hosts` | `api.github.com` | comma-separated, lower-cased GitHub Enterprise API hosts |
+| `SHARPIT_OVERRIDES_FILE` | `overrides_file` | `{state_dir}/overrides.env` | file the Configuration panel's runtime overrides persist to; never read by sharpit's own settings |
+| `SHARPIT_ALEMBIC_CLEAN_ENABLED` | `alembic_clean_enabled` | `false` | allow the Alembic panel's clean action (`downgrade base`); an invalid value keeps it off. The command cleans the database that Alembic's `env.py` / `sqlalchemy.url` resolves, while the answer names the registered engine |
+| `SHARPIT_DEV_SERVICES_RESTART_ENABLED` | `dev_services_restart_enabled` | `false` | allow restarting a dev-services container; an invalid value keeps it off |
+| `SHARPIT_CACHE_CLEAR_ENABLED` | `cache_clear_enabled` | `false` | allow the Cache panel's clear action (read-only still refuses it); an invalid value turns it off |
+| `SHARPIT_EMAIL_MAX_ENTRIES` | `email_max_entries` | `100` | captured emails kept; the oldest is dropped first |
+| `SHARPIT_EMAIL_MAX_BODY_LENGTH` | `email_max_body_length` | `200000` | characters kept of each text or HTML body; a longer one is masked, then cut |
+| `SHARPIT_EMAIL_DEV_TRAP` | `email_dev_trap` | `false` | capture outgoing mail and do not send it: a session opened under the trap never connects (`smtplib` and `aiosmtplib`). In a request only that app's trap decides; outside one (a plain thread, a websocket handler, startup) the trap holds only when every live app has it on, otherwise the mail is sent. An `LMTP` unix socket, or a subclass whose own `connect` opens its own socket, is not trapped. An `aiosmtplib` imported after startup is wrapped as it loads (or at the next host request start); with the trap on, one that cannot be wrapped is not imported |
+| `SHARPIT_EMAIL_MASK_CONTENT` | `email_mask_content` | `false` | mask every address, subject and body unless `SHARPIT_EXPOSE_VALUES=FULL`; secret-shaped text is masked either way, unless `SHARPIT_EXPOSE_VALUES=FULL` |
+| `SHARPIT_SECURITY_LOGS_MAX_LOGS` | `security_logs_max_logs` | `500` | authentication and authorization audit events kept by the Security Logs panel |
+| `SHARPIT_TRANSACTIONS_ENABLED` | `transactions_enabled` | `true` | capture SQLAlchemy transactions for the Transactions panel |
+| `SHARPIT_TRANSACTIONS_RECORDING` | `transactions_recording` | `true` | initial transaction recording state |
+| `SHARPIT_TRANSACTIONS_MAX_ENTRIES` | `transactions_max_entries` | `200` | transactions ring buffer size |
+| `SHARPIT_TRANSACTIONS_SLOW_TRANSACTION_THRESHOLD_MILLIS` | `transactions_slow_transaction_threshold_millis` | `200` | a transaction at least this long (milliseconds) is slow |
+| `SHARPIT_TRANSACTIONS_CONNECTION_HOLD_THRESHOLD_MILLIS` | `transactions_connection_hold_threshold_millis` | `500` | a connection held at least this long (milliseconds) is flagged |
+| `SHARPIT_POSTGRESQL_MAX_SESSIONS` | `postgresql_max_sessions` | `100` | sessions listed by one PostgreSQL read |
+| `SHARPIT_POSTGRESQL_MAX_STATEMENTS` | `postgresql_max_statements` | `100` | top statements listed |
+| `SHARPIT_POSTGRESQL_MAX_INDEXES` | `postgresql_max_indexes` | `500` | indexes listed |
+| `SHARPIT_POSTGRESQL_MAX_TABLES` | `postgresql_max_tables` | `200` | tables listed |
+| `SHARPIT_POSTGRESQL_MAX_VACUUM_TABLES` | `postgresql_max_vacuum_tables` | `200` | tables listed in the autovacuum section |
+| `SHARPIT_POSTGRESQL_MAX_REPLICAS` | `postgresql_max_replicas` | `10` | replication standbys listed |
+| `SHARPIT_POSTGRESQL_MAX_SETTINGS` | `postgresql_max_settings` | `40` | server settings listed |
+| `SHARPIT_MYSQL_MAX_SESSIONS` | `mysql_max_sessions` | `100` | sessions listed by one MySQL read |
+| `SHARPIT_MYSQL_MAX_STATEMENTS` | `mysql_max_statements` | `100` | top statements listed |
+| `SHARPIT_MYSQL_MAX_INDEXES` | `mysql_max_indexes` | `500` | indexes listed |
+| `SHARPIT_MYSQL_MAX_TABLES` | `mysql_max_tables` | `200` | tables listed |
+| `SHARPIT_MYSQL_MAX_LOCK_WAITS` | `mysql_max_lock_waits` | `100` | lock waits listed |
+| `SHARPIT_MYSQL_MAX_REPLICATION_CHANNELS` | `mysql_max_replication_channels` | `10` | replication channels listed |
+| `SHARPIT_MYSQL_MAX_SETTINGS` | `mysql_max_settings` | `40` | server variables listed |
+| `SHARPIT_DATABASE_ADVISOR_MAX_TABLES` | `database_advisor_max_tables` | `300` | tables the Database Advisor scan reads |
+| `SHARPIT_DATABASE_ADVISOR_MAX_COLUMNS` | `database_advisor_max_columns` | `300` | columns read per table |
+| `SHARPIT_DATABASE_ADVISOR_MAX_INDEXES_PER_TABLE` | `database_advisor_max_indexes_per_table` | `100` | indexes read per table |
+| `SHARPIT_DATABASE_ADVISOR_MAX_VENDOR_ROWS` | `database_advisor_max_vendor_rows` | `500` | rows read from each vendor catalog query |
+| `SHARPIT_ARCHITECTURE_MAX_FILES` | `architecture_max_files` | `2000` | source files the app-source index reads; also bounds the security and FastAPI advisor scans |
+| `SHARPIT_ARCHITECTURE_MAX_FILE_BYTES` | `architecture_max_file_bytes` | `524288` | largest source file the index reads, in bytes |
+
+The PostgreSQL and MySQL limits take a whole number from 1 to 2147483646; the other sizes and thresholds take a whole
+number above 0 (the N+1 thresholds and `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR` count anything below 2 as 2, and
+`SHARPIT_SQL_TRACE_SLOW_QUERY_THRESHOLD_MILLIS` accepts 0 to switch the check off).
 
 The first Config load scans your package's source for `os.getenv` keys and caches the result. On a large application
 that one-time scan can take several seconds. Set `SHARPIT_CONFIG_SCAN=false` to skip it, or narrow it to the smaller

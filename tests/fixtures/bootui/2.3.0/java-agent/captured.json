@@ -1,0 +1,33 @@
+{
+  "state": "NOT_ATTACHED",
+  "reason": "This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence.",
+  "agentVersion": null,
+  "bootUiVersion": "x",
+  "protocol": null,
+  "expectedProtocol": 1,
+  "jdk": "25.0.3+9-LTS (Amazon.com Inc.)",
+  "loadMode": null,
+  "jarPath": null,
+  "startupMicros": null,
+  "claim": null,
+  "heldBy": null,
+  "sensors": [],
+  "toggles": [],
+  "retransformation": null,
+  "counters": null,
+  "messages": [],
+  "warnings": [],
+  "setup": {
+    "jarPath": "/path",
+    "jarFound": false,
+    "buildTool": "UNKNOWN",
+    "snippets": [
+      {
+        "id": "curl-download",
+        "label": "Download the agent (curl)",
+        "language": "shell",
+        "text": "curl.exe -fL --create-dirs -o \"/path\" https://repo1.maven.org/maven2/com/julien-dubois/bootui/bootui-agent/2.3.0/bootui-agent-2.3.0.jar"
+      }
+    ]
+  }
+}

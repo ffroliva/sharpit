@@ -1,0 +1,44 @@
+{
+  "$.entries[].statementType": [
+    "CALLABLE",
+    "PREPARED",
+    "STATEMENT"
+  ],
+  "$.entries[].category": [
+    "DDL",
+    "DELETE",
+    "INSERT",
+    "OTHER",
+    "SELECT",
+    "UPDATE"
+  ],
+  "$.entries[].threadKind": [
+    "OTHER",
+    "WORKER"
+  ],
+  "$.topStatements[].category": [
+    "DDL",
+    "OTHER",
+    "SELECT"
+  ],
+  "$.statements[].category": [
+    "DDL",
+    "INSERT",
+    "OTHER",
+    "SELECT"
+  ],
+  "$.statements[].topFor[]": [
+    "AVG_DURATION",
+    "ERROR_COUNT",
+    "EXECUTIONS",
+    "MAX_DURATION",
+    "P95_DURATION",
+    "P99_DURATION",
+    "TOTAL_DURATION"
+  ],
+  "$.attribution.supportedCorrelations[]": [
+    "SERVING_THREAD",
+    "TIME_WINDOW",
+    "TRACE_ID"
+  ]
+}

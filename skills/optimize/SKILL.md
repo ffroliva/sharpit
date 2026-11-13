@@ -32,7 +32,8 @@ uv run python -m scripts.pytest_speed check speed --config pytest-speed.toml --o
 ```
 
 The gating run is CI's Linux job (`.github/workflows/ci.yml`); a local Windows run is for finding causes, not for
-ranking. CI does not yet upload JUnit artifacts, so until it does, rank a local full run and say which OS it came from.
+ranking. CI uploads reports as `junit-<job>-<leg>` and overhead records as `overhead-<job>-<leg>`; the shard-weight
+reader consumes the `junit-test-shard-*` reports.
 
 ## The never-weaken rule (summary; the pytest-speed skill is authoritative)
 

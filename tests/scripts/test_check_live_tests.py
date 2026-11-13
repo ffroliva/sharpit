@@ -99,3 +99,25 @@ def test_check_live_passes_when_the_required_count_ran(tmp_path: Path) -> None:
     names = ("mysql84", "mysql80", "mariadb", "postgresql")
     report = _report(tmp_path, [(f"test_a_server_answers[{n}]", "pass") for n in names])
     assert _run(report, "test_a_server_answers=4") == 0
+
+
+def test_the_leg_count_reads_junit_and_requires_a_returned_marker(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report = tmp_path / "live.xml"
+    report.write_text(
+        '<testsuite tests="2" failures="0" errors="0" skipped="0">'
+        '<testcase classname="tests.live.test_server_oracle" name="test_oracle_row[mysql84-default-0]">'
+        '<properties><property name="returned" value="True"/></properties></testcase>'
+        '<testcase classname="tests.live.test_server_oracle" name="test_oracle_row[mysql84-ANSI_QUOTES-0]">'
+        "</testcase></testsuite>",
+        encoding="utf-8",
+    )
+    try:
+        result = check_live.main(
+            [str(report), "--legs", "mysql84-default=1", "mysql84-ANSI_QUOTES=1", "--require", "test_oracle_row"]
+        )
+    except SystemExit as error:
+        result = error.code
+    assert result == 1
+    assert "mysql84-ANSI_QUOTES" in capsys.readouterr().err

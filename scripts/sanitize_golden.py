@@ -1,25 +1,27 @@
 """Sanitise raw BootUI captures into committed test fixtures.
 
-Usage: python scripts/sanitize_golden.py <replica/evidence src_dir> <tests/fixtures/bootui dst_dir>
+Usage: python scripts/sanitize_golden.py <src_dir> <dst_dir> [nested|flat] [--version VERSION]
 
-Two layouts: flat ``<panel>.json`` files (BootUI 1.17.0) and, for 2.2.0, ``<sharpit-id>/captured.json`` or
-``<sharpit-id>/<name>.captured.json`` folders. An optional ``uncaptured.json`` in the 2.2.0 source
+Two layouts: flat ``<panel>.json`` files (BootUI 1.17.0) and nested ``<sharpit-id>/captured.json`` or
+``<sharpit-id>/<name>.captured.json`` folders (BootUI 2.2.0+). An optional ``uncaptured.json`` in the source
 (``{"<sharpit-id>": "<reason>"}``) is copied into ``meta.json``; ``nullable.json`` files are never written.
 
 The flat 1.17.0 layout keeps every item (no truncation, so ``page`` stays consistent). The 2.2.0 folders are shape
 goldens: each list keeps one item per DISTINCT SHAPE (key set + per-key JSON kind, null its own kind), so real nulls and
 type variants survive, and a list of scalars keeps its first 3. Epoch/duration fields are normalised only when set.
-The 2.2.0 layout also refuses an error body at the root (any ``error`` key) and checks secrets before and after shaping.
-Both layouts replace only an enumerated list of volatile values, then abort on anything that looks like a secret.
+The nested layout also refuses an error body at the root (any ``error`` key) and checks secrets before and after
+shaping. BootUI 2.3.0+ captures add ``enums.raw.json`` from pre-shaped values. Both layouts replace only an enumerated
+list of volatile values, then abort on anything that looks like a secret.
 
-Layout: nested when the source folder is named ``2.2.0``, else flat; force it with a third argument. Regenerate:
-    python scripts/sanitize_golden.py replica/evidence/2.2.0 tests/fixtures/bootui/2.2.0 nested
-meta.json keeps its existing ``provisional`` list and takes ``uncaptured`` from ``<src>/uncaptured.json``.
+Layout: nested for source folders named ``2.2.0`` or ``2.3.0``, else flat; force it with the third argument.
+The nested target version comes from ``--version`` or the source folder name. ``meta.json`` keeps existing keys and
+takes ``uncaptured`` from ``<src>/uncaptured.json``.
 """
 
 import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -77,9 +79,15 @@ SECRET_VALUE = re.compile(
     r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]+"  # JWT
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----"  # PEM private key
     r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"  # AWS access key id
+    r"|(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})(?![A-Za-z0-9_])"  # GitHub tokens
+    r"|%3[Dd]gh[pousr]_[A-Za-z0-9]{20,}(?![A-Za-z0-9_])"  # URL-encoded equals before GitHub token
+    r"|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"  # AI provider tokens
+    r"|(?i:bearer)(?:\s|%20|\+)+[A-Za-z0-9._~+/-]{16,}={0,2}(?![A-Za-z0-9._~+/-])"  # bearer credentials
     r"|://(?!user:password@)[^/\s:@]+:[^/\s@]+@"  # URL userinfo (docs placeholder user:password allowed)
 )
 SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.IGNORECASE)
+# A count of tokens (AI usage), never a credential: numbers under these names are not secrets.
+TOKEN_COUNT = re.compile(r"(?:tokens|token_?count|token_?usage)$", re.IGNORECASE)
 MASK = "******"
 NL = chr(10)
 
@@ -133,13 +141,25 @@ def _kind(value: Any) -> str:
     return {str: "string", list: "array", dict: "object"}.get(type(value), "other")
 
 
+def _shape_signature(value: Any) -> Any:
+    if isinstance(value, dict):
+        return ("object", tuple(sorted((key, _shape_signature(child)) for key, child in value.items())))
+    if isinstance(value, list):
+        return ("array", tuple(sorted({_shape_signature(child) for child in value}, key=repr)))
+    return (_kind(value),)
+
+
+def _contains_object(value: Any) -> bool:
+    return isinstance(value, dict) or (isinstance(value, list) and any(_contains_object(child) for child in value))
+
+
 def _signature(item: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    return tuple(sorted((k, _kind(v)) for k, v in item.items()))
+    return tuple(sorted((key, _kind(value)) for key, value in item.items()))
 
 
 def _reduce(items: list[Any]) -> list[Any]:
     if items and all(isinstance(i, dict) for i in items):  # pyright: ignore[reportUnknownVariableType]
-        seen: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+        seen: dict[Any, Any] = {}
         for item in items:
             seen.setdefault(_signature(item), item)
         return list(seen.values())
@@ -153,6 +173,20 @@ def shape_golden(node: Any) -> Any:
         return {k: shape_golden(v) for k, v in node.items()}  # pyright: ignore[reportUnknownVariableType]
     if isinstance(node, list):
         return _reduce([shape_golden(i) for i in node])  # pyright: ignore[reportUnknownVariableType]
+    return node
+
+
+def _shape_key_paths(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {k: _shape_key_paths(v) for k, v in node.items()}  # pyright: ignore[reportUnknownVariableType]
+    if isinstance(node, list):
+        shaped = [_shape_key_paths(i) for i in node]
+        if any(_contains_object(item) for item in shaped):
+            seen: dict[Any, Any] = {}
+            for item in shaped:
+                seen.setdefault(_shape_signature(item), item)
+            return list(seen.values())
+        return shaped[:3]
     return node
 
 
@@ -177,71 +211,123 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
     elif isinstance(node, str):
         if SECRET_VALUE.search(node) or (key and node not in (MASK, "")):
             found.append(where)
-    elif key and node is not None and not isinstance(node, bool):
+    elif key and node is not None and not isinstance(node, bool) and not TOKEN_COUNT.search(key):
         found.append(where)
     return found
 
 
-def _nested_meta(src: Path, dst: Path) -> dict[str, Any]:
+def _collect_enums(node: Any, path: str, enums: dict[str, set[str]]) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            _collect_enums(value, f"{path}.{key}", enums)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_enums(value, f"{path}[]", enums)
+    elif isinstance(node, str) and re.fullmatch(r"[A-Z][A-Z0-9_]*", node):
+        enums.setdefault(path, set()).add(node)
+
+
+def _write_enums(dst: Path, enums_by_id: dict[str, dict[str, set[str]]]) -> None:
+    for sharpit_id, enums in enums_by_id.items():
+        enum_path = dst / sharpit_id / "enums.raw.json"
+        enum_path.write_text(
+            json.dumps({key: sorted(values)[:64] for key, values in enums.items()}, indent=2, ensure_ascii=False) + NL,
+            encoding="utf-8",
+            newline=NL,
+        )
+
+
+def _emit(
+    path: Path, src: Path, target: Path, nested: bool, version: str, enums_by_id: dict[str, dict[str, set[str]]]
+) -> str:
+    name = str(path.relative_to(src))
+    data = sanitise(json.loads(path.read_text(encoding="utf-8")), nested)
+    if nested and is_error_envelope(data):
+        sys.exit(f"refusing to write {name}: an error body, not a panel payload")
+    leaks = find_secrets(data, name)  # before shaping: shaping can split a name from its value
+    if nested:
+        if version != "2.2.0":
+            _collect_enums(data, "$", enums_by_id.setdefault(path.parent.name, {}))
+        data = shape_golden(data) if version == "2.2.0" else _shape_key_paths(data)
+        leaks += find_secrets(data, name)
+    if leaks:
+        sys.exit(f"refusing to write {name}: possible secret at {', '.join(leaks[:5])}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + NL, encoding="utf-8", newline=NL)
+    return name
+
+
+def _nested_meta(src: Path, dst: Path, version: str) -> dict[str, Any]:
     uncaptured_path = src / "uncaptured.json"
     uncaptured = json.loads(uncaptured_path.read_text(encoding="utf-8")) if uncaptured_path.is_file() else {}
     old_meta = dst / "meta.json"
-    provisional = json.loads(old_meta.read_text(encoding="utf-8")).get("provisional", []) if old_meta.is_file() else []
-    return {**META_2_2_0, "uncaptured": uncaptured, "provisional": provisional}
+    existing = json.loads(old_meta.read_text(encoding="utf-8")) if old_meta.is_file() else {}
+    if version == "2.2.0":
+        return {**META_2_2_0, "uncaptured": uncaptured, "provisional": existing.get("provisional", [])}
+    meta = {**existing, "bootuiVersion": version}
+    meta.setdefault("app", "tiny-ledger")
+    meta.setdefault("profile", "full")
+    meta.setdefault("captured", date.today().isoformat())
+    meta["uncaptured"] = uncaptured
+    return meta
 
 
-def _resolve(src: Path, dst: Path, repo: Path, layout: str | None) -> tuple[Path, Path, bool]:
+def _resolve(src: Path, dst: Path, repo: Path, layout: str | None) -> tuple[Path, Path, bool, str]:
     src = src.resolve()
     dst = dst.resolve()
     allowed_src = (repo / "replica" / "evidence").resolve()
     allowed_dst = (repo / "tests" / "fixtures" / "bootui").resolve()
     if not src.is_relative_to(allowed_src) or not dst.is_relative_to(allowed_dst):
         raise ValueError("source must be under replica/evidence and destination under tests/fixtures/bootui")
-    layout = layout or ("nested" if src.name == "2.2.0" else "flat")
+    layout = layout or ("nested" if src.name in {"2.2.0", "2.3.0"} else "flat")
     if layout not in ("nested", "flat"):
         raise ValueError(f"layout must be 'nested' or 'flat', got {layout!r}")
-    return src, dst, layout == "nested"
+    return src, dst, layout == "nested", src.name
 
 
-def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:
-    """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
-    Default: nested when the source folder is named ``2.2.0``, else flat.
+def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None, version: str | None = None) -> None:
+    """``layout`` is ``"nested"`` (2.2.0+: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
+    Default: nested for source folders named ``2.2.0`` or ``2.3.0``, else flat.
     ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui``
     (default: this repository; tests pass a temporary one)."""
-    src, dst, nested = _resolve(src, dst, repo or Path(__file__).resolve().parents[1], layout)
+    src, dst, nested, target_version = _resolve(src, dst, repo or Path(__file__).resolve().parents[1], layout)
+    target_version = version or target_version
+    if (
+        nested
+        and version is None
+        and target_version not in {"2.2.0", "2.3.0"}
+        and not re.fullmatch(r"\d+(?:\.\d+)+", target_version)
+    ):
+        target_version = "2.2.0"
+    if nested and target_version not in {"2.2.0", "2.3.0"}:
+        raise ValueError("version must be '2.2.0' or '2.3.0'")
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
-
-    def emit(path: Path, target: Path) -> None:
-        name = str(path.relative_to(src))
-        data = sanitise(json.loads(path.read_text(encoding="utf-8")), nested)
-        if nested and is_error_envelope(data):
-            sys.exit(f"refusing to write {name}: an error body, not a panel payload")
-        leaks = find_secrets(data, name)  # before shaping: shaping can split a name from its value
-        if nested:
-            data = shape_golden(data)
-            leaks += find_secrets(data, name)
-        if leaks:
-            sys.exit(f"refusing to write {name}: possible secret at {', '.join(leaks[:5])}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + NL, encoding="utf-8", newline=NL)
-        written.append(name)
+    enums_by_id: dict[str, dict[str, set[str]]] = {}
 
     if nested:
         for folder in sorted(p for p in src.iterdir() if p.is_dir()):
-            for path in sorted(folder.glob("*captured.json")):
-                emit(path, dst / folder.name / path.name)
-        meta = _nested_meta(src, dst)
+            written.extend(
+                _emit(path, src, dst / folder.name / path.name, nested, target_version, enums_by_id)
+                for path in sorted(folder.glob("*captured.json"))
+            )
+        _write_enums(dst, enums_by_id)
+        meta = _nested_meta(src, dst, target_version)
     else:
-        for path in sorted(src.glob("*.json")):
-            if path.name not in SKIP:
-                emit(path, dst / path.name)
+        written.extend(
+            _emit(path, src, dst / path.name, nested, target_version, enums_by_id)
+            for path in sorted(src.glob("*.json"))
+            if path.name not in SKIP
+        )
         meta = META
     (dst / "meta.json").write_text(json.dumps(meta, indent=2) + NL, encoding="utf-8", newline=NL)
     print("written:", ", ".join(written), "+ meta")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (3, 4):
+    args = sys.argv[1:]
+    if len(args) < 2 or len(args) > 5:
         sys.exit(__doc__)
-    main(Path(sys.argv[1]), Path(sys.argv[2]), layout=sys.argv[3] if len(sys.argv) == 4 else None)
+    layout = next((arg for arg in args[2:] if arg in ("nested", "flat")), None)
+    version = args[args.index("--version") + 1] if "--version" in args else None
+    main(Path(args[0]), Path(args[1]), layout=layout, version=version)

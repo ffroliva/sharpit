@@ -26,7 +26,7 @@ class Panel:
 # CLI endpoints are gated by SHARPIT_CLI_ENABLED, so their panel flags drive only the sidebar entry
 PANELS: tuple[Panel, ...] = (
     Panel("overview", "Scorecard", None, None),
-    Panel("config", "Configuration", False, "/config"),
+    Panel("config", "Configuration", True, "/config"),
     Panel("mappings", "Mappings", False, "/mappings"),
     Panel("loggers", "Loggers", True, "/loggers"),
     Panel("beans", "Beans", False, "/beans"),
@@ -45,6 +45,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("threads", "Threads", False, "/threads"),
     Panel("rest-api", "REST API", True, "/rest-api"),
     Panel("http-probe", "HTTP Probe", True, "/http-probe"),
+    Panel("live-memory", "Live Memory", True, "/live-memory"),
     # 0.4.0 panels are registered now but remain absent until their owner flips its local flag.
     Panel("data", "Data", False, "/data"),
     Panel("transactions", "Transactions", True, "/transactions"),
@@ -58,6 +59,26 @@ PANELS: tuple[Panel, ...] = (
     Panel("sqlalchemy-statistics", "SQLAlchemy Statistics", True, "/sqlalchemy-statistics"),
     Panel("fastapi-security", "FastAPI Security", False, "/fastapi-security"),
     Panel("fastapi", "FastAPI", True, "/fastapi"),
+    # 0.6.0 wave 1: registered behind per-panel implementation flags.
+    Panel("metrics", "Metrics", False, "/metrics"),
+    Panel("startup", "Startup Timeline", False, "/startup"),
+    Panel("profile-diff", "Profile Diff", False, "/profile-diff"),
+    Panel("scheduled", "Scheduled Tasks", False, "/scheduled"),
+    Panel("copilot", "Copilot", False, "/copilot"),
+    Panel("claude-code", "Claude Code", False, "/claude-code"),
+    Panel("github", "GitHub", True, "/github"),
+    Panel("ai", "AI Framework", False, "/ai"),
+    # 0.6.0 W6: the agent-sensor panels (engine/sensors/floor.py answers them until the sensors ship)
+    Panel("java-agent", "Java Agent", True, "/java-agent"),
+    Panel("code-inventory", "Code Inventory", False, "/code-inventory"),
+    Panel("code-paths", "Code Paths", True, "/code-paths"),
+    Panel("side-effects", "Side Effects", False, "/side-effects"),
+    Panel("email", "Email", True, "/email"),  # W7 E: BootUiPanels.java:159
+    # 0.6.0 W8 A0: slots for the read sides (W5b K, W7 D), action-capable as BootUiPanels.java:124,133
+    Panel("cache", "Cache", True, "/cache"),
+    Panel("dev-services", "Dev Services", True, "/dev-services"),
+    # W5c: Runtime Insights over the runtime journal (BootUiPanels.java:155)
+    Panel("runtime-insights", "Runtime Insights", True, "/runtime-insights"),
 )
 
 

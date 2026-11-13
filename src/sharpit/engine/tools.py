@@ -11,12 +11,13 @@ once, by whichever comes first of the worker finishing or the caller giving up; 
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
-from sharpit.engine import sqla
+from sharpit.engine import appsource, sqla
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture import activity
@@ -40,6 +41,7 @@ from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
@@ -60,6 +62,7 @@ TOOL_TIMEOUT = -32002
 RESPONSE_TOO_LARGE = -32003
 INTERNAL_ERROR_MESSAGE = "Internal error"
 UNKNOWN_TOOL_PREFIX = "Unknown tool: "
+UNAVAILABLE_TOOL_PREFIX = "Tool not available in this application: "  # McpProtocol.UNAVAILABLE_TOOL_PREFIX
 
 SERVER_NAME = "sharpit"
 CLI_DISABLED_MESSAGE = "sharpit CLI endpoint is disabled. Set SHARPIT_CLI_ENABLED=true to allow command-line access."
@@ -81,6 +84,17 @@ class ToolCallError(Exception):
         super().__init__(message)
         self.message = message
         self.status = status
+
+
+RESUME_HINT = (
+    "Recording is held by low-footprint mode, not a quiet application. "
+    "Call disable_low_footprint (sharpit low-footprint disable) to resume; cleared data is gone. "
+    "Native statistics and Java-agent instrumentation may still run."
+)
+
+
+def low_footprint_resume_error(tool_name: str) -> ToolCallError:
+    return ToolCallError(f"Cannot run {tool_name}. {RESUME_HINT}", 409)
 
 
 @dataclass(frozen=True)
@@ -116,6 +130,11 @@ _QUERY_LIMIT: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
+_QUERY: dict[str, Any] = {
+    "type": "object",
+    "properties": {"query": _QUERY_LIMIT["properties"]["query"]},
+    "additionalProperties": False,
+}
 _LIMIT_ONLY: dict[str, Any] = {"type": "object", "properties": {"limit": _LIMIT}, "additionalProperties": False}
 _ID: dict[str, Any] = {
     "type": "object",
@@ -146,6 +165,7 @@ _RULE_VIOLATIONS: dict[str, Any] = {  # BootUiMcpService.schema RULE_VIOLATIONS
 _SCHEMA_NAMES = {
     (): "NONE",
     ("limit",): "LIMIT",
+    ("query",): "QUERY",
     ("query", "limit"): "QUERY_LIMIT",
     ("id",): "ID",
     ("id", "scanId", "offset", "limit"): "RULE_VIOLATIONS",
@@ -188,6 +208,13 @@ def dismissal_store(ctx: SharpitContext) -> DismissalStore:
 _NO_ROUTE_MODEL = ApiModel((), (), ("This framework adapter does not expose route details.",))
 
 
+def rest_api_source_index(ctx: SharpitContext) -> appsource.SourceIndex | None:
+    """The host's source index the error-contract panel and the REST API rules both read; None: no app root found."""
+    app = getattr(ctx.introspector, "app", None)
+    root = appsource.resolve_app_root(app, sys.modules, app_package=ctx.settings.app_package)
+    return appsource.build_index(root) if root is not None else None
+
+
 def rest_api_service(ctx: SharpitContext) -> RestApiService:
     """The per-install REST API advisor (seeded in tests under the same key); scans hold their own single-flight."""
     source: Any = getattr(ctx.introspector, "api_model", None)  # duck-typed: not part of the AppIntrospector SPI
@@ -200,6 +227,7 @@ def rest_api_service(ctx: SharpitContext) -> RestApiService:
             ctx.masker,
             ctx.lazy("singleflight:rest-api-scan", SingleFlight),
             max_retained=ctx.settings.advisors_max_retained_violations,
+            index=lambda: rest_api_source_index(ctx),
         ),
     )
 
@@ -261,6 +289,13 @@ def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], 
     if ctx.capture.sql_trace is not None:
         action(ctx.capture.sql_trace)
     return sql_trace_report(ctx)
+
+
+def _resume_sql_trace(ctx: SharpitContext) -> dict[str, Any]:
+    service = ctx.peek("low-footprint")
+    if isinstance(service, LowFootprintService) and service.enabled:
+        raise low_footprint_resume_error("resume_sql_trace_recording")
+    return _sql_trace_action(ctx, lambda recorder: recorder.set_recording(True))
 
 
 def http_exchanges_report(
@@ -479,7 +514,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         _NONE,
         "sql-trace",
         True,
-        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(True)),
+        lambda c, _a: _resume_sql_trace(c.ctx),
     ),
     Tool(
         "get_live_activity",
@@ -644,6 +679,8 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
 }
 
 from sharpit.engine.panels04 import tool_definitions as _tool_definitions  # noqa: E402, I001
+from sharpit.engine.tools_lowfootprint import COMMANDS as _LOW_FOOTPRINT_COMMANDS  # noqa: E402
+from sharpit.engine.tools_lowfootprint import tool_definitions as _low_footprint_definitions  # noqa: E402
 
 
 def merge_lane_tools(
@@ -662,7 +699,13 @@ def merge_lane_tools(
 
 
 _PANEL_04_TOOLS, _PANEL_04_COMMANDS = _tool_definitions()
-TOOLS, COMMANDS = merge_lane_tools(_BASE_TOOLS, _BASE_COMMANDS, _PANEL_04_TOOLS, _PANEL_04_COMMANDS)
+_LOW_FOOTPRINT_TOOLS = _low_footprint_definitions(Tool)
+TOOLS, COMMANDS = merge_lane_tools(
+    _BASE_TOOLS,
+    _BASE_COMMANDS,
+    (*_PANEL_04_TOOLS, *_LOW_FOOTPRINT_TOOLS),
+    {**_PANEL_04_COMMANDS, **_LOW_FOOTPRINT_COMMANDS},
+)
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,

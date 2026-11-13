@@ -32,6 +32,7 @@ def test_nplus_one(tmp_path):
         session.commit()
     with Session(engine) as session:
         assert sum(len(owner.pets) for owner in session.query(Owner).all()) == 22
+    engine.dispose()
 """
 
 
@@ -155,6 +156,10 @@ def test_sqlite_without_a_key_is_unknown_and_can_be_allowed(
     assert allowed.ret == 0
     allowed_report = json.loads((pytester.path / "allowed.json").read_text())
     assert allowed_report["status"] == "unknown"
+    # Finding (CI run 43348526909): the nested run left a.db open, so the next nested run's basetemp clean-up died
+    # with WinError 32 (tests/test_cache_dir.py, Windows only).
+    for database in (pytester.path.parent / "basetemp").glob("test_nplus_one*/a.db"):  # the nested run's basetemp
+        database.unlink()  # raises PermissionError while a connection holds the file
 
 
 def test_the_env_key_appears_in_no_output(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:

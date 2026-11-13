@@ -192,10 +192,10 @@ FastAPI column: **Y** = direct analogue, **P** = partial, **–** = [JVM] drop. 
 | SEC-AUTH-002 | HIGH | Password encoder should not use a weak or legacy algorithm | P | `CryptContext` default scheme md5/sha1/des |
 | SEC-AUTH-006 | LOW | BCrypt password encoder should use an adequate work factor | P | `bcrypt__rounds` < 10 |
 | SEC-AUTH-004 | MEDIUM | Review the Boot property-backed default account | – | |
-| SEC-AUTH-007 | HIGH | HTTP Basic authentication should run only over HTTPS | Y | `fastapi.security.HTTPBasic` in a route's Depends tree and no `HTTPSRedirectMiddleware` |
+| SEC-AUTH-007 | HIGH | HTTP Basic authentication should run only over HTTPS | Y | production-like profile; `fastapi.security.HTTPBasic` in a route's Depends tree and no `HTTPSRedirectMiddleware` |
 | SEC-AUTH-008 | MEDIUM | hideUserNotFoundExceptions should stay enabled | – | |
 | SEC-AUTH-009 | HIGH | Do not run production on Spring Boot's auto-generated default user | – | |
-| SEC-AUTH-010 | HIGH | Form login should run only over HTTPS | P | `OAuth2PasswordBearer`/`OAuth2PasswordRequestForm` and no HTTPS redirect |
+| SEC-AUTH-010 | HIGH | Form login should run only over HTTPS | P | production-like profile; `OAuth2PasswordBearer`/`OAuth2PasswordRequestForm` and no HTTPS redirect |
 | SEC-AUTHZ-001 | HIGH | Every filter chain should enforce authorization | P | routes with no security scheme dependency (INFO in Python: public APIs are legitimate) |
 | SEC-AUTHZ-002 | HIGH | Avoid blanket permitAll authorization | P | no route has any security dependency |
 | SEC-AUTHZ-003 | HIGH | Application security should not be effectively disabled | P | merge with AUTHZ-002 |
@@ -204,10 +204,10 @@ FastAPI column: **Y** = direct analogue, **P** = partial, **–** = [JVM] drop. 
 | SEC-CSRF-001 | HIGH | CSRF protection should stay on for browser-automatic credentials | Y | `APIKeyCookie` or `SessionMiddleware` + unsafe-method routes + no known CSRF middleware |
 | SEC-CSRF-002 | MEDIUM | CSRF protection should stay on for HTTP Basic authentication | Y | `HTTPBasic` + unsafe-method routes + no CSRF middleware |
 | SEC-SESSION-001 | HIGH | Session fixation protection should be enabled | – | |
-| SEC-SESSION-002 | MEDIUM | Session cookie should set the Secure flag | Y | `SessionMiddleware(https_only=False)` (default) |
+| SEC-SESSION-002 | MEDIUM | Session cookie should set the Secure flag | Y | production-like profile; `SessionMiddleware(https_only=False)` (default) |
 | SEC-SESSION-003 | MEDIUM | Session cookie should set the HttpOnly flag | – | Starlette always sets HttpOnly |
 | SEC-SESSION-004 | LOW | Review SameSite=None on the session cookie | Y | `SessionMiddleware(same_site="none")` |
-| SEC-SESSION-006 | LOW | Review bearer authentication saved in sessions | – | |
+| SEC-SESSION-006 | LOW | Review bearer authentication saved in sessions | – | D: detecting an Authlib token response copied into `request.session` needs dataflow beyond the source scan's current local AST checks |
 | SEC-SESSION-007 | INFO | Consider configuring concurrent session control | – | |
 | SEC-SESSION-008 | MEDIUM | Remember-me signing key should be sufficiently long | P | `SessionMiddleware` `secret_key` length < 32 (length only, never the value) |
 | SEC-HEAD-001 | MEDIUM | HTTP Strict Transport Security should be emitted | P | static: no headers middleware; dynamic check lives in Pentesting |
@@ -224,11 +224,11 @@ FastAPI column: **Y** = direct analogue, **P** = partial, **–** = [JVM] drop. 
 | SEC-METHOD-001 | HIGH | Method security annotations require method security to be enabled | – | |
 | SEC-METHOD-002 | LOW | Replace @EnableGlobalMethodSecurity with @EnableMethodSecurity | – | |
 | SEC-ACT-001..007 | – | Actuator exposure (7 rules) | – | Actuator [JVM]; see N rule SEC-FAPI-002 |
-| SEC-OAUTH-002 | INFO | Validate the JWT audience claim | – | |
-| SEC-OAUTH-003 | INFO | Review static verification-key rotation | – | |
-| SEC-OAUTH-004 | HIGH | JWT issuer and JWK endpoints should use HTTPS | Y | `OpenIdConnect(openIdConnectUrl="http://non-loopback")` |
+| SEC-OAUTH-002 | INFO | Validate the JWT audience claim | P | partial: local AST flags PyJWT `jwt.decode` without `audience=` or with `verify_aud=False`; BootUI checks only a framework-managed decoder on an active bearer chain and does not judge custom decoders; without `audience=`, tokens with `aud` are rejected, so the risk is tokens without `aud` |
+| SEC-OAUTH-003 | INFO | Review static verification-key rotation | – | D: a static PEM key may be intentional pinning; rotation intent needs configuration or key-history evidence |
+| SEC-OAUTH-004 | HIGH | JWT issuer and JWK endpoints should use HTTPS | Y | production-like profile; `OpenIdConnect(openIdConnectUrl="http://non-loopback")` |
 | SEC-OAUTH-005 | HIGH | Opaque-token introspection must use HTTPS | – | |
-| SEC-OAUTH-006 | HIGH | OAuth2 client provider endpoints must use HTTPS | Y | `OAuth2AuthorizationCodeBearer(authorizationUrl/tokenUrl="http://...")` |
+| SEC-OAUTH-006 | HIGH | OAuth2 client provider endpoints must use HTTPS | Y | production-like profile; `OAuth2AuthorizationCodeBearer(authorizationUrl/tokenUrl="http://...")` |
 | SEC-CONFIG-001 | MEDIUM | Spring Security debug mode should be off | Y | `app.debug is True` (Starlette debug tracebacks) |
 | SEC-CONFIG-002 | HIGH | H2 console should not be enabled in production | – | |
 | SEC-CONFIG-005 | MEDIUM | Error responses should not leak stack traces or internal messages | Y | merge with CONFIG-001 (`ServerErrorMiddleware(debug=True)`) |

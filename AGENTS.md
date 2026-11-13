@@ -51,7 +51,9 @@ uv run python scripts/dev/active_plan.py      # where are we?
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 plus Windows, a
-`--resolution lowest-direct` job, and a UI build-drift job.
+`--resolution lowest-direct` job, and a UI build-drift job. A pull request runs Windows 3.14, Ubuntu 3.13 (coverage)
+and `lowest` (3.12); the locked-deps Ubuntu 3.12 and 3.14 legs (`test-shard-locked`) run on push to `main`, `mvp`
+and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every merge gets the full matrix.
 
 ## Global constraints
 
@@ -67,7 +69,8 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 - **Actions follow BootUI** (owner, 2026-11-09: "if BootUI presses the button we do it too"). An action is a POST or
   DELETE route, or an MCP or CLI tool marked `action`, exactly where BootUI 2.3.0 has the same action. It may have the
   side effect BootUI's action has, after the gates BootUI applies: MCP or CLI enabled, the guard chain, the panel
-  enabled, the panel not read-only (refused with `PANEL_READ_ONLY`), and single-flight where BootUI's action has it
+  enabled, the panel not read-only (refused with `PANEL_ACCESS_DENIED` and a read-only reason, `engine/guard.py`), and
+  single-flight where BootUI's action has it
   (scans, heap dumps, thread captures, the vulnerability scan; not every action). Defaults (MCP off, each panel's
   read-only default) are BootUI's. An action with no BootUI counterpart needs `/sharpit:predict` and
   `/sharpit:llm-council --tier high`.
@@ -102,12 +105,16 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
    `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
-   the engine (`context`, `paging`, `spi`, `singleflight`, ...).
+   the engine (`context`, `paging`, `spi`, `singleflight`, ...). Inside `engine/collectors/insights/` the rule holds per
+   kind: a module under `kinds/` never imports another kind; shared code goes in the insights package.
 4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
-   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
-   `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
-   `urllib.request`/`http.client` only in the OSV and EPSS clients under
-   `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` and `dotenv` only in
+   `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, `prometheus_client` only in
+   `engine/collectors/metrics/prometheus.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
+   `engine/collectors/vulns/` and the GitHub client `engine/collectors/github/client.py`, `subprocess` only in
+   `engine/collectors/github/token.py` (`gh auth token`), APScheduler, Celery and arq only in their own module under
+   `engine/collectors/scheduled/` (observed through `sys.modules`, never imported), `smtplib` and `aiosmtplib` only in `engine/capture/mail.py`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   The AST gate covers `sys.addaudithook`, `sys.monitoring.use_tool_id`, `free_tool_id`, `clear_tool_id`, `set_events`, `set_local_events`, `register_callback`, and `restart_events`, plus `os.system`, `os.spawn*`, and `os.exec*`; these calls live only under `engine/sensors/`. `sys.settrace` and mutations of `gc.callbacks` are allowed only in `pytest_plugin/` and `engine/testsession/`. `subprocess`, `os.posix_spawn`, `os.fork`, and `os.popen` are not gated.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing). See `docs/development/overhead-budgets.md` for what
@@ -129,6 +136,18 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 ## Workflow
 
+- **Port BootUI, do not reinvent** (owner, 2026-11-12: "whatever we can directly port from BootUI we should; we don't
+  need to recreate anything, just rewrite and adapt"). Before writing any code for a feature, read BootUI's own source
+  for it at the pinned tag, in a BootUI clone, not this repo (`git -C <bootui clone> show v2.3.0:<path>` for 0.6.0;
+  `v2.4.0` for 0.7.0), and translate it: same structure, order of checks, thresholds, user-facing texts (env names
+  adapted) and tests (`# ported:`). Adapt only where Python/FastAPI/SQLAlchemy forces it or an owner ruling differs;
+  each adaptation is one deviation row, with its reason, in the lane's matrix fragment
+  (`docs/reference/matrix-updates/<lane>.tsv`). Never design from a summary of BootUI: read the lines. The safety model
+  and the architecture rules above take precedence: a BootUI behaviour that would weaken them is not ported as is.
+- **CI and sbx run in 3-5 minutes on average** (owner, top priority). When a PR's CI run or an sbx full-suite run
+  averages above 5 minutes, fixing that comes before other work: refresh the shard weights, rebalance shards, cut
+  setup, optimize slow tests. Never by skipping, deselecting or weakening a test or raising a budget. Numbers and how
+  to measure: `docs/development/ci.md` (*Wall clock*).
 - **Worktree per change**, branched from current `origin/main` (`superpowers:using-git-worktrees`). Never work on
   `main`, on a shared checkout or on another agent's branch.
 - **TDD** (`superpowers:test-driven-development`): a failing test, watched red for the right reason, then the fix.

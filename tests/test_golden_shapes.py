@@ -17,8 +17,8 @@ def capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(golden, "ROOT", tmp_path)
 
     def write(data: object) -> None:
-        (tmp_path / "data").mkdir(exist_ok=True)
-        (tmp_path / "data" / "captured.json").write_text(json.dumps(data), encoding="utf-8")
+        (tmp_path / "2.2.0" / "data").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "2.2.0" / "data" / "captured.json").write_text(json.dumps(data), encoding="utf-8")
 
     return write
 

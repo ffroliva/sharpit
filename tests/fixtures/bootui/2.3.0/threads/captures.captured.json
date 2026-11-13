@@ -1,0 +1,21 @@
+{
+  "available": true,
+  "lowFootprint": false,
+  "retainedBytes": 0,
+  "captureLimit": 6,
+  "retainedByteLimit": 16777216,
+  "observationSamples": 3,
+  "maxObservationSamples": 3,
+  "observationIntervalMillis": 5000,
+  "captureDeadlineMillis": 2000,
+  "observationId": null,
+  "captures": [],
+  "page": {
+    "total": 0,
+    "matched": 0,
+    "offset": 0,
+    "limit": 200,
+    "returned": 0,
+    "hasMore": false
+  }
+}

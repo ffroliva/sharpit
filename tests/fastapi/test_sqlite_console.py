@@ -56,6 +56,20 @@ def test_console_shows_sqlite3_data_source():
     connection.close()
 
 
+def test_suspended_sqlite_hook_stops_routing_an_open_connection():
+    """Low-footprint: suspending the sqlite-listeners entry alone also silences a connection patched before."""
+    handle = _install()
+    connection = sqlite3.connect(":memory:")
+    hook = next(h for h in handle.context.capture.hooks.hooks() if h.name == "sqlite-listeners")
+    hook.suspend()
+    connection.execute("select 1")
+    assert tools.sql_trace_report(handle.context)["entries"] == []
+    hook.resume()
+    connection.execute("select 2")
+    assert [e["sql"] for e in tools.sql_trace_report(handle.context)["entries"]] == ["select ?"]
+    connection.close()
+
+
 def test_console_shows_early_connections_limitation():
     """A6: a connection opened before capture started is a displayed limit."""
     early = REAL_CONNECT(":memory:")

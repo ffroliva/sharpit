@@ -18,10 +18,12 @@ from typing import Any, cast
 
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.capture.frames import is_application_frame
+from sharpit.engine.sensors import TOOL_IDS as _TOOL_IDS
+from sharpit.engine.sensors import MonitoringTool, allocator
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SwallowedFact
 from sharpit.engine.testsession.swallowed import PROGRAMMING_ERRORS, swallowing_clause_line
 
-TOOL_IDS = (3, 4)  # never 0 debugger, 1 coverage, 2 profiler, 5 optimizer
+TOOL_IDS = _TOOL_IDS
 SOURCE = "swallowed-exceptions"
 
 type TestTag = tuple[str, int, str]
@@ -55,20 +57,20 @@ def _fact(code: CodeType, offset: int, exc_type: type[BaseException]) -> Swallow
 class MonitoringCapture:
     def __init__(self, on_error: Callable[[BaseException], None] | None = None) -> None:
         self.tool_id: int | None = None
+        self._tool: MonitoringTool | None = None
         self._sink: SwallowedSink | None = None
         self._on_error = on_error
         self._failed = False
 
     def attach(self, sink: SwallowedSink) -> CaptureStatus:
-        monitoring = sys.monitoring
-        free = next((i for i in TOOL_IDS if monitoring.get_tool(i) is None), None)
-        if free is None:
+        tool = allocator.claim()
+        if tool is None:
             return CaptureStatus(False, "sys.monitoring tool ids 3 and 4 are in use")
-        monitoring.use_tool_id(free, "sharpit")
-        self.tool_id, self._sink = free, sink
+        self.tool_id, self._tool, self._sink = tool.tool_id, tool, sink
+        handled = sys.monitoring.events.EXCEPTION_HANDLED
         try:
-            monitoring.register_callback(free, monitoring.events.EXCEPTION_HANDLED, self._handled)
-            monitoring.set_events(free, monitoring.events.EXCEPTION_HANDLED)
+            tool.on_event(handled, self._handled)
+            tool.listen(handled)
         except BaseException:
             with contextlib.suppress(Exception):  # the setup error is the one to report
                 self.detach()
@@ -76,17 +78,10 @@ class MonitoringCapture:
         return CaptureStatus(True)
 
     def detach(self) -> None:
-        tool, self.tool_id = self.tool_id, None
-        if tool is None:
-            return
-        monitoring = sys.monitoring
-        try:
-            monitoring.set_events(tool, 0)
-        finally:
-            try:
-                monitoring.register_callback(tool, monitoring.events.EXCEPTION_HANDLED, None)
-            finally:
-                monitoring.free_tool_id(tool)
+        tool, self._tool = self._tool, None
+        self.tool_id = None
+        if tool is not None:
+            tool.release()
 
     def _handled(self, code: CodeType, offset: int, exc: BaseException) -> None:
         test = TEST.get()

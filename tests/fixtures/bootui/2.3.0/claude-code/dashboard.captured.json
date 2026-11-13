@@ -1,0 +1,23 @@
+{
+  "available": false,
+  "unavailableReason": "Claude Code session directory not found at ~/.claude/projects",
+  "sessionStateDir": "~/.claude/projects",
+  "sessionCount": 0,
+  "eventCount": 0,
+  "turnCount": 0,
+  "totalInputTokens": null,
+  "totalOutputTokens": null,
+  "errorCount": 0,
+  "activeLast24Hours": 0,
+  "activeLast7Days": 0,
+  "sessionsWithSchemaDrift": 0,
+  "lastActivityEpochMillis": null,
+  "categoryCounts": [],
+  "modelCounts": [],
+  "topTools": [],
+  "otherToolEventCount": 0,
+  "activityBuckets": [],
+  "dailyActivityBuckets": [],
+  "recentSessions": [],
+  "warnings": []
+}

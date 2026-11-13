@@ -1,0 +1,11 @@
+{
+  "$.entries[].propagation": [
+    "NEW"
+  ],
+  "$.entries[].isolation": [
+    "UNKNOWN"
+  ],
+  "$.entries[].status": [
+    "COMMITTED"
+  ]
+}

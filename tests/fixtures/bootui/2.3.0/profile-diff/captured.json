@@ -1,0 +1,23 @@
+{
+  "activeProfiles": [
+    "full"
+  ],
+  "profileSources": [
+    {
+      "sourceName": "Config resource 'class path resource [application-full.properties]' via location 'optional:classpath:/'",
+      "profile": "full",
+      "properties": [
+        {
+          "name": "ledger.tenant.claim",
+          "value": "tenant_id",
+          "source": "Config resource 'class path resource [application-full.properties]' via location 'optional:classpath:/'",
+          "origin": null,
+          "masked": false,
+          "override": false,
+          "description": null,
+          "defaultValue": null
+        }
+      ]
+    }
+  ]
+}

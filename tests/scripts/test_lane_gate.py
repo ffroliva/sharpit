@@ -1,14 +1,16 @@
 """scripts/dev/lane_gate.py: the mechanical 0.4.0 merge gate (spec §10.3, council C2/F1c/F1f/R2/R7/round 4).
 
-Each test builds a throwaway integration repo plus a lane worktree in ``tmp_path``. Git runs for real; the four gates
-and the pytest replays are injected fakes, so these tests never run the real suite.
+Each test builds a throwaway integration repo plus a lane worktree in ``tmp_path``. Most Git calls use ``FakeGit``;
+real-Git tests cover fixture preparation, command shapes, and parity. Gates and pytest replays remain faked.
 """
 
 import contextlib
+import hashlib
 import json
+import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,7 +26,7 @@ BASELINE = {"src/a.py": 3, "src/b.py": 2}
 
 
 def _git(cwd: Path, *args: str) -> str:
-    done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    done = lane_gate._GIT_RUNNER(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
     return done.stdout.strip()
 
 
@@ -33,6 +35,343 @@ def _write(root: Path, files: dict[str, str]) -> None:
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
+
+
+def _expect(args: tuple[str, ...], prefix: tuple[str, ...], length: int) -> None:
+    """The exact flags and operand count a fake handler models: anything else is a shape nobody checked."""
+    assert (args[: len(prefix)], len(args)) == (prefix, length), f"unmodelled git call: {args}"
+
+
+@dataclass
+class FakeGit:
+    """An in-memory git for the calls lane_gate and these tests make, and nothing more.
+
+    Every handler asserts the exact flags it models and every behaviour it does not model (an unknown ref, a merge that
+    needs a conflict resolved, ``--ff-only`` on a diverged branch, a merge base that is not unique) raises
+    ``AssertionError``: a new call shape fails loudly instead of answering as if it were real git. The fake-vs-real
+    parity test below keeps the modelled answers honest.
+    """
+
+    trees: dict[str, dict[str, str]] = field(default_factory=dict)
+    parents: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    refs: dict[str, str] = field(default_factory=dict)
+    heads: dict[Path, str] = field(default_factory=dict)
+    paths: dict[Path, Path] = field(default_factory=dict)
+    branches: dict[Path, str] = field(default_factory=dict)
+    worktrees: list[Path] = field(default_factory=list)
+    staged: dict[Path, dict[str, str | None]] = field(default_factory=dict)  # path -> content, None: deleted
+
+    def bind(self, root: Path, tree: dict[str, str], sha: str, parent: tuple[str, ...] = (), *, branch: str) -> None:
+        """Make ``root`` a worktree at ``sha`` on ``branch`` ("" is a detached HEAD)."""
+        root = root.resolve()
+        self.paths[root] = root
+        self.heads[root] = sha
+        self.branches[root] = branch
+        self.staged[root] = {}
+        if root not in self.worktrees:
+            self.worktrees.append(root)
+        self.trees.setdefault(sha, tree.copy())
+        self.parents.setdefault(sha, parent)
+
+    def repo(self, cwd: Path) -> Path:
+        path = cwd.resolve()
+        while path not in self.paths and path.parent != path:
+            path = path.parent
+        return self.paths[path]
+
+    def run(self, command: Sequence[str], *, cwd: Path, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        args = tuple(command[1:])
+        handler = getattr(self, "_git_" + args[0].replace("-", "_"), None)
+        assert handler, f"unhandled fake git command: {args}"
+        stdout, code = handler(args, self.repo(cwd))
+        if code and kwargs.get("check", True):
+            raise subprocess.CalledProcessError(code, command, output=stdout, stderr="")
+        return subprocess.CompletedProcess(command, code, stdout=stdout, stderr="")
+
+    # --- the object model ---------------------------------------------------------------------------------------------
+
+    def _resolve(self, root: Path, ref: str) -> str | None:
+        if ref == "HEAD":
+            return self.heads[root]
+        return self.refs.get(ref, ref if ref in self.trees else None)
+
+    def _ancestors(self, sha: str) -> set[str]:
+        """``sha`` and every commit reachable from it, walked breadth first."""
+        seen = {sha}
+        queue = [sha]
+        while queue:
+            for parent in self.parents.get(queue.pop(0), ()):
+                if parent not in seen:
+                    seen.add(parent)
+                    queue.append(parent)
+        return seen
+
+    def _best_common_ancestor(self, left: str, right: str) -> str | None:
+        """git's merge base: a common ancestor that no other common ancestor descends from."""
+        common = self._ancestors(left) & self._ancestors(right)
+        best = {sha for sha in common if not any(sha != other and sha in self._ancestors(other) for other in common)}
+        assert len(best) <= 1, f"fake git models one merge base, found {sorted(best)}"
+        return next(iter(best), None)
+
+    def _index(self, root: Path) -> dict[str, str]:
+        """HEAD's files with the staged changes applied."""
+        index = self.trees[self.heads[root]].copy()
+        for name, body in self.staged[root].items():
+            if body is None:
+                index.pop(name, None)
+            else:
+                index[name] = body
+        return index
+
+    @staticmethod
+    def _on_disk(root: Path, name: str) -> str | None:
+        path = root / name
+        return path.read_text(encoding="utf-8") if path.is_file() else None
+
+    def _checkout(self, root: Path, new: dict[str, str]) -> None:
+        for name in set(self.trees[self.heads[root]]) - set(new):
+            (root / name).unlink(missing_ok=True)
+        _write(root, new)
+
+    def _advance(self, root: Path, sha: str, tree: dict[str, str], parents: tuple[str, ...]) -> None:
+        """Record commit ``sha`` and move HEAD (and its branch) there."""
+        self.trees[sha] = tree
+        self.parents[sha] = parents
+        self.heads[root] = sha
+        if self.branches[root]:
+            self.refs[self.branches[root]] = sha
+
+    # --- git commands -------------------------------------------------------------------------------------------------
+
+    def _git_add(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        assert len(args) >= 2, f"unmodelled add: {args}"
+        assert "--" not in args, f"unmodelled add: {args}"
+        index = self._index(root)
+        if args[1:] == ("-u",):
+            names = sorted(index)
+        elif args[1:] == (".",):
+            disk = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and ".git" not in p.parts}
+            names = sorted(disk | set(index))
+        else:
+            assert not any(a.startswith("-") for a in args[1:]), f"unmodelled add flag: {args}"
+            names = list(args[1:])
+            assert all(self._on_disk(root, n) is not None or n in index for n in names), (
+                f"pathspec matches nothing: {args}"
+            )
+        for name in names:
+            self.staged[root][name] = self._on_disk(root, name)
+        return "", 0
+
+    def _git_rm(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("rm", "-q"), 3)
+        assert args[2] in self._index(root), f"pathspec matches nothing: {args}"
+        (root / args[2]).unlink(missing_ok=True)
+        self.staged[root][args[2]] = None
+        return "", 0
+
+    def _git_commit(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("commit", "-q", "-m"), 4)
+        head, tree = self.heads[root], self._index(root)
+        if tree == self.trees[head]:
+            return "nothing to commit\n", 1
+        digest = hashlib.sha1((head + repr(sorted(tree.items())) + args[3]).encode()).hexdigest()
+        self._advance(root, digest, tree, (head,))
+        self.staged[root] = {}
+        return "", 0
+
+    def _git_rev_parse(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        flags = [a for a in args[1:] if a.startswith("--")]
+        rest = [a for a in args[1:] if not a.startswith("--")]
+        assert len(rest) == 1, f"unmodelled rev-parse: {args}"
+        assert flags in ([], ["--verify"], ["--verify", "--quiet"], ["--quiet", "--verify"]), f"unmodelled: {args}"
+        rev = rest[0].removesuffix("^{commit}") if flags else rest[0]
+        if ":" in rev:
+            sha, rel = self._resolve(root, rev.split(":", 1)[0]), rev.split(":", 1)[1]
+            body = self.trees.get(sha or "", {}).get(rel)
+            return ("", 1) if body is None else (hashlib.sha1(body.encode()).hexdigest() + "\n", 0)
+        sha = self._resolve(root, rev)
+        return (sha + "\n", 0) if sha else ("", 1)
+
+    def _git_branch(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        if args == ("branch", "--show-current"):
+            return self.branches[root] + "\n", 0
+        _expect(args, ("branch", "-q", "-D"), 4)
+        assert args[3] in self.refs, f"branch not found: {args}"
+        assert args[3] not in self.branches.values(), f"cannot delete a checked-out branch: {args}"
+        del self.refs[args[3]]
+        return "", 0
+
+    def _git_status(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        assert args == ("status", "--porcelain", "--untracked-files=no"), f"unmodelled status: {args}"
+        head, index = self.trees[self.heads[root]], self._index(root)
+        lines = []
+        for name in sorted(set(head) | set(index)):
+            staged = (
+                " "
+                if head.get(name) == index.get(name)
+                else "A"
+                if name not in head
+                else "D"
+                if name not in index
+                else "M"
+            )
+            disk = self._on_disk(root, name)
+            local = " " if disk == index.get(name) else "D" if disk is None else "M"
+            if (staged, local) != (" ", " "):
+                lines.append(f"{staged}{local} {name}\n")
+        return "".join(lines), 0
+
+    def _git_merge_base(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        ancestry = args[1] == "--is-ancestor"
+        assert len(args) == (4 if ancestry else 3), f"unmodelled merge-base: {args}"
+        left, right = (self._resolve(root, ref) for ref in args[-2:])
+        if not (left and right):
+            return "", 128  # git: not a valid object name
+        if ancestry:
+            return "", 0 if left in self._ancestors(right) else 1
+        base = self._best_common_ancestor(left, right)
+        return (base + "\n", 0) if base else ("", 1)
+
+    def _git_ls_tree(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("ls-tree", "-r", "-z", "--full-tree"), 5)
+        sha = self._resolve(root, args[4])
+        if sha is None:
+            return "", 128
+        entries = (
+            f"100644 blob {hashlib.sha1(b.encode()).hexdigest()}\t{n}" for n, b in sorted(self.trees[sha].items())
+        )
+        return "".join(entry + "\0" for entry in entries), 0
+
+    def _git_cat_file(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, args[:2], 3)
+        assert args[1] in {"-e", "blob"}, f"unmodelled cat-file: {args}"
+        if args[1] == "-e":
+            rev, rel = args[2].split(":", 1)
+            return "", 0 if rel in self.trees.get(self._resolve(root, rev) or "", {}) else 128
+        for files in self.trees.values():
+            for body in files.values():
+                if hashlib.sha1(body.encode()).hexdigest() == args[2]:
+                    return body, 0
+        return "", 128
+
+    def _git_show(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, args[:1], 2)
+        assert ":" in args[1], f"unmodelled show: {args}"
+        rev, rel = args[1].split(":", 1)
+        body = self.trees.get(self._resolve(root, rev) or "", {}).get(rel)
+        return ("", 128) if body is None else (body, 0)
+
+    def _git_diff(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("diff", "--name-only", "-z", "--no-renames"), 6)
+        shas = [self._resolve(root, ref) for ref in args[4:]]
+        if None in shas:
+            return "", 128
+        before, after = (self.trees[sha or ""] for sha in shas)
+        changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
+        return "".join(name + "\0" for name in changed), 0
+
+    def _git_worktree(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        if args[1:4] == ("add", "--detach", "--quiet") and len(args) == 6:
+            path, sha = Path(args[4]), args[5]
+            self.bind(path, self.trees[sha], sha, branch="")
+            _FAKE_PATHS[path.resolve()] = self
+            _write(path, self.trees[sha])
+            return "", 0
+        if args[1:3] == ("remove", "--force") and len(args) == 4:
+            self._forget(Path(args[3]).resolve())
+            shutil.rmtree(args[3], ignore_errors=True)
+            return "", 0
+        if args == ("worktree", "prune"):
+            for path in [p for p in self.worktrees if not p.exists()]:
+                self._forget(path)
+            return "", 0
+        assert args in {("worktree", "list"), ("worktree", "list", "--porcelain")}, f"unmodelled worktree: {args}"
+        if args[-1] == "--porcelain":
+            return "".join(f"worktree {path.as_posix()}\n" for path in self.worktrees), 0
+        return "".join(f"{path.as_posix()} {self.heads[path][:7]}\n" for path in self.worktrees), 0
+
+    def _forget(self, path: Path) -> None:
+        for table in (self.heads, self.paths, self.branches, self.staged, _FAKE_PATHS):
+            table.pop(path, None)  # type: ignore[arg-type]
+        if path in self.worktrees:
+            self.worktrees.remove(path)
+
+    def _git_switch(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        if args == ("switch", "-q", "--detach"):
+            self.branches[root] = ""
+        else:
+            _expect(args, ("switch", "-q", "-c"), 4)
+            assert args[3] not in self.refs, f"branch exists: {args}"
+            self.branches[root] = args[3]
+            self.refs[args[3]] = self.heads[root]
+        return "", 0
+
+    def _git_merge(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("merge", "-q"), 4)
+        assert args[2] in {"--no-edit", "--ff-only"}, f"unmodelled merge flag: {args}"
+        head, incoming = self.heads[root], self._resolve(root, args[3])
+        assert incoming, f"merge of an unknown ref: {args}"
+        if incoming in self._ancestors(head):
+            return "", 0  # already up to date
+        theirs = self.trees[incoming]
+        if head in self._ancestors(incoming):  # git fast-forwards
+            self._checkout(root, theirs)
+            self._advance(root, incoming, theirs, self.parents[incoming])
+            return "", 0
+        assert args[2] != "--ff-only", f"--ff-only on a diverged branch: {args}"
+        base = self._best_common_ancestor(head, incoming)
+        assert base, f"merge of unrelated histories: {args}"
+        merged = self._three_way(self.trees[base], self.trees[head], theirs)
+        digest = hashlib.sha1((head + incoming + repr(sorted(merged.items()))).encode()).hexdigest()
+        self._checkout(root, merged)
+        self._advance(root, digest, merged, (head, incoming))
+        return "", 0
+
+    @staticmethod
+    def _three_way(base: dict[str, str], ours: dict[str, str], theirs: dict[str, str]) -> dict[str, str]:
+        merged: dict[str, str] = {}
+        for name in set(base) | set(ours) | set(theirs):
+            b, o, t = base.get(name), ours.get(name), theirs.get(name)
+            assert o == t or b in (o, t), f"merge conflict on {name}: fake git resolves none"
+            winner = o if b == t or o == t else t
+            if winner is not None:
+                merged[name] = winner
+        return merged
+
+
+_FAKE_PATHS: dict[Path, FakeGit] = {}
+_REAL_GIT_RUNNER = lane_gate._GIT_RUNNER
+_USING_REAL_GIT = False
+
+
+def _run_fake_or_real(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    path = Path(kwargs["cwd"]).resolve()
+    while path not in _FAKE_PATHS and path.parent != path:
+        path = path.parent
+    repo = _FAKE_PATHS.get(path)
+    return repo.run(command, **kwargs) if repo else _REAL_GIT_RUNNER(command, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def fake_git(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    global _USING_REAL_GIT
+    _FAKE_PATHS.clear()
+    _USING_REAL_GIT = False
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", _run_fake_or_real)
+    yield
+    _FAKE_PATHS.clear()
+
+
+def test_fake_git_replay_binding_keeps_commit_ancestry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    parent, child = "a" * 40, "b" * 40
+    fake = FakeGit(trees={parent: {"x": "old"}, child: {"x": "new"}}, parents={child: (parent,)})
+    replay = tmp_path / "replay"
+    fake.bind(replay, fake.trees[child], child, branch="")
+    monkeypatch.setitem(_FAKE_PATHS, replay.resolve(), fake)
+
+    done = lane_gate._git(replay, "merge-base", "--is-ancestor", parent, child, check=False)
+
+    assert done.returncode == 0
 
 
 @dataclass
@@ -46,6 +385,7 @@ class Fixture:
     failing_gates: set[str] = field(default_factory=set)
     gate_calls: list[str] = field(default_factory=list)
     replays: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    memory: FakeGit | None = None
 
     @property
     def folder(self) -> str:
@@ -167,6 +507,14 @@ def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool
     worktree = tmp_path / "lane"
     _git(integration, "worktree", "add", "-q", "-b", f"lane/{lane}", str(worktree))
     fx = Fixture(integration, worktree, lane)
+    if not _USING_REAL_GIT:
+        base = _git(integration, "rev-parse", "HEAD")
+        fx.memory = FakeGit()
+        fx.memory.bind(integration, _base_files(), base, branch="release")
+        fx.memory.bind(worktree, _base_files(), base, branch=f"lane/{lane}")
+        fx.memory.refs["release"] = base
+        _FAKE_PATHS[integration.resolve()] = fx.memory
+        _FAKE_PATHS[worktree.resolve()] = fx.memory
     fx.red = fx.commit(
         {
             "tests/test_widget.py": "from src.widget import widget\n\n\n" + RED_TEST,
@@ -182,7 +530,7 @@ def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool
 
 
 _TEMPLATE_ROOT: Path | None = None
-_FIXTURE_TEMPLATES: dict[tuple[str, bool], Fixture] = {}
+_FIXTURE_TEMPLATES: dict[tuple[str, bool, bool], Fixture] = {}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -202,10 +550,10 @@ READS = (("ls-tree", "-r"), ("cat-file", "blob"))  # `git show` is the third way
 def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
     if _TEMPLATE_ROOT is None:
         raise RuntimeError("lane-gate fixture template root was not initialized")
-    key = (lane, review)
+    key = (lane, review, _USING_REAL_GIT)
     template = _FIXTURE_TEMPLATES.get(key)
     if template is None:
-        template_root = _TEMPLATE_ROOT / f"{lane}-review-{review}"
+        template_root = _TEMPLATE_ROOT / f"{lane}-review-{review}-real-{_USING_REAL_GIT}"
         template_root.mkdir()
         template = _build_fixture(template_root, lane, review=review)
         _FIXTURE_TEMPLATES[key] = template
@@ -215,6 +563,26 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
     worktree = copy_root / "lane"
     shutil.copytree(template.integration, integration, ignore=_kept_in_template)
     shutil.copytree(template.worktree, worktree)
+    memory = None
+    if not _USING_REAL_GIT:
+        assert template.memory is not None
+        memory = FakeGit(
+            trees={sha: tree.copy() for sha, tree in template.memory.trees.items()},
+            parents=template.memory.parents.copy(),
+            refs=template.memory.refs.copy(),
+        )
+        memory.bind(
+            integration,
+            memory.trees[memory.refs["release"]],
+            memory.refs["release"],
+            memory.parents[memory.refs["release"]],
+            branch="release",
+        )
+        memory.bind(
+            worktree, memory.trees[template.head], template.head, memory.parents[template.head], branch=f"lane/{lane}"
+        )
+        for root in (integration, worktree):
+            _FAKE_PATHS[root.resolve()] = memory
     objects = integration / ".git" / "objects"
     (objects / "info").mkdir(parents=True)
     shared = template.integration / ".git" / "objects"
@@ -233,6 +601,7 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
         head=template.head,
         outcomes=template.outcomes.copy(),
         failing_gates=template.failing_gates.copy(),
+        memory=memory,
     )
 
 
@@ -244,16 +613,51 @@ def _refused(result: object, needle: str) -> bool:
     return any(needle in reason for reason in _refusals(result))
 
 
-def test_fixture_copy_never_writes_into_its_template(tmp_path: Path) -> None:
+def test_fixture_copy_never_writes_into_its_template(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """A commit in a copy must not move the template's branch or dirty its worktree (git 2.47.3 leaked into it)."""
     copy = _fixture(tmp_path)
-    template = _FIXTURE_TEMPLATES[(copy.lane, True)]
+    template = _FIXTURE_TEMPLATES[(copy.lane, True, True)]
     copy.commit({"src/leak.py": "x = 1\n"}, "feat: leak")
     assert _git(template.worktree, "rev-parse", "HEAD") == template.head
     assert _git(template.worktree, "status", "--porcelain") == ""
 
 
 # --- controls ---------------------------------------------------------------------------------------------------------
+
+
+def test_git_helper_uses_the_replaceable_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(command: Sequence[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(command))
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", runner, raising=False)
+    monkeypatch.setattr(
+        lane_gate.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr=""),
+    )
+    assert lane_gate._git(tmp_path, "status").stdout == "ok\n"
+    assert calls == [("git", "status")]
+
+
+@pytest.fixture
+def real_git(monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, ...]], object]:
+    """Record commands sent through lane_gate's real runner for command-shape coverage tests."""
+    calls: list[tuple[str, ...]] = []
+    real_runner = _REAL_GIT_RUNNER
+    global _USING_REAL_GIT
+    _USING_REAL_GIT = True
+
+    def recording_runner(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(command[1:]))
+        return real_runner(command, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", recording_runner)
+    return calls, real_runner
 
 
 def test_lane_gate_reads_a_file_at_a_commit_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -335,8 +739,12 @@ def test_lane_gate_sha_read_in_one_repo_stays_absent_in_another(
         second.evaluate(sha=only_in_first)
 
 
-def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`git ls-tree` lists relative to the cwd where `git show sha:path` never did (code review, T-suite-speed)."""
+def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
+    """`git ls-tree` lists relative to the cwd where `git show sha:path` never did (code review, T-suite-speed).
+
+    Real git: the fake lists every path from the root whatever the cwd, so a missing `--full-tree` passed it."""
     monkeypatch.setattr(lane_gate, "_READS", {})
     fx = _fixture(tmp_path)
     assert lane_gate._show(fx.worktree / "src", fx.head, "src/widget.py") == lane_gate._show(
@@ -344,7 +752,9 @@ def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(tmp_path: Path, monk
     )
 
 
-def test_lane_gate_reads_past_a_filename_that_is_not_utf8(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_gate_reads_past_a_filename_that_is_not_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """One such name in a tree crashed every read at that commit; `git show` read one path (code review)."""
     monkeypatch.setattr(lane_gate, "_READS", {})
     fx = _fixture(tmp_path)
@@ -1721,6 +2131,7 @@ F5B_LEASED = (
 )
 
 
+@pytest.mark.timeout(300)  # builds a git fixture (15+ git calls) and runs the gate twice: 98 s seen under -n 4
 def test_f5b_leased_log_needs_both_leased_tests(tmp_path: Path) -> None:
     assert lane_gate.LEASED["F5b"] == (("leased-mysql.log", F5B_LEASED),)
     fx = _fixture(tmp_path, lane="F5b")
@@ -1872,14 +2283,18 @@ def test_plan_index_at_the_integration_root_protects_that_file(tmp_path: Path) -
     assert not _refused(result, "plan file changed: README.md")
 
 
-def test_lane_fixture_copy_leaves_the_objects_in_the_template(tmp_path: Path) -> None:
+def test_lane_fixture_copy_leaves_the_objects_in_the_template(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """Copied read-only objects were 10k of a full run's 27k temp files, and pytest later deletes them one by one."""
     fx = _fixture(tmp_path)
     objects = fx.integration / ".git" / "objects"
     assert [path for path in objects.rglob("*") if path.is_file() and path.name != "alternates"] == []
 
 
-def test_lane_fixture_commit_stays_in_its_own_copy(tmp_path: Path) -> None:
+def test_lane_fixture_commit_stays_in_its_own_copy(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
     first, second = _fixture(tmp_path / "a"), _fixture(tmp_path / "b")
@@ -1888,7 +2303,9 @@ def test_lane_fixture_commit_stays_in_its_own_copy(tmp_path: Path) -> None:
     assert lane_gate._resolve(second.worktree, sha) is None
 
 
-def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_fixture_copy_uses_at_most_one_git_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     warm_root = tmp_path / "warm"
     warm_root.mkdir()
     _fixture(warm_root)
@@ -1908,7 +2325,131 @@ def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch
     assert git_calls <= 1, f"copying a prepared lane fixture used {git_calls} git subprocesses; expected at most 1"
 
 
-def test_a_fixture_commit_spawns_no_maintenance_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_gate_command_shapes_reach_real_git(
+    tmp_path: Path,
+    real_git: tuple[list[tuple[str, ...]], object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, _runner = real_git
+    recording = lane_gate._GIT_RUNNER  # the real runner, recording every command into ``calls``
+    fx = _fixture(tmp_path)
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    assert _refusals(fx.evaluate()) == []
+    lane_gate._show(fx.worktree, "HEAD", "src/widget.py")  # `git show` is reached only with a rev that is no object id
+
+    def remove_fails(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        done = recording(command, **kwargs)
+        if command[1:3] == ["worktree", "remove"]:
+            return subprocess.CompletedProcess(command, 1, "", "error: cannot remove")
+        return done
+
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", remove_fails)
+    assert _refusals(fx.evaluate()) == []  # lane_gate itself runs `worktree prune` after the failed remove
+    shapes = {
+        ("branch", "--show-current"),
+        ("rev-parse", "--verify", "--quiet"),
+        ("rev-parse", "HEAD"),
+        ("status", "--porcelain", "--untracked-files=no"),
+        ("merge-base", "--is-ancestor"),
+        ("merge-base",),
+        ("diff", "--name-only", "-z", "--no-renames"),
+        ("ls-tree", "-r", "-z", "--full-tree"),
+        ("cat-file", "blob"),
+        ("show",),
+        ("cat-file", "-e"),
+        ("worktree", "add", "--detach", "--quiet"),
+        ("worktree", "remove", "--force"),
+        ("worktree", "prune"),
+    }
+    observed = {call[: len(shape)] for call in calls for shape in shapes if call[: len(shape)] == shape}
+    assert observed == shapes
+
+
+def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fake and real runners agree on lane-gate command results and refusal decisions."""
+    global _USING_REAL_GIT
+    recordings: dict[str, list[tuple[tuple[str, ...], int, str]]] = {}
+    results: dict[str, list[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = {}
+
+    def record_calls(calls: list[tuple[tuple[str, ...], int, str]], root: Path, label: Callable[[str], str]) -> object:
+        original = _run_fake_or_real
+
+        def record(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            done = original(command, **kwargs)
+            normalized = [label(arg.replace(str(root), "<ROOT>")) for arg in command[1:]]
+            output = done.stdout.replace(str(root), "<ROOT>")
+            if command[1:2] == ["ls-tree"]:  # ordered by path: sorting by id would differ between the two gits
+                entries = sorted(output.rstrip("\0").split("\0"), key=lambda entry: entry.split("\t", 1)[-1])
+                output = "\0".join(entries) + "\0"
+            output = label(output)
+            if normalized[0] == "worktree" and normalized[1] in {"add", "remove"}:
+                normalized[4 if normalized[1] == "add" else -1] = "<TREE>"
+            calls.append((tuple(normalized), 0 if done.returncode == 0 else 1, output))
+            return done
+
+        return record
+
+    for mode, real in (("fake", False), ("real", True)):
+        _USING_REAL_GIT = real
+        calls: list[tuple[tuple[str, ...], int, str]] = []
+        labels: dict[str, str] = {}
+
+        def label(text: str, labels: dict[str, str] = labels) -> str:
+            """``<SHA1>``, ``<SHA2>``... by first appearance: two different commits never compare equal."""
+            return re.sub(r"\b[0-9a-f]{40}\b", lambda m: labels.setdefault(m.group(), f"<SHA{len(labels) + 1}>"), text)
+
+        root = tmp_path / mode
+        monkeypatch.setattr(lane_gate, "_GIT_RUNNER", record_calls(calls, tmp_path, label))
+        root.mkdir()
+        fx = _fixture(root)
+        calls.clear()
+        labels.clear()  # numbered from here: building the fixture is not the part being compared
+        lane_gate._git(fx.worktree, "cat-file", "-e", "HEAD:missing.txt", check=False)
+        lane_gate._git(fx.worktree, "cat-file", "blob", "0" * 40, check=False)
+        monkeypatch.setattr(lane_gate, "_READS", {})
+        clean = fx.evaluate()
+        scenarios = [("clean", tuple(clean.refusals))]
+        assert scenarios[-1][1] == ()
+        (fx.worktree / "src/widget.py").write_text("dirty\n", encoding="utf-8")
+        dirty = tuple(fx.evaluate().refusals)
+        scenarios.append(("dirty", dirty))
+        assert any("uncommitted changes" in reason for reason in dirty)
+        (fx.worktree / "src/widget.py").write_text("def widget():\n    return 2\n", encoding="utf-8")
+        _write(fx.worktree, {".superpowers/sdd/0.4.0/lanes/another-lane/PLAN.md": "another lane\n"})
+        fx.commit({".superpowers/sdd/0.4.0/lanes/another-lane/PLAN.md": "another lane\n"}, "docs: touch another lane")
+        fx.review()
+        other_lane = tuple(label(line) for line in fx.evaluate().refusals)
+        scenarios.append(("other-lane", other_lane))
+        assert any("another-lane" in reason for reason in other_lane)
+        (fx.worktree / fx.folder / "findings.md").unlink()
+        _git(fx.worktree, "add", "-u")
+        _git(fx.worktree, "commit", "-q", "-m", "docs: omit findings evidence")
+        fx.head = _git(fx.worktree, "rev-parse", "HEAD")
+        fx.review()
+        missing_evidence = tuple(label(line) for line in fx.evaluate().refusals)
+        scenarios.append(("missing-evidence", missing_evidence))
+        assert any("findings.md" in reason for reason in missing_evidence)
+        _write(fx.integration, {"moved.txt": "the integration branch moved on\n"})
+        _git(fx.integration, "add", "moved.txt")
+        _git(fx.integration, "commit", "-q", "-m", "integration moves")
+        _git(fx.worktree, "merge", "-q", "--no-edit", "release")  # a real 3-way merge commit in the lane
+        fx.head = _git(fx.worktree, "rev-parse", "HEAD")
+        lane_gate._git(fx.worktree, "merge-base", "release", "HEAD")
+        lane_gate._git(fx.worktree, "merge-base", "--is-ancestor", "release", "HEAD", check=False)
+        fx.review()
+        merged = tuple(label(line) for line in fx.evaluate().refusals)
+        scenarios.append(("merged", merged))
+        recordings[mode] = calls
+        results[mode] = scenarios
+    assert recordings["fake"] == recordings["real"]
+    assert results["fake"] == results["real"]
+
+
+def test_a_fixture_commit_spawns_no_maintenance_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """`git commit` ran `git maintenance run --auto` as a child: 52 of 691 git starts in a two-test run (T-spawns)."""
     fx = _fixture(tmp_path)
     trace = tmp_path / "git-trace.txt"
@@ -1917,3 +2458,115 @@ def test_a_fixture_commit_spawns_no_maintenance_process(tmp_path: Path, monkeypa
     started = [line for line in trace.read_text(encoding="utf-8").splitlines() if "trace: built-in" in line]
     assert [line for line in started if "maintenance" in line] == []
     assert len(started) == 3  # add, commit, rev-parse: the fixture's own three
+
+
+# --- round 4 council: unquoted diff names, and a fake that models only what real git does the same way -------------
+
+
+def test_lane_diff_refuses_a_non_ascii_path_in_another_lane_folder(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
+    """Without -z, `diff --name-only` quotes `né.md` with octal escapes: no path rule matched, the gate accepted."""
+    fx = _fixture(tmp_path, review=False)
+    planted = ".superpowers/sdd/0.4.0/lanes/another-lane/né.md"
+    fx.commit({planted: "planted\n"}, "docs: plant")
+    fx.review()
+    assert _refused(fx.evaluate(), f"not the lane's own evidence folder: {planted}")
+
+
+def _fake_at(tmp_path: Path, tree: dict[str, str], sha: str = "S0") -> tuple[FakeGit, Path]:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _write(root, tree)
+    fake = FakeGit()
+    fake.bind(root, tree, sha, branch="lane/test-fixture-x")
+    return fake, root.resolve()
+
+
+def _fake_run(fake: FakeGit, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return fake.run(["git", *args], cwd=root, check=False)
+
+
+def _fake_refuses(fake: FakeGit, root: Path, *args: str) -> bool:
+    """True when the fake raises ``AssertionError``: it models no such git behaviour and says so, never guesses."""
+    try:
+        fake.run(["git", *args], cwd=root, check=False)
+    except AssertionError:
+        return True
+    return False
+
+
+def _fork(tmp_path: Path, base: dict[str, str], ours: dict[str, str], theirs: dict[str, str]) -> tuple[FakeGit, Path]:
+    """HEAD is ``ours``; ref ``other`` is ``theirs``; both are children of ``base``."""
+    fake, root = _fake_at(tmp_path, ours, "OURS")
+    fake.trees.update({"BASE": base, "THEIRS": theirs})
+    fake.parents.update({"OURS": ("BASE",), "THEIRS": ("BASE",), "BASE": ()})
+    fake.refs["other"] = "THEIRS"
+    return fake, root
+
+
+def test_fake_git_merge_combines_changes_made_on_different_paths(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1", "b": "1"}, {"a": "2", "b": "1"}, {"a": "1", "b": "2"})
+    _fake_run(fake, root, "merge", "-q", "--no-edit", "other")
+    assert fake.trees[fake.heads[root]] == {"a": "2", "b": "2"}
+
+
+def test_fake_git_refuses_a_merge_of_an_unknown_ref(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1"}, {"a": "2"}, {"a": "1"})
+    assert _fake_refuses(fake, root, "merge", "-q", "--no-edit", "no-such-ref")
+
+
+def test_fake_git_refuses_a_merge_that_changes_a_path_on_both_sides(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1"}, {"a": "2"}, {"a": "3"})
+    assert _fake_refuses(fake, root, "merge", "-q", "--no-edit", "other")
+
+
+def test_fake_git_refuses_ff_only_when_head_is_not_an_ancestor(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1"}, {"a": "2"}, {"b": "1"})
+    assert _fake_refuses(fake, root, "merge", "-q", "--ff-only", "other")
+
+
+def test_fake_git_add_stages_and_commit_takes_only_what_is_staged(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"})
+    _write(root, {"new.txt": "x"})
+    assert _fake_run(fake, root, "commit", "-q", "-m", "nothing staged").returncode != 0  # real git: nothing to commit
+
+
+def test_fake_git_status_lists_a_staged_new_file(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"})
+    _write(root, {"new.txt": "x"})
+    _fake_run(fake, root, "add", "new.txt")
+    assert _fake_run(fake, root, "status", "--porcelain", "--untracked-files=no").stdout == "A  new.txt\n"
+
+
+def test_fake_git_merge_base_is_the_best_common_ancestor(tmp_path: Path) -> None:
+    """History B0 <- R1, L1, S1; M1 = (L1, R1); M2 = (M1, S1): git says R1, an older ancestor B0 is not the base."""
+    fake, root = _fake_at(tmp_path, {"a": "1"}, "M2")
+    fake.trees.update({name: {"a": "1"} for name in ("B0", "R1", "L1", "S1", "M1")})
+    fake.parents.update({"B0": (), "R1": ("B0",), "L1": ("B0",), "S1": ("B0",), "M1": ("L1", "R1"), "M2": ("M1", "S1")})
+    assert _fake_run(fake, root, "merge-base", "R1", "M2").stdout == "R1\n"
+
+
+def test_fake_git_is_ancestor_resolves_the_older_ref_too(tmp_path: Path) -> None:
+    """`_sha_problem` asks whether a red is already in `release`: a ref name on the left never matched a sha."""
+    fake, root = _fake_at(tmp_path, {"a": "1"}, "CHILD")
+    fake.trees["PARENT"] = {"a": "0"}
+    fake.parents["CHILD"] = ("PARENT",)
+    fake.refs["release"] = "PARENT"
+    assert _fake_run(fake, root, "merge-base", "--is-ancestor", "release", "HEAD").returncode == 0
+
+
+def test_fake_git_refuses_a_flag_it_does_not_model(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"})
+    assert _fake_refuses(fake, root, "status", "--porcelain", "--untracked-files=all")
+
+
+def test_fake_git_rev_parse_verify_reads_its_flags_in_either_order(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"}, "S0")
+    done = _fake_run(fake, root, "rev-parse", "--quiet", "--verify", "HEAD")
+    assert (done.returncode, done.stdout) == (0, "S0\n")
+
+
+def test_fixture_binds_the_lane_branch_to_the_lane_name(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, "other-lane")
+    assert _git(fx.worktree, "branch", "--show-current") == "lane/other-lane"

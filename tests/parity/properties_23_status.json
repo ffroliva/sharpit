@@ -1,0 +1,1055 @@
+{
+  "fixture": "tests/fixtures/bootui/2.3.0/properties.json",
+  "panel_map_rule": "bootui.panels is the sole fixture entry for panel configuration; bootui.panels.* keys are map members, not property rows, and are not synthesized from the settings registry.",
+  "properties": [
+    {
+      "name": "bootui.activity.feed-source",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_feed_source"
+    },
+    {
+      "name": "bootui.activity.max-entries",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.activity.max-scheduled-task-runs",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_max_scheduled_task_runs"
+    },
+    {
+      "name": "bootui.activity.n-plus-one-threshold",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.activity.persistence.buffer-max-entries",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_buffer_max_entries"
+    },
+    {
+      "name": "bootui.activity.persistence.data-source-mode",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_data_source_mode"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-driver-class-name",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_dedicated_driver_class_name"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-jdbc-url",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_dedicated_jdbc_url"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-password",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_dedicated_password"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-username",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_dedicated_username"
+    },
+    {
+      "name": "bootui.activity.persistence.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_enabled"
+    },
+    {
+      "name": "bootui.activity.persistence.flush-interval",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_flush_interval"
+    },
+    {
+      "name": "bootui.activity.persistence.instance-id",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_instance_id"
+    },
+    {
+      "name": "bootui.activity.persistence.retention",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_retention"
+    },
+    {
+      "name": "bootui.activity.persistence.table-name",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for activity_persistence_table_name"
+    },
+    {
+      "name": "bootui.activity.request-slow-threshold-ms",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.advisors.max-retained-violations",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.agent.allow-in-disabled-profiles",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_allow_in_disabled_profiles"
+    },
+    {
+      "name": "bootui.agent.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_enabled"
+    },
+    {
+      "name": "bootui.agent.executors.max-handoff",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_executors_max_handoff"
+    },
+    {
+      "name": "bootui.agent.executors.skip-tasks",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_executors_skip_tasks"
+    },
+    {
+      "name": "bootui.agent.executors.skip-threads",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_executors_skip_threads"
+    },
+    {
+      "name": "bootui.agent.mode",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_mode"
+    },
+    {
+      "name": "bootui.agent.packages",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_packages"
+    },
+    {
+      "name": "bootui.agent.ring-capacity",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_ring_capacity"
+    },
+    {
+      "name": "bootui.agent.security-sinks.request-values",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for agent_security_sinks_request_values"
+    },
+    {
+      "name": "bootui.agent.sensors",
+      "status": "partial",
+      "difference": "default differs: BootUI=('executors', 'inventory', 'code-paths', 'processes', 'network', 'files', 'blocking', 'resources'); sharpit=()"
+    },
+    {
+      "name": "bootui.ai.max-recent-chats",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.ai.show-content-capture-banner",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.ai.token-series-minutes",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.allow-non-localhost",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.allowed-hosts",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.api-path",
+      "status": "partial",
+      "difference": "default differs: BootUI='/bootui/api'; sharpit='/sharpit/api'"
+    },
+    {
+      "name": "bootui.authentication.token",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.cache.activity-capture-enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for cache_activity_capture_enabled"
+    },
+    {
+      "name": "bootui.cache.activity-max-events",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for cache_activity_max_events"
+    },
+    {
+      "name": "bootui.cache.clear-enabled",
+      "status": "partial",
+      "difference": "default differs: BootUI=True; sharpit=False",
+      "deviation": "D-K1-1 (proposed): sharpit defaults cache clearing off (council round 1, fail closed); BootUI defaults it on"
+    },
+    {
+      "name": "bootui.claude-code.allow-raw-reveal",
+      "status": "matched",
+      "difference": null,
+      "runtimeDefault": false,
+      "citation": "BootUI metadata says true, but BootUiProperties.java:2575 ClaudeCode() calls setAllowRawReveal(false), so the runtime default is false; sharpit false matches runtime"
+    },
+    {
+      "name": "bootui.claude-code.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.claude-code.max-events-per-session",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.claude-code.max-parsed-sessions",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.claude-code.max-sessions",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.claude-code.session-state-dir",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.claude-code.stream-debounce",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.cli.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.cli.execution-timeout",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.cli.max-concurrent-calls",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.cli.max-results",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.code-inventory.max-classes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for code_inventory_max_classes"
+    },
+    {
+      "name": "bootui.code-inventory.scan-timeout",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for code_inventory_scan_timeout"
+    },
+    {
+      "name": "bootui.copilot.allow-raw-reveal",
+      "status": "partial",
+      "difference": "default differs: BootUI=True; sharpit=False",
+      "deviation": "D-S2: sharpit defaults the raw-event reveal to false where BootUI defaults it to true"
+    },
+    {
+      "name": "bootui.copilot.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.copilot.max-events-per-session",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.copilot.max-parsed-sessions",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.copilot.max-sessions",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.copilot.session-state-dir",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.copilot.stream-debounce",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.dev-services.log-tail-bytes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for dev_services_log_tail_bytes"
+    },
+    {
+      "name": "bootui.dev-services.restart-enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.disabled-profiles",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.email.dev-trap",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.email.mask-content",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.email.max-body-length",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.email.max-entries",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.enabled-profiles",
+      "status": "partial",
+      "difference": "default differs: BootUI=('dev', 'local'); sharpit=('dev', 'local', 'development')"
+    },
+    {
+      "name": "bootui.exceptions.max-groups",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.exceptions.max-occurrences-per-group",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.exceptions.max-stack-frames",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.expose-values",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.fault-tolerance.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for fault_tolerance_enabled"
+    },
+    {
+      "name": "bootui.fault-tolerance.max-events",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for fault_tolerance_max_events"
+    },
+    {
+      "name": "bootui.force-web",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for force_web"
+    },
+    {
+      "name": "bootui.free-on-idle.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.free-on-idle.timeout",
+      "status": "partial",
+      "difference": "default differs: BootUI='5m'; sharpit=300.0"
+    },
+    {
+      "name": "bootui.github.allowed-api-hosts",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.api-enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.max-api-calls",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.max-issues",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.max-pull-requests",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.max-security-alerts",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.max-workflow-runs",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.quota-safety-threshold",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.github.request-timeout",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.graalvm.max-repository-lookups",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for graalvm_max_repository_lookups"
+    },
+    {
+      "name": "bootui.graalvm.repository-lookup-enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for graalvm_repository_lookup_enabled"
+    },
+    {
+      "name": "bootui.graalvm.repository-lookup-timeout",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for graalvm_repository_lookup_timeout"
+    },
+    {
+      "name": "bootui.heap-dump.allow-raw-download",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for heap_dump_allow_raw_download"
+    },
+    {
+      "name": "bootui.heap-dump.capture-enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for heap_dump_capture_enabled"
+    },
+    {
+      "name": "bootui.heap-dump.max-classes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for heap_dump_max_classes"
+    },
+    {
+      "name": "bootui.heap-dump.max-dumps",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for heap_dump_max_dumps"
+    },
+    {
+      "name": "bootui.heap-dump.output-dir",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for heap_dump_output_dir"
+    },
+    {
+      "name": "bootui.heap-dump.top-classes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for heap_dump_top_classes"
+    },
+    {
+      "name": "bootui.http-exchanges.max-exchanges",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.http-exchanges.reserved-share-percent",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for http_exchanges_reserved_share_percent"
+    },
+    {
+      "name": "bootui.http-sessions.max-sessions",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for http_sessions_max_sessions"
+    },
+    {
+      "name": "bootui.jms.capture-message-id",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for jms_capture_message_id"
+    },
+    {
+      "name": "bootui.jms.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for jms_enabled"
+    },
+    {
+      "name": "bootui.jms.max-entries",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for jms_max_entries"
+    },
+    {
+      "name": "bootui.jms.max-message-id-length",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for jms_max_message_id_length"
+    },
+    {
+      "name": "bootui.kafka.capture-key",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for kafka_capture_key"
+    },
+    {
+      "name": "bootui.kafka.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for kafka_enabled"
+    },
+    {
+      "name": "bootui.kafka.max-entries",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for kafka_max_entries"
+    },
+    {
+      "name": "bootui.kafka.max-key-length",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for kafka_max_key_length"
+    },
+    {
+      "name": "bootui.log-tail.max-bytes",
+      "status": "partial",
+      "difference": "default differs: BootUI=0; sharpit=1048576"
+    },
+    {
+      "name": "bootui.mask-secrets",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mcp.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mcp.execution-timeout",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mcp.max-concurrent-calls",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mcp.max-payload-bytes",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mcp.max-response-bytes",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mcp.max-results",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.monitoring.exclude-self",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for monitoring_exclude_self"
+    },
+    {
+      "name": "bootui.mysql.max-indexes",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mysql.max-lock-waits",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mysql.max-replication-channels",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mysql.max-sessions",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mysql.max-settings",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mysql.max-statements",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.mysql.max-tables",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.overrides-file",
+      "status": "partial",
+      "difference": "default differs: BootUI='.bootui/application-bootui.properties'; sharpit='.sharpit/overrides.env'"
+    },
+    {
+      "name": "bootui.panels",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for panels"
+    },
+    {
+      "name": "bootui.path",
+      "status": "partial",
+      "difference": "default differs: BootUI='/bootui'; sharpit='/sharpit'"
+    },
+    {
+      "name": "bootui.postgresql.max-indexes",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.postgresql.max-replicas",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.postgresql.max-sessions",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.postgresql.max-settings",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.postgresql.max-statements",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.postgresql.max-tables",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.postgresql.max-vacuum-tables",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.rabbitmq.capture-correlation-id",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rabbitmq_capture_correlation_id"
+    },
+    {
+      "name": "bootui.rabbitmq.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rabbitmq_enabled"
+    },
+    {
+      "name": "bootui.rabbitmq.max-correlation-id-length",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rabbitmq_max_correlation_id_length"
+    },
+    {
+      "name": "bootui.rabbitmq.max-entries",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rabbitmq_max_entries"
+    },
+    {
+      "name": "bootui.read-only",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.resources.jfr.max-duration",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.resources.max-threads",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for resources_max_threads"
+    },
+    {
+      "name": "bootui.resources.sample-interval",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for resources_sample_interval"
+    },
+    {
+      "name": "bootui.rest-client-trace.capture-call-site",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_capture_call_site"
+    },
+    {
+      "name": "bootui.rest-client-trace.capture-headers",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_capture_headers"
+    },
+    {
+      "name": "bootui.rest-client-trace.chatty-call-threshold",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_chatty_call_threshold"
+    },
+    {
+      "name": "bootui.rest-client-trace.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_enabled"
+    },
+    {
+      "name": "bootui.rest-client-trace.max-entries",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_max_entries"
+    },
+    {
+      "name": "bootui.rest-client-trace.max-header-value-length",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_max_header_value_length"
+    },
+    {
+      "name": "bootui.rest-client-trace.max-uri-length",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_max_uri_length"
+    },
+    {
+      "name": "bootui.rest-client-trace.recording",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_recording"
+    },
+    {
+      "name": "bootui.rest-client-trace.reserved-share-percent",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_reserved_share_percent"
+    },
+    {
+      "name": "bootui.rest-client-trace.slow-call-threshold-millis",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for rest_client_trace_slow_call_threshold_millis"
+    },
+    {
+      "name": "bootui.runtime-insights.ai-token-threshold",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.runtime-journal.agent-evidence-max-bytes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for runtime_journal_agent_evidence_max_bytes"
+    },
+    {
+      "name": "bootui.runtime-journal.baseline-file",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for runtime_journal_baseline_file"
+    },
+    {
+      "name": "bootui.runtime-journal.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.runtime-journal.max-bytes",
+      "status": "partial",
+      "difference": "default differs: BootUI=None; sharpit=33554432"
+    },
+    {
+      "name": "bootui.runtime-journal.max-events",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.runtime-journal.queue-capacity",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.runtime-journal.sources",
+      "status": "partial",
+      "difference": "default differs: BootUI=None; sharpit=('http', 'sql', 'transaction', 'connection', 'exception', 'security', 'authorization', 'rest-client', 'cache', 'messaging', 'scheduled', 'log', 'mail', 'fault-tolerance', 'ai', 'lifecycle', 'gc', 'resources', 'app-event', 'websocket', 'orm', 'agent.executors', 'agent.caught-exceptions', 'processes', 'files')"
+    },
+    {
+      "name": "bootui.security-logs.max-logs",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.show-banner",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.capture-call-site",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.capture-parameters",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.max-entries",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.max-parameter-length",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.max-sql-length",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.n-plus-one-threshold",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.recording",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.sql-trace.reserved-share-percent",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for sql_trace_reserved_share_percent"
+    },
+    {
+      "name": "bootui.sql-trace.slow-query-threshold-millis",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.startup.capacity",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.startup.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.telemetry.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_enabled"
+    },
+    {
+      "name": "bootui.telemetry.enrich",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_enrich"
+    },
+    {
+      "name": "bootui.telemetry.exclude-self-spans",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_exclude_self_spans"
+    },
+    {
+      "name": "bootui.telemetry.max-attribute-value-bytes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_max_attribute_value_bytes"
+    },
+    {
+      "name": "bootui.telemetry.max-request-bytes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_max_request_bytes"
+    },
+    {
+      "name": "bootui.telemetry.max-spans-per-trace",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_max_spans_per_trace"
+    },
+    {
+      "name": "bootui.telemetry.max-traces",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for telemetry_max_traces"
+    },
+    {
+      "name": "bootui.threads.capture-deadline-millis",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_capture_deadline_millis"
+    },
+    {
+      "name": "bootui.threads.include-synchronizers",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_include_synchronizers"
+    },
+    {
+      "name": "bootui.threads.max-capture-bytes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_max_capture_bytes"
+    },
+    {
+      "name": "bootui.threads.max-captures",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_max_captures"
+    },
+    {
+      "name": "bootui.threads.max-owned-locks",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_max_owned_locks"
+    },
+    {
+      "name": "bootui.threads.max-retained-bytes",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_max_retained_bytes"
+    },
+    {
+      "name": "bootui.threads.max-stack-depth",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_max_stack_depth"
+    },
+    {
+      "name": "bootui.threads.max-threads",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_max_threads"
+    },
+    {
+      "name": "bootui.threads.observation-interval-millis",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_observation_interval_millis"
+    },
+    {
+      "name": "bootui.threads.observation-samples",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_observation_samples"
+    },
+    {
+      "name": "bootui.threads.ttl-millis",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for threads_ttl_millis"
+    },
+    {
+      "name": "bootui.transactions.connection-hold-threshold-millis",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.transactions.enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.transactions.max-entries",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.transactions.recording",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.transactions.slow-transaction-threshold-millis",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.trust-container-gateway",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.trusted-proxies",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.epss-base-uri",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.epss-enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.max-advisories",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.max-packages",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.osv-base-uri",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.osv-enabled",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.request-timeout",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.websockets.capturing",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_capturing"
+    },
+    {
+      "name": "bootui.websockets.enabled",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_enabled"
+    },
+    {
+      "name": "bootui.websockets.max-activity-entries",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_max_activity_entries"
+    },
+    {
+      "name": "bootui.websockets.max-endpoints",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_max_endpoints"
+    },
+    {
+      "name": "bootui.websockets.max-sessions",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_max_sessions"
+    },
+    {
+      "name": "bootui.websockets.max-subscriptions",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_max_subscriptions"
+    },
+    {
+      "name": "bootui.websockets.max-tracked-sessions",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for websockets_max_tracked_sessions"
+    }
+  ]
+}

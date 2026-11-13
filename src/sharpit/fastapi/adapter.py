@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
 from functools import partial
 from importlib import import_module
 from pathlib import Path
@@ -20,16 +17,16 @@ from starlette.routing import BaseRoute, Match, Mount
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard, sqla, tools
-from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.capture import activity, route_path
 from sharpit.engine.capture.logtail import log_events
 from sharpit.engine.collectors import alembic
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import parse_int_param
+from sharpit.engine.sensors.floor import PANEL_REASONS
 from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, wiring_of
+from sharpit.fastapi.handle import SharpitHandle
 from sharpit.fastapi.http import error, json_response
-from sharpit.settings import SharpitSettings
 
 __all__ = [
     "GuardMiddleware",
@@ -59,20 +56,6 @@ _STATIC = Path(__file__).resolve().parent.parent / "ui" / "static"
 _ASSETS = _STATIC / "assets"
 _TRUSTED_KEY = "sharpit.trusted"
 _SMALL_BODY_CAP = 4096  # bytes: per-endpoint cap for the toggle and logger-level bodies
-_Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]
-
-
-@dataclass
-class SharpitHandle:
-    settings: SharpitSettings
-    activation: ActivationStatus
-    context: SharpitContext
-    original_lifespan: _Lifespan
-
-    def uninstall_capture(self) -> None:
-        """Detach every capture hook, as lifespan shutdown does (for tests and apps run without lifespan)."""
-        if (wiring := wiring_of(self.context)) is not None:
-            wiring.detach(self.context)
 
 
 class SharpitMount(Mount):
@@ -188,6 +171,15 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons["activity"] = activity.unavailable_reason(ctx)
     reasons["alembic"] = alembic.unavailable_reason(ctx)
     reasons["database-connection-pools"] = sqla.unavailable_reason()
+
+    from sharpit.engine.collectors.agentsessions import Layout, session_store
+
+    copilot = session_store(ctx, Layout.COPILOT)
+    reasons["copilot"] = None if copilot.is_available() else copilot.unavailable_reason()
+
+    claude = session_store(ctx, Layout.CLAUDE_CODE)
+    reasons["claude-code"] = None if claude.is_available() else claude.unavailable_reason()
+    reasons.update(PANEL_REASONS)  # the agent-sensor panels: no agent sensors in this version
     return reasons
 
 

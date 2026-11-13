@@ -1,0 +1,9 @@
+{
+  "restartAvailable": false,
+  "restartUnavailableReason": "spring-boot-devtools is not on the classpath.",
+  "restartPending": false,
+  "liveReloadAvailable": false,
+  "liveReloadPort": null,
+  "liveReloadConnections": 0,
+  "liveReloadUnavailableReason": "Spring Boot DevTools LiveReload is not on the classpath."
+}

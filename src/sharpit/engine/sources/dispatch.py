@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import weakref
+from collections.abc import Sized
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
-from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST
+from sharpit.engine import otel
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo
+from sharpit.engine.capture.journal import SCALAR_BYTES
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.context import application_family
 from sharpit.engine.sqla.dialect_source import event_dialect
 from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
+    from sharpit.engine.capture.sqltrace import SqlTraceRecorder
     from sharpit.engine.context import SharpitContext
 
 
@@ -61,10 +66,10 @@ def routing_failed(exc: BaseException) -> None:
         logger.warning("sharpit SQL listener failed (%s); queries are unaffected", type(exc).__name__)
 
 
-def _context_failed(ctx: SharpitContext, exc: BaseException) -> None:
+def _context_failed(ctx: SharpitContext, exc: BaseException, hook: str = "sql statement") -> None:
     wiring = ctx.capture.wiring
     if wiring is not None:
-        wiring.hook_failed("sql statement", exc)
+        wiring.hook_failed(hook, exc)
     else:
         routing_failed(exc)
 
@@ -83,26 +88,160 @@ def _targets(engine: object | None) -> list[SharpitContext]:
     return held or (contexts if len(contexts) == 1 else [])
 
 
-def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
-    """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on."""
-    if source == "sqlite3":
-        info = REQUEST.get()
-        for ref in _refs:
-            ctx = ref()
-            if (
-                ctx is not None
-                and ctx.settings.sql_trace_sqlite3_enabled
-                and (info is None or ctx.context_id == info.context_id)
-            ):
-                ctx.capture.raw_sqlite_seen = True
-    targets = [
+def _raw_sqlite_seen() -> None:
+    info = REQUEST.get()
+    for ref in _refs:
+        ctx = ref()
+        if (
+            ctx is not None
+            and ctx.settings.sql_trace_sqlite3_enabled
+            and (info is None or ctx.context_id == info.context_id)
+        ):
+            ctx.capture.raw_sqlite_seen = True
+
+
+def _records(ctx: SharpitContext) -> bool:
+    """Recording, or paused while the journal records sql (BootUI SqlTraceRecorder.java:730-731)."""
+    recorder = ctx.capture.sql_trace
+    return recorder is not None and (
+        recorder.recording or (ctx.capture.journal is not None and ctx.capture.journal.accepts("sql"))
+    )
+
+
+def _pool_targets(pool: object) -> list[SharpitContext]:
+    """``_targets`` for a pool: the contexts whose engines own it. Not shared with ``_targets``: that one runs per
+    statement and takes no extra call (+0.2 µs measured), so the two routes stay apart."""
+    contexts = [c for r in _refs if (c := r()) is not None]
+    info = REQUEST.get()
+    if info is not None:
+        return [c for c in contexts if c.context_id == info.context_id]
+    held = [
         c
-        for c in _targets(engine)
-        if c.capture.sql_trace is not None
-        and c.capture.sql_trace.recording
-        and (source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled)
+        for c in contexts
+        if c.capture.engine_registry is not None and c.capture.engine_registry.name_of_pool(pool) is not None
     ]
-    return targets
+    return held or (contexts if len(contexts) == 1 else [])
+
+
+def connection_targets(pool: object, source: str) -> list[SharpitContext]:
+    """The contexts that journal a connection checked out of ``pool``, routed as a statement is (a request's own
+    context, else the contexts whose engines own the pool, else the only one); each has a SQL recorder, a journal that
+    records ``source`` and does not suspend SQLAlchemy. The panel's pause does not gate them (BootUI
+    ``checkoutConnection``: logical connections only feed the journal)."""
+    return [
+        c
+        for c in _pool_targets(pool)
+        if c.capture.sql_trace is not None
+        and c.capture.journal is not None
+        and c.capture.journal.accepts(source)
+        and "sqlalchemy" not in c.capture.suspended_sources
+    ]
+
+
+def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
+    """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on.
+
+    Each routed context with the source on learns, once, that a database of ``source`` is in use there
+    (``sql_delivered``), before the pause and suspend filters: a paused or suspended capture still has its database."""
+    if source == "sqlite3":
+        _raw_sqlite_seen()
+    routed = [c for c in _targets(engine) if source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled]
+    for c in routed:
+        if source not in c.capture.sql_delivered:
+            c.capture.sql_delivered.add(source)
+    return [c for c in routed if _records(c) and source not in c.capture.suspended_sources]
+
+
+_SQL_KEYS = (
+    "source", "sql", "traceId", "requestId", "thread", "durationNanos", "startedAt", "dataSource", "failed", "phase",
+    "completedNanos", "codePathStamp", "provenance", "batchSize", "callSite",
+)  # fmt: skip
+# every key's length, the two constant texts ("sql", "EXECUTION") and the eight scalar fields (``phase`` is always
+# None): what ``_flat`` charges
+_SQL_EVENT_BYTES = sum(map(len, _SQL_KEYS)) + len("sql") + len("EXECUTION") + 8 * SCALAR_BYTES
+
+
+def _batch(event: SqlEvent) -> int:
+    """``SqlPayload.batchSize``: 1 for an ordinary execution, N for a batch, 0 for a batch of unknown size (a one-shot
+    generator), never read as unbatched (BootUI ``SqlTraceRecorder.recordNanos``)."""
+    if not event.executemany:
+        return 1
+    if event.batch_size is not None:
+        return max(event.batch_size, 1)
+    return max(len(event.parameters), 1) if isinstance(event.parameters, Sized) else 0
+
+
+def _journal_event(
+    ctx: SharpitContext,
+    recorder: SqlTraceRecorder,
+    event: SqlEvent,
+    text: str,
+    info: RequestInfo | None,
+    thread: str,
+    site: str | None,
+) -> tuple[dict[str, str | int | bool | None], int, int]:
+    """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope), its charged size and its loss start (what the
+    journal's ``_lost_start`` would read: its start if it names a unit of work, else 0), computed here per statement
+    instead of by walking the event: the literal-free text, never a parameter.
+
+    ``phase`` is None: BootUI's ``RequestPhase`` (FILTERS/HANDLER/RESPONSE) has no sharpit source, and outside a request
+    it is null, so the lifespan's STARTUP/SHUTDOWN is not carried."""
+    trace_id = otel.current_trace_id()
+    request_id = info.id if info is not None and info.context_id == ctx.context_id else None
+    site = site if recorder.capture_call_site else None
+    started_at = time.time_ns() // 1_000_000 - event.duration_ns // 1_000_000
+    record: dict[str, str | int | bool | None] = {
+        "source": "sql",
+        "sql": text,
+        "traceId": trace_id,
+        "requestId": request_id,
+        "thread": thread,
+        "durationNanos": event.duration_ns,
+        "startedAt": started_at,
+        "dataSource": None,
+        "failed": event.error is not None,
+        "phase": None,
+        # the statement's end on the perf_counter clock, before any recording work (SqlTraceRecorder.java:738)
+        "completedNanos": event.started_ns + event.duration_ns,
+        "codePathStamp": 0,
+        "provenance": "EXECUTION",
+        "batchSize": _batch(event),
+        "callSite": site,
+    }
+    size = (
+        _SQL_EVENT_BYTES
+        + len(text)
+        + len(thread)
+        + (SCALAR_BYTES if trace_id is None else len(trace_id))
+        + (SCALAR_BYTES if request_id is None else len(request_id))
+        + (SCALAR_BYTES if site is None else len(site))
+    )
+    return record, size, started_at if request_id is not None or trace_id is not None else 0
+
+
+def _trace_text(
+    ctx: SharpitContext, recorder: SqlTraceRecorder, event: SqlEvent, info: RequestInfo | None, thread: str,
+    site: str | None,
+) -> str | None:  # fmt: skip
+    """The statement's literal-free text: recorded as a trace row, or only shaped for the journal while paused."""
+    dialect = event_dialect(event, lambda ctx=ctx: application_family(ctx))
+    if not recorder.recording:
+        return recorder.journal_text(event.sql, dialect)
+    return recorder.record(
+        event.sql,
+        duration_ns=event.duration_ns,
+        thread=thread,
+        connection_id=event.connection_id,
+        parameters=event.parameters,
+        executemany=event.executemany,
+        success=event.error is None,
+        error=event.error,
+        rowcount=event.rowcount,
+        request_id=info.id if info is not None else None,
+        call_site=site,
+        batch_size=event.batch_size,
+        dialect=dialect,
+    )
 
 
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
@@ -116,23 +255,17 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
         if recorder is None:
             continue
         try:
-            recorder.record(
-                event.sql,
-                duration_ns=event.duration_ns,
-                thread=thread,
-                connection_id=event.connection_id,
-                parameters=event.parameters,
-                executemany=event.executemany,
-                success=event.error is None,
-                error=event.error,
-                rowcount=event.rowcount,
-                request_id=info.id if info is not None else None,
-                call_site=site,
-                batch_size=event.batch_size,
-                dialect=event_dialect(event, lambda ctx=ctx: application_family(ctx)),
-            )
+            text = _trace_text(ctx, recorder, event, info, thread, site)
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)
+            continue
+        journal = ctx.capture.journal
+        if journal is not None and text is not None:
+            try:  # its own guard: a journal failure is never reported as the SQL hook's
+                record, size, started = _journal_event(ctx, recorder, event, text, info, thread, site)
+                journal.offer_flat(record, size, started)
+            except Exception as exc:  # noqa: BLE001
+                _context_failed(ctx, exc, "sql journal")
 
 
 def emit(event: SqlEvent) -> None:

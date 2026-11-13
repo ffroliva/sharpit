@@ -23,13 +23,14 @@ from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import change_events
-from sharpit.engine.collectors import alembic, pools
+from sharpit.engine.collectors import alembic, alembic_cli, pools
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
+from sharpit.engine.collectors.restapi.error_contract import error_contract_report
 from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext, application_family
@@ -42,6 +43,7 @@ from sharpit.fastapi.sse import sse_response
 
 _adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
 _PAYLOAD_TOO_LARGE = "Request payload exceeds limit"
+_ALEMBIC_BODY_CAP = 4096  # {beanName, confirm}
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -412,6 +414,25 @@ def _exception_store(ctx: SharpitContext) -> ExceptionStore:
     return store
 
 
+def _alembic_action_handler(ctx: SharpitContext, action: Any) -> Any:
+    async def alembic_action(request: Request) -> Response:
+        raw = await _read_capped(request, _ALEMBIC_BODY_CAP)
+        if raw is None:
+            return error(413, _PAYLOAD_TOO_LARGE)
+        body = _probe_request_body(raw)
+        if isinstance(body, Response):
+            return body
+        if isinstance(body.get("beanName"), list | dict):  # Jackson cannot read a String from these
+            return error(400, "beanName must be a string")
+        try:  # the runner is read off the module per request: the one seam tests replace
+            status, result = await run_in_threadpool(action, ctx, body, alembic_cli.run_alembic)
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+        return json_response(result, status)
+
+    return alembic_action
+
+
 def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
@@ -425,6 +446,9 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
+    alembic_migrate = _alembic_action_handler(ctx, alembic.migrate)
+    alembic_clean = _alembic_action_handler(ctx, alembic.clean)
+
     def health(_request: Request) -> Response:
         return json_response(health_service(ctx).report())
 
@@ -437,6 +461,8 @@ def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
     return [
         Route(f"{api}/alembic/migrations", alembic_migrations, methods=["GET"]),
         Route(f"{api}/alembic/refresh", alembic_refresh, methods=["POST"]),
+        Route(f"{api}/alembic/migrate", alembic_migrate, methods=["POST"]),
+        Route(f"{api}/alembic/clean", alembic_clean, methods=["POST"]),
         Route(f"{api}/health", health, methods=["GET"]),
         Route(f"{api}/health/check", health_check, methods=["POST"]),
     ]
@@ -524,8 +550,21 @@ def _rest_api_routes(ctx: SharpitContext) -> list[BaseRoute]:
             return json_response({"error": exc.message}, exc.status)
         return json_response(page)
 
+    def rest_api_error_contract(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_int_param(params.get("offset"), "offset") or 0
+            limit = parse_int_param(params.get("limit"), "limit")
+        except BadRequest as exc:
+            return json_response({"error": str(exc)}, 400)
+        introspector = cast(Any, ctx.introspector)
+        index = tools.rest_api_source_index(ctx)
+        model = getattr(introspector, "api_model")()  # noqa: B009 - the adapter model is duck-typed
+        return json_response(error_contract_report(model, index, params.get("q"), offset, limit))
+
     return [
         Route(f"{api}/rest-api", rest_api, methods=["GET"]),
+        Route(f"{api}/rest-api/error-contract", rest_api_error_contract, methods=["GET"]),
         Route(f"{api}/rest-api/scan", rest_api_scan, methods=["POST"]),
         Route(f"{api}/rest-api/rules/{{rule_id}}/violations", rest_api_violations, methods=["GET"]),
     ]
@@ -641,11 +680,15 @@ def _panel_04_routes(ctx: SharpitContext, host_app: Any = None) -> list[BaseRout
 
 
 def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
+    low_footprint = import_module("sharpit.fastapi.routes.lowfootprint").build_routes
+    config_overrides = import_module("sharpit.fastapi.routes.config_overrides").build_routes
     return [
         *_root_routes(ctx),
         *_read_routes(ctx),
         *_http_exchange_routes(ctx),
         *_http_probe_routes(ctx, host_app),
+        *low_footprint(ctx),
+        *config_overrides(ctx),
         *_activity_routes(ctx),
         *_exception_routes(ctx),
         *_exception_status_routes(ctx),

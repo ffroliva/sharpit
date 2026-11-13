@@ -13,14 +13,23 @@ import secrets
 import threading
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from functools import lru_cache
 from typing import Any, cast
 
+from sharpit.engine import otel
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST
+from sharpit.engine.capture.exceptions import class_name
+from sharpit.engine.capture.journal import REENTRANT, JournalSink
+from sharpit.engine.capture.lockfree import LockFreeHandler
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, log_statement
 
 LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
+MAX_TEMPLATE = 500  # LogPayload.MAX_TEMPLATE_LENGTH
+TEMPLATE_MARGIN = 4_096  # masked past the cut, as the SQL recorder does: a secret across the cut is read whole
+TEMPLATE_CACHE = 256  # masked templates kept (a call site's template, not an f-string's text)
 _FAILED = "sharpit log capture failed (%s); log capture continues"
 
 
@@ -34,6 +43,9 @@ class LogTailBuffer:
         self._bytes = 0
         self._seq = 0
         self._lock = threading.Lock()
+        self._held = (
+            threading.local()
+        )  # set while this thread holds ``_lock``: a finalizer's line is dropped, not waited on
         self.boot_nonce = secrets.token_hex(8)  # per process start: an SSE id from another process replays all
         self.stream = LineStream(self.after)
 
@@ -42,15 +54,33 @@ class LogTailBuffer:
     # needs a retry on the deque's RuntimeError.
     def append(self, line: dict[str, Any]) -> int:
         size = len((line.get("message") or "").encode()) + len((line.get("thread") or "").encode())
-        with self._lock:
-            self._seq += 1
-            seq = self._seq
-            self._lines.append((seq, line, size))
-            self._bytes += size
-            while len(self._lines) > self._max_lines or (self._bytes > self._max_bytes and len(self._lines) > 1):
-                self._bytes -= self._lines.popleft()[2]
+        held = self._held
+        if getattr(held, "on", False):  # a GC finalizer logging on the thread that holds the lock
+            return 0
+        held.on = True  # up before the lock is taken and down after it is released: no gap for a finalizer to wait in
+        try:
+            with self._lock:
+                self._seq += 1
+                seq = self._seq
+                self._lines.append((seq, line, size))
+                self._bytes += size
+                while len(self._lines) > self._max_lines or (self._bytes > self._max_bytes and len(self._lines) > 1):
+                    self._bytes -= self._lines.popleft()[2]
+        finally:
+            held.on = False
         self.stream.signal()
         return seq
+
+    def clear(self) -> None:
+        held = self._held
+        held.on = True  # same order as ``append``
+        try:
+            with self._lock:
+                self._lines.clear()
+                self._bytes = 0
+        finally:
+            held.on = False
+        self.stream.signal()
 
     def recent(self) -> list[dict[str, Any]]:
         """Oldest first (BootUI ``recent()``)."""
@@ -87,6 +117,14 @@ def _own(name: str) -> bool:
 
 def _is_classified_exc(value: object) -> bool:
     return issubclass(type(value), BaseException) and is_database_exception(cast(BaseException, value))
+
+
+def _exception_class(record: logging.LogRecord) -> str | None:
+    info = record.exc_info
+    if not isinstance(info, tuple):
+        return None
+    cls = type(info[1]) if isinstance(info[1], BaseException) else info[0]
+    return class_name(cls) if isinstance(cls, type) else None
 
 
 def _substitute_arg(value: object, masker: Masker, dialect: Dialect) -> object:
@@ -140,7 +178,7 @@ def _record_message(record: logging.LogRecord, masker: Masker, dialect: Dialect)
         return record.msg if type(record.msg) is str else type(record.msg).__name__
 
 
-class SharpitLogHandler(logging.Handler):
+class SharpitLogHandler(LockFreeHandler):
     """Level ``NOTSET``: it sees what the app's logger levels let through and changes no level (spec §7.5)."""
 
     def __init__(
@@ -154,8 +192,12 @@ class SharpitLogHandler(logging.Handler):
         self.log_tail = log_tail
         self.application = application
         self.on_exc_info: Callable[[logging.LogRecord], None] | None = None  # Exceptions (Task 4)
+        self.journal: JournalSink | None = None  # set by the wiring: the runtime journal, when it is on
+        self.context_id: str | None = None  # the installed context a request's id must belong to to be offered
         self._local = threading.local()
         self._failed = False
+        self._fail_lock = threading.Lock()  # taken only on the failure path: one warning with no handler lock
+        self.template_cache = lru_cache(maxsize=TEMPLATE_CACHE)(self._cached_template)
 
     def handleError(self, record: logging.LogRecord) -> None:
         """A bad record never prints a traceback from sharpit."""
@@ -163,12 +205,15 @@ class SharpitLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         local = self._local
         if getattr(local, "busy", False):  # a record raised while this thread is already in emit()
+            if getattr(local, "offering", False) and not _own(record.name):
+                self._offer_journal(record)  # raised while this thread builds or offers an event: counted, not built
             return
         local.busy = True
         try:
             self._forward_to_last_resort(record)
             if _own(record.name):
                 return
+            self._offer_journal(record)
             if record.exc_info and self.on_exc_info is not None:
                 self.on_exc_info(record)
             if self.log_tail is not None:
@@ -187,14 +232,9 @@ class SharpitLogHandler(logging.Handler):
         # and a row's repr is no statement: read as one on SQLite its escaped quote closes early and a value shows
         if engine_log and not self.masker.capture_parameters and (_is_parameter_line(record) or record.args):
             return None
-        family = self.application()
-        dialect = Dialect.UNSUPPORTED if family is None else family
+        dialect = self._dialect()
         message = _record_message(record, self.masker, dialect)
-        # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
-        shown = message[: 4 * MAX_MESSAGE]
-        # capture on shows a known dialect's raw text, but never one sharpit cannot read (owner, item 7)
-        statement = engine_log and (not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED)
-        masked = log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
+        masked = self._masked(engine_log, message, dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {
@@ -205,6 +245,84 @@ class SharpitLogHandler(logging.Handler):
             "thread": record.threadName,
             "messageOmitted": masked is None,  # METADATA_ONLY withheld it: distinguishable from an empty message
         }
+
+    def _dialect(self) -> Dialect:
+        family = self.application()
+        return Dialect.UNSUPPORTED if family is None else family
+
+    def _masked(self, engine_log: bool, message: str, dialect: Dialect, limit: int = 4 * MAX_MESSAGE) -> str | None:
+        # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
+        shown = message[:limit]
+        # capture on shows a known dialect's raw text, but never one sharpit cannot read (owner, item 7)
+        statement = engine_log and (not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED)
+        return log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
+
+    def _offer_journal(self, record: logging.LogRecord) -> None:
+        """BootUI ``RuntimeJournalLogAppender.append``: a WARN-or-above record becomes one ``log`` event. Built here,
+        inside the guard and only when the journal accepts ``log``, so a failing build or offer never reaches the
+        host's call. A record raised while this thread already builds or offers one is counted, never built."""
+        journal = self.journal
+        if journal is None or record.levelno < logging.WARNING or INTERNAL.get():
+            return
+        local = self._local
+        if getattr(local, "offering", False):
+            journal.count_dropped(REENTRANT)
+        elif not journal.accepts("log"):
+            journal.count_dropped("log")  # no masking, no event: the journal would refuse it
+        else:
+            local.offering = True
+            try:
+                with contextlib.suppress(Exception):  # publishing never disturbs the application's logging
+                    event = self._journal_event(record)
+                    # the event is flat scalars it never touches again: no deep copy
+                    offer = getattr(journal, "offer_flat", journal.offer)
+                    offer(event)
+            finally:
+                local.offering = False
+
+    def _journal_event(self, record: logging.LogRecord) -> dict[str, str | int | bool | None]:
+        """BootUI's ``log`` event (``LogPayload`` and its envelope): the unformatted ``msg`` (a template, never
+        ``getMessage()`` or an argument; an object gives its class name), masked, cut at ``MAX_TEMPLATE``. An
+        f-string or a concatenated ``str(exc)`` IS ``msg``: shown at MASKED (masked) and FULL,
+        withheld at METADATA_ONLY."""
+        msg = record.msg
+        text = msg if type(msg) is str else type(msg).__name__
+        engine_log, dialect, masker = record.name.startswith("sqlalchemy.engine"), self._dialect(), self.masker
+        if record.args:  # a call site's template, not an f-string's text: the same masked result every time
+            # keyed on the head masking reads, never the whole text: a megabyte template is not kept alive
+            template = self.template_cache(
+                text[: MAX_TEMPLATE + TEMPLATE_MARGIN],
+                engine_log,
+                dialect,
+                (masker.identity_key, masker.capture_parameters),
+            )
+        else:
+            template = self._template(text, engine_log, dialect)
+        request = REQUEST.get()
+        owned = request is not None and request.context_id == self.context_id  # another install's request is not ours
+        return {
+            "source": "log",
+            "epochMillis": int(record.created * 1000),
+            "durationNanos": -1,
+            "traceId": otel.current_trace_id(),
+            "thread": record.threadName,
+            "requestId": request.id if request is not None and owned else None,
+            "failedOrSlow": record.levelno >= logging.ERROR,
+            "logger": record.name,
+            "level": "ERROR" if record.levelno >= logging.ERROR else "WARN",
+            "template": template,
+            "exceptionClass": _exception_class(record),
+        }
+
+    def _template(self, text: str, engine_log: bool, dialect: Dialect) -> str | None:
+        masked = self._masked(engine_log, text, dialect, MAX_TEMPLATE + TEMPLATE_MARGIN)
+        return None if masked is None else masked[:MAX_TEMPLATE]
+
+    def _cached_template(self, text: str, engine_log: bool, dialect: Dialect, masker_state: object) -> str | None:
+        del (
+            masker_state
+        )  # part of the cache key only: what the masker hides changes when its key or capture setting does
+        return self._template(text, engine_log, dialect)
 
     def _forward_to_last_resort(self, record: logging.LogRecord) -> None:
         """With a handler on root, ``callHandlers`` no longer falls back to ``lastResort``: do it here (spec §6.1).
@@ -231,9 +349,10 @@ class SharpitLogHandler(logging.Handler):
 
     def _fail(self, exc: Exception) -> None:
         """One warning, straight to ``lastResort`` (no traceback, never back into this handler)."""
-        if self._failed:
-            return
-        self._failed = True
+        with self._fail_lock:
+            if self._failed:
+                return
+            self._failed = True
         last = logging.lastResort
         if last is not None:
             warning = logging.makeLogRecord(

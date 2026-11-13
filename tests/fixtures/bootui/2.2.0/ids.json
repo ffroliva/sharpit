@@ -29,5 +29,22 @@
   "architecture": "architecture",
   "hibernate-statistics": "sqlalchemy-statistics",
   "spring-security": "fastapi-security",
-  "spring": "fastapi"
+  "spring": "fastapi",
+  "copilot": "copilot",
+  "claude-code": "claude-code",
+  "github": "github",
+  "ai": "ai",
+  "java-agent": "java-agent",
+  "code-inventory": "code-inventory",
+  "code-paths": "code-paths",
+  "side-effects": "side-effects",
+  "runtime-insights": "runtime-insights",
+  "metrics": "metrics",
+  "startup": "startup",
+  "profile-diff": "profile-diff",
+  "scheduled": "scheduled",
+  "live-memory": "live-memory",
+  "cache": "cache",
+  "dev-services": "dev-services",
+  "email": "email"
 }

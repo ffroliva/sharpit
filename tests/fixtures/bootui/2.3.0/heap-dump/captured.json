@@ -1,0 +1,19 @@
+{
+  "hotspotAvailable": true,
+  "captureEnabled": true,
+  "rawDownloadEnabled": false,
+  "outputDirectory": "/path",
+  "maxDumps": 5,
+  "dumpCount": 0,
+  "liveHeapUsedBytes": 72504056,
+  "freeDiskBytes": 19554484224,
+  "capture": {
+    "status": "NOT_CAPTURED",
+    "message": null,
+    "capturedAtEpochMs": null
+  },
+  "dumps": [],
+  "histogramTotalInstances": 0,
+  "histogramTotalBytes": 0,
+  "topClasses": []
+}

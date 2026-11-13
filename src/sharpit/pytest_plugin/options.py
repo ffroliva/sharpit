@@ -16,6 +16,7 @@ def pytest_addoption(parser: Any) -> None:
     )
     group.addoption("--sharpit-report", default=None, metavar="PATH", help="JSON report path")
     group.addoption("--sharpit-junit", default=None, metavar="PATH", help="JUnit findings path")
+    group.addoption("--sharpit-sarif", default=None, metavar="PATH", help="SARIF 2.1.0 findings path")
     group.addoption(
         "--sharpit-max-queries", type=int, default=None, metavar="N", help="default call-phase query budget"
     )
@@ -55,6 +56,7 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit", "Enable sharpit test capture", type="bool", default=False)
     parser.addini("sharpit_report", "Sharpit JSON report path", default="sharpit-report.json")
     parser.addini("sharpit_junit", "Sharpit JUnit report path", default="")
+    parser.addini("sharpit_sarif", "Sharpit SARIF 2.1.0 report path", default="")
     # plain strings: ini type="int"/"float" are absent in pytest 8.2, and options.resolve converts them
     parser.addini("sharpit_max_queries", "Default sharpit per-test query budget", default="")
     parser.addini("sharpit_fail_on", "Minimum advisor severity that fails", default="HIGH")
@@ -84,6 +86,7 @@ class PluginOptions:
     report_only: bool = False
     baseline: Path | None = None
     write_baseline: Path | None = None
+    sarif: Path | None = None
 
 
 def _value(config: Any, option: Any, name: str, default: Any) -> Any:
@@ -117,6 +120,7 @@ def resolve(config: Any) -> PluginOptions:
     if not 0 <= unattributed <= 100:
         raise ValueError("--sharpit-max-unattributed must be between 0 and 100")
     junit = _value(config, option, "junit", None)
+    sarif = _value(config, option, "sarif", None)
     return PluginOptions(
         bool(_value(config, option, "enabled", False)),
         Path(_value(config, option, "report", "sharpit-report.json")),
@@ -133,4 +137,5 @@ def resolve(config: Any) -> PluginOptions:
         bool(_value(config, option, "report_only", False)),
         Path(_value(config, option, "baseline", "")) if _value(config, option, "baseline", "") else None,
         Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
+        Path(sarif) if sarif else None,
     )

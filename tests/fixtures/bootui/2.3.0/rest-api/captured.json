@@ -1,0 +1,44 @@
+{
+  "localOnly": true,
+  "disclaimer": "Heuristic, project-agnostic REST API design rules run against the host application's own controllers only. These checks complement, but do not replace, an API design review or contract testing. Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.",
+  "basePackages": [
+    "com.ffroliva.tinyledger"
+  ],
+  "controllersAnalyzed": 0,
+  "handlersAnalyzed": 0,
+  "rulesEvaluated": 0,
+  "violationsFound": 0,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "analyzer": "BootUI REST API Advisor",
+    "status": "NOT_SCANNED",
+    "message": "REST API rules have not run yet. Run REST API checks in the panel, or call rest_api_scan (bootui rest-api scan), to analyse the application controllers.",
+    "scannedAt": null,
+    "rulesEvaluated": 0,
+    "controllersAnalyzed": 0,
+    "handlersAnalyzed": 0,
+    "violationsFound": 0
+  },
+  "results": [],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  },
+  "violationDetails": {
+    "scanId": null,
+    "total": 0,
+    "retained": 0,
+    "retentionLimit": 0,
+    "truncated": false,
+    "locationNotes": [],
+    "changes": null
+  }
+}

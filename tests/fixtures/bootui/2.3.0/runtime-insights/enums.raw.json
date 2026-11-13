@@ -1,0 +1,31 @@
+{
+  "$.checks[].status": [
+    "EVALUATED",
+    "INSUFFICIENT",
+    "NOT_APPLICABLE",
+    "UNAVAILABLE"
+  ],
+  "$.observations[].status": [
+    "INSUFFICIENT"
+  ],
+  "$.observations[].minimumTier": [
+    "REQUEST_ID"
+  ],
+  "$.status": [
+    "NOT_FOUND",
+    "NO_PREVIOUS_RUN"
+  ],
+  "$.current.source": [
+    "CURRENT"
+  ],
+  "$.restartCost.status": [
+    "UNAVAILABLE"
+  ],
+  "$.symbols[].kind": [
+    "BEAN",
+    "ROUTE"
+  ],
+  "$.state": [
+    "IDLE"
+  ]
+}

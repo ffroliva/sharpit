@@ -3,27 +3,61 @@
 [![CI](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml)
 [![Release](https://github.com/ffroliva/sharpit/actions/workflows/release.yml/badge.svg)](https://github.com/ffroliva/sharpit/actions/workflows/release.yml)
 [![PyPI version](https://img.shields.io/pypi/v/sharpit.svg)](https://pypi.org/project/sharpit/)
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=main)
-
-[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=reliability_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
-[![Security](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=security_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
-[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=sqale_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
-[![Duplication](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=duplicated_lines_density&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=duplicated_lines_density&branch=main)
-
 [![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://github.com/ffroliva/sharpit/blob/main/pyproject.toml)
 [![Licence: Apache-2.0](https://img.shields.io/github/license/ffroliva/sharpit)](https://github.com/ffroliva/sharpit/blob/main/LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type checked: pyright](https://img.shields.io/badge/type%20checked-pyright-blue.svg)](https://github.com/microsoft/pyright)
 
-A local developer console and pytest gate for FastAPI apps.
+**See inside your running FastAPI app.** One call mounts a developer console at `/sharpit`: your configuration and
+where each value came from, every route, every SQL statement with the request that ran it, exceptions, HTTP exchanges
+and health. It is a Python port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0), the
+Spring Boot developer console: the same design goals, JSON contract and test cases, with a new UI.
+
+```bash
+pip install "sharpit[fastapi]"      # or: uv add "sharpit[fastapi]"
+```
+
+```python
+from fastapi import FastAPI
+import sharpit
+
+app = FastAPI()
+
+# Register your application middleware first, then mount sharpit:
+sharpit.install(app)  # mounts /sharpit and /sharpit/api
+```
+
+```bash
+fastapi dev app.py          # or: uvicorn app:app --reload; then open http://127.0.0.1:8000/sharpit/
+```
+
+![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/overview-light.png)
+
+**What you get:** 46 panels. Change a logger's level while the app runs, spot N+1 queries per route, and scan your
+installed packages for known vulnerabilities when you ask for it. Every panel in light and dark:
+[screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
+
+**Safe to leave in your dev setup:**
+
+- Off unless a dev signal turns it on (`fastapi dev`, `uvicorn --reload`, or a dev profile). Otherwise every path under
+  `/sharpit` answers 404.
+- Loopback callers only. A forwarding header never grants trust, and remote access needs a token.
+- Secret-looking names and values are masked by default. Showing them takes an explicit switch
+  (`SHARPIT_EXPOSE_VALUES=FULL`, or SQL parameter capture), and sharpit warns at startup when one is on.
+- Reading a panel makes no network call, writes no file and changes no logger level.
+
+**Then gate CI on it:** `pytest --sharpit` fails a test that goes over its query budget, triggers an N+1 query or
+swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
+run fails closed.
+
+> **Status: alpha (0.6.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Gate CI on findings
 
-sharpit turns runtime capture into automated test gates with `pytest --sharpit`. It tracks SQL
+`pytest --sharpit` turns runtime capture into test gates. It tracks SQL
 statements and observable exceptions per test, detects N+1 queries, checks query budgets, and runs
-static analysis advisors. If a test exceeds its query budget, triggers an N+1 query, or swallows an
+the REST API advisor over your app's routes. If a test exceeds its query budget, triggers an N+1 query, or swallows an
 unhandled exception, the build fails. When capture cannot see enough to judge, the run status is
 `unknown` and fails closed.
 
@@ -31,10 +65,10 @@ unhandled exception, the build fails. When capture cannot see enough to judge, t
 pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-junit.xml
 ```
 
-You no longer need `--sharpit-app` for a typical suite: sharpit picks the one FastAPI or Starlette app defined in the
-project modules your tests already imported (it never imports a module to look). With none, several, or one without
-routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that `unknown`
-again, as in 0.3.0. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
+sharpit finds your app on its own: the one FastAPI or Starlette app defined in the modules your tests already imported.
+It never imports a module to look. Pass `--sharpit-app module:attr` when there are several. With none, several, or one
+without routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that
+`unknown`. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
 lists every one. The JSON report and JUnit file always hold every finding.
 
 ### Adopting on an existing suite
@@ -57,6 +91,8 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
   `--lf`, `--deselect`, `-x` stopping early, an interrupt) and a run with any unknown reason.
 - A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
   reason, which fails the run. Own the baseline file in CODEOWNERS, or a PR can baseline its own findings.
+
+See [The safety gate](docs/pytest-safety-gate.md) for exit-status behavior and the baseline workflow.
 
 ### GitHub Action
 
@@ -83,56 +119,7 @@ are split in non-POSIX mode so backslashes in paths survive.
 Run by sharpit's author on the 0.3.0 integration branch against gflow-cli (a public FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-01-gflow-cli-sharpit.md)), sharpit ran across **5,662** tests (5 failed by sharpit gates):
 - **0 unattributed SQL statements** across ~53k statements executed (27,997 attributed + 25,092 filtered);
 - **6 N+1 findings**, of which 1 was a real defect, 2 were noise (filtered since 0.3.0), and 3 were expected polling;
-- Showed out-of-code runtime observation without changing production code.
-
-## 60 seconds
-
-Install sharpit with the FastAPI host extra:
-
-```bash
-pip install "sharpit[fastapi]"
-# or
-uv add "sharpit[fastapi]"
-```
-
-Add one call to your FastAPI app:
-
-```python
-from fastapi import FastAPI
-import sharpit
-
-app = FastAPI()
-
-# Register your application middleware first, then mount sharpit:
-sharpit.install(app)  # mounts /sharpit and /sharpit/api
-```
-
-Run tests with sharpit gate reporting:
-
-```bash
-pytest --sharpit --sharpit-report=sharpit-report.json
-```
-
-Run it locally with a dev signal and open <http://127.0.0.1:8000/sharpit/>:
-
-```bash
-fastapi dev app.py          # or: uvicorn app:app --reload
-```
-
-## Overview
-
-One call mounts a web console at `/sharpit` and a JSON API at `/sharpit/api` inside your own app,
-so a running service shows its configuration and where each value came from, every route, the dependency providers, loggers you can retune live, and a vulnerability
-scan of the installed packages.
-
-sharpit is a Python/FastAPI port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0),
-the Spring Boot developer console. It ports BootUI's design goals, JSON contract and test cases; the UI is new.
-
-![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/overview-light.png)
-
-Every panel in light and dark: [screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
-
-> **Status: alpha (0.5.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+- No production code was changed to get these numbers.
 
 ## Installation and extras
 
@@ -197,3 +184,13 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 
 Apache License 2.0. See [LICENSE](https://github.com/ffroliva/sharpit/blob/main/LICENSE) and [NOTICE](https://github.com/ffroliva/sharpit/blob/main/NOTICE). sharpit is derived from
 [BootUI](https://github.com/jdubois/boot-ui), Copyright Julien Dubois.
+
+## Code quality
+
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=main)
+
+[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=reliability_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Security](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=security_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=sqale_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Duplication](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=duplicated_lines_density&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=duplicated_lines_density&branch=main)

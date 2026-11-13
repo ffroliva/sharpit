@@ -78,11 +78,13 @@ ROWS = [
     ("pools", "GET", "/sharpit/api/database-connection-pools/pools", 200, True),
     ("pool-snapshot", "GET", "/sharpit/api/database-connection-pools/pools/nope/snapshot", 404, True),  # unknown name
     ("threads", "GET", "/sharpit/api/threads", 200, True),
+    ("live-memory-footprint", "GET", "/sharpit/api/live-memory/footprint", 200, True),
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
     ("rest-api", "GET", "/sharpit/api/rest-api", 200, True),
     ("rest-api-violations", "GET", "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", 400, True),  # no scanId
+    ("rest-api-error-contract", "GET", "/sharpit/api/rest-api/error-contract", 200, True),
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
     ("dismissed-findings", "GET", "/sharpit/api/dismissed-findings", 200, True),
@@ -289,6 +291,8 @@ def test_ungated_paths_ignore_panel_flags():
 
 # (panel, method, path, body): every state-changing panel route (test_write_route_table_is_complete keeps it whole)
 WRITES = [
+    ("config", "POST", "/sharpit/api/config/overrides", {"name": "MATRIX_KEY", "value": "x"}),
+    ("config", "DELETE", "/sharpit/api/config/overrides/sharpit.matrix", None),
     ("loggers", "POST", "/sharpit/api/loggers/sharpit.matrix", {"level": "DEBUG"}),
     ("vulnerabilities", "POST", "/sharpit/api/vulnerabilities/scan", None),
     ("mcp-server", "POST", "/sharpit/api/mcp-server/toggle", {"enabled": True}),
@@ -297,9 +301,12 @@ WRITES = [
     ("sql-trace", "POST", "/sharpit/api/sql-trace/clear", None),
     ("sql-trace", "POST", "/sharpit/api/sql-trace/recording", {"enabled": False}),
     ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
+    ("alembic", "POST", "/sharpit/api/alembic/migrate", {"confirm": True}),
+    ("alembic", "POST", "/sharpit/api/alembic/clean", {"confirm": True}),
     ("health", "POST", "/sharpit/api/health/check", None),
     ("rest-api", "POST", "/sharpit/api/rest-api/scan", None),
     ("http-probe", "POST", "/sharpit/api/http-probe", {"method": "GET", "path": "/owners"}),
+    ("live-memory", "POST", "/sharpit/api/live-memory/footprint", {"enabled": True}),
 ]
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
@@ -673,13 +680,22 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
 
 
 ADVISOR_VIOLATIONS = re.compile(r"/sharpit/api/[^/]+/rules/[^/]+/violations")
+METRICS_DETAIL = "/sharpit/api/metrics/detail"
 NO_SCAN_ID = {"error": "Advisor scan ID must not be blank."}  # contract: the 400 of a violations read without scanId
+SIDE_EFFECTS_SENSOR = "/sharpit/api/side-effects/sensor"  # SideEffectsService.sensor: no sensor named, 400 (W6 floor)
+NO_METRIC_NAME = {
+    "error": "Metric name must not be blank"
+}  # BootUI MetricsControllerTests.missingDetailNameIsMappedToCanonicalBadRequest
 
 
 def _get_problem(path: str, resp: httpx.Response) -> str | None:
     """Why a swept GET's answer is wrong, or None."""
     if ADVISOR_VIOLATIONS.fullmatch(path):  # any advisor's violations route needs a scanId: without one, 400, no scan
         ok = resp.status_code == 400 and resp.json() == NO_SCAN_ID
+    elif path == SIDE_EFFECTS_SENSOR:
+        ok = resp.status_code == 400 and resp.json()["error"].startswith("Unknown Side Effects sensor 'null'")
+    elif path == METRICS_DETAIL:  # BootUI requires a nonblank name; this error is returned before registry access
+        ok = resp.status_code == 400 and resp.json() == NO_METRIC_NAME
     else:
         ok = resp.status_code in (200, 307, 404)
     return None if ok else f"{path}: {resp.status_code} {resp.text}"
@@ -799,3 +815,15 @@ def test_400_off_a_violations_route_fails_the_sweep() -> None:
     resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
 
     assert _get_problem("/sharpit/api/architecture/rules/ARCH-001", resp) is not None
+
+
+def test_metrics_detail_missing_name_accepts_only_the_contract_400() -> None:
+    resp = httpx.Response(400, json={"error": "Metric name must not be blank"})
+
+    assert _get_problem(METRICS_DETAIL, resp) is None
+
+
+def test_metrics_detail_400_for_another_reason_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Metric name is invalid"})
+
+    assert _get_problem(METRICS_DETAIL, resp) is not None

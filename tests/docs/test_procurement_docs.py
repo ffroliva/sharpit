@@ -44,31 +44,22 @@ def test_readme_install_uses_current_pypi_version_and_valid_extra() -> None:
     assert current_version in readme_text, f"README.md must state the current version '{current_version}'"
 
 
-def test_readme_gate_and_gflow_proof_precede_details() -> None:
+def test_readme_console_leads_then_gate_and_exact_gflow_proof() -> None:
+    """Owner, 2026-11-13: the README leads with the console and the one-call install; the CI gate and the gflow-cli
+    proof follow it (this reverses the 2026-11-02 order, which put the gate first)."""
     readme_path = ROOT / "README.md"
     assert readme_path.is_file(), "README.md must exist"
     readme_text = readme_path.read_text(encoding="utf-8")
 
-    gate_match = re.search(r"pytest\s+--sharpit", readme_text)
-    assert gate_match is not None, "README.md must mention CI gate with pytest --sharpit"
-    gate_pos = gate_match.start()
-
-    proof_match = re.search(r"gflow-cli", readme_text, re.IGNORECASE)
-    assert proof_match is not None, "README.md must cite the gflow-cli proof"
-    proof_pos = proof_match.start()
-
-    quickstart_match = re.search(r"60 seconds|Quickstart", readme_text, re.IGNORECASE)
-    assert quickstart_match is not None, "README.md must include a 60-seconds quickstart section"
-    quickstart_pos = quickstart_match.start()
-
-    assert gate_pos < quickstart_pos, "CI gate command must precede the 60-seconds quickstart section"
-    assert proof_pos < quickstart_pos, "gflow-cli proof must precede the 60-seconds quickstart section"
-
-    quickstart_section = readme_text[quickstart_pos:]
-    assert "sharpit.install" in quickstart_section, (
-        "60-seconds section must show minimal sharpit.install(app) integration"
+    install_pos = readme_text.find("sharpit.install(app)")
+    assert install_pos != -1, "README.md must show the one-call sharpit.install(app) integration"
+    gate_heading = readme_text.find("## Gate CI on findings")
+    assert gate_heading != -1, "README.md must have a 'Gate CI on findings' section"
+    assert install_pos < gate_heading, "the one-call install must lead; the CI gate section follows it"
+    assert re.search(r"pytest\s+--sharpit --sharpit-report", readme_text[gate_heading:]), (
+        "the gate section must show the command that emits the report"
     )
-    assert "pytest --sharpit" in quickstart_section, "60-seconds section must show command that emits the report"
+    assert re.search(r"gflow-cli", readme_text[gate_heading:], re.IGNORECASE), "the gate section must cite gflow-cli"
 
     assert "5,662" in readme_text or "5662" in readme_text, "gflow-cli proof must mention test count (5,662)"
     assert "N+1" in readme_text, "gflow-cli proof must mention findings (N+1 queries caught)"
@@ -76,8 +67,8 @@ def test_readme_gate_and_gflow_proof_precede_details() -> None:
     proof_header = "### On the author's own project: gflow-cli"
     proof_start = readme_text.find(proof_header)
     assert proof_start != -1, "README.md must contain the author's gflow-cli proof"
-    proof_end = readme_text.find("## 60 seconds", proof_start)
-    assert proof_end != -1, "README.md must contain '## 60 seconds' after gflow proof"
+    proof_end = readme_text.find("\n## ", proof_start + len(proof_header))
+    assert proof_end != -1, "README.md must have a section after the gflow proof"
     proof_section = readme_text[proof_start:proof_end]
 
     assert "independent" not in proof_section.lower(), (

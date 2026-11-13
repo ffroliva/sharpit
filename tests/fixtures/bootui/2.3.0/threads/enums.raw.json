@@ -1,0 +1,15 @@
+{
+  "$.stateCounts[].state": [
+    "RUNNABLE",
+    "TIMED_WAITING",
+    "WAITING"
+  ],
+  "$.threads[].state": [
+    "RUNNABLE",
+    "TIMED_WAITING",
+    "WAITING"
+  ],
+  "$.quality.threadKinds[]": [
+    "PLATFORM"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "scanningEnabled": true,
+  "total": 65,
+  "vulnerable": 0,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "scanner": "OSV.dev",
+    "status": "NOT_SCANNED",
+    "message": "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
+    "scannedAt": null,
+    "packagesScanned": 0,
+    "packagesSkipped": 0,
+    "vulnerabilitiesFound": 0
+  },
+  "coverage": {
+    "status": "INCOMPLETE",
+    "archivesFound": 152,
+    "archivesIdentified": 60,
+    "archivesUnidentified": 92,
+    "unidentifiedArchives": [
+      "annotations-17.0.0.jar",
+      "aopalliance-1.0.jar",
+      "archunit-1.5.1.jar"
+    ],
+    "unidentifiedArchivesTruncated": false,
+    "archivesFirstParty": 0,
+    "firstPartyArchives": [],
+    "firstPartyArchivesTruncated": false
+  },
+  "dependencies": [
+    {
+      "groupId": "at.yawk.lz4",
+      "artifactId": "lz4-java",
+      "version": "1.12.1",
+      "packageName": "at.yawk.lz4:lz4-java",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      },
+      "runtimeReach": null
+    }
+  ],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  },
+  "runtimeReach": {
+    "available": false,
+    "unavailableReason": "Requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+    "generation": null,
+    "note": null,
+    "incompleteReason": null
+  }
+}

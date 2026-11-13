@@ -12,6 +12,7 @@ from typing import Any, Final, cast
 
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.capture import CaptureState
+from sharpit.engine.collectors.startup import StartupTimeline
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import AppIntrospector
@@ -34,6 +35,7 @@ class SharpitContext:
     single_flight: SingleFlight = field(default_factory=SingleFlight)
     installed_at: float = field(default_factory=time.monotonic)
     startup_time_ms: int | None = None
+    startup: StartupTimeline = field(init=False)
     engines: tuple[object, ...] = ()  # install(engines=...): seeds the engine registry (Task 5)
     health_checks: Mapping[str, Callable[[], object]] = field(default_factory=dict[str, Callable[[], object]])
     models: tuple[object, ...] = ()  # install(models=...): never inspected here; A-data reads it
@@ -50,6 +52,7 @@ class SharpitContext:
     _locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        self.startup = StartupTimeline(self.settings.startup_capacity if self.settings.startup_enabled else 0)
         self.masker = Masker(
             self.settings.expose_values,
             self.settings.mask_secrets,

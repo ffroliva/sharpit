@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 
 from sharpit.engine.masking import Exposure
-from sharpit.settings import PanelSettings, SharpitSettings, load_settings
+from sharpit.settings import _NEVER_ECHOED, PanelSettings, SharpitSettings, load_settings
+from sharpit.settings_registry import JOURNAL_SOURCES
 
 
 def test_defaults():
@@ -31,6 +32,31 @@ def test_defaults():
 
 def test_gateway_trust_default_off():
     assert load_settings({}, {}).trust_container_gateway == "OFF"
+
+
+def test_github_setting_defaults_and_parsers():
+    defaults = SharpitSettings()
+    assert getattr(defaults, "github_api_enabled", None) is True
+    assert getattr(defaults, "github_request_timeout", None) == 5.0
+    assert getattr(defaults, "github_max_pull_requests", None) == 10
+    assert getattr(defaults, "github_max_issues", None) == 25
+    assert getattr(defaults, "github_max_security_alerts", None) == 50
+    assert getattr(defaults, "github_max_workflow_runs", None) == 20
+    assert getattr(defaults, "github_quota_safety_threshold", None) == 10
+    assert getattr(defaults, "github_max_api_calls", None) == 17
+    assert getattr(defaults, "github_allowed_api_hosts", None) == ("api.github.com",)
+
+    loaded = load_settings(
+        {},
+        {
+            "SHARPIT_GITHUB_API_ENABLED": "false",
+            "SHARPIT_GITHUB_REQUEST_TIMEOUT": "2500ms",
+            "SHARPIT_GITHUB_ALLOWED_API_HOSTS": "API.GITHUB.COM, GHE.EXAMPLE.COM",
+        },
+    )
+    assert getattr(loaded, "github_api_enabled", None) is False
+    assert getattr(loaded, "github_request_timeout", None) == 2.5
+    assert getattr(loaded, "github_allowed_api_hosts", None) == ("api.github.com", "ghe.example.com")
 
 
 def test_env_overrides_kwargs():
@@ -169,6 +195,17 @@ def test_expose_metadata_only_no_warning():
     assert s.warnings == ()
 
 
+def test_session_dirs_isolated_in_tests():
+    import os
+    import tempfile
+    from pathlib import Path
+
+    for name in ("SHARPIT_COPILOT_SESSION_STATE_DIR", "SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR"):
+        path = Path(os.environ.get(name, ""))
+        assert path.is_relative_to(tempfile.gettempdir())
+        assert not path.exists() or not list(path.iterdir())
+
+
 def test_path_must_start_with_slash():
     with pytest.raises(ValueError, match="path"):
         load_settings({"path": "sharpit"}, {})
@@ -236,6 +273,8 @@ PROPERTIES = {
     "bootui.expose-values": ("expose_values", "METADATA_ONLY"),
     "bootui.mask-secrets": ("mask_secrets", "false"),
     "bootui.show-banner": ("show_banner", "false"),
+    "bootui.free-on-idle.enabled": ("free_on_idle_enabled", "false"),
+    "bootui.free-on-idle.timeout": ("free_on_idle_timeout", "45s"),
     "bootui.state-dir": ("state_dir", ".x"),
     "bootui.config-scan": ("config_scan", "false"),
     "bootui.vulnerabilities.osv-enabled": ("vulnerabilities_osv_enabled", "false"),
@@ -281,6 +320,17 @@ PROPERTIES = {
     "bootui.threads.max-stack-frames": ("threads_max_stack_frames", "33"),
     "bootui.advisors.max-retained-violations": ("advisors_max_retained_violations", "34"),
     "bootui.stream.max-seconds": ("stream_max_seconds", "35s"),
+    "bootui.ai.token-series-minutes": ("ai_token_series_minutes", "24"),
+    "bootui.ai.max-recent-chats": ("ai_max_recent_chats", "12"),
+    "bootui.ai.show-content-capture-banner": ("ai_show_content_capture_banner", "false"),
+    "bootui.runtime-journal.enabled": ("runtime_journal_enabled", "false"),
+    "bootui.runtime-journal.max-events": ("runtime_journal_max_events", "38"),
+    "bootui.runtime-journal.max-bytes": ("runtime_journal_max_bytes", "39KB"),
+    "bootui.runtime-journal.queue-capacity": ("runtime_journal_queue_capacity", "40"),
+    "bootui.runtime-journal.sources": ("runtime_journal_sources", "SQL,http"),
+    "bootui.agent.sensors": ("agent_sensors", "Processes,files"),  # W6 S3
+    "bootui.runtime-insights.ai-token-threshold": ("runtime_insights_ai_token_threshold", "9000"),
+    "bootui.resources.jfr.max-duration": ("resources_jfr_max_duration", "45s"),
     # 0.4.0 fields pre-created by lane F
     "bootui.activity.unbounded-read-factor": ("activity_unbounded_read_factor", "36"),
     "bootui.security-logs.max-logs": ("security_logs_max_logs", "37"),
@@ -310,7 +360,43 @@ PROPERTIES = {
     "bootui.database-advisor.max-vendor-rows": ("database_advisor_max_vendor_rows", "47"),
     "bootui.architecture.max-files": ("architecture_max_files", "47"),
     "bootui.architecture.max-file-bytes": ("architecture_max_file_bytes", "47"),
+    "bootui.startup.enabled": ("startup_enabled", "false"),
+    "bootui.startup.capacity": ("startup_capacity", "17"),
+    "bootui.github.api-enabled": ("github_api_enabled", "false"),
+    "bootui.github.request-timeout": ("github_request_timeout", "33s"),
+    "bootui.github.max-pull-requests": ("github_max_pull_requests", "11"),
+    "bootui.github.max-issues": ("github_max_issues", "26"),
+    "bootui.github.max-security-alerts": ("github_max_security_alerts", "51"),
+    "bootui.github.max-workflow-runs": ("github_max_workflow_runs", "21"),
+    "bootui.github.quota-safety-threshold": ("github_quota_safety_threshold", "11"),
+    "bootui.github.max-api-calls": ("github_max_api_calls", "18"),
+    "bootui.github.allowed-api-hosts": ("github_allowed_api_hosts", "GHE.EXAMPLE.COM,API.GITHUB.COM"),
     "bootui.app-package": ("app_package", "myapp"),
+    # 0.6.0 agent-sessions (Copilot)
+    "bootui.copilot.enabled": ("copilot_enabled", "OFF"),
+    "bootui.copilot.session-state-dir": ("copilot_session_state_dir", "/custom/copilot"),
+    "bootui.copilot.max-events-per-session": ("copilot_max_events_per_session", "500"),
+    "bootui.copilot.max-sessions": ("copilot_max_sessions", "50"),
+    "bootui.copilot.max-parsed-sessions": ("copilot_max_parsed_sessions", "50"),
+    "bootui.copilot.stream-debounce": ("copilot_stream_debounce", "0.5s"),
+    "bootui.copilot.allow-raw-reveal": ("copilot_allow_raw_reveal", "true"),
+    # 0.6.0 agent-sessions (Claude Code)
+    "bootui.claude-code.enabled": ("claude_code_enabled", "OFF"),
+    "bootui.claude-code.session-state-dir": ("claude_code_session_state_dir", "/custom/claude"),
+    "bootui.claude-code.max-events-per-session": ("claude_code_max_events_per_session", "500"),
+    "bootui.claude-code.max-sessions": ("claude_code_max_sessions", "50"),
+    "bootui.claude-code.max-parsed-sessions": ("claude_code_max_parsed_sessions", "50"),
+    "bootui.claude-code.stream-debounce": ("claude_code_stream_debounce", "0.5s"),
+    "bootui.claude-code.allow-raw-reveal": ("claude_code_allow_raw_reveal", "true"),
+    # 0.6.0 W8 A0: the action gates (P:118,357,1009); alembic clean-enabled is sharpit-only (Q9, P-M2)
+    "bootui.overrides-file": ("overrides_file", "/custom/overrides.env"),
+    "bootui.alembic.clean-enabled": ("alembic_clean_enabled", "true"),
+    "bootui.dev-services.restart-enabled": ("dev_services_restart_enabled", "true"),
+    "bootui.cache.clear-enabled": ("cache_clear_enabled", "true"),
+    "bootui.email.max-entries": ("email_max_entries", "7"),
+    "bootui.email.dev-trap": ("email_dev_trap", "true"),
+    "bootui.email.mask-content": ("email_mask_content", "true"),
+    "bootui.email.max-body-length": ("email_max_body_length", "4096"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {
@@ -348,6 +434,41 @@ def test_new_settings_defaults():
     assert s.warnings == ()
 
 
+def test_w7_ai_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "ai_token_series_minutes", None) == 60
+    assert getattr(s, "ai_max_recent_chats", None) == 100
+    assert getattr(s, "ai_show_content_capture_banner", None) is True
+
+
+def test_w7_ai_settings_env_values():
+    s = load_settings(
+        {},
+        {
+            "SHARPIT_AI_TOKEN_SERIES_MINUTES": "24",
+            "SHARPIT_AI_MAX_RECENT_CHATS": "12",
+            "SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER": "false",
+        },
+    )
+    assert getattr(s, "ai_token_series_minutes", None) == 24
+    assert getattr(s, "ai_max_recent_chats", None) == 12
+    assert getattr(s, "ai_show_content_capture_banner", None) is False
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("ai_token_series_minutes", "SHARPIT_AI_TOKEN_SERIES_MINUTES", "many", 60),
+        ("ai_max_recent_chats", "SHARPIT_AI_MAX_RECENT_CHATS", "many", 100),
+        ("ai_show_content_capture_banner", "SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER", "maybe", True),
+    ],
+)
+def test_w7_ai_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
 def test_new_settings_env_names():
     # every spec §12 env var is in the env-name table, so test_env_name_table checks its spelling and parsing
     covered = {field for field, _ in PROPERTIES.values()}
@@ -380,6 +501,12 @@ NEW_FAIL_SAFE: list[tuple[str, str, str, Any]] = [
     ("threads_max_stack_frames", "SHARPIT_THREADS_MAX_STACK_FRAMES", "x", 64),
     ("advisors_max_retained_violations", "SHARPIT_ADVISORS_MAX_RETAINED_VIOLATIONS", "x", 10000),
     ("stream_max_seconds", "SHARPIT_STREAM_MAX_SECONDS", "forever", 3.0),
+    ("runtime_journal_enabled", "SHARPIT_RUNTIME_JOURNAL_ENABLED", "maybe", False),
+    ("runtime_journal_max_events", "SHARPIT_RUNTIME_JOURNAL_MAX_EVENTS", "0", 50_000),
+    ("runtime_journal_max_bytes", "SHARPIT_RUNTIME_JOURNAL_MAX_BYTES", "lots", 32 * 1024 * 1024),
+    ("runtime_journal_queue_capacity", "SHARPIT_RUNTIME_JOURNAL_QUEUE_CAPACITY", "-1", 10_000),
+    ("runtime_journal_sources", "SHARPIT_RUNTIME_JOURNAL_SOURCES", "sql,nope", JOURNAL_SOURCES),
+    ("agent_sensors", "SHARPIT_AGENT_SENSORS", "files,nope", ()),  # W6 S3: an unknown id turns every sensor off
 ]
 
 
@@ -520,3 +647,342 @@ def test_explicit_empty_list_kwarg_clears_the_default(empty: tuple[str, ...] | l
     # code review #14: only a blank env/string value falls back; an explicit empty sequence means "none"
     s = load_settings({"enabled_profiles": empty, "profile_vars": empty}, {})
     assert (s.enabled_profiles, s.profile_vars) == ((), ())
+
+
+def test_settings_split_preserves_flat_kwargs_env_precedence_and_failsafe():
+    import importlib.util
+
+    assert importlib.util.find_spec("sharpit.settings_registry") is not None, (
+        "settings families need an aggregated registry"
+    )
+
+    from sharpit.settings import _SPECS
+    from sharpit.settings_registry import SPECS as registry_specs
+
+    registered = set(registry_specs)
+    fields = {f.name for f in dataclasses.fields(SharpitSettings)}
+    assert registry_specs is _SPECS
+    assert registered == set(_SPECS)
+    assert fields - registered == {"panels", "warnings", "path", "api_path"}
+
+    settings = load_settings(
+        {"vulnerabilities_max_packages": 3, "mysql_max_sessions": 15, "authentication_token": "kw-token"},
+        {
+            "SHARPIT_VULNERABILITIES_MAX_PACKAGES": "7",
+            "SHARPIT_MYSQL_MAX_SESSIONS": "0",
+            "SHARPIT_AUTHENTICATION_TOKEN": "env-token",
+        },
+    )
+    assert settings.vulnerabilities_max_packages == 7
+    assert settings.mysql_max_sessions == 100
+    assert settings.authentication_token == "env-token"
+    assert "vulnerabilities_max_packages" in registered
+
+
+@pytest.mark.parametrize(
+    "field",
+    sorted(_NEVER_ECHOED),
+)
+def test_invalid_sensitive_settings_never_echo_for_any_family(field: str):
+    class Canary:
+        def __str__(self) -> str:
+            return "sensitive-warning-canary"
+
+    raw = Canary()
+    assert field in _NEVER_ECHOED
+    settings = load_settings({field: raw}, {})
+    assert settings.warnings
+    assert all(str(raw) not in warning for warning in settings.warnings)
+
+
+def test_credential_like_settings_are_registered_as_never_echoed():
+    import sharpit.settings_registry as registry
+
+    classify = getattr(registry, "unclassified_settings_fields", lambda _: {"classifier is missing"})
+
+    assert not classify(SharpitSettings)
+
+
+def test_new_unclassified_settings_field_is_reported():
+    import sharpit.settings_registry as registry
+
+    classify = getattr(
+        registry, "unclassified_settings_fields", lambda settings: {f.name for f in dataclasses.fields(settings)}
+    )
+    extended = dataclasses.make_dataclass(
+        "ExtendedSettings", [("future_secret", str, None)], bases=(SharpitSettings,), frozen=True
+    )
+
+    assert classify(extended) == {"future_secret"}
+
+
+def test_invalid_settings_warning_order_matches_pre_split_registry():
+    from sharpit.settings import _SPECS
+
+    settings = load_settings({}, {f"SHARPIT_{name.upper()}": "zz-bad" for name in _SPECS})
+    expected = [
+        "ENABLED",
+        "ALLOW_NON_LOCALHOST",
+        "TRUST_CONTAINER_GATEWAY",
+        "IDENTITY_KEY",
+        "READ_ONLY",
+        "EXPOSE_VALUES",
+        "MASK_SECRETS",
+        "SHOW_BANNER",
+        "FREE_ON_IDLE_ENABLED",
+        "FREE_ON_IDLE_TIMEOUT",
+        "VULNERABILITIES_OSV_ENABLED",
+        "VULNERABILITIES_REQUEST_TIMEOUT",
+        "VULNERABILITIES_MAX_PACKAGES",
+        "VULNERABILITIES_MAX_ADVISORIES",
+        "VULNERABILITIES_OSV_BASE_URI",
+        "VULNERABILITIES_EPSS_ENABLED",
+        "VULNERABILITIES_EPSS_BASE_URI",
+        "MCP_ENABLED",
+        "MCP_MAX_RESULTS",
+        "MCP_MAX_PAYLOAD_BYTES",
+        "MCP_MAX_CONCURRENT_CALLS",
+        "MCP_EXECUTION_TIMEOUT",
+        "MCP_MAX_RESPONSE_BYTES",
+        "CLI_ENABLED",
+        "CLI_MAX_RESULTS",
+        "CLI_MAX_CONCURRENT_CALLS",
+        "CLI_EXECUTION_TIMEOUT",
+        "HTTP_EXCHANGES_MAX_EXCHANGES",
+        "EXCEPTIONS_MAX_GROUPS",
+        "EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP",
+        "EXCEPTIONS_MAX_STACK_FRAMES",
+        "SQL_TRACE_ENABLED",
+        "SQL_TRACE_SQLITE3_ENABLED",
+        "SQL_TRACE_RECORDING",
+        "SQL_TRACE_CAPTURE_PARAMETERS",
+        "SQL_TRACE_CAPTURE_CALL_SITE",
+        "SQL_TRACE_MAX_ENTRIES",
+        "SQL_TRACE_SLOW_QUERY_THRESHOLD_MILLIS",
+        "SQL_TRACE_MAX_SQL_LENGTH",
+        "SQL_TRACE_MAX_PARAMETER_LENGTH",
+        "SQL_TRACE_N_PLUS_ONE_THRESHOLD",
+        "ACTIVITY_MAX_ENTRIES",
+        "ACTIVITY_REQUEST_SLOW_THRESHOLD_MS",
+        "ACTIVITY_N_PLUS_ONE_THRESHOLD",
+        "ACTIVITY_UNBOUNDED_READ_FACTOR",
+        "LOG_TAIL_MAX_LINES",
+        "LOG_TAIL_MAX_BYTES",
+        "ALEMBIC_TIMEOUT",
+        "HEALTH_TIMEOUT",
+        "THREADS_MAX_STACK_FRAMES",
+        "ADVISORS_MAX_RETAINED_VIOLATIONS",
+        "STREAM_MAX_SECONDS",
+        "AI_TOKEN_SERIES_MINUTES",
+        "AI_MAX_RECENT_CHATS",
+        "AI_SHOW_CONTENT_CAPTURE_BANNER",
+        "RUNTIME_JOURNAL_ENABLED",
+        "RUNTIME_JOURNAL_MAX_EVENTS",
+        "RUNTIME_JOURNAL_MAX_BYTES",
+        "RUNTIME_JOURNAL_QUEUE_CAPACITY",
+        "RUNTIME_JOURNAL_SOURCES",
+        "AGENT_SENSORS",
+        "RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD",
+        "RESOURCES_JFR_MAX_DURATION",
+        "SECURITY_LOGS_MAX_LOGS",
+        "POSTGRESQL_MAX_SESSIONS",
+        "POSTGRESQL_MAX_STATEMENTS",
+        "POSTGRESQL_MAX_INDEXES",
+        "POSTGRESQL_MAX_TABLES",
+        "POSTGRESQL_MAX_VACUUM_TABLES",
+        "POSTGRESQL_MAX_REPLICAS",
+        "POSTGRESQL_MAX_SETTINGS",
+        "TRANSACTIONS_ENABLED",
+        "TRANSACTIONS_RECORDING",
+        "TRANSACTIONS_MAX_ENTRIES",
+        "TRANSACTIONS_SLOW_TRANSACTION_THRESHOLD_MILLIS",
+        "TRANSACTIONS_CONNECTION_HOLD_THRESHOLD_MILLIS",
+        "MYSQL_MAX_SESSIONS",
+        "MYSQL_MAX_STATEMENTS",
+        "MYSQL_MAX_INDEXES",
+        "MYSQL_MAX_TABLES",
+        "MYSQL_MAX_LOCK_WAITS",
+        "MYSQL_MAX_REPLICATION_CHANNELS",
+        "MYSQL_MAX_SETTINGS",
+        "DATABASE_ADVISOR_MAX_TABLES",
+        "DATABASE_ADVISOR_MAX_COLUMNS",
+        "DATABASE_ADVISOR_MAX_INDEXES_PER_TABLE",
+        "DATABASE_ADVISOR_MAX_VENDOR_ROWS",
+        "ARCHITECTURE_MAX_FILES",
+        "ARCHITECTURE_MAX_FILE_BYTES",
+        "STARTUP_ENABLED",
+        "STARTUP_CAPACITY",
+        "GITHUB_API_ENABLED",
+        "GITHUB_REQUEST_TIMEOUT",
+        "GITHUB_MAX_PULL_REQUESTS",
+        "GITHUB_MAX_ISSUES",
+        "GITHUB_MAX_SECURITY_ALERTS",
+        "GITHUB_MAX_WORKFLOW_RUNS",
+        "GITHUB_QUOTA_SAFETY_THRESHOLD",
+        "GITHUB_MAX_API_CALLS",
+        "APP_PACKAGE",
+        "COPILOT_ENABLED",
+        "COPILOT_MAX_EVENTS_PER_SESSION",
+        "COPILOT_MAX_SESSIONS",
+        "COPILOT_MAX_PARSED_SESSIONS",
+        "COPILOT_STREAM_DEBOUNCE",
+        "COPILOT_ALLOW_RAW_REVEAL",
+        "CLAUDE_CODE_ENABLED",
+        "CLAUDE_CODE_MAX_EVENTS_PER_SESSION",
+        "CLAUDE_CODE_MAX_SESSIONS",
+        "CLAUDE_CODE_MAX_PARSED_SESSIONS",
+        "CLAUDE_CODE_STREAM_DEBOUNCE",
+        "CLAUDE_CODE_ALLOW_RAW_REVEAL",
+        "ALEMBIC_CLEAN_ENABLED",
+        "DEV_SERVICES_RESTART_ENABLED",
+        "CACHE_CLEAR_ENABLED",
+        "EMAIL_MAX_ENTRIES",
+        "EMAIL_DEV_TRAP",
+        "EMAIL_MASK_CONTENT",
+        "EMAIL_MAX_BODY_LENGTH",
+    ]
+    observed = [
+        warning.removeprefix("Ignoring invalid SHARPIT_").split(" value")[0]
+        for warning in settings.warnings
+        if warning.startswith("Ignoring invalid")
+    ]
+    assert observed == expected
+
+
+# The runtime-journal byte-size grammar (BootUI DataSize plus the K/M/G short units): digits, then an optional unit,
+# any case, with surrounding blanks. The table pins it so a rewrite of the parser cannot change what it accepts.
+BYTE_SIZES_ACCEPTED = [
+    ("1", 1),
+    (" 2 ", 2),
+    ("5B", 5),
+    ("5b", 5),
+    ("3K", 3 * 1024),
+    ("3kb", 3 * 1024),
+    ("39KB", 39 * 1024),
+    ("7M", 7 * 1024**2),
+    ("2MB", 2 * 1024**2),
+    ("2 mb", 2 * 1024**2),
+    ("4G", 4 * 1024**3),
+    ("4gb", 4 * 1024**3),
+    ("\t8 KB\n", 8 * 1024),
+    ("0010MB", 10 * 1024**2),
+]
+BYTE_SIZES_REJECTED = ["0", "0MB", "-1", "+1", "1.5MB", "1TB", "1 M B", "1MBB", "MB", "abc", "1e3", "1_000", "1KiB"]
+
+
+@pytest.mark.parametrize(("raw", "expected"), BYTE_SIZES_ACCEPTED)
+def test_runtime_journal_max_bytes_accepts(raw: str, expected: int) -> None:
+    s = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_MAX_BYTES": raw})
+    assert s.runtime_journal_max_bytes == expected
+    assert s.warnings == ()
+
+
+@pytest.mark.parametrize("raw", BYTE_SIZES_REJECTED)
+def test_runtime_journal_max_bytes_rejects(raw: str) -> None:
+    s = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_MAX_BYTES": raw})
+    assert s.runtime_journal_max_bytes == 32 * 1024 * 1024
+    assert f"Ignoring invalid SHARPIT_RUNTIME_JOURNAL_MAX_BYTES value '{raw}'" in s.warnings
+
+
+def test_runtime_journal_max_bytes_kwarg_int_and_bool() -> None:
+    assert load_settings({"runtime_journal_max_bytes": 4096}, {}).runtime_journal_max_bytes == 4096
+    rejected = load_settings({"runtime_journal_max_bytes": True}, {})
+    assert rejected.runtime_journal_max_bytes == 32 * 1024 * 1024
+
+
+# --- W8 A0: the write-action settings ----------------------------------------------------------------------------
+
+W8_GATES = {"alembic_clean_enabled": False, "dev_services_restart_enabled": False, "cache_clear_enabled": False}
+
+
+def test_w8_action_settings_defaults():
+    s = load_settings({}, {})
+    assert {name: getattr(s, name, None) for name in W8_GATES} == W8_GATES
+    assert getattr(s, "overrides_file", None) == ".sharpit/overrides.env"
+    assert s.warnings == ()
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_overrides_file_blank_falls_back_to_the_state_dir(blank: str):
+    s = load_settings({"state_dir": "/srv/app-state"}, {"SHARPIT_OVERRIDES_FILE": blank})
+    assert getattr(s, "overrides_file", None) == "/srv/app-state/overrides.env"
+    assert s.warnings == ()
+
+
+def test_overrides_file_env_wins_over_the_state_dir_default():
+    s = load_settings({"state_dir": "/srv/app-state"}, {"SHARPIT_OVERRIDES_FILE": "/x/o.env"})
+    assert getattr(s, "overrides_file", None) == "/x/o.env"
+
+
+@pytest.mark.parametrize("field", sorted(W8_GATES))
+def test_w8_action_gates_invalid_value_fails_closed_and_warns(field: str):
+    env = f"SHARPIT_{field.upper()}"
+    s = load_settings({}, {env: "maybe"})
+    assert getattr(s, field, None) is False
+    assert f"Ignoring invalid {env} value 'maybe'" in s.warnings
+
+
+# W5c I0: bootui.runtime-insights.ai-token-threshold (positive, AiUsageByRoute.java:55-60) and
+# bootui.resources.jfr.max-duration (1s..10m, ResourceSettings.java:18-35); BootUI fails startup, sharpit fails safe.
+def test_runtime_insights_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "runtime_insights_ai_token_threshold", None) == 8000
+    assert getattr(s, "resources_jfr_max_duration", None) == 30.0
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "1", 1),
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "9000", 9000),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "1s", 1.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "45s", 45.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "600", 600.0),
+    ],
+)
+def test_runtime_insights_settings_env_values(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert s.warnings == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "0", 8000),
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "-1", 8000),
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "many", 8000),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "999ms", 30.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "601s", 30.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "soon", 30.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "10m", 30.0),
+    ],
+)
+def test_runtime_insights_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
+# W7 E: BootUI P:3286-3320 (email.*); a non-positive or unparsable value takes the field's default and warns
+def test_w7_email_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "email_max_entries", None) == 100
+    assert getattr(s, "email_dev_trap", None) is False
+    assert getattr(s, "email_mask_content", None) is False
+    assert getattr(s, "email_max_body_length", None) == 200_000
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("email_max_entries", "SHARPIT_EMAIL_MAX_ENTRIES", "0", 100),
+        ("email_max_body_length", "SHARPIT_EMAIL_MAX_BODY_LENGTH", "many", 200_000),
+        ("email_dev_trap", "SHARPIT_EMAIL_DEV_TRAP", "maybe", False),
+        ("email_mask_content", "SHARPIT_EMAIL_MASK_CONTENT", "maybe", False),
+    ],
+)
+def test_w7_email_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings

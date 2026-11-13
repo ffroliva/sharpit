@@ -62,10 +62,17 @@ test = [
     "hypothesis>=6.100",  # the property tests of the SQL output architecture
     "testcontainers>=4.8",  # the live profile (tests/live): the generic DockerContainer, so no sqlalchemy extras
     "opentelemetry-sdk>=1.26",  # A12 resolver rows use the real ReadableSpan shape
+    "prometheus-client>=0.20",  # observed libraries, tests only, like opentelemetry-sdk
+    "apscheduler>=3.10.2,<4",  # 3.10.0-3.10.1 import pkg_resources (no setuptools on --resolution lowest-direct)
+    "aiosmtplib>=4.0",  # the real package for the late-import test (3.x lacks what the trap protocol answers); tests only
 ]
 
 [dependency-groups]
 dev = ["ruff>=0.6", "pyright>=1.1.380", "pydantic-settings>=2.4"]
+full-extras = [
+    "asyncpg>=0.30",
+    "aiomysql>=0.2",
+]
 
 [tool.hatch.version]
 path = "src/sharpit/__init__.py"
@@ -125,7 +132,9 @@ pythonVersion = "3.12"
 testpaths = ["tests"]
 pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
+junit_logging = "no"
 markers = [
+    "bootui: tracker row key this test is evidence for",
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
     "live: runs against a real database server (tests/live, collected only with --live)",
 ]

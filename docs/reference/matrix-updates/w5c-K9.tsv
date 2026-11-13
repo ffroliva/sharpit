@@ -1,0 +1,2 @@
+kind:ai-usage-by-route	partial	Implemented over ai events joined to http requests by request or trace id (AiUsageByRoute.java:63-264); needs the http producer (W5a) to find a route, and joins without BootUI's time window
+kind:work-after-response	partial	Registered, not applicable: the agent.executors source has no producer (WorkAfterResponse.java:39-66 needs BootUI's executors sensor); evaluation not ported

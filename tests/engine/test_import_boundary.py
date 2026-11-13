@@ -3,7 +3,8 @@
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
 2. The engine never imports an adapter (``sharpit.fastapi``, ``sharpit.ui``): adapters depend on the engine only.
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
-   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector.
+   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
+   Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
 4. Gatekeepers: an optional dependency or a network client is imported by one named file only, so the rest of the
    package works without it (CI's ``no-sqlalchemy`` job) and nothing else can reach the network (safety model).
 5. Interpreter state (0.5.0 spec §4.4, §9): calls that change it (``tracemalloc.start``, ``gc.callbacks`` mutation,
@@ -15,6 +16,8 @@ from __future__ import annotations
 
 import ast
 import functools
+import os
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -31,11 +34,26 @@ GATEKEEPERS: dict[str, set[str]] = {
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
+    "dotenv": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
-    "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
-    "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
+    "prometheus_client": {"sharpit/engine/collectors/metrics/prometheus.py"},
+    "urllib.request": {
+        "sharpit/engine/collectors/vulns/osv.py",
+        "sharpit/engine/collectors/vulns/epss.py",
+        "sharpit/engine/collectors/github/client.py",
+    },
+    "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
+    "subprocess": {
+        "sharpit/engine/collectors/github/token.py",  # gh auth token, the GitHub refresh action only
+        "sharpit/engine/collectors/alembic_cli.py",  # python -m alembic, the Alembic migrate action only (W8 M1)
+    },
     "socket": set(),
     "ssl": set(),
+    "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
+    "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
+    "arq": {"sharpit/engine/collectors/scheduled/arq.py"},
+    "smtplib": {"sharpit/engine/capture/mail.py"},
+    "aiosmtplib": {"sharpit/engine/capture/mail.py"},
     "pytest": {"sharpit/pytest_plugin"},
     "_pytest": {"sharpit/pytest_plugin"},
 }
@@ -43,7 +61,16 @@ GATEKEEPERS: dict[str, set[str]] = {
 
 # a dotted call (or assignment target) that changes interpreter state; reads such as gc.get_objects() are not here
 _GC_CALLBACKS = ("append", "extend", "insert", "remove", "pop", "clear", "__setitem__", "__delitem__", "__iadd__")
-_MONITORING = ("use_tool_id", "free_tool_id", "clear_tool_id", "register_callback", "set_events", "set_local_events")
+_MONITORING = (
+    "use_tool_id",
+    "free_tool_id",
+    "clear_tool_id",
+    "register_callback",
+    "set_events",
+    "set_local_events",
+    "restart_events",
+)
+_PROCESS_STATE_PREFIXES = ("os.spawn", "os.exec")
 INTERPRETER_STATE_CALLS: frozenset[str] = frozenset(
     {
         "tracemalloc.start",
@@ -59,6 +86,8 @@ INTERPRETER_STATE_CALLS: frozenset[str] = frozenset(
         "gc.set_debug",
         "sys.settrace",
         "sys.setprofile",
+        "sys.addaudithook",
+        "os.system",
         "threading.settrace",
         "threading.setprofile",
         "threading.settrace_all_threads",
@@ -66,7 +95,16 @@ INTERPRETER_STATE_CALLS: frozenset[str] = frozenset(
         *(f"sys.monitoring.{m}" for m in _MONITORING),
     }
 )
+RUNTIME_STATE_MODULES = {"sharpit/engine/sensors"}
 SESSION_MODULES = {"sharpit/pytest_plugin", "sharpit/engine/testsession"}
+_STRICT_RUNTIME_STATE_CALLS = frozenset(
+    {
+        "sys.addaudithook",
+        "sys.monitoring",
+        *(f"sys.monitoring.{name}" for name in _MONITORING),
+        "os.system",
+    }
+)
 
 
 def _rel(path: Path) -> str:
@@ -159,7 +197,18 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
             other = _collector(name)
             if own and other and other != own:
                 found.append(f"{_rel(path)} imports {name}: collector {own!r} reaches into {other!r}")
+            elif (kind := _insight_kind(_module_name(path))) and (target := _insight_kind(name)) and target != kind:
+                found.append(f"{_rel(path)} imports {name}: insight kind {kind!r} reaches into {target!r}")
     return found
+
+
+def _insight_kind(module: str) -> str | None:
+    """The Runtime Insights kind a module is (``engine/collectors/insights/kinds/<kind>``): rule 3 inside insights."""
+    parts = module.split(".")
+    return parts[5] if parts[:5] == [*_INSIGHT_KINDS] and len(parts) > 5 else None
+
+
+_INSIGHT_KINDS = ("sharpit", "engine", "collectors", "insights", "kinds")
 
 
 def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
@@ -205,37 +254,114 @@ def _dotted(node: ast.expr, aliases: dict[str, str]) -> str | None:
     while isinstance(node, ast.Attribute):
         parts.append(node.attr)
         node = node.value
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+    ):
+        base = _dotted(node.args[0], aliases)
+        attr = node.args[1]
+        suffix = ".".join(reversed(parts))
+        return (
+            ".".join(filter(None, (base, attr.value, suffix)))
+            if base and isinstance(attr, ast.Constant) and isinstance(attr.value, str)
+            else None
+        )
     if not isinstance(node, ast.Name):
         return None
-    return ".".join([aliases.get(node.id, node.id), *reversed(parts)])
+    chain = [node.id, *reversed(parts)]
+    for index, part in enumerate(chain):
+        if part in aliases:
+            prefix = [] if index and chain[0] == "self" else chain[:index]
+            return ".".join([*prefix, aliases[part], *chain[index + 1 :]])
+    return ".".join(chain)
+
+
+def _getattr_state_change(node: ast.Call, aliases: dict[str, str]) -> str | None:
+    if not isinstance(node.func, ast.Name) or node.func.id != "getattr" or len(node.args) < 2:
+        return None
+    if not isinstance(node.args[1], ast.Constant) or not isinstance(node.args[1].value, str):
+        return None
+    if node.args[1].value in _MONITORING:
+        return f"sys.monitoring.{node.args[1].value}"
+    if node.args[1].value in ("monitoring", "addaudithook"):
+        return f"sys.{node.args[1].value}"
+    name = ".".join(filter(None, (_dotted(node.args[0], aliases), node.args[1].value)))
+    return name if name in INTERPRETER_STATE_CALLS or name == "sys.monitoring" else None
+
+
+def _state_target_changes(node: ast.AST, aliases: dict[str, str]) -> Iterator[tuple[int, str]]:
+    targets = (
+        list(node.targets)
+        if isinstance(node, ast.Assign | ast.Delete)
+        else [node.target]
+        if isinstance(node, ast.AugAssign)
+        else []
+    )
+    for target in targets:
+        dotted = _dotted(target.value if isinstance(target, ast.Subscript) else target, aliases)
+        if dotted in INTERPRETER_STATE_CALLS or (dotted and dotted.startswith(_PROCESS_STATE_PREFIXES)):
+            yield node.lineno, dotted
 
 
 def _state_changes(tree: ast.Module) -> Iterator[tuple[int, str]]:
     aliases = _aliases(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            targets: list[ast.expr] = [node.func]
-        elif isinstance(node, ast.Assign | ast.Delete):
-            targets = list(node.targets)
-        elif isinstance(node, ast.AugAssign):
-            targets = [node.target]
+            name = _getattr_state_change(node, aliases) or _dotted(node.func, aliases)
+            fetches_monitoring = name == "sys.monitoring"  # getattr(x, "monitoring") hands out the namespace
+            if (
+                fetches_monitoring
+                or name in INTERPRETER_STATE_CALLS
+                or (name and name.startswith(_PROCESS_STATE_PREFIXES))
+            ):
+                yield node.lineno, name
+        elif isinstance(node, ast.Attribute) and node.attr in (*_MONITORING, "addaudithook"):
+            name = _dotted(node, aliases)
+            yield (
+                node.lineno,
+                name
+                if name in INTERPRETER_STATE_CALLS
+                else ("sys.addaudithook" if node.attr == "addaudithook" else f"sys.monitoring.{node.attr}"),
+            )
         else:
-            continue
-        for target in targets:
-            base = target.value if isinstance(target, ast.Subscript) else target
-            dotted = _dotted(base, aliases)
-            if dotted in INTERPRETER_STATE_CALLS:
-                yield node.lineno, dotted
+            yield from _state_target_changes(node, aliases)
 
 
 def interpreter_state_violations(root: Path | None = None) -> list[str]:
-    """``<file>:<line> calls <name>`` for each interpreter-state change outside the test-session modules."""
-    return [
-        f"{_rel(path)}:{line} calls {name}"
-        for path in sorted((root or SRC / "sharpit").rglob("*.py"))
-        if not _gatekeeper_allows(_rel(path), SESSION_MODULES)
-        for line, name in sorted(_state_changes(ast.parse(path.read_text(encoding="utf-8"))))
-    ]
+    """Report state changes outside their session or runtime-state package allow-lists."""
+    found: list[str] = []
+    for path in sorted((root or SRC / "sharpit").rglob("*.py")):
+        rel = _rel(path)
+        for line, name in sorted(set(_state_changes(ast.parse(path.read_text(encoding="utf-8"))))):
+            allowed = (
+                RUNTIME_STATE_MODULES
+                if name in _STRICT_RUNTIME_STATE_CALLS or name.startswith(_PROCESS_STATE_PREFIXES)
+                else SESSION_MODULES
+            )
+            if not _gatekeeper_allows(rel, allowed):
+                found.append(f"{rel}:{line} calls {name}")
+    return found
+
+
+def package_name_violations(root: Path = ENGINE) -> list[str]:
+    """Engine imports of a ``sharpit`` package name other than ``__version__``: the others load the adapter lazily."""
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        package = _module_name(path) if path.name == "__init__.py" else _module_name(path).rpartition(".")[0]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import) and any(alias.name == "sharpit" for alias in node.names):
+                found.append(f"{_rel(path)} imports sharpit: the engine may import only __version__")
+            elif isinstance(node, ast.ImportFrom):
+                source = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                source = (f"{source}.{node.module}" if node.module else source) if node.level else node.module
+                found += [
+                    f"{_rel(path)} imports {alias.name} from sharpit: the engine may import only __version__"
+                    for alias in node.names
+                    if source == "sharpit" and alias.name != "__version__"
+                ]
+    return found
 
 
 def test_engine_modules_do_not_import_fastapi_or_starlette():
@@ -244,6 +370,25 @@ def test_engine_modules_do_not_import_fastapi_or_starlette():
 
 def test_engine_never_imports_an_adapter():
     assert adapter_violations() == []
+
+
+def test_the_engine_imports_only_the_version_from_the_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    live = package_name_violations()
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    engine = tmp_path / "src" / "sharpit" / "engine"
+    (engine / "collectors").mkdir(parents=True)
+    (engine / "mcp.py").write_text("from sharpit import __version__\n", encoding="utf-8")
+    (engine / "tools.py").write_text("from sharpit import __version__, install\nimport sharpit\n", encoding="utf-8")
+    (engine / "collectors" / "x.py").write_text("from ... import install\n", encoding="utf-8")
+
+    planted = package_name_violations(engine)
+
+    assert live == []
+    assert planted == [
+        "sharpit/engine/collectors/x.py imports install from sharpit: the engine may import only __version__",
+        "sharpit/engine/tools.py imports install from sharpit: the engine may import only __version__",
+        "sharpit/engine/tools.py imports sharpit: the engine may import only __version__",
+    ]
 
 
 def test_collectors_never_import_each_other():
@@ -287,6 +432,61 @@ def test_opentelemetry_import_is_confined_to_engine_otel(tmp_path: Path, monkeyp
     ]
 
 
+def test_subprocess_import_is_confined_to_github_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    github = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "github"
+    github.mkdir(parents=True)
+    (github / "token.py").write_text("import subprocess\n", encoding="utf-8")
+    (github / "dashboard.py").write_text("from subprocess import run\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/github/dashboard.py imports subprocess"
+    ]
+
+
+def test_subprocess_import_is_confined_to_the_alembic_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    collectors = tmp_path / "src" / "sharpit" / "engine" / "collectors"
+    collectors.mkdir(parents=True)
+    (collectors / "alembic_cli.py").write_text("import subprocess\n", encoding="utf-8")
+    (collectors / "alembic.py").write_text("from subprocess import Popen\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/alembic.py imports subprocess"
+    ]
+
+
+def test_github_network_imports_are_confined_to_github_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    github = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "github"
+    github.mkdir(parents=True)
+    (github / "client.py").write_text("import http.client\nimport urllib.request\n", encoding="utf-8")
+    (github / "dashboard.py").write_text("import urllib.request\n", encoding="utf-8")
+    (github / "token.py").write_text("from http import client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/github/dashboard.py imports urllib.request",
+        "sharpit/engine/collectors/github/token.py imports http.client",
+    ]
+
+
+def test_prometheus_client_import_is_confined_to_metrics_gatekeeper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "src"
+    engine = source / "sharpit" / "engine"
+    collectors = engine / "collectors" / "metrics"
+    collectors.mkdir(parents=True)
+    (collectors / "prometheus.py").write_text("import prometheus_client\n", encoding="utf-8")
+    (engine / "tools.py").write_text("import prometheus_client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    allowed = "only ['sharpit/engine/collectors/metrics/prometheus.py'] may import prometheus_client"
+    assert violations == [f"sharpit/engine/tools.py imports prometheus_client: {allowed}"]
+
+
 def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each rule fails on a planted import, so a green run means the boundaries hold, not that the scan saw nothing."""
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
@@ -298,6 +498,9 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     plant("collectors/loggers/__init__.py", "from ..health import health_report\n")
     plant("collectors/beans.py", "from sharpit.engine.collectors.mappings import x\n")
+    (engine / "collectors" / "insights" / "kinds").mkdir(parents=True)
+    plant("collectors/insights/kinds/slow_flush.py", "")
+    plant("collectors/insights/kinds/orm_auto_flush.py", "from . import slow_flush\n")
     plant("tools.py", "import starlette.requests\nfrom sharpit.fastapi.adapter import y\nimport urllib.request\n")
     (engine / "sqla").mkdir()
     plant("sqla/listeners.py", "import sqlalchemy.pool\n")
@@ -306,10 +509,38 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert adapter_violations(engine) == ["sharpit/engine/tools.py imports sharpit.fastapi.adapter"]
     assert [v.split(": ")[1] for v in collector_violations(engine / "collectors")] == [
         "collector 'beans' reaches into 'mappings'",
+        "insight kind 'orm_auto_flush' reaches into 'slow_flush'",
         "collector 'loggers' reaches into 'health'",
     ]
     assert [v.split(":")[0] for v in gatekeeper_violations(engine)] == [
         "sharpit/engine/tools.py imports urllib.request"
+    ]
+
+
+def test_insight_kind_may_not_import_another_kind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5c: one module per Runtime Insights kind. The registry and a kind may use the shared insights modules; a kind
+    never imports another kind, in any import form."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    insights = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "insights"
+    (insights / "kinds").mkdir(parents=True)
+    files = {
+        "__init__.py": "",
+        "snapshot.py": "",
+        "registry.py": "from .kinds import slow_flush, orm_auto_flush\n",
+        "kinds/__init__.py": "",
+        "kinds/slow_flush.py": "from ..snapshot import x\n",
+        "kinds/orm_auto_flush.py": "from sharpit.engine.collectors.insights.kinds.slow_flush import y\n",
+        "kinds/heap_growth_after_gc.py": "import sharpit.engine.collectors.insights.kinds.slow_flush\n",
+    }
+    for rel, code in files.items():
+        (insights / rel).write_text(code, encoding="utf-8")
+
+    assert collector_violations(insights.parent) == [
+        "sharpit/engine/collectors/insights/kinds/heap_growth_after_gc.py imports"
+        " sharpit.engine.collectors.insights.kinds.slow_flush: insight kind 'heap_growth_after_gc' reaches into"
+        " 'slow_flush'",
+        "sharpit/engine/collectors/insights/kinds/orm_auto_flush.py imports"
+        " sharpit.engine.collectors.insights.kinds.slow_flush: insight kind 'orm_auto_flush' reaches into 'slow_flush'",
     ]
 
 
@@ -337,7 +568,6 @@ def test_interpreter_state_call_sites_only_in_session_modules(tmp_path: Path, mo
         folder.mkdir(parents=True)
     (engine / "collectors" / "probe.py").write_text(STATE_PROBE, encoding="utf-8")
     (engine / "testsession" / "memory.py").write_text("import tracemalloc\ntracemalloc.start()\n", encoding="utf-8")
-    (plugin / "swallowed.py").write_text("import sys\nsys.monitoring.use_tool_id(3, 'sharpit')\n", encoding="utf-8")
 
     planted = interpreter_state_violations()
     monkeypatch.undo()
@@ -351,6 +581,169 @@ def test_interpreter_state_call_sites_only_in_session_modules(tmp_path: Path, mo
         "sharpit/engine/collectors/probe.py:10 calls sys.monitoring.use_tool_id",
     ]
     assert real == []
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("import sys\nsys.addaudithook(print)\n", "sys.addaudithook"),
+        ('import sys\nsys.monitoring.use_tool_id(1, "x")\n', "sys.monitoring.use_tool_id"),
+        ("import sys\nsys.monitoring.set_events(1, 0)\n", "sys.monitoring.set_events"),
+        ('import sys\nsys.monitoring.register_callback(1, "LINE", None)\n', "sys.monitoring.register_callback"),
+        ("import sys\nsys.monitoring.free_tool_id(1)\n", "sys.monitoring.free_tool_id"),
+        ("import sys\nsys.monitoring.restart_events()\n", "sys.monitoring.restart_events"),
+        ("import sys\nsys.monitoring.set_local_events(1, object, 0)\n", "sys.monitoring.set_local_events"),
+        ('import sys\ngetattr(sys, "addaudithook")(print)\n', "sys.addaudithook"),
+        ('import sys\ngetattr(sys.monitoring, "set_events")(1, 0)\n', "sys.monitoring.set_events"),
+        ('import os\nos.system("true")\n', "os.system"),
+        ('import os\nos.spawnv(0, "x", [])\n', "os.spawnv"),
+        ('import os\nos.execv("x", [])\n', "os.execv"),
+    ],
+)
+def test_runtime_state_calls_outside_sensors_are_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str, expected: str
+) -> None:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    engine = tmp_path / "src" / "sharpit" / "engine"
+    (engine / "rogue.py").parent.mkdir(parents=True)
+    (engine / "rogue.py").write_text(source, encoding="utf-8")
+
+    violations = interpreter_state_violations()
+
+    assert any("rogue.py" in violation and expected in violation for violation in violations)
+
+
+def test_runtime_state_calls_inside_sensors_are_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    sensors = tmp_path / "src" / "sharpit" / "engine" / "sensors"
+    sensors.mkdir(parents=True)
+    (sensors / "audit.py").write_text("import sys\nsys.addaudithook(print)\n", encoding="utf-8")
+
+    assert interpreter_state_violations() == []
+
+
+def test_swallowed_plugin_module_has_no_runtime_state_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # W6 S1 moved swallowed.py's sys.monitoring use behind engine/sensors: only the sensors package may call it now
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    plugin = tmp_path / "src" / "sharpit" / "pytest_plugin"
+    plugin.mkdir(parents=True)
+    (plugin / "swallowed.py").write_text("import sys\nsys.monitoring.use_tool_id(3, 'sharpit')\n", encoding="utf-8")
+
+    assert interpreter_state_violations() == ["sharpit/pytest_plugin/swallowed.py:2 calls sys.monitoring.use_tool_id"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sys\nclass Holder:\n    monitoring = sys.monitoring\n"
+        "    def change(self):\n        self.monitoring.set_events(1, 0)\n",
+        'import sys\nm = getattr(sys, "monitoring")\nm.set_events(1, 0)\n',
+        'import sys\ngetattr(sys, "monitoring").set_events(1, 0)\n',
+    ],
+)
+def test_runtime_state_attribute_shapes_are_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    rogue = tmp_path / "src" / "sharpit" / "engine" / "rogue.py"
+    rogue.parent.mkdir(parents=True)
+    rogue.write_text(source, encoding="utf-8")
+
+    assert any("rogue.py" in item and "sys.monitoring.set_events" in item for item in interpreter_state_violations())
+
+
+@pytest.mark.parametrize("name", ["monitoring", "addaudithook"])
+def test_runtime_state_getattr_names_are_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    rogue = tmp_path / "src" / "sharpit" / "engine" / "rogue.py"
+    rogue.parent.mkdir(parents=True)
+    rogue.write_text(f"value = getattr(holder, {name!r})\n", encoding="utf-8")
+
+    assert any(f"calls sys.{name}" in item for item in interpreter_state_violations())
+
+
+def test_strict_runtime_calls_are_rejected_outside_sensors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    for rel in ("sharpit/pytest_plugin/other.py", "sharpit/engine/testsession/other.py"):
+        path = tmp_path / "src" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("import sys\nsys.monitoring.use_tool_id(1, 'x')\n", encoding="utf-8")
+
+    assert len(interpreter_state_violations()) == 2
+
+
+def test_side_effect_guard_blocks_audit_hook_install(no_side_effects) -> None:
+    source = Path(__file__).resolve().parents[2] / "src" / "sharpit" / "probe.py"
+    code = compile("import sys\nsys.addaudithook()", str(source), "exec")
+    with pytest.raises(TypeError):  # the spy calls the original: a bad call installs nothing that outlives the test
+        exec(code)
+    with pytest.raises(AssertionError, match="sys.addaudithook"):
+        no_side_effects.verify()
+    no_side_effects.rebaseline()
+
+
+def test_side_effect_guard_blocks_monitoring_event_set(no_side_effects) -> None:
+    import sys
+
+    monitoring = sys.monitoring
+    tool = next(tool for tool in range(6) if monitoring.get_tool(tool) is None)
+    monitoring.use_tool_id(tool, "sharpit-test")
+    try:
+        source = Path(__file__).resolve().parents[2] / "src" / "sharpit" / "probe.py"
+        exec(compile(f"import sys\nsys.monitoring.set_events({tool}, 0)", str(source), "exec"))
+    finally:
+        monitoring.free_tool_id(tool)
+    with pytest.raises(AssertionError, match="sys.monitoring.set_events"):
+        no_side_effects.verify()
+    no_side_effects.rebaseline()
+
+
+@pytest.mark.parametrize(
+    "method, arguments", [("register_callback", "5, 'LINE', None"), ("restart_events", "5")]
+)  # coverage owns id 1
+def test_side_effect_guard_records_additional_monitoring_calls_after_network_unblock(
+    no_side_effects, method: str, arguments: str
+) -> None:
+    no_side_effects.unblock_network()
+    source = Path(__file__).resolve().parents[2] / "src" / "sharpit" / "probe.py"
+    code = compile(f"import sys\nsys.monitoring.{method}({arguments})", str(source), "exec")
+    with pytest.raises(TypeError):  # the spy calls the original: bad arguments change nothing
+        exec(code)
+
+    with pytest.raises(AssertionError, match=f"sys.monitoring.{method}"):
+        no_side_effects.verify()
+    no_side_effects.rebaseline()
+
+
+def test_sysmon_coverage_child_does_not_crash(no_side_effects) -> None:
+    """The subprocess test below runs this fixture while coverage owns a sys.monitoring tool id."""
+
+
+def test_side_effect_guard_is_compatible_with_sysmon_coverage(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["COVERAGE_CORE"] = "sysmon"
+    env["COVERAGE_FILE"] = str(tmp_path / ".coverage")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "2",
+            "--cov=src/sharpit",
+            "tests/engine/test_import_boundary.py::test_sysmon_coverage_child_does_not_crash",
+        ],
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_sqla_package_is_the_only_sqlalchemy_importer() -> None:
@@ -381,6 +774,41 @@ def test_planted_sqlalchemy_import_outside_package_fails(tmp_path: Path, monkeyp
     assert violations == [
         "sharpit/engine/models.py imports sqlalchemy.engine",
         "sharpit/engine/sqla_extra.py imports sqlalchemy.orm",
+    ]
+
+
+def test_scheduler_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5b lane C: APScheduler, Celery and arq each have one gatekeeper module under ``collectors/scheduled/``."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    scheduled = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "scheduled"
+    scheduled.mkdir(parents=True)
+    for lib in ("apscheduler", "arq", "celery"):
+        (scheduled / f"{lib}.py").write_text(f"import {lib}\n", encoding="utf-8")
+    (scheduled / "__init__.py").write_text(
+        "import apscheduler.job\nimport celery.schedules\nimport arq.cron\n", "utf-8"
+    )
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/collectors/scheduled/__init__.py imports apscheduler.job",
+        "sharpit/engine/collectors/scheduled/__init__.py imports celery.schedules",
+        "sharpit/engine/collectors/scheduled/__init__.py imports arq.cron",
+    ]
+
+
+def test_mail_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W7 lane E: smtplib and aiosmtplib are confined to engine/capture/mail.py."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    pkg = tmp_path / "src" / "sharpit" / "engine"
+    pkg.mkdir(parents=True)
+    (pkg / "leak.py").write_text("import smtplib\nimport aiosmtplib\n", encoding="utf-8")
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/leak.py imports smtplib",
+        "sharpit/engine/leak.py imports aiosmtplib",
     ]
 
 

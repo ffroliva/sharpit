@@ -1,0 +1,23 @@
+{
+  "$.availableLevels[]": [
+    "DEBUG",
+    "ERROR",
+    "INFO",
+    "OFF",
+    "TRACE",
+    "WARN"
+  ],
+  "$.loggers[].name": [
+    "ROOT"
+  ],
+  "$.loggers[].configuredLevel": [
+    "ERROR",
+    "INFO",
+    "WARN"
+  ],
+  "$.loggers[].effectiveLevel": [
+    "ERROR",
+    "INFO",
+    "WARN"
+  ]
+}

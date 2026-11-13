@@ -1,0 +1,12 @@
+{
+  "$.severityCounts[].severity": [
+    "CRITICAL",
+    "HIGH",
+    "INFO",
+    "LOW",
+    "MEDIUM"
+  ],
+  "$.scan.status": [
+    "NOT_SCANNED"
+  ]
+}

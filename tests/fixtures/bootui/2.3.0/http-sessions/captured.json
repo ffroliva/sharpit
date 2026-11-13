@@ -1,0 +1,11 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "totalSessions": 0,
+  "returnedSessions": 0,
+  "limit": 50,
+  "limited": false,
+  "actionEnabled": true,
+  "valueExposure": "MASKED",
+  "sessions": []
+}

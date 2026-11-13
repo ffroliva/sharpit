@@ -1,0 +1,13 @@
+{
+  "schedulingPresent": true,
+  "total": 2,
+  "tasks": [
+    {
+      "runnable": "org.springframework.modulith.moments.support.Moments.everyHour",
+      "triggerType": "CRON",
+      "expression": "0 0 * * * *",
+      "initialDelayMs": null,
+      "timeUnit": null
+    }
+  ]
+}

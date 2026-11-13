@@ -1,0 +1,11 @@
+{
+  "$.tools[].schema": [
+    "ID",
+    "LIMIT",
+    "NONE",
+    "OPTIONAL_ID",
+    "QUERY",
+    "QUERY_LIMIT",
+    "RULE_VIOLATIONS"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "available": true,
+  "entries": [
+    {
+      "id": "fbec83d9-97",
+      "type": "LOG",
+      "timestamp": 1700000000000,
+      "severity": "WARN",
+      "summary": "[Consumer clientId=consumer-tiny-ledger-audit-1, groupId=tiny-ledger-audit] The metadata response from the cluster reported a recoverable issue with correlation…",
+      "detail": "org.apache.kafka.clients.NetworkClient",
+      "durationMs": null,
+      "correlationId": null,
+      "method": null,
+      "path": null,
+      "status": null,
+      "thread": "org.springframework.kafka.KafkaListenerEndpointContainer#0-0-C-1",
+      "profileable": false,
+      "parentId": null,
+      "securedPrincipal": null,
+      "sqlNPlusOneSuspected": false,
+      "badges": [],
+      "exceptionGroupId": null
+    },
+    {
+      "id": "fbec83d9-88",
+      "type": "SQL",
+      "timestamp": 1700000000000,
+      "severity": "OK",
+      "summary": "SELECT ID, COMPLETION_DATE, EVENT_TYPE, LISTENER_ID, PUBLICATION_DATE, SERIALIZED_EVENT, STATUS, COMPLETION_ATTEMPTS, LAST_RESUBMISSION_DATE FROM EVENT_PUBLICAT…",
+      "detail": "dataSource",
+      "durationMs": 5,
+      "correlationId": null,
+      "method": null,
+      "path": null,
+      "status": null,
+      "thread": "main",
+      "profileable": false,
+      "parentId": null,
+      "securedPrincipal": null,
+      "sqlNPlusOneSuspected": false,
+      "badges": [],
+      "exceptionGroupId": null
+    }
+  ],
+  "typeCounts": {
+    "SQL": 68,
+    "TRANSACTION": 1,
+    "LOG": 1
+  },
+  "kpis": {
+    "requestsPerMinute": 0.0,
+    "errorRatePercent": 0.0,
+    "p50LatencyMs": null,
+    "p95LatencyMs": null,
+    "slowestEndpoint": null,
+    "slowestEndpointMs": null,
+    "activeExceptionCount": 0,
+    "sqlPerMinute": 233.92,
+    "slowestQueryMs": 25,
+    "healthStatus": "UP",
+    "heapUsedBytes": 109565264,
+    "heapMaxBytes": 8447328256,
+    "cacheHitRatioPercent": null,
+    "scheduledTaskFailureCount": 0,
+    "restCallErrorRatePercent": null,
+    "restCallP95LatencyMs": null,
+    "latencySampleCount": 0,
+    "slowestEndpointRoute": null,
+    "slowestEndpointRouteId": null,
+    "slowestEndpointRouteSource": null
+  },
+  "sources": [
+    "Runtime journal"
+  ],
+  "warnings": [],
+  "pageInfo": null,
+  "persistenceOption": {
+    "active": false,
+    "dataSourceAvailable": true,
+    "tableName": "bootui_activity"
+  }
+}

@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.pull_request is not None:
         ok, message = verdict(open_issue_count({"pullRequest": str(args.pull_request)}), None)
+    elif args.branch != "main":  # the baseline counts main's issues; a release/** push only refreshes its analysis
+        ok, message = True, f"{args.branch}: no baseline (only main is ratcheted; its pull requests add no issue)"
     else:
         ok, message = verdict(open_issue_count({"branch": args.branch}), int(BASELINE.read_text().strip()))
     print(message if ok else f"::error::{message}")

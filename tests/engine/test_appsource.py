@@ -191,17 +191,57 @@ def test_app_package_setting_never_imports(tmp_path: Path, monkeypatch: pytest.M
     assert any("lazy_parent_appsource" in reason for reason in reasons)
 
 
+def _resolver_names(tree: ast.AST, label: str) -> list[str]:
+    # A meta-path finder's own find_spec method delegating to the finders behind it is import-system plumbing, not
+    # package-root resolution: exempt only a `.find_spec(...)` call inside a class's method named find_spec.
+    exempt = {
+        id(call.func)
+        for cls in ast.walk(tree)
+        if isinstance(cls, ast.ClassDef)
+        for method in cls.body
+        if isinstance(method, ast.FunctionDef | ast.AsyncFunctionDef) and method.name == "find_spec"
+        for call in ast.walk(method)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "find_spec"
+    }
+    found: list[str] = []
+    for node in ast.walk(tree):
+        name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
+        if name in ("find_spec", "submodule_search_locations") and id(node) not in exempt:
+            found.append(f"{label}:{node.lineno} {name}")  # type: ignore[attr-defined]
+    return found
+
+
 def _root_resolvers_outside_appsource() -> list[str]:
     found: list[str] = []
     for path in sorted(SRC.rglob("*.py")):
         if path.name == "appsource.py" and path.parent.name == "engine":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
-            if name in ("find_spec", "submodule_search_locations"):
-                found.append(f"{path.relative_to(SRC).as_posix()}:{node.lineno} {name}")
+        found += _resolver_names(ast.parse(path.read_text(encoding="utf-8")), path.relative_to(SRC).as_posix())
     return found
+
+
+_FINDER_SRC = """
+class F:
+    def find_spec(self, name, path=None, target=None):
+        return next(g.find_spec(name) for g in [])
+"""
+
+
+def test_guard_exempts_a_finder_delegating_inside_its_find_spec() -> None:
+    assert _resolver_names(ast.parse(_FINDER_SRC), "f.py") == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "importlib.util.find_spec('x')",
+        "class F:\n def other(self): return importlib.util.find_spec('x')",
+        "def find_spec(name): return importlib.util.find_spec(name)",
+        "class F:\n def find_spec(self): return m.submodule_search_locations",
+    ],
+)
+def test_guard_still_flags_a_resolver_outside_a_finder_method(source: str) -> None:
+    assert len(_resolver_names(ast.parse(source), "f.py")) == 1
 
 
 def test_config_uses_the_one_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

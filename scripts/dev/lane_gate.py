@@ -155,8 +155,11 @@ class Red:
 # --- git helpers ------------------------------------------------------------------------------------------------------
 
 
+_GIT_RUNNER = subprocess.run
+
+
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return _GIT_RUNNER(
         ["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape"
     )
 
@@ -335,7 +338,8 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
 
 def _diff_paths(repo: Path, base: str, head: str) -> list[str]:
     def read() -> tuple[str, ...]:
-        return tuple(_git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines())
+        out = _git(repo, "diff", "--name-only", "-z", "--no-renames", base, head).stdout
+        return tuple(name for name in out.split("\0") if name)  # -z: git quotes a non-ASCII name otherwise
 
     return list(_read_once(("diff", base, head), [base, head], read))
 

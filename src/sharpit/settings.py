@@ -10,14 +10,47 @@ from __future__ import annotations
 
 import dataclasses
 import difflib
-import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
-from urllib.parse import urlsplit
 
+from sharpit import settings_registry as _registry
 from sharpit.engine.masking import Exposure
 from sharpit.engine.panels import PANELS
+
+_NEVER_ECHOED = _registry.NEVER_ECHOED
+_JOURNAL_SOURCES = _registry.JOURNAL_SOURCES
+_SPECS = _registry.SPECS
+_UNSET = _registry.UNSET
+_bool = _registry.parse_bool
+parse_mode = _registry.parse_mode
+# Keep names that were visible from this module before the parser split.
+_registry_internal = cast(Any, _registry)
+Callable = _registry.Callable
+Iterable = _registry.Iterable
+re = _registry.re
+urlsplit = _registry.urlsplit
+_DURATION = _registry_internal._DURATION
+_FALSE = _registry_internal._FALSE
+_MODULE_NAME = _registry_internal._MODULE_NAME
+_Parser = _registry_internal._Parser
+_TRUE = _registry_internal._TRUE
+_config_scan = _registry_internal._config_scan
+_duration = _registry_internal._duration
+_exposure = _registry_internal._exposure
+_http_uri = _registry_internal._http_uri
+_identity_key = _registry_internal._identity_key
+_int = _registry_internal._int
+_items = _registry_internal._items
+_lower_items = _registry_internal._lower_items
+_min_two_int = _registry_internal._min_two_int
+_mode = _registry_internal._mode
+_module_name = _registry_internal._module_name
+_non_negative_int = _registry_internal._non_negative_int
+_row_limit = _registry_internal._row_limit
+_str = _registry_internal._str
+del _registry_internal
+del _registry
 
 
 @dataclass(frozen=True)
@@ -45,6 +78,8 @@ class SharpitSettings:
     expose_values: Exposure = Exposure.MASKED
     mask_secrets: bool = True
     show_banner: bool = True
+    free_on_idle_enabled: bool = True
+    free_on_idle_timeout: float = 300.0
     state_dir: str = ".sharpit"
     config_scan: tuple[str, ...] | bool = True
     vulnerabilities_osv_enabled: bool = True
@@ -91,6 +126,17 @@ class SharpitSettings:
     threads_max_stack_frames: int = 64
     advisors_max_retained_violations: int = 10000
     stream_max_seconds: float = 3.0
+    ai_token_series_minutes: int = 60
+    ai_max_recent_chats: int = 100
+    ai_show_content_capture_banner: bool = True
+    runtime_journal_enabled: bool = True
+    runtime_journal_max_events: int = 50_000
+    runtime_journal_max_bytes: int = 32 * 1024 * 1024
+    runtime_journal_queue_capacity: int = 10_000
+    runtime_journal_sources: tuple[str, ...] = _JOURNAL_SOURCES
+    agent_sensors: tuple[str, ...] = ()  # none: BootUI's default set would leave a hook that cannot be removed (W6 S3)
+    runtime_insights_ai_token_threshold: int = 8000  # tokens of one model call (AiUsageByRoute.java:35)
+    resources_jfr_max_duration: float = 30.0  # 1s..600s; read by the resource-profile floor (W5c I2)
     # 0.4.0 panels: pre-created by lane F, inert until the owning lane reads them (F-foundation.md interface table)
     security_logs_max_logs: int = 500
     postgresql_max_sessions: int = 100
@@ -120,262 +166,51 @@ class SharpitSettings:
     database_advisor_max_vendor_rows: int = 500
     architecture_max_files: int = 2000
     architecture_max_file_bytes: int = 524288
+    startup_enabled: bool = True
+    startup_capacity: int = 4096
+    github_api_enabled: bool = True
+    github_request_timeout: float = 5.0
+    github_max_pull_requests: int = 10
+    github_max_issues: int = 25
+    github_max_security_alerts: int = 50
+    github_max_workflow_runs: int = 20
+    github_quota_safety_threshold: int = 10
+    github_max_api_calls: int = 17
+    github_allowed_api_hosts: tuple[str, ...] = ("api.github.com",)
     app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
+    copilot_enabled: str = "AUTO"
+    copilot_session_state_dir: str | None = None
+    copilot_max_events_per_session: int = 2000
+    copilot_max_sessions: int = 100
+    copilot_max_parsed_sessions: int = 100
+    copilot_stream_debounce: float = 0.4
+    copilot_allow_raw_reveal: bool = False
+    claude_code_enabled: str = "AUTO"
+    claude_code_session_state_dir: str | None = None
+    claude_code_max_events_per_session: int = 2000
+    claude_code_max_sessions: int = 100
+    claude_code_max_parsed_sessions: int = 100
+    claude_code_stream_debounce: float = 0.4
+    claude_code_allow_raw_reveal: bool = False
+    # 0.6.0 W8 action gates (BootUI P:118,357,1009; alembic clean is sharpit-only, Q9)
+    overrides_file: str = ".sharpit/overrides.env"  # load_settings derives it from state_dir when unset
+    alembic_clean_enabled: bool = False
+    dev_services_restart_enabled: bool = False
+    cache_clear_enabled: bool = False
+    # 0.6.0 W7 E: BootUI P:3286-3320 (email.max-entries, dev-trap, mask-content, max-body-length)
+    email_max_entries: int = 100
+    email_dev_trap: bool = False
+    email_mask_content: bool = False
+    email_max_body_length: int = 200_000
     warnings: tuple[str, ...] = ()
 
 
-_TRUE = {"true", "yes", "on", "1"}
-_FALSE = {"false", "no", "off", "0"}
-_DURATION = re.compile(r"(\d+(?:\.\d+)?)\s*(ms|s)?", re.IGNORECASE)
-
-
-def parse_mode(raw: object) -> str | None:
-    """``ON``/``OFF``/``AUTO`` from a mode value (true/yes/1 and false/no/0 included, any case), else None."""
-    if isinstance(raw, bool):
-        return "ON" if raw else "OFF"
-    if not isinstance(raw, str):
-        return None
-    v = raw.strip().lower()
-    if v in _TRUE:
-        return "ON"
-    if v in _FALSE:
-        return "OFF"
-    return "AUTO" if v == "auto" else None
-
-
-def _bool(raw: object) -> bool:
-    if isinstance(raw, bool):
-        return raw
-    v = raw.strip().lower() if isinstance(raw, str) else None
-    if v in _TRUE:
-        return True
-    if v in _FALSE:
-        return False
-    raise ValueError(raw)
-
-
-def _mode(raw: object) -> str:
-    mode = parse_mode(raw)
-    if mode is None:
-        raise ValueError(raw)
-    return mode
-
-
-def _int(raw: object) -> int:
-    if isinstance(raw, int) and not isinstance(raw, bool):
-        n = raw
-    elif isinstance(raw, str) and re.fullmatch(r"\s*\d+\s*", raw):
-        n = int(raw)
-    else:
-        raise ValueError(raw)
-    if n <= 0:
-        raise ValueError(raw)
-    return n
-
-
-def _non_negative_int(raw: object) -> int:
-    """Like ``_int`` but 0 is allowed: it means "off"."""
-    zero = (type(raw) is int and raw == 0) or (isinstance(raw, str) and re.fullmatch(r"\s*0+\s*", raw))
-    return 0 if zero else _int(raw)
-
-
-def _min_two_int(raw: object) -> int:
-    """N+1 thresholds: one repeat is not a pattern, so anything below 2 counts as 2."""
-    return max(2, _non_negative_int(raw))
-
-
-def _row_limit(raw: object) -> int:
-    """PostgreSQL/MySQL row limits: 1..2147483646, so ``limit + 1`` (one past, to detect truncation) fits an int4."""
-    n = _int(raw)
-    if n > 2147483646:
-        raise ValueError(raw)
-    return n
-
-
-def _duration(raw: object) -> float:
-    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        seconds = float(raw)
-    elif isinstance(raw, str) and (m := _DURATION.fullmatch(raw.strip())):
-        seconds = float(m.group(1)) / (1000 if (m.group(2) or "").lower() == "ms" else 1)
-    else:
-        raise ValueError(raw)
-    if seconds <= 0:
-        raise ValueError(raw)
-    return seconds
-
-
-_MODULE_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
-
-
-def _module_name(raw: object) -> str:
-    name = _str(raw)
-    if not _MODULE_NAME.fullmatch(name):
-        raise ValueError(raw)
-    return name
-
-
-def _str(raw: object) -> str:
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    raise ValueError(raw)
-
-
-def _http_uri(raw: object) -> str:
-    value = _str(raw)
-    parts = urlsplit(value)
-    # urllib's default opener also reads file: and ftp:
-    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        raise ValueError(raw)
-    return value
-
-
-def _items(raw: object) -> tuple[str, ...]:
-    shown = str(raw)
-    if isinstance(raw, str):
-        parts: list[Any] = raw.split(",")
-    elif isinstance(raw, (list, tuple, set, frozenset)):
-        parts = list(cast("Iterable[Any]", raw))
-    else:
-        raise ValueError(shown)
-    if not all(isinstance(p, str) for p in parts):
-        raise ValueError(shown)
-    return tuple(s for p in parts if (s := str(p).strip()))
-
-
-def _lower_items(raw: object) -> tuple[str, ...]:
-    return tuple(s.lower() for s in _items(raw))
-
-
-def _exposure(raw: object) -> Exposure:
-    if isinstance(raw, Exposure):
-        return raw
-    try:
-        return Exposure(_str(raw).upper())
-    except ValueError:
-        raise ValueError(raw) from None
-
-
-def _identity_key(raw: object) -> str:
-    value = _str(raw)
-    try:
-        encoded = value.encode("utf-8")
-    except UnicodeEncodeError:
-        raise ValueError(raw) from None
-    if len(encoded) < 32:
-        raise ValueError(raw)
-    return value
-
-
-def _config_scan(raw: object) -> tuple[str, ...] | bool:
-    try:
-        return _bool(raw)
-    except ValueError:
-        return _items(raw)
-
-
-# field -> (parser, fail-safe override). None falls back to the default; _UNSET makes the field None.
-_UNSET = object()
-_Parser = Callable[[object], Any]
-_SPECS: dict[str, tuple[_Parser, Any]] = {
-    "enabled": (_mode, None),  # handled specially: an invalid value is kept raw so decide() can report it
-    "enabled_profiles": (_lower_items, None),
-    "disabled_profiles": (_lower_items, None),
-    "profile_vars": (_items, None),
-    "allow_non_localhost": (_bool, False),
-    "allowed_hosts": (_items, None),
-    "trusted_proxies": (_items, None),
-    "trust_container_gateway": (_mode, "OFF"),
-    "authentication_token": (_str, None),
-    "identity_key": (_identity_key, None),
-    "read_only": (_bool, True),
-    "expose_values": (_exposure, Exposure.MASKED),
-    "mask_secrets": (_bool, True),
-    "show_banner": (_bool, True),
-    "state_dir": (_str, None),
-    "config_scan": (_config_scan, None),
-    "vulnerabilities_osv_enabled": (_bool, False),
-    "vulnerabilities_request_timeout": (_duration, None),
-    "vulnerabilities_max_packages": (_int, None),
-    "vulnerabilities_max_advisories": (_int, None),
-    "vulnerabilities_osv_base_uri": (_http_uri, None),
-    "vulnerabilities_epss_enabled": (_bool, False),
-    "vulnerabilities_epss_base_uri": (_http_uri, None),
-    "mcp_enabled": (_mode, "OFF"),
-    "mcp_max_results": (_int, None),
-    "mcp_max_payload_bytes": (_int, None),
-    "mcp_max_concurrent_calls": (_int, None),
-    "mcp_execution_timeout": (_duration, None),
-    "mcp_max_response_bytes": (_int, None),
-    "cli_enabled": (_bool, False),
-    "cli_max_results": (_int, None),
-    "cli_max_concurrent_calls": (_int, None),
-    "cli_execution_timeout": (_duration, None),
-    "http_exchanges_max_exchanges": (_int, None),
-    "exceptions_max_groups": (_int, None),
-    "exceptions_max_occurrences_per_group": (_int, None),
-    "exceptions_max_stack_frames": (_int, None),
-    "sql_trace_enabled": (_bool, False),
-    "sql_trace_sqlite3_enabled": (_bool, False),
-    "sql_trace_recording": (_bool, False),
-    "sql_trace_capture_parameters": (_bool, False),
-    "sql_trace_capture_call_site": (_bool, None),
-    "sql_trace_max_entries": (_int, None),
-    "sql_trace_slow_query_threshold_millis": (_non_negative_int, None),
-    "sql_trace_max_sql_length": (_int, None),
-    "sql_trace_max_parameter_length": (_int, None),
-    "sql_trace_n_plus_one_threshold": (_min_two_int, None),
-    "activity_max_entries": (_int, None),
-    "activity_request_slow_threshold_ms": (_int, None),
-    "activity_n_plus_one_threshold": (_min_two_int, None),
-    "activity_unbounded_read_factor": (_min_two_int, None),
-    "log_tail_max_lines": (_int, None),
-    "log_tail_max_bytes": (_int, None),
-    "alembic_config": (_str, _UNSET),
-    "alembic_timeout": (_duration, None),
-    "health_timeout": (_duration, None),
-    "threads_max_stack_frames": (_int, None),
-    "advisors_max_retained_violations": (_int, None),
-    "stream_max_seconds": (_duration, None),
-    "security_logs_max_logs": (_int, None),
-    "postgresql_max_sessions": (_row_limit, None),
-    "postgresql_max_statements": (_row_limit, None),
-    "postgresql_max_indexes": (_row_limit, None),
-    "postgresql_max_tables": (_row_limit, None),
-    "postgresql_max_vacuum_tables": (_row_limit, None),
-    "postgresql_max_replicas": (_row_limit, None),
-    "postgresql_max_settings": (_row_limit, None),
-    "transactions_enabled": (_bool, False),
-    "transactions_recording": (_bool, False),
-    "transactions_max_entries": (_int, None),
-    "transactions_slow_transaction_threshold_millis": (_int, None),
-    "transactions_connection_hold_threshold_millis": (_int, None),
-    "mysql_max_sessions": (_row_limit, None),
-    "mysql_max_statements": (_row_limit, None),
-    "mysql_max_indexes": (_row_limit, None),
-    "mysql_max_tables": (_row_limit, None),
-    "mysql_max_lock_waits": (_row_limit, None),
-    "mysql_max_replication_channels": (_row_limit, None),
-    "mysql_max_settings": (_row_limit, None),
-    "database_advisor_max_tables": (_int, None),
-    "database_advisor_max_columns": (_int, None),
-    "database_advisor_max_indexes_per_table": (_int, None),
-    "database_advisor_max_vendor_rows": (_int, None),
-    "architecture_max_files": (_int, None),
-    "architecture_max_file_bytes": (_int, None),
-    "app_package": (_module_name, None),
-}
 _DEFAULTS = SharpitSettings()
 WEAK_IDENTITY_KEY = "SHARPIT_IDENTITY_KEY is one character repeated: a weak key"
 # owner 2026-11-07, item 7: capture on shows more than bound values, so install says so, as FULL does
 CAPTURE_SHOWS_VALUES = (
     "SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS=true shows SQL inline literals and error text unmasked, with bound values"
 )
-_NEVER_ECHOED = {
-    "authentication_token",
-    "identity_key",
-    "vulnerabilities_osv_base_uri",
-    "vulnerabilities_epss_base_uri",
-}
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}
 
 
@@ -438,7 +273,8 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
             try:
                 flags[key] = _bool(raw)
             except ValueError:
-                warnings.append(f"Ignoring invalid {env} value '{raw}'")
+                shown = f" '{raw}'"
+                warnings.append(f"Ignoring invalid {env} value{shown}")
                 flags[key] = failsafe
         out[pid] = PanelSettings(enabled=bool(flags["enabled"]), read_only=bool(flags["read_only"]))
     return out
@@ -490,6 +326,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
         raise ValueError(f"api_path must be '{path}/' followed by one or more segments: {api_path!r}")
     values["path"], values["api_path"] = path, api_path
 
+    if "overrides_file" not in values:
+        values["overrides_file"] = f"{values.get('state_dir', _DEFAULTS.state_dir)}/overrides.env"
     values["panels"] = _panels(kwargs, environ, warnings)
     if values.get("expose_values") is Exposure.FULL:
         warnings.append("SHARPIT_EXPOSE_VALUES=FULL exposes unmasked secrets")

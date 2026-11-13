@@ -1,0 +1,29 @@
+{
+  "available": false,
+  "unavailableReason": "No RestClient, RestTemplate, or WebClient has been instrumented yet.",
+  "capturing": false,
+  "captureHeaders": false,
+  "bufferSize": 0,
+  "totalCaptured": 0,
+  "slowCallThresholdMillis": 0,
+  "clientTypes": [],
+  "stats": {
+    "totalCalls": 0,
+    "totalDurationMillis": 0,
+    "maxDurationMillis": 0,
+    "avgDurationMillis": 0.0,
+    "slowCalls": 0,
+    "failedCalls": 0,
+    "errorStatusCalls": 0,
+    "getCount": 0,
+    "postCount": 0,
+    "putCount": 0,
+    "deleteCount": 0,
+    "otherCount": 0,
+    "evicted": 0
+  },
+  "entries": [],
+  "topCalls": [],
+  "warnings": [],
+  "retention": null
+}

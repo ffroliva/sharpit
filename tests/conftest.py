@@ -26,6 +26,10 @@ import pytest
 os.environ.setdefault("HYPOTHESIS_STORAGE_DIRECTORY", str(Path(tempfile.gettempdir()) / "sharpit-hypothesis"))
 # pytest's session hooks run before function-scoped fixtures, so give them an out-of-tree state location too.
 os.environ["SHARPIT_STATE_DIR"] = str(Path(tempfile.gettempdir()) / f"sharpit-pytest-{os.getpid()}")
+os.environ["SHARPIT_COPILOT_SESSION_STATE_DIR"] = str(Path(tempfile.gettempdir()) / f"sharpit-copilot-{os.getpid()}")
+os.environ["SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR"] = str(
+    Path(tempfile.gettempdir()) / f"sharpit-claude-code-{os.getpid()}"
+)
 
 from hypothesis import settings  # noqa: E402
 
@@ -37,6 +41,7 @@ from sharpit.engine.sqltext.identity import load_key
 
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
 _REPO_STATE_SNAPSHOT: dict[str, tuple[int, int] | None] = {}
+
 
 # The property tests run the same examples on every run and every shard, and write no example database: a failure seen
 # once is seen again, and a slow runner is not a failure (design section 8).
@@ -101,11 +106,18 @@ def needs_sqlalchemy_marker(source: str) -> bool:
     )
 
 
-def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
-    del parent
-    found = sqlalchemy_imports_without_marker(module_path.read_text(encoding="utf-8"))
-    if found:
-        pytest.fail(f"{module_path.name} {NEEDS_SQLALCHEMY_MISSING.format(', '.join(found))}", pytrace=False)
+class _SqlaCheckedModule(pytest.Module):
+    """Checks the mark when pytest collects the module (before import), not for every sibling ``Dir.collect`` builds."""
+
+    def collect(self) -> Any:
+        found = sqlalchemy_imports_without_marker(self.path.read_text(encoding="utf-8"))
+        if found:
+            pytest.fail(f"{self.path.name} {NEEDS_SQLALCHEMY_MISSING.format(', '.join(found))}", pytrace=False)
+        return super().collect()
+
+
+def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> pytest.Module:
+    return _SqlaCheckedModule.from_parent(parent, path=module_path)
 
 
 TIMING_MODULES = (
@@ -118,6 +130,13 @@ TIMING_MODULES = (
     "test_traces_overhead.py",
     "test_transactions_overhead.py",  # lane R-transactions
     "test_sink_overhead.py",  # lane P-sink-mask-memo
+    "test_journal.py",  # lane W5a-J: the journal append budgets
+    "test_sql_journal_overhead.py",  # lane W5a P-sql: journal on vs off per statement
+    "test_sensors_overhead.py",  # lane W6-S3: the audit hook and processes sensor, per event
+    "test_http_journal_overhead.py",  # lane W5a P-http: journal on vs off per request
+    "test_log_journal_overhead.py",  # lane W5a P-log: journal on vs off per WARN record
+    "test_connection_journal_overhead.py",  # lane W5a P-connection: journal on vs off per released connection
+    "test_mail_overhead.py",  # lane W7 E: the sendmail wrapper, suspended
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 
@@ -159,6 +178,9 @@ _PATH_PARAMS = {
     "id": "0123456789abcdef",
     "name": "nope",  # an unknown pool name (404)
     "rule_id": "RAPI-MAP-001",  # rest-api violations without a scanId: 400
+    "eventId": "e1",
+    "spanId": "0" * 16,  # an unknown AI chat span (404)
+    "observation_id": "errors-behind-2xx:0000000000",  # an unknown runtime insight (200, available=false)
 }  # a new path parameter fails collection until it gets a value here
 
 
@@ -187,7 +209,10 @@ def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
     """Every file and directory under root as path -> (mtime_ns, size); directories map to None."""
     snap: dict[str, tuple[int, int] | None] = {}
     for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        # pytest-cache-files-*: pytest's own atomic staging dir, which another xdist worker's cache writer may create in
+        # the shared cwd mid-test; only that prefix is skipped, never a write the code under test makes
+        staging = base == str(root)  # top level only: where pytest stages its cache next to the rootdir
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not (staging and d.startswith("pytest-cache-files-"))]
         for name in dirs:
             snap[os.path.join(base, name)] = None
         for name in files:
@@ -197,7 +222,11 @@ def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    del session
+    # Create the cache dir before xdist workers start: its first creation stages a pytest-cache-files-* dir in the cwd,
+    # which a worker's no_side_effects snapshot would otherwise catch mid-test.
+    cache = getattr(session.config, "cache", None)  # absent under -p no:cacheprovider
+    if cache is not None:
+        cache.mkdir("sharpit")
     _REPO_STATE_SNAPSHOT.update(_snapshot(Path(__file__).parents[1] / ".sharpit"))
 
 
@@ -261,6 +290,7 @@ class SideEffectGuard:
         self.state_dir = state_dir
         self.violations: list[str] = []
         self._originals: list[tuple[Any, str, Any]] = []
+        self._runtime_originals: list[tuple[Any, str, Any]] = []
         self.cwd = Path.cwd()  # the test's cwd at setup; a later chdir does not move the snapshot
         self._source_roots: list[str] = []
         self._spies: list[tuple[Any, str, Any]] = []
@@ -280,6 +310,38 @@ class SideEffectGuard:
         for owner, attr in ((socket.socket, "connect"), *((socket, n) for n in _BLOCKED[1:])):
             self._originals.append((owner, attr, getattr(owner, attr)))
             setattr(owner, attr, self._blocker(f"socket.{attr}"))
+        self._runtime_originals.append((sys, "addaudithook", sys.addaudithook))
+        sys.addaudithook = self._runtime_spy("sys.addaudithook", sys.addaudithook)
+        for attr in (
+            "use_tool_id",
+            "free_tool_id",
+            "clear_tool_id",
+            "set_events",
+            "set_local_events",
+            "register_callback",
+            "restart_events",
+        ):
+            owner = sys.monitoring
+            if not hasattr(owner, attr):
+                continue
+            original = getattr(owner, attr)
+            self._runtime_originals.append((owner, attr, original))
+            setattr(owner, attr, self._runtime_spy(f"sys.monitoring.{attr}", original))
+
+    def _runtime_spy(self, what: str, original: Callable[..., Any]) -> Callable[..., Any]:
+        def spy(*args: object, **kwargs: object) -> Any:
+            caller = sys._getframe(1).f_code.co_filename.replace("\\", "/")
+            try:
+                coverage_tool = bool(
+                    args and isinstance(args[0], int) and sys.monitoring.get_tool(args[0]) == "coverage.py"
+                )
+            except ValueError:
+                coverage_tool = False
+            if "/src/sharpit/" in caller and not coverage_tool:
+                self.violations.append(what)
+            return original(*args, **kwargs)
+
+        return spy
 
     def _blocker(self, what: str) -> Callable[..., Any]:
         def blocked(*_args: object, **_kwargs: object) -> Any:
@@ -292,6 +354,11 @@ class SideEffectGuard:
         for owner, attr, original in reversed(self._originals):
             setattr(owner, attr, original)
         self._originals.clear()
+
+    def restore_runtime_state(self) -> None:
+        for owner, attr, original in reversed(self._runtime_originals):
+            setattr(owner, attr, original)
+        self._runtime_originals.clear()
 
     def watch_sources(self, root: Path) -> None:
         """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
@@ -379,7 +446,10 @@ def no_side_effects(tmp_state_dir: Path) -> Iterator[SideEffectGuard]:
     finally:
         guard.unblock_network()
         guard.unwatch_sources()
-    guard.verify()
+        try:
+            guard.verify()
+        finally:
+            guard.restore_runtime_state()
 
 
 # --- SSE streams held open on the ASGI app (TestClient buffers a body until the stream ends) -----------------------
@@ -450,6 +520,30 @@ def restore_logging() -> Iterator[None]:
         lg = logging.getLogger(None if name == "root" else name)
         lg.disabled, lg.level, lg.propagate = disabled, level, propagate
         lg.handlers[:] = handlers
+
+
+_RUNTIME_NAMES = ("addaudithook",)
+_MONITORING_NAMES = ("use_tool_id", "free_tool_id", "clear_tool_id", "set_events", "set_local_events")
+_MONITORING_NAMES += ("register_callback", "restart_events")
+_RUNTIME_ORIGINALS = {f"sys.{n}": getattr(sys, n) for n in _RUNTIME_NAMES} | {
+    f"sys.monitoring.{n}": getattr(sys.monitoring, n) for n in _MONITORING_NAMES if hasattr(sys.monitoring, n)
+}
+
+
+def leaked_runtime_spies() -> list[str]:
+    """The SideEffectGuard runtime functions that are not the interpreter's own (a guard left its spy behind)."""
+    owners = {"sys": sys, "sys.monitoring": sys.monitoring}
+    return [
+        name
+        for name, original in _RUNTIME_ORIGINALS.items()
+        if getattr(owners[name.rpartition(".")[0]], name.rpartition(".")[2]) is not original
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_spy_leak() -> Iterator[None]:
+    yield
+    assert leaked_runtime_spies() == [], "test left a SideEffectGuard spy installed (call restore_runtime_state)"
 
 
 @pytest.fixture(autouse=True)

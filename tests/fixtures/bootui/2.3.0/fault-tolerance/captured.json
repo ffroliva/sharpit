@@ -1,0 +1,12 @@
+{
+  "faultTolerancePresent": false,
+  "unavailableReason": "No supported fault tolerance library is present (Resilience4j, Spring Retry or SmallRye Fault Tolerance)",
+  "captureEnabled": false,
+  "providers": [],
+  "totalPolicies": 0,
+  "policies": [],
+  "policyCountsByType": {},
+  "events": [],
+  "maxEvents": 200,
+  "warnings": []
+}

@@ -1,0 +1,12 @@
+{
+  "localOnly": true,
+  "disclaimer": "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a wall-clock budget. The session list is a live snapshot; every other number is cumulative since the last statistics reset and covers every client of the database, not only this application.",
+  "status": "NOT_READ",
+  "message": "The database has not been read yet. Run PostgreSQL read in the panel, or call postgresql_read (bootui db postgres read), to query its own statistics views.",
+  "readAt": null,
+  "databasesRead": 0,
+  "truncated": false,
+  "databases": [],
+  "diagnostics": [],
+  "limitations": []
+}

@@ -25,6 +25,10 @@ Python 3.12+. Runtime dependencies are only `starlette` and `packaging`; FastAPI
 uv add "sharpit[fastapi]"           # or: pip install "sharpit[fastapi]"
 ```
 
+The extras are `fastapi`, `settings` (pydantic-settings, for Config provenance) and `test`. SQLAlchemy, a database driver
+and OpenTelemetry have no extra: sharpit reads them from your app if it imported them. The panel to library to extra
+table is in `website/docs/installation.md`.
+
 ## Add it to an app
 
 ```python
@@ -99,10 +103,11 @@ keyword is the same name in lower case.
 | `SHARPIT_IDENTITY_KEY` | `identity_key` | unset | optional shared UTF-8 key (at least 32 bytes) for stable SQLite statement identities, overriding `identity.key`; masked by value in every exposure, `FULL` included. One repeated character warns |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
 | `SHARPIT_MCP_ENABLED` | `mcp_enabled` | `OFF` | turn on the read-only MCP endpoint |
+| `SHARPIT_FREE_ON_IDLE_ENABLED` / `SHARPIT_FREE_ON_IDLE_TIMEOUT` | `free_on_idle_enabled` / `free_on_idle_timeout` | `true` / `300` | suspend capture hooks after API inactivity |
 | `SHARPIT_PANELS_<ID>_ENABLED` / `_READ_ONLY` | `panels={"<id>": {...}}` | on / off | per-panel switches, e.g. `SHARPIT_PANELS_LOGGERS_READ_ONLY=true` |
 
 The full list (`SHARPIT_MCP_*`, `SHARPIT_CLI_*`, `SHARPIT_VULNERABILITIES_*`, `SHARPIT_TRUST_CONTAINER_GATEWAY`,
-`SHARPIT_CONFIG_SCAN`, ...) is in the README settings table and `src/sharpit/settings.py`. Durations accept `10s`, `500ms` or a bare number of seconds.
+`SHARPIT_CONFIG_SCAN`, ...) is in `website/docs/settings.md` and `src/sharpit/settings.py`. Durations accept `10s`, `500ms` or a bare number of seconds.
 
 ## Safety model
 
@@ -131,10 +136,15 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Loggers | `GET {api}/loggers`, `POST {api}/loggers/{name}` | change a level at runtime (write action) |
 | Beans | `GET {api}/beans` | dependency providers and their `dependencies` |
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
+| Live Memory | `GET {api}/live-memory/footprint`, `POST {api}/live-memory/footprint` (`{"enabled": bool}`) | inspect or pause sharpit's capture hooks; status is available over MCP and CLI, while enable/disable are CLI and route actions only |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
-| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the scan, over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
+| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 21 action tools (see Actions below), over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
+| Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason. The `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`, off by default) feed the runtime journal, not these panels; with them on, `POST {api}/java-agent/sensors/files` switches the files sensor, otherwise it is refused (409) as BootUI refuses it without the agent. MCP: `get_agent_status` |
+| Metrics | `GET {api}/metrics`, `GET {api}/metrics/detail` | host Prometheus registry, collected on each read (every host collector runs once); label values and HELP text are masked. MCP and CLI: `get_metrics` / `metrics` |
+| AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
+| Email | `GET {api}/email`, `GET {api}/email/{id}`, `GET {api}/email/{id}/eml`, `DELETE {api}/email` | outgoing mail captured at `smtplib`/`aiosmtplib` `sendmail`, bounded; secret-shaped text masked unless `SHARPIT_EXPOSE_VALUES=FULL`; DELETE clears (refused on a read-only panel). `SHARPIT_EMAIL_DEV_TRAP=true` captures without connecting or sending. MCP: `get_emails`; CLI: `mail` |
 
 The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
 `get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
@@ -154,9 +164,47 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes **read-only** tools: `get_overview`, `get_config`,
-`get_mappings`, `get_loggers`, `get_beans`, `get_vulnerabilities_report`. There is no action tool: an agent cannot
-change a logger or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token.
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 50 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
+where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
+
+- The app: `get_overview` (call it first), `get_config`, `get_profile_diff`, `get_mappings`, `get_beans`, `get_loggers`,
+  `get_data_repositories`.
+- Requests and errors: `get_live_activity`, `get_request_profile`, `get_http_exchanges`, `get_http_routes`,
+  `get_exceptions`, `get_exception_detail`, `get_log_tail`, `get_security_logs`.
+- Database: `get_sql_traces`, `get_sql_trace_insights`, `get_sqlalchemy_statistics`, `get_transactions`,
+  `get_database_connection_pools`, `get_alembic_migrations`, `get_postgresql_report`, `get_mysql_report`.
+- GitHub: `get_github_dashboard` (`github` on the CLI endpoint; local repository identity and cached data; the read never calls GitHub).
+- Runtime: `get_health`, `get_threads`, `get_startup_timeline`, `get_scheduled_tasks`, `get_traces`, `get_low_footprint`, `get_metrics`, `get_runtime_insights`, `get_runtime_insight`.
+- Agent sessions: `get_copilot_sessions`, `get_claude_code_sessions`.
+- AI Framework: `get_ai_overview` (CLI: `ai overview`).
+- Email: `get_emails` (CLI: `mail`).
+- Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which has no agent; the
+  `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. The sensor tools (`get_code_inventory`, `get_code_paths`, `get_method_probe`, `get_side_effects`) are not
+  advertised and answer "Tool not available in this application".
+- Advisors and security (a report tool and a per-rule violations tool each, neither starts a scan):
+  `get_vulnerabilities_report`; `get_rest_api_report`, `get_rest_api_rule_violations`; `get_security_report`,
+  `get_security_rule_violations`; `get_database_advisor_report`, `get_database_advisor_rule_violations`;
+  `get_architecture_report`, `get_architecture_rule_violations`; `get_fastapi_report`,
+  `get_fastapi_rule_violations`; `get_fastapi_security`.
+
+### Actions (CLI endpoint only, never MCP)
+
+21 action tools change state, call out or scan. They are reachable through `POST {api}/cli/tools/<tool>`
+(`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; Live Memory controls are also available through its guarded API route, and the CLI endpoint serves every read tool above.
+An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
+
+- Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
+  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`.
+- Buffers and recording (sharpit's own in-memory capture only): `clear_exceptions`, `clear_sql_traces`,
+  `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
+  `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,
+  `disable_low_footprint` (CLI and guarded API only).
+- Agent sensors: `enable_agent_sensor`, `disable_agent_sensor` (switch the `files` sensor when `SHARPIT_AGENT_SENSORS` arms
+  one; refused otherwise);
+  `start_method_probe` is not advertised.
+
+Live Memory also accepts `POST {api}/live-memory/footprint` with `{"enabled": bool}`; its `get_low_footprint` status tool is on MCP and CLI, while the two action tools are CLI and route only. `SHARPIT_FREE_ON_IDLE_ENABLED` defaults to `true`; `SHARPIT_FREE_ON_IDLE_TIMEOUT` defaults to 300 seconds.
 
 ## Running test gates (`pytest --sharpit`)
 
@@ -201,6 +249,8 @@ sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)
 A skipped advisor does not make the session `unknown`; a database driver sharpit cannot trace still does.
 
 ### Report-only mode and baselines
+
+For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
 
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
   `sharpit report-only: N tests would fail, status <status>`. Report-only relaxes findings, never blindness: any unknown

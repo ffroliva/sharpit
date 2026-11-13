@@ -1,0 +1,10 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturing": true,
+  "captureKeyEnabled": true,
+  "maxEntries": 200,
+  "totalCaptured": 0,
+  "total": 0,
+  "messages": []
+}
