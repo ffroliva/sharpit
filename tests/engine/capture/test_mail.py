@@ -1222,3 +1222,21 @@ def test_an_import_error_from_a_finder_behind_the_hook_is_not_replaced_by_the_re
         monkeypatch.setattr(sys, "meta_path", [*sys.meta_path[:behind], _FailingFinder(), *sys.meta_path[behind:]])
         with pytest.raises(ImportError, match="behind failed"):
             late_aiosmtplib()
+
+
+class _HostileModule(types.ModuleType):
+    def __getattr__(self, name: str) -> Any:
+        raise RuntimeError(f"lazy attribute {name} cannot load")
+
+
+def test_a_hostile_aiosmtplib_module_never_raises_into_the_request_start(monkeypatch: pytest.MonkeyPatch):
+    # PR #182 r4 code-review: the reads at the top of ensure_wrapped sat outside the guard
+    with harness(email_dev_trap=True):
+        monkeypatch.setattr(mail, "_seen", weakref.ref(_HostileModule))  # a module already wrapped once
+        monkeypatch.setitem(sys.modules, "aiosmtplib", _HostileModule("aiosmtplib"))
+        raised: Exception | None = None
+        try:
+            mail.ensure_wrapped()
+        except Exception as exc:  # noqa: BLE001 - the assertion below names it
+            raised = exc
+        assert raised is None
