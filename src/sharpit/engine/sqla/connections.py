@@ -11,7 +11,7 @@ current at checkout, on whichever thread releases it, as BootUI's ``ConnectionCh
 shortcut: the state sits in one slot of the pool record's ``info``. A pool that hands one record to several concurrent
 checkouts (StaticPool, SingletonThreadPool: sqlite in memory) therefore journals one event for the overlapping
 checkouts, the last one's; upgrade to a state keyed per fairy if such a pool needs one event per checkout.
-Deviation: ``statements`` is always -1, BootUI's unknown (``ConnectionPayload.checkoutNanos`` uses it), where BootUI's
+UNKNOWN_STATEMENTS = -1  # BootUI gives -1 as unknown only to ``checkoutNanos``: a deviation (module note)
 ``ConnectionCheckout.statementExecuted`` counts per execute. Counting here cost every statement a fairy ``__dict__``
 read and write (+1.5 us paired on the SQL listener, which has no room); the recorder keeps no per-connection count
 (a bounded ring, pausable) to derive it from at checkin. Nothing in sharpit reads it: BootUI uses it only in
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 CHECKOUT_KEY = "sharpit_connection"
 SOURCE = "connection"
-UNKNOWN_STATEMENTS = -1  # BootUI's "unknown" for a ConnectionPayload number (``checkoutNanos``); see the module note
+UNKNOWN_STATEMENTS = -1  # BootUI defines -1 as unknown only for ``checkoutNanos``: a deviation, see the module note
 
 
 class Checkout:

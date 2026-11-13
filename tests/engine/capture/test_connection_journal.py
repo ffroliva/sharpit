@@ -101,7 +101,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["checkoutNanos"] >= before
 
 
-# deviation (r5): the statement path pays nothing for the count; -1 is BootUI's "unknown" (as checkoutNanos)
+# deviation (r5): the statement path pays nothing for the count; -1 is "unknown", as BootUI gives checkoutNanos
 def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_connection_state():
     handle = _install()
     with handle.engine.connect() as conn:
@@ -149,7 +149,7 @@ def test_connection_journal_second_checkin_is_ignored():
     assert len(_records(handle)) == 1
     from sharpit.engine.sqla import connections  # noqa: PLC0415
 
-    connections.checkin(None, record)
+    connections.checkin(record.dbapi_connection, record)  # a live release: None is skipped
     assert len(_records(handle)) == 1
 
 
@@ -166,7 +166,7 @@ def test_connection_journal_a_stale_checkout_is_not_offered_at_a_later_release()
     )  # left behind
     with internal():
         connections.checkout(None, record, None)  # sharpit's own reuse of the record follows nothing
-    connections.checkin(None, record)
+    connections.checkin(record.dbapi_connection, record)  # a live release: None is skipped
     assert len(_records(handle)) == baseline
 
 
