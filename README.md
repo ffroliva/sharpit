@@ -43,8 +43,9 @@ installed packages for known vulnerabilities when you ask for it. Every panel in
 - Off unless a dev signal turns it on (`fastapi dev`, `uvicorn --reload`, or a dev profile). Otherwise every path under
   `/sharpit` answers 404.
 - Loopback callers only. A forwarding header never grants trust, and remote access needs a token.
-- Secret-looking names and values are masked before anything leaves sharpit.
-- Reading a panel changes nothing: no network call, no file write, no logger change.
+- Secret-looking names and values are masked by default. Showing them takes an explicit switch
+  (`SHARPIT_EXPOSE_VALUES=FULL`, or SQL parameter capture), and sharpit warns at startup when one is on.
+- Reading a panel makes no network call, writes no file and changes no logger level.
 
 **Then gate CI on it:** `pytest --sharpit` fails a test that goes over its query budget, triggers an N+1 query or
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the

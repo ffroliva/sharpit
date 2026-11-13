@@ -58,6 +58,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
 - Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
 - Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
+- Free on idle (`SHARPIT_FREE_ON_IDLE_ENABLED`, on by default as in BootUI 2.3.0; `SHARPIT_FREE_ON_IDLE_TIMEOUT`, 300 s):
+  after the console has been idle for the timeout, sharpit suspends its capture hooks and releases their buffers; the
+  next console request resumes them, so capture refills from live traffic. Set it to `false` to keep recording
+  continuously.
 - Metrics panel (GET /metrics, /metrics/detail, get_metrics, CLI metrics) over the host's prometheus_client registry, label values masked.
 - Config overrides actions (`POST {api}/config/overrides`, `DELETE {api}/config/overrides/{name}`), REST only, behind the guard, the Configuration panel gate and read-only; the config report now flags overridden properties (`override`, `overrideCount`, `overridesOnly`).
 - W8 action groundwork: the Configuration panel is action-capable as in BootUI (read-only now reports and refuses its writes), Cache and Dev Services panel slots, and SHARPIT_OVERRIDES_FILE, SHARPIT_ALEMBIC_CLEAN_ENABLED, SHARPIT_DEV_SERVICES_RESTART_ENABLED, SHARPIT_CACHE_CLEAR_ENABLED.
@@ -117,7 +121,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   registered, a SQL-reading check still reads as recorded.
 - On SQLite, a double-quoted run that names no column is a string, so with parameter capture off sharpit can show a
   literal value it reads as an identifier (#59, unchanged since 0.4.0).
-- Masking a quoted text twice can mask it differently from BootUI, which masks it once (cosmetic; planned for 0.7.0).
+- sharpit can mask a quoted text twice, so its masked text can differ from BootUI's, which masks it once (cosmetic;
+  planned for 0.7.0).
 - The transactions journal source (P-transaction) is not in this release (planned for 0.7.0).
 
 ## [0.5.0] - 2026-11-08
