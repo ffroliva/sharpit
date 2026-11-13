@@ -307,7 +307,7 @@ class RuntimeJournal:
             lost, removed, lost_at = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
             self._bytes -= removed
             self._evicted += 1
-            started = _lost_start(lost, lost_at, stamp)  # EvidenceRing.lost, inline: one int compared, none allocated
+            started = _lost_start(lost, lost_at, stamp)  # EvidenceRing.lost: one helper call, one int compared
             if started is not None and started > (self._loss_horizon or 0):
                 self._loss_horizon = started
         self._events.append((cast("dict[str, object]", stored), size, stamp))
