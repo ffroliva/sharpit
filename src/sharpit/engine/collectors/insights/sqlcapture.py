@@ -57,5 +57,5 @@ def for_context(ctx: SharpitContext) -> SqlCapture:
         return SqlCapture.not_recorded(PANEL_OFF)
     recorded, reason = sqla.sources_recorded(ctx)
     if not recorded:
-        return SqlCapture.not_recorded(reason or NOT_RECORDED)  # reason is set whenever not recorded; the text is a guard
+        return SqlCapture.not_recorded(reason or NOT_RECORDED)
     return SqlCapture.recorded_except(reason) if reason else SqlCapture.capturing()
