@@ -54,7 +54,6 @@ _discovery_refs: tuple[weakref.ref[SharpitContext], ...] = ()
 # contexts that asked for statements through ``add`` (``routed`` reads it); weak, so a collected one stops counting
 _statement_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 _session = False  # the test-session sink wants statements too (spec 0.3.0 §8.1)
-_counting = False  # a pool listener follows connections, so each statement bumps its connection's count
 
 
 def engine_connect(conn: Any) -> None:
@@ -82,13 +81,6 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
-        try:
-            # the fairy's own dict: ``getattr`` on a fairy without the attribute falls through to the DBAPI connection
-            fairy = conn._dbapi_connection if _counting else None  # noqa: SLF001 - None too when invalidated
-            if fairy is not None and (followed := fairy.__dict__.get(_connections.FAIRY_ATTR)) is not None:
-                followed.statements += 1  # BootUI ``ConnectionCheckout.statementExecuted``: the application's own only
-        except AttributeError:  # a raw DBAPI connection handed to ``Connection`` has no fairy dict: nothing to count
-            pass  # never the statement's trace
         _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
@@ -213,13 +205,12 @@ def _target(sa: Any, name: str) -> Any:
 def _sync_listeners() -> None:
     """Listen while a context needs the event, remove once none does (callers hold ``_lock``)."""
     # swapped whole under the lock, read lock-free
-    global _discovery_refs, _counting  # noqa: PLW0603
+    global _discovery_refs  # noqa: PLW0603
     _discovery_refs = tuple(weakref.ref(c) for c in _discovery_contexts.values())
     sa = _sqla.sqlalchemy_module()
     if sa is None:
         return
     followed = any(_records_connections(c) for c in _statement_contexts.values())
-    _counting = followed
     wanted = {
         DISCOVERY_EVENT: bool(_discovery_contexts),
         **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts) or _session),

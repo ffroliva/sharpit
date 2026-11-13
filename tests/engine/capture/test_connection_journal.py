@@ -93,7 +93,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["source"] == "connection"
     assert record["requestId"] == "0123456789abcdef"
     assert record["thread"] == "MainThread"
-    assert record["statements"] == 2
+    assert record["statements"] == -1  # unknown: see the deviation row; counting costs every statement
     assert record["waitNanos"] == 0
     assert record["failedOrSlow"] is False
     assert isinstance(record["durationNanos"], int)
@@ -101,16 +101,14 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["checkoutNanos"] >= before
 
 
-def test_connection_journal_statements_count_the_connections_own_statements():
+# deviation (r5): the statement path pays nothing for the count; -1 is BootUI's "unknown" (as checkoutNanos)
+def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_connection_state():
     handle = _install()
-    _use(handle.engine, 2)
     with handle.engine.connect() as conn:
         conn.execute(sa.text("select 1"))
-        with internal():
-            conn.execute(sa.text("select 2"))  # sharpit's own statement is not the application's
-        conn.execute(sa.text("select 3"))
-        conn.execute(sa.text("select 4"))
-    assert [r["statements"] for r in _records(handle)] == [2, 3]
+        assert "_sharpit_checkout" not in conn.connection.__dict__  # the fairy carries nothing a statement would bump
+    _use(handle.engine, 3)
+    assert [r["statements"] for r in _records(handle)] == [-1, -1]
 
 
 # ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
@@ -383,18 +381,3 @@ def test_connection_event_of_no_request_does_not_move_the_horizon():
     _use(handle.engine)
     _use(handle.engine)
     assert _horizon(handle) is None
-
-
-# code-review finding: the statement count must never cost the statement its trace
-def test_connection_journal_a_dbapi_connection_without_a_dict_still_starts_the_statement_trace():
-    from types import SimpleNamespace  # noqa: PLC0415
-
-    from sharpit.engine.sqla import listeners  # noqa: PLC0415
-
-    class SlottedConnection:  # a C-extension driver's connection: no ``__dict__``
-        __slots__ = ()
-
-    handle = _install()
-    conn = SimpleNamespace(_dbapi_connection=SlottedConnection(), engine=handle.engine, info={})
-    listeners.before_cursor_execute(conn, None, "select 1", (), None, False)
-    assert listeners.START_KEY in conn.info
