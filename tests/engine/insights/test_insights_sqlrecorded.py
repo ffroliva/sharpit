@@ -130,7 +130,7 @@ def test_the_raw_sqlite_fact_does_not_move_the_application_family_evidence(
     ctx = _install(handles)
     _raw_sqlite()
     assert ctx.capture.raw_sqlite_seen  # application_family still reads it; the recorded fact is its own field
-    assert "sqlite3" in ctx.capture.delivered_sources
+    assert ctx.capture.sqlite_delivered
 
 
 def _both_used(handles: list[Any]) -> Any:
@@ -209,3 +209,4 @@ def test_the_panel_off_with_the_flag_on_does_not_name_the_flag(handles: list[Any
 def test_the_flag_off_still_names_the_flag(handles: list[Any]) -> None:
     ctx = _install(handles, sql_trace_enabled=False)
     assert "SHARPIT_SQL_TRACE_ENABLED=false" in str(sqlcapture.for_context(ctx).reason)
+

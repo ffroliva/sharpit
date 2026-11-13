@@ -68,16 +68,16 @@ def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
     """``SqlCapture.of``'s second branch for ``ctx``: is a database in use here, and is its hook attached.
 
     BootUI's fact is known at wrap time (``SqlTraceRecorder.hasWrappedDataSource``): a SQLAlchemy engine attached to
-    this context is the analogue; a source with no wrap-time object (raw sqlite3, an engine no discovery panel
-    registered) counts once a statement was delivered to this context. A hook detached from a source in use is named
-    (``recordedExcept``); every one detached: not recorded.
+    this context is the analogue; raw sqlite3 (no wrap-time object) counts once a statement was delivered to this context. Nothing here runs per statement: engines are
+    registered when they connect; with no discovery panel the engines are unknown, and attaching the SQL
+    listeners (``engines_unseen``) is the fact. A hook detached from a source in use is named (``recordedExcept``);
+    every one detached: not recorded.
     """
     capture = ctx.capture
     registry = capture.engine_registry
-    delivered = capture.delivered_sources
     used = {
-        SQLALCHEMY: SQLALCHEMY in delivered or (registry is not None and registry.has_engines()),
-        SQLITE3: SQLITE3 in delivered,
+        SQLALCHEMY: capture.engines_unseen or (registry is not None and registry.has_engines()),
+        SQLITE3: capture.sqlite_delivered,
     }
     live = [s for s, in_use in used.items() if in_use and s not in capture.suspended_sources]
     missed = [s for s, in_use in used.items() if in_use and s in capture.suspended_sources]

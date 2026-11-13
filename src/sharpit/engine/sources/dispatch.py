@@ -109,8 +109,10 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
         and (source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled)
         and source not in c.capture.suspended_sources
     ]
-    for c in targets:  # "recorded here" for a source with no wrap-time object, or an engine nothing registered
-        c.capture.delivered_sources.add(source)
+    if source == "sqlite3":  # raw sqlite3 has no wrap-time object: delivered here is its "in use" (write-once)
+        for c in targets:
+            if not c.capture.sqlite_delivered:
+                c.capture.sqlite_delivered = True
     return targets
 
 

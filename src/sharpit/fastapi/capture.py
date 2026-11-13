@@ -543,8 +543,12 @@ class CaptureWiring:
             return
         ctx.capture.suspended_sources.discard("sqlalchemy")
         try:
+            statements = ctx.capture.sql_trace is not None
             discovery = any(_panel_enabled(ctx, p) for p in sqla.DISCOVERY_PANELS)
-            sqla.add(ctx, statements=ctx.capture.sql_trace is not None, discovery=discovery)
+            # no discovery: the registry stays empty, so engines cannot be known here; statements still flow, and
+            # "SQL is recorded here" is then the attach itself (decided once, never per statement)
+            attached = sqla.add(ctx, statements=statements, discovery=discovery)
+            ctx.capture.engines_unseen = attached and statements and not discovery
         except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
             self.hook_failed("sql listeners", exc)
 
