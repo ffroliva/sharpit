@@ -107,8 +107,16 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
 def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_connection_state():
     handle = _install()
     with handle.engine.connect() as conn:
+        fairy = conn.connection
+        conn.execute(sa.text("select 0"))  # warm: SQLAlchemy creates its own lazy attributes on first use
+
+        def state() -> dict[str, object]:
+            return {k: dict(v) if isinstance(v, dict) else v for k, v in vars(fairy).items()}
+
+        before = state()
         conn.execute(sa.text("select 1"))
-        assert "_sharpit_checkout" not in conn.connection.__dict__  # the fairy carries nothing a statement would bump
+        conn.execute(sa.text("select 2"))
+        assert state() == before  # a statement writes nothing on the connection, under any key: no per-statement count
     _use(handle.engine, 3)
     assert [r["statements"] for r in _records(handle)] == [-1, -1]
 
