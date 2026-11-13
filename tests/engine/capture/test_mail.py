@@ -11,7 +11,7 @@ import sys
 import threading
 import types
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from email.message import EmailMessage
 from typing import Any, ClassVar, NamedTuple
 
@@ -565,6 +565,107 @@ def test_aiosmtplib_dev_trap_answers_the_library_shape_without_sending(fake_aios
         assert result == ({}, "OK")
         assert smtp.sent == []
         assert h.emails()["messages"][0]["sent"] is False
+
+
+_LATE_AIOSMTPLIB = """
+from typing import Any, NamedTuple
+attempts: list[object] = []
+
+
+class SMTPResponse(NamedTuple):
+    code: int
+    message: str
+
+
+class SMTP:
+    def __init__(self) -> None:
+        self.sent: list[Any] = []
+        self.protocol: Any = None
+
+    async def _create_connection(self, timeout: float | None) -> SMTPResponse:
+        attempts.append(timeout)
+        raise ConnectionRefusedError("no SMTP server reachable")
+
+    async def connect(self) -> SMTPResponse:
+        return await self._create_connection(timeout=None)
+
+    async def sendmail(self, sender: str, recipients: Any, message: Any, **_options: Any) -> tuple[dict[str, Any], str]:
+        self.sent.append(message)
+        return {}, "REAL"
+"""
+
+
+@pytest.fixture
+def late_aiosmtplib(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[], types.ModuleType]]:
+    """``aiosmtplib`` on the path but not imported: the host imports it later, inside a handler or a task."""
+    package = tmp_path / "aiosmtplib"
+    package.mkdir()
+    (package / "__init__.py").write_text(_LATE_AIOSMTPLIB, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "aiosmtplib", raising=False)
+
+    def import_it() -> types.ModuleType:
+        import importlib
+
+        return importlib.import_module("aiosmtplib")
+
+    yield import_it
+    sys.modules.pop("aiosmtplib", None)
+
+
+def test_an_aiosmtplib_imported_after_install_is_trapped(late_aiosmtplib: Callable[[], types.ModuleType]):
+    # finding #164 audit: a late import was never wrapped, so the mail left the process while the trap was on
+    with harness(email_dev_trap=True) as h:
+        module = late_aiosmtplib()
+
+        async def session() -> object:
+            smtp = module.SMTP()  # type: ignore[attr-defined]
+            try:
+                await smtp.connect()
+            except OSError:  # the untrapped connect reaches for a socket: recorded in ``attempts``
+                pass
+            await smtp.sendmail("a@x.test", ["b@x.test"], _message("late trapped").as_bytes())
+            return smtp.sent
+
+        sent = asyncio.run(session())
+        assert module.attempts == []  # type: ignore[attr-defined]
+        assert sent == []
+        assert [m["subject"] for m in h.emails()["messages"]] == ["late trapped"]
+
+
+def test_an_aiosmtplib_imported_after_install_is_captured_and_delivered_without_the_trap(
+    late_aiosmtplib: Callable[[], types.ModuleType],
+):
+    with harness() as h:
+        module = late_aiosmtplib()
+        smtp = module.SMTP()  # type: ignore[attr-defined]
+        asyncio.run(smtp.sendmail("a@x.test", ["b@x.test"], _message("late open").as_bytes()))
+        assert len(smtp.sent) == 1
+        assert [m["subject"] for m in h.emails()["messages"]] == ["late open"]
+
+
+def test_uninstall_before_a_late_import_leaves_aiosmtplib_unwrapped(late_aiosmtplib: Callable[[], types.ModuleType]):
+    with harness(email_dev_trap=True):
+        pass
+    module = late_aiosmtplib()
+    assert "__sharpit_original__" not in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+
+
+def test_uninstall_after_a_late_import_restores_it(late_aiosmtplib: Callable[[], types.ModuleType]):
+    with harness(email_dev_trap=True):
+        module = late_aiosmtplib()
+        assert "__sharpit_original__" in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+    assert "__sharpit_original__" not in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+    assert "__sharpit_original__" not in module.SMTP.__dict__["_create_connection"].__dict__  # type: ignore[attr-defined]
+
+
+def test_a_non_ascii_address_is_still_captured():
+    # finding #164 audit: formataddr raised UnicodeEncodeError, so the mail went unrecorded
+    raw = "\r\n".join(("From: app@example.test", "To: josé@exemplo.com", "Subject: accents", "", "body")).encode()
+    with harness() as h:
+        with smtplib.SMTP("127.0.0.1", h.sink.port) as smtp:
+            smtp.sendmail("app@example.test", ["alice@example.test"], raw)
+        assert [m["subject"] for m in h.emails()["messages"]] == ["accents"]
 
 
 def test_mail_journal_event_is_metadata_only():
