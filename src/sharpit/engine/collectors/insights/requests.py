@@ -52,18 +52,29 @@ class RequestIndex:
         self.requests = tuple(r for r in projected if not before_loss(r, loss_horizon))
         self.left_out = len(projected) - len(self.requests)
         self._by_id = {r.request_id: r for r in self.requests}
+        self._left_out_ids = frozenset(r.request_id for r in projected if r.request_id not in self._by_id)
         self._joined: dict[str, dict[str, list[dict[str, object]]]] = {}
         self._projected: dict[tuple[str, ...], tuple[Request, ...]] = {}
         self._by_trace: dict[str, Request] = {}
-        for request in self.requests:
+        for request in projected:  # a trace's owner is found among ALL requests, as BootUI's ``AiCallOwners`` does
             if request.trace_id:
                 self._by_trace.setdefault(request.trace_id, request)
 
     def owner(self, event: dict[str, object]) -> Request | None:
+        """The judged request an event belongs to. A left-out request's evidence joins none (``visibleEntries``)."""
         request_id = text_or_none(event.get("requestId"))
         if request_id:
             return self._by_id.get(request_id)
-        return self._by_trace.get(text_or_none(event.get("traceId")) or "")
+        owner = self._by_trace.get(text_or_none(event.get("traceId")) or "")
+        return owner if owner is not None and owner.request_id in self._by_id else None
+
+    def left_out_event(self, event: dict[str, object]) -> bool:
+        """Whether the event is a left-out request's own or a trace-only event of it: BootUI ``visibleEntries`` drops
+        it, so the coverage and the window do not count it."""
+        if request_id := text_or_none(event.get("requestId")):
+            return request_id in self._left_out_ids
+        owner = self._by_trace.get(text_or_none(event.get("traceId")) or "")
+        return owner is not None and owner.request_id in self._left_out_ids
 
     def _join(self, source: str, events: tuple[dict[str, object], ...]) -> dict[str, list[dict[str, object]]]:
         """``source``'s events by owning request id, computed once."""
@@ -107,9 +118,8 @@ def count(value: object) -> int | None:
 
 def ids_withheld(snapshot: Snapshot, consequence: str) -> str | None:
     """Why a kind cannot work: http events were recorded but none kept its request id (the exposure withheld them),
-    so ``consequence`` (what the kind cannot do). That is not "no eligible work"; the kind says so.
-
-    Follow-up: ``errors_behind_2xx`` (P-transaction) and ``ai_usage_by_route`` keep their own copies of this gate."""
+    so ``consequence`` (what the kind cannot do). That is not "no eligible work"; the kind says so. A request left out
+    before a loss kept its id, so it is not this: ``Snapshot.ids_withheld`` is the one gate every kind reads."""
     if not snapshot.ids_withheld:
         return None
     return f"Request ids are withheld at METADATA_ONLY exposure, so {consequence} (SHARPIT_EXPOSE_VALUES)."

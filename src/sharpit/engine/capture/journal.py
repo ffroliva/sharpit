@@ -207,6 +207,21 @@ def _mask(value: object, name: str, masker: Masker) -> object:
     return shown
 
 
+def _lost_start(event: Mapping[str, object], at: int, now: int) -> int | None:
+    """Where losing ``event`` moves the loss horizon: the start of a request, an execution or a trace's event
+    (``epochMillis``, else the sql event's ``startedAt``, else ``at``, when it was offered), never past ``now``, so a
+    stepped-back clock cannot hide every request until the restart. None for an event of none of them."""
+    get = event.get
+    if get("requestId") is None and get("executionId") is None and get("traceId") is None:
+        return None
+    started = get("epochMillis")
+    if not _count(started):
+        started = get("startedAt")
+        if not _count(started):
+            started = at
+    return min(cast("int", started), now)
+
+
 class RuntimeJournal:
     """In-memory event ring: O(1) append, raw events kept, masking applied when records are read."""
 
@@ -237,6 +252,7 @@ class RuntimeJournal:
         self._binding_bound: str | None = None
         self._accepting = True
         self._lock = threading.RLock()
+        self._clearing = threading.Lock()  # a clear walks what it dropped under this, never under the ring lock
         self._owned = cast("Any", self._lock)._is_owned  # noqa: SLF001  # whether THIS thread holds the lock
         self._copying = threading.local()  # set while this thread runs the host copy, which runs outside the lock
 
@@ -267,45 +283,40 @@ class RuntimeJournal:
             self._copying.active = False
         with self._lock:
             try:
-                return self._append(event, prepared)
+                return self._append(prepared)
             except Exception:  # noqa: BLE001 - as above
                 self._dropped[FAILED] += 1
                 return False
 
-    def _append(self, event: Event, prepared: tuple[object, int]) -> bool:
-        source = event.get("source")
+    def _append(self, prepared: tuple[object, int]) -> bool:
+        stored, size = prepared  # the plain copy: the host event's own methods never run under the lock
+        source = cast("Mapping[str, object]", stored).get("source")
         if not isinstance(source, str):
             self._dropped[FAILED] += 1
             return False
         if not self._accepting or (self.sources is not None and source not in self.sources):
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
-        stored, size = prepared
         stamp = time.time_ns() // 1_000_000
         if size > self.max_bytes:
             self._dropped[source] += 1  # one event larger than the whole byte bound
-            self._lose(event, stamp)  # EvidenceRing.add (v2.3.0): the refused event is lost too
+            self._lose(cast("Mapping[str, object]", stored), stamp, stamp)  # EvidenceRing.add (v2.3.0): lost too
             return False
         while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
             self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
             lost, removed, lost_at = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
-            self._lose(lost, lost_at)
             self._bytes -= removed
             self._evicted += 1
+            self._lose(lost, lost_at, stamp)
         self._events.append((cast("dict[str, object]", stored), size, stamp))
         self._bytes += size
         self._accepted[source] += 1
         return True
 
-    def _lose(self, event: Mapping[str, object], stamp: int) -> None:
-        """``EvidenceRing.lost``: the loss horizon moves past an evicted or cleared event of a request, an execution
-        or a trace, at its start (``epochMillis``, else the sql event's ``startedAt``, else when it was offered), never
-        past now, so a stepped-back clock cannot hide every request until the restart."""
-        if event.get("requestId") is None and event.get("executionId") is None and event.get("traceId") is None:
-            return
-        started = next((v for v in map(event.get, ("epochMillis", "startedAt")) if _count(v)), stamp)
-        started = min(cast("int", started), time.time_ns() // 1_000_000)
-        if self._loss_horizon is None or started > self._loss_horizon:
+    def _lose(self, event: Mapping[str, object], at: int, now: int) -> None:
+        """``EvidenceRing.lost`` for an evicted event: one int compared and stored under the lock, no allocation."""
+        started = _lost_start(event, at, now)
+        if started is not None and (self._loss_horizon is None or started > self._loss_horizon):
             self._loss_horizon = started
 
     def accepts(self, source: str) -> bool:
@@ -360,7 +371,7 @@ class RuntimeJournal:
         ``lossHorizonMillis``: the latest start of an evicted or cleared unit-of-work event, None while none was lost)
         from ONE lock acquisition."""
         held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
-        with self._lock:
+        with self._clearing, self._lock:  # a clear still walking what it dropped has not raised the horizon: wait
             status = self._status()
             horizon = self._loss_horizon
             newest = None
@@ -380,11 +391,14 @@ class RuntimeJournal:
             self._accepting = True
 
     def discard(self) -> None:
-        with self._lock:
-            for event, _, stamp in self._events:  # a running request loses what it recorded before the clear
-                self._lose(event, stamp)
-            self._events.clear()
-            self._bytes = 0
+        with self._clearing:  # a producer never takes it; a read waits on it
+            with self._lock:
+                cleared, self._events, self._bytes = self._events, deque(), 0
+            now = time.time_ns() // 1_000_000
+            lost = [s for event, _, at in cleared if (s := _lost_start(event, at, now)) is not None]
+            if lost:  # a running request loses what it recorded before the clear
+                with self._lock:
+                    self._loss_horizon = max(lost + [self._loss_horizon or 0])
 
     def status(self) -> dict[str, Any]:
         with self._lock:

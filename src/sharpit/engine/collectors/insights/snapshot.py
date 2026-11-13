@@ -43,6 +43,7 @@ PanelEnabled = Callable[[str], bool]
 
 # RuntimeInsightsService.LOSS_HORIZON_SLACK_MILLIS: how long after the horizon a request may still have lost an event
 LOSS_HORIZON_SLACK_MILLIS = 16
+LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"  # RuntimeInsightsService constant
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
 

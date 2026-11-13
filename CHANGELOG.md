@@ -7,7 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Runtime insights leave out, and count in the check's reason and the report's limitations, a request that started before events the journal evicted or cleared (BootUI's `LEFT_OUT_BEFORE_LOSS`): a request that lost its statements is no longer reported clean, including one whose statement was larger than the journal's whole byte bound, and the window's request count no longer includes a left-out request.
+- Runtime insights leave out, and count in the check's reason and the report's limitations, a request that started before events the journal evicted or cleared (BootUI's `LEFT_OUT_BEFORE_LOSS`): a request that lost its statements is no longer reported clean, including one whose statement was larger than the journal's whole byte bound, and the window's request count and the coverage no longer include a left-out request or its events, and a trace-only event of one joins no later request that shares its trace.
 
 ### Added
 

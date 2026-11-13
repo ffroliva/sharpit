@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
-from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
+from sharpit.engine.collectors.insights.snapshot import (
+    DEFAULT_AI_TOKEN_THRESHOLD,
+    LEFT_OUT_BEFORE_LOSS,
+    PanelEnabled,
+    Snapshot,
+    project,
+)
 from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
@@ -168,7 +174,9 @@ def _link(snapshot: Snapshot, event: Row) -> int:
 
 def _coverage(snapshot: Snapshot) -> list[Row]:
     rows: list[Row] = []
-    for source, events in snapshot.records.items():
+    index = snapshot.request_index
+    for source, retained in snapshot.records.items():
+        events = [e for e in retained if not index.left_out_event(e)]  # InsightsSnapshot.of reads the visible entries
         if not events:
             continue
         linked = [_link(snapshot, event) for event in events]
@@ -186,9 +194,6 @@ def _window(snapshot: Snapshot) -> Row:
         "retainedEvents": status["retainedEvents"], "requests": len(snapshot.records.get("http", ())) - left_out,
         "evictedEvents": status["evictedEvents"], "droppedEvents": status["droppedEvents"],
     }  # fmt: skip
-
-
-LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"  # RuntimeInsightsService constant
 
 
 def _left_out(units: int) -> str | None:
