@@ -30,6 +30,7 @@ from sharpit.engine.capture.exchanges import exchange_row, http_event
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.mail import HOOK as MAIL_HOOK
+from sharpit.engine.capture.mail import ensure_wrapped as ensure_mail_wrapped
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
 from sharpit.engine.context import application_family
@@ -639,6 +640,7 @@ class CaptureMiddleware:
                     buffer.count_hidden_self()
                 await self.app(scope, receive, send)
                 return
+            ensure_mail_wrapped()  # the host's traffic only: a read of sharpit's own routes patches nothing
             extensions: dict[str, Any] = scope.get("extensions") or {}
             if not extensions.get(PROBE_EXTENSION) and any(
                 k == PROBE_HEADER for k, _ in scope["headers"]
