@@ -4,14 +4,21 @@ at capture, secrets never reach an output, and the journal event holds metadata 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
+import importlib
+import importlib.abc
+import importlib.machinery
+import importlib.util
+import logging
 import smtplib
 import socket
 import sys
 import threading
 import types
+import unittest.mock
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from email.message import EmailMessage
 from typing import Any, ClassVar, NamedTuple
 
@@ -20,6 +27,7 @@ import pytest
 from fastapi import FastAPI, WebSocket
 from mailsink import API, OPTIONS, Harness, harness, isolated_mail_registry, smtp_sink
 from sharpit import install
+from sharpit.engine.capture import mail
 from sharpit.engine.panels import PANELS
 
 pytestmark = pytest.mark.usefixtures(isolated_mail_registry.__name__)
@@ -567,6 +575,382 @@ def test_aiosmtplib_dev_trap_answers_the_library_shape_without_sending(fake_aios
         assert h.emails()["messages"][0]["sent"] is False
 
 
+_LATE_AIOSMTPLIB = """
+from typing import Any, NamedTuple
+attempts: list[object] = []
+
+
+class SMTPResponse(NamedTuple):
+    code: int
+    message: str
+
+
+class SMTP:
+    def __init__(self) -> None:
+        self.sent: list[Any] = []
+        self.protocol: Any = None
+
+    async def _create_connection(self, timeout: float | None) -> SMTPResponse:
+        attempts.append(timeout)
+        raise ConnectionRefusedError("no SMTP server reachable")
+
+    async def connect(self) -> SMTPResponse:
+        return await self._create_connection(timeout=None)
+
+    async def sendmail(self, sender: str, recipients: Any, message: Any, **_options: Any) -> tuple[dict[str, Any], str]:
+        self.sent.append(message)
+        return {}, "REAL"
+"""
+
+
+def _purge_aiosmtplib() -> None:
+    for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
+        del sys.modules[name]
+
+
+def _late_package(tmp_path: Any, monkeypatch: pytest.MonkeyPatch, source: str, **submodules: str) -> None:
+    """A stand-in ``aiosmtplib`` package on the path, not imported."""
+    package = tmp_path / "aiosmtplib"
+    package.mkdir()
+    (package / "__init__.py").write_text(source, encoding="utf-8")
+    for name, text in submodules.items():
+        (package / f"{name}.py").write_text(text, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _purge_aiosmtplib()
+
+
+@pytest.fixture
+def late_aiosmtplib(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[], types.ModuleType]]:
+    """``aiosmtplib`` on the path but not imported: the host imports it later, inside a handler or a task."""
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB)
+
+    def import_it() -> types.ModuleType:
+        return importlib.import_module("aiosmtplib")
+
+    yield import_it
+    _purge_aiosmtplib()
+
+
+def test_an_aiosmtplib_imported_after_install_is_trapped(late_aiosmtplib: Callable[[], types.ModuleType]):
+    # finding #164 audit: a late import was never wrapped, so the mail left the process while the trap was on
+    with harness(email_dev_trap=True) as h:
+        module = late_aiosmtplib()
+
+        async def session() -> object:
+            smtp = module.SMTP()  # type: ignore[attr-defined]
+            with contextlib.suppress(OSError):  # the untrapped connect reaches for a socket: in ``attempts``
+                await smtp.connect()
+            await smtp.sendmail("a@x.test", ["b@x.test"], _message("late trapped").as_bytes())
+            return smtp.sent
+
+        sent = asyncio.run(session())
+        assert module.attempts == []  # type: ignore[attr-defined]
+        assert sent == []
+        assert [m["subject"] for m in h.emails()["messages"]] == ["late trapped"]
+
+
+def test_an_aiosmtplib_imported_after_install_is_captured_and_delivered_without_the_trap(
+    late_aiosmtplib: Callable[[], types.ModuleType],
+):
+    with harness() as h:
+        module = late_aiosmtplib()
+        smtp = module.SMTP()  # type: ignore[attr-defined]
+        asyncio.run(smtp.sendmail("a@x.test", ["b@x.test"], _message("late open").as_bytes()))
+        assert len(smtp.sent) == 1
+        assert [m["subject"] for m in h.emails()["messages"]] == ["late open"]
+
+
+def test_uninstall_before_a_late_import_leaves_aiosmtplib_unwrapped(late_aiosmtplib: Callable[[], types.ModuleType]):
+    with harness(email_dev_trap=True):
+        pass
+    module = late_aiosmtplib()
+    assert "__sharpit_original__" not in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+
+
+def test_uninstall_after_a_late_import_restores_it(late_aiosmtplib: Callable[[], types.ModuleType]):
+    with harness(email_dev_trap=True):
+        module = late_aiosmtplib()
+        assert "__sharpit_original__" in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+    assert "__sharpit_original__" not in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+    assert "__sharpit_original__" not in module.SMTP.__dict__["_create_connection"].__dict__  # type: ignore[attr-defined]
+
+
+def test_a_non_ascii_address_is_still_captured():
+    # finding #164 audit: formataddr raised UnicodeEncodeError, so the mail went unrecorded
+    raw = "\r\n".join(("From: app@example.test", "To: josé@exemplo.com", "Subject: accents", "", "body")).encode()
+    with harness() as h:
+        with smtplib.SMTP("127.0.0.1", h.sink.port) as smtp:
+            smtp.sendmail("app@example.test", ["alice@example.test"], raw)
+        assert [m["subject"] for m in h.emails()["messages"]] == ["accents"]
+
+
+def test_uninstall_leaves_no_recorder_when_smtplib_cannot_be_wrapped(monkeypatch: pytest.MonkeyPatch):
+    # code-review finding 1: a patched sendmail made arm() answer False and the teardown was never registered
+    monkeypatch.setattr(smtplib.SMTP, "sendmail", unittest.mock.MagicMock(name="host_sendmail"))
+    with harness(email_dev_trap=True):
+        assert mail._live()  # noqa: SLF001
+    assert mail._live() == []  # noqa: SLF001
+
+
+class _SeesTheImport(importlib.abc.MetaPathFinder):
+    """A post-import hook already on ``sys.meta_path`` (an APM agent, wrapt): it must still see ``aiosmtplib``."""
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> None:
+        self.seen.append(fullname)
+
+
+def _behind_the_hook(monkeypatch: pytest.MonkeyPatch, finder: importlib.abc.MetaPathFinder) -> None:
+    """Put ``finder`` right behind the trap hook, wherever an earlier test left the hook (it stays on ``meta_path``)."""
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    if mail._FINDER not in sys.meta_path:  # noqa: SLF001
+        sys.meta_path.insert(0, mail._FINDER)  # noqa: SLF001
+    sys.meta_path.insert(sys.meta_path.index(mail._FINDER) + 1, finder)  # noqa: SLF001
+
+
+def test_a_late_import_still_reaches_the_finders_behind_the_trap_hook(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 2: the hook answered from PathFinder alone, so later finders never saw the import
+    seen = _SeesTheImport()
+    with harness(email_dev_trap=True):
+        _behind_the_hook(monkeypatch, seen)  # ahead of PathFinder, as such hooks are
+        late_aiosmtplib()
+    assert "aiosmtplib" in seen.seen
+
+
+def test_a_reimported_aiosmtplib_is_wrapped_again(late_aiosmtplib: Callable[[], types.ModuleType]):
+    # code-review finding 7: the second import built a new class the stale wrap record skipped
+    with harness(email_dev_trap=True):
+        late_aiosmtplib()
+        del sys.modules["aiosmtplib"]
+        module = late_aiosmtplib()
+        assert "__sharpit_original__" in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+
+
+class _FrozenLoader:
+    __slots__ = ("_inner",)  # no instance dict: ``loader.exec_module = ...`` raises AttributeError
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def create_module(self, _spec: Any) -> None:
+        return None
+
+    def exec_module(self, module: types.ModuleType) -> None:
+        self._inner.exec_module(module)
+
+
+class _FrozenLoaderFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname != "aiosmtplib":
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        assert spec is not None
+        spec.loader = _FrozenLoader(spec.loader)
+        return spec
+
+
+def test_a_loader_the_hook_cannot_wrap_never_fails_the_hosts_import(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 4: an error inside the hook reached the host's ``import aiosmtplib``
+    with harness():
+        _behind_the_hook(monkeypatch, _FrozenLoaderFinder())
+        assert late_aiosmtplib().SMTP  # type: ignore[attr-defined]
+
+
+def test_the_real_aiosmtplib_imported_after_install_is_trapped(no_smtp_server: list[object]):
+    # the real package, not the stand-in: its ``send`` must be captured; without the hook it reaches for the network
+    _purge_aiosmtplib()
+    try:
+        with harness(email_dev_trap=True) as h:
+            real = importlib.import_module("aiosmtplib")
+            errors, reply = asyncio.run(real.send(_message("real late"), hostname="smtp.example.test", port=587))
+            assert errors == {}
+            assert reply
+            assert [m["subject"] for m in h.emails()["messages"]] == ["real late"]
+    finally:
+        _purge_aiosmtplib()
+
+
+class _BusyLock:
+    """A registry lock another thread holds past the wait: ``acquire`` gives up at once."""
+
+    def acquire(self, *_args: object, **_kwargs: object) -> bool:
+        return False
+
+    def release(self) -> None:
+        raise AssertionError("released a lock that was never acquired")
+
+
+def _wrapped_after_late_import(module: types.ModuleType) -> bool:
+    return "__sharpit_original__" in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+
+
+def _import_refused_without_a_socket(attempts: list[object]) -> None:
+    with pytest.raises(ImportError, match="dev trap"):
+        importlib.import_module("aiosmtplib")
+    assert [n for n in sys.modules if n.startswith("aiosmtplib")] == []  # nothing that could send is left loaded
+    assert attempts == []  # an import opens no connection of its own
+
+
+def test_a_loader_the_hook_cannot_wrap_refuses_the_import_while_the_trap_is_on(
+    late_aiosmtplib: Callable[[], types.ModuleType], no_smtp_server: list[object], monkeypatch: pytest.MonkeyPatch
+):
+    # fail closed (owner, PR #182 r2): unwrapped, aiosmtplib would send real mail past the trap
+    with harness(email_dev_trap=True):
+        _behind_the_hook(monkeypatch, _FrozenLoaderFinder())
+        _import_refused_without_a_socket(no_smtp_server)
+
+
+def test_a_wrap_that_fails_after_the_load_refuses_the_import_while_the_trap_is_on(
+    late_aiosmtplib: Callable[[], types.ModuleType], no_smtp_server: list[object], monkeypatch: pytest.MonkeyPatch
+):
+    with harness(email_dev_trap=True):
+        monkeypatch.setattr(mail, "_wrap_senders", unittest.mock.Mock(side_effect=RuntimeError("wrap failed")))
+        _import_refused_without_a_socket(no_smtp_server)
+
+
+def test_a_registry_lock_that_stays_busy_refuses_the_import_while_the_trap_is_on(
+    late_aiosmtplib: Callable[[], types.ModuleType], no_smtp_server: list[object], monkeypatch: pytest.MonkeyPatch
+):
+    with harness(email_dev_trap=True), monkeypatch.context() as patch:
+        patch.setattr(mail, "_LOCK", _BusyLock())
+        _import_refused_without_a_socket(no_smtp_server)
+
+
+def test_a_registry_lock_that_stays_busy_does_not_fail_the_import_without_the_trap(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # the trap off keeps its behaviour: the module loads, unwrapped
+    with harness(), monkeypatch.context() as patch:
+        patch.setattr(mail, "_LOCK", _BusyLock())
+        module = late_aiosmtplib()
+        assert not _wrapped_after_late_import(module)
+
+
+def test_a_failed_wrap_does_not_fail_the_import_without_the_trap(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    with harness():
+        monkeypatch.setattr(mail, "_wrap_senders", unittest.mock.Mock(side_effect=RuntimeError("wrap failed")))
+        assert late_aiosmtplib().SMTP  # type: ignore[attr-defined]
+
+
+def test_an_aiosmtplib_that_is_not_installed_still_raises_module_not_found_under_the_trap(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # nothing loads, so nothing can send: the host's ``except ImportError`` keeps working
+    monkeypatch.delitem(sys.modules, "aiosmtplib", raising=False)
+    with harness(email_dev_trap=True), monkeypatch.context() as patch:
+        patch.setattr(sys, "path", [])
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("aiosmtplib")
+
+
+def _import_or_the_refusal(name: str) -> types.ModuleType | ImportError:
+    try:
+        return importlib.import_module(name)
+    except ImportError as exc:
+        return exc
+
+
+class _SharedLoader(importlib.abc.Loader):
+    """One loader instance for several modules, as zipimporter or a frozen importer is."""
+
+    def __init__(self, sources: dict[str, str]) -> None:
+        self.sources = sources
+
+    def create_module(self, _spec: Any) -> None:
+        return None
+
+    def exec_module(self, module: types.ModuleType) -> None:
+        exec(self.sources[module.__name__], module.__dict__)  # noqa: S102 - a test stand-in's own source
+
+
+class _SharedLoaderFinder(importlib.abc.MetaPathFinder):
+    def __init__(self, loader: _SharedLoader) -> None:
+        self.loader = loader
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname in self.loader.sources:
+            return importlib.util.spec_from_loader(fullname, self.loader)
+        return None
+
+
+def test_a_probe_of_aiosmtplib_does_not_break_other_modules_of_a_shared_loader(monkeypatch: pytest.MonkeyPatch):
+    # code-review finding 1: the patch stayed on the shared loader and refused every later module it loaded
+    _purge_aiosmtplib()
+    loader = _SharedLoader({"aiosmtplib": _LATE_AIOSMTPLIB, "sharpit_probe_other": "VALUE = 1"})
+    try:
+        with harness(email_dev_trap=True):
+            _behind_the_hook(monkeypatch, _SharedLoaderFinder(loader))
+            assert importlib.util.find_spec("aiosmtplib")  # an availability probe, no import
+            other = _import_or_the_refusal("sharpit_probe_other")
+            assert isinstance(other, types.ModuleType), other
+            assert other.VALUE == 1  # type: ignore[attr-defined]
+    finally:
+        sys.modules.pop("sharpit_probe_other", None)
+        _purge_aiosmtplib()
+
+
+def test_repeated_probes_patch_a_shared_loader_once(monkeypatch: pytest.MonkeyPatch):
+    loader = _SharedLoader({"aiosmtplib": _LATE_AIOSMTPLIB})
+    original = loader.exec_module
+    patched: list[object] = []
+    with harness(email_dev_trap=True):
+        _behind_the_hook(monkeypatch, _SharedLoaderFinder(loader))
+        for _ in range(3):
+            importlib.util.find_spec("aiosmtplib")
+            patched.append(loader.__dict__.get("exec_module"))
+    assert len({id(p) for p in patched}) == 1  # the same wrapper each time, not a new layer over the last
+    assert original is not patched[0]
+
+
+def test_a_late_aiosmtplib_whose_connect_cannot_be_wrapped_is_refused_while_the_trap_is_on(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 2: only sendmail was required; ``connect`` is the wrap that stops the socket
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB.replace("SMTPResponse", "NotAResponse"))
+    try:
+        with harness(email_dev_trap=True):
+            _import_refused_without_a_socket([])
+    finally:
+        _purge_aiosmtplib()
+
+
+def test_a_refused_aiosmtplib_leaves_none_of_its_submodules_loaded(tmp_path: Any, monkeypatch: pytest.MonkeyPatch):
+    # code-review finding 3: ``from aiosmtplib.smtp import SMTP`` would then bypass the refusal
+    _late_package(tmp_path, monkeypatch, _LATE_AIOSMTPLIB + "\nfrom . import smtp\n", smtp="VALUE = 1")
+    try:
+        with harness(email_dev_trap=True):
+            monkeypatch.setattr(mail, "_wrap_senders", unittest.mock.Mock(side_effect=RuntimeError("wrap failed")))
+            _import_refused_without_a_socket([])
+    finally:
+        _purge_aiosmtplib()
+
+
+class _FindModuleOnly:
+    """A legacy finder: no ``find_spec``, which the import system skips."""
+
+    def find_module(self, fullname: str, path: Any = None) -> None:
+        return None
+
+
+def test_a_meta_path_finder_without_find_spec_does_not_refuse_the_import(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 4: the hook's AttributeError became a refusal of an installed, wrappable module
+    with harness(email_dev_trap=True):
+        _behind_the_hook(monkeypatch, _FindModuleOnly())  # type: ignore[arg-type]
+        module = _import_or_the_refusal("aiosmtplib")
+        assert isinstance(module, types.ModuleType), module
+        assert _wrapped_after_late_import(module)
+
+
 def test_mail_journal_event_is_metadata_only():
     # ported: EmailCaptureServiceTests.publishesOnlyTheEmailsMetadataToTheRuntimeJournal
     with harness() as h:
@@ -666,3 +1050,262 @@ def test_the_exposed_flags_report_the_settings():
         report = h.emails()
         assert report["devTrapEnabled"] is True
         assert report["maxEntries"] == 7
+
+
+class _AheadFinder(importlib.abc.MetaPathFinder):
+    """Another library's import hook at ``sys.meta_path[0]``: it answers first, so the trap's hook never sees it."""
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        return importlib.machinery.PathFinder.find_spec(fullname, path) if fullname == "aiosmtplib" else None
+
+
+def test_an_aiosmtplib_loaded_past_the_hook_is_trapped_by_the_next_request(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 review: a finder inserted ahead of the hook loaded aiosmtplib unwrapped, so the trap leaked
+    with harness(email_dev_trap=True) as h:
+        h.client.get("/warm-up")  # the first request is the attachers' last retry: the import comes after it
+        monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
+        module = late_aiosmtplib()
+        assert not _wrapped_after_late_import(module)  # the side door: the hook never ran
+
+        @h.app.get("/send-late")
+        async def send_late() -> dict[str, int]:
+            smtp = module.SMTP()  # type: ignore[attr-defined]
+            with contextlib.suppress(OSError):  # the untrapped connect reaches for a socket: in ``attempts``
+                await smtp.connect()
+            await smtp.sendmail("a@x.test", ["b@x.test"], _message("side door").as_bytes())
+            return {"sent": len(smtp.sent)}
+
+        assert h.client.get("/send-late").json() == {"sent": 0}
+        assert module.attempts == []  # type: ignore[attr-defined]
+        assert [m["subject"] for m in h.emails()["messages"]] == ["side door"]
+
+
+def test_an_aiosmtplib_imported_while_arm_is_between_its_wrap_and_its_watch_is_wrapped(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 review: arm() wrapped, then checked sys.modules to decide on the hook; an import in between got neither
+    reached, imported = threading.Event(), threading.Event()
+    modules: list[types.ModuleType] = []
+
+    def other_thread() -> None:
+        assert reached.wait(5)
+        modules.append(late_aiosmtplib())
+        imported.set()
+
+    real_watch = mail._watch_import  # noqa: SLF001
+
+    def watch_after_the_import() -> None:
+        reached.set()
+        assert imported.wait(5)
+        real_watch()
+
+    monkeypatch.setattr(sys, "meta_path", [f for f in sys.meta_path if f is not mail._FINDER])  # noqa: SLF001
+    monkeypatch.setattr(mail, "_watch_import", watch_after_the_import)
+    worker = threading.Thread(target=other_thread)
+    worker.start()
+    with harness(email_dev_trap=True):
+        worker.join(5)
+        assert _wrapped_after_late_import(modules[0])
+
+
+def test_a_request_does_not_purge_an_aiosmtplib_another_thread_is_still_importing(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 code-review: the second layer read a half-initialised module as one that bypassed the hook
+    gate = types.SimpleNamespace(reached=threading.Event(), release=threading.Event())
+    monkeypatch.setitem(sys.modules, "_sharpit_gate", gate)
+    held = "import _sharpit_gate as g; g.reached.set(); g.release.wait(5)"
+    _late_package(tmp_path, monkeypatch, f"{held}\n{_LATE_AIOSMTPLIB}")
+    modules: list[types.ModuleType | ImportError] = []
+    worker = threading.Thread(target=lambda: modules.append(_import_or_the_refusal("aiosmtplib")))
+    try:
+        with harness(email_dev_trap=True):
+            worker.start()
+            assert gate.reached.wait(5)
+            mail.ensure_wrapped()  # a request on another thread, mid-import
+            gate.release.set()
+            worker.join(5)
+            assert isinstance(modules[0], types.ModuleType)
+            assert _wrapped_after_late_import(modules[0])
+    finally:
+        gate.release.set()
+        _purge_aiosmtplib()
+
+
+def test_reading_the_emails_never_wraps_aiosmtplib(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r3 code-review: a GET must not patch host classes (AGENTS.md: reads have no side effects)
+    with harness(email_dev_trap=True) as h:
+        h.client.get("/warm-up")
+        monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
+        module = late_aiosmtplib()
+        assert h.emails()["messages"] == []
+        assert not _wrapped_after_late_import(module)
+
+
+def _loaded_past_the_hook(
+    h: Harness, late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+) -> types.ModuleType:
+    h.client.get("/warm-up")  # the first request is the attachers' last retry: the import comes after it
+    monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
+    return late_aiosmtplib()
+
+
+def test_a_request_start_never_waits_for_the_mail_registry_lock(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: the check blocked the event loop up to 5 s while another thread held the registry lock;
+    # r5: no wall-clock threshold, a blocking request start shows as a join timeout while the holder still holds
+    with harness(email_dev_trap=True) as h:
+        module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        holding, release = threading.Event(), threading.Event()
+        still_held: list[bool] = []
+
+        def holder() -> None:
+            with mail._LOCK:  # noqa: SLF001 - another thread is inside arm()
+                holding.set()
+                release.wait(10)
+                still_held.append(mail._LOCK.locked())  # noqa: SLF001
+
+        holder_thread = threading.Thread(target=holder)
+        holder_thread.start()
+        assert holding.wait(5)
+        request = threading.Thread(target=mail.ensure_wrapped)
+        request.start()
+        request.join(2)
+        returned = not request.is_alive()
+        release.set()  # only after the request start had its chance to return
+        request.join(10)
+        holder_thread.join(10)
+        assert returned
+        assert still_held == [True]
+        assert not _wrapped_after_late_import(module)
+        mail.ensure_wrapped()  # the next request start covers it
+        assert _wrapped_after_late_import(module)
+
+
+def test_a_reload_that_replaces_the_smtp_class_is_wrapped_again(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: the second layer compared module objects, and a reload keeps the module object
+    with harness(email_dev_trap=True) as h:
+        module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        mail.ensure_wrapped()
+        assert _wrapped_after_late_import(module)
+        namespace: dict[str, Any] = {}
+        exec(_LATE_AIOSMTPLIB, namespace)  # noqa: S102 - what importlib.reload does to the same module object
+        module.SMTP = namespace["SMTP"]  # type: ignore[attr-defined]
+        assert not _wrapped_after_late_import(module)
+        mail.ensure_wrapped()
+        assert _wrapped_after_late_import(module)
+
+
+def test_the_module_that_just_loaded_is_the_one_wrapped(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: _wrap_senders looked "aiosmtplib" up again in sys.modules, not the module it was given
+    with harness(email_dev_trap=True) as h:
+        module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        real_unwrap = mail._unwrap  # noqa: SLF001
+
+        def swap_then_unwrap(families: Any) -> None:
+            sys.modules["aiosmtplib"] = types.ModuleType("aiosmtplib")  # another thread replaced the entry
+            real_unwrap(families)
+
+        monkeypatch.setattr(mail, "_unwrap", swap_then_unwrap)
+        mail.ensure_wrapped()
+        assert _wrapped_after_late_import(module)
+
+
+class _FailingFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname == "aiosmtplib":
+            raise ImportError("behind failed")
+        return None
+
+
+def test_an_import_error_from_a_finder_behind_the_hook_is_not_replaced_by_the_refusal(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: a finder's own ImportError means nothing loads, so the host must see that error
+    with harness(email_dev_trap=True):
+        behind = sys.meta_path.index(mail._FINDER) + 1  # noqa: SLF001
+        monkeypatch.setattr(sys, "meta_path", [*sys.meta_path[:behind], _FailingFinder(), *sys.meta_path[behind:]])
+        with pytest.raises(ImportError, match="behind failed"):
+            late_aiosmtplib()
+
+
+class _HostileModule(types.ModuleType):
+    def __getattr__(self, name: str) -> Any:
+        raise RuntimeError(f"lazy attribute {name} cannot load")
+
+
+def test_a_hostile_aiosmtplib_module_never_raises_into_the_request_start(monkeypatch: pytest.MonkeyPatch):
+    # PR #182 r4 code-review: the reads at the top of ensure_wrapped sat outside the guard
+    with harness(email_dev_trap=True):
+        monkeypatch.setattr(mail, "_seen", weakref.ref(_HostileModule))  # a module already wrapped once
+        monkeypatch.setitem(sys.modules, "aiosmtplib", _HostileModule("aiosmtplib"))
+        raised: Exception | None = None
+        try:
+            mail.ensure_wrapped()
+        except Exception as exc:  # noqa: BLE001 - the assertion below names it
+            raised = exc
+        assert raised is None
+
+
+def _unwrappable_past_the_hook(
+    h: Harness, late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+) -> types.ModuleType:
+    module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+    monkeypatch.setattr(mail, "_wrap_senders", unittest.mock.Mock(side_effect=RuntimeError("wrap failed")))
+    return module
+
+
+def test_a_request_start_leaves_the_hosts_aiosmtplib_module_loaded_when_it_cannot_wrap_it(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r5 decision: evicting cannot stop a host holding the module, and a later import makes a second module
+    # object, which breaks the host's isinstance checks
+    with harness(email_dev_trap=True) as h:
+        module = _unwrappable_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        mail.ensure_wrapped()
+        assert sys.modules.get("aiosmtplib") is module
+        assert importlib.import_module("aiosmtplib") is module
+        assert module.SMTP  # type: ignore[attr-defined]
+
+
+def test_an_unwrappable_aiosmtplib_is_counted_and_warned_once_per_module_object(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    with harness(email_dev_trap=True) as h, caplog.at_level(logging.WARNING, logger="sharpit"):
+        _unwrappable_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        for _ in range(3):
+            mail.ensure_wrapped()
+        journal = h.handle.context.capture.journal
+        assert journal is not None
+        assert journal.status()["dropped"].get("mail-trap") == 1
+        warned = [r for r in caplog.records if "dev email trap cannot hold" in r.getMessage()]
+        assert len(warned) == 1
+        assert "aiosmtplib imported before it could wrap it" in warned[0].getMessage()
+
+
+# coordinator review (#182): a module already reported as beyond the trap is not wrapped again at every request start
+def test_a_reported_unwrappable_aiosmtplib_is_not_retried_at_every_request_start(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    with harness(email_dev_trap=True) as h:
+        _unwrappable_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        attempts: list[object] = []
+        real = mail._wrap_loaded  # pyright: ignore[reportPrivateUsage]
+
+        def counting(module: object, **kwargs: object) -> None:
+            attempts.append(module)
+            real(module, **kwargs)  # pyright: ignore[reportArgumentType]
+
+        monkeypatch.setattr(mail, "_wrap_loaded", counting)
+        for _ in range(3):
+            mail.ensure_wrapped()
+        assert len(attempts) == 1

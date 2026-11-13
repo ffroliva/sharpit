@@ -64,6 +64,7 @@ test = [
     "opentelemetry-sdk>=1.26",  # A12 resolver rows use the real ReadableSpan shape
     "prometheus-client>=0.20",  # observed libraries, tests only, like opentelemetry-sdk
     "apscheduler>=3.10.2,<4",  # 3.10.0-3.10.1 import pkg_resources (no setuptools on --resolution lowest-direct)
+    "aiosmtplib>=4.0",  # the real package for the late-import test (3.x lacks what the trap protocol answers); tests only
 ]
 
 [dependency-groups]
