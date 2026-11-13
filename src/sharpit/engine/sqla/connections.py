@@ -61,26 +61,12 @@ class Checkout:
         self.obtained_ns = time.perf_counter_ns()  # last, so the clock starts after the bookkeeping above
 
 
-_following = False  # set by ``listeners`` under its lock; the pool listeners stay installed and read it (see there)
-
-
-def set_following(following: bool) -> None:
-    """Whether any context follows connections. The pool listeners are never removed while the process runs (removing
-    one during another thread's checkout can fail the host's pool call), so this flag is what switches them off."""
-    global _following  # noqa: PLW0603
-    _following = following
-
-
-def following() -> bool:
-    return _following
-
-
 def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
     """Start following the connection just obtained, when a journal that records the source will take it."""
     del dbapi_connection
     try:
         record.info.pop(CHECKOUT_KEY, None)  # a state left by a checkout whose checkin listener was gone is not ours
-        if not _following or INTERNAL.get():
+        if INTERNAL.get():
             return
         pool = getattr(proxy, "_pool", None)
         targets = dispatch.connection_targets(pool, SOURCE)
