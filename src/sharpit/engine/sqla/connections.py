@@ -94,7 +94,8 @@ def checkin(dbapi_connection: Any, record: Any) -> None:
 def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
     journal = ctx.capture.journal
     recorder = ctx.capture.sql_trace
-    if journal is None or recorder is None:
+    # another install keeps the shared listeners attached: a suspended capture still takes nothing
+    if journal is None or recorder is None or "sqlalchemy" in ctx.capture.suspended_sources:
         return
     try:  # the event is built inside the guard: a failure loses this event, never the host's release
         registry = ctx.capture.engine_registry
