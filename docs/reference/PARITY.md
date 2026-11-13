@@ -1,5 +1,8 @@
 # BootUI 2.2.0 panel parity
 
+> The 0.5.0 record against BootUI 2.2.0. For where sharpit stands now (0.6.0 against BootUI 2.3.0 and 2.4.0), see
+> [ROADMAP.md](../../ROADMAP.md).
+
 Every panel id in BootUI 2.2.0 (`tests/fixtures/bootui/2.2.0/ids.json`) and where sharpit stands on it at 0.5.0.
 
 The D2 and D4 drift lanes (capture panels; `vulnerabilities`, `mcp-server`, `rest-api`) added no new golden captures. The goldens in `tests/fixtures/bootui/2.2.0/` are the 2026-11-02 captures; the drift lanes added `nullable.json` key reasons and parity or key-presence tests against those captures, so the counts below did not move. "Drift done" means every key and route in the drift plans that sharpit can fill; what it cannot (memory keys and the journal on `activity`, CVSS v4.0 score selection and `sampleLocations` on `vulnerabilities` and `rest-api`) is in the 0.5.0 changelog.
