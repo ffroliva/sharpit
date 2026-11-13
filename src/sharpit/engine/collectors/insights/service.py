@@ -188,14 +188,36 @@ def _window(snapshot: Snapshot) -> Row:
     }  # fmt: skip
 
 
+LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"  # RuntimeInsightsService constant
+
+
+def _left_out(units: int) -> str | None:
+    """``leftOutBeforeLoss``: the requests left out because they started before an event the journal lost."""
+    if not units:
+        return None
+    one = units == 1
+    return (
+        f"{counted(units, 'request or execution', 'requests or executions')} {LEFT_OUT_BEFORE_LOSS}, so "
+        f"{'it is left out: some of its' if one else 'they are left out: some of their'} events may be missing."
+    )
+
+
+def _left_out_reasons(observation: Observation, snapshot: Snapshot) -> list[str]:
+    left_out = _left_out(snapshot.request_index.left_out) if getattr(observation, "uses_requests", True) else None
+    return [left_out] if left_out else []
+
+
 def _limitations(snapshot: Snapshot) -> list[str]:
     evicted = int(snapshot.status["evictedEvents"])
-    if not evicted:
-        return []
-    return [
-        f"The journal evicted {counted(evicted, 'older event')}, so requests before the oldest retained event "
-        "are not projected."
-    ]
+    limitations: list[str] = []
+    if evicted:
+        limitations.append(
+            f"The journal evicted {counted(evicted, 'older event')}, so requests before the oldest retained event "
+            "are not projected."
+        )
+    if left_out := _left_out(snapshot.request_index.left_out):
+        limitations.append(left_out)
+    return limitations
 
 
 def _report(
@@ -302,6 +324,7 @@ class InsightsService:
             reasons.append(
                 self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
             )  # masked away: still say work went uncounted
+        reasons += _left_out_reasons(observation, snapshot)  # what it did not judge: empty is not "nothing found"
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
         status = _check_status(evaluation.worked, partial)

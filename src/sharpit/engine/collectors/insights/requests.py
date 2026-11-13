@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from sharpit.engine.collectors.insights.snapshot import Snapshot
+from sharpit.engine.collectors.insights.snapshot import LOSS_HORIZON_SLACK_MILLIS, Snapshot
 
 
 @dataclass(frozen=True)
@@ -36,9 +36,9 @@ class Request:
 class RequestIndex:
     """The retained http requests and the join of an event to one of them."""
 
-    def __init__(self, records: tuple[dict[str, object], ...]) -> None:
+    def __init__(self, records: tuple[dict[str, object], ...], loss_horizon: int | None = None) -> None:
         # a record without a request id (withheld by the exposure, or never written) is no request: never ``str(None)``
-        self.requests = tuple(
+        projected = tuple(
             Request(
                 request_id, str(r.get("route") or ""), text_or_none(r.get("traceId")), text_or_none(r.get("method")),
                 count(r.get("status")), count(r.get("durationNanos")),
@@ -47,6 +47,10 @@ class RequestIndex:
             for r in records
             if (request_id := text_or_none(r.get("requestId")))
         )  # fmt: skip
+        # ``RuntimeInsightsService.visibleEntries``: a request that started at or before the journal's loss horizon may
+        # have lost events of its own, so judging it would read a missing statement as one that never happened.
+        self.requests = tuple(r for r in projected if not before_loss(r, loss_horizon))
+        self.left_out = len(projected) - len(self.requests)
         self._by_id = {r.request_id: r for r in self.requests}
         self._joined: dict[str, dict[str, list[dict[str, object]]]] = {}
         self._projected: dict[tuple[str, ...], tuple[Request, ...]] = {}
@@ -79,6 +83,14 @@ class RequestIndex:
         return projected
 
 
+def before_loss(request: Request, loss_horizon: int | None) -> bool:
+    """``beforeLoss``: it started at or before the horizon plus the slack; a request with no start time cannot be
+    placed, so it is left out whenever anything was lost (fail closed)."""
+    if loss_horizon is None:
+        return False
+    return request.started_at is None or request.started_at <= loss_horizon + LOSS_HORIZON_SLACK_MILLIS
+
+
 def project_requests(snapshot: Snapshot, *sources: str) -> tuple[Request, ...]:
     """The retained http requests, each with its children from ``sources`` (recorded ones only), in journal order.
     Shared per snapshot: read, never mutate."""
@@ -98,6 +110,6 @@ def ids_withheld(snapshot: Snapshot, consequence: str) -> str | None:
     so ``consequence`` (what the kind cannot do). That is not "no eligible work"; the kind says so.
 
     Follow-up: ``errors_behind_2xx`` (P-transaction) and ``ai_usage_by_route`` keep their own copies of this gate."""
-    if snapshot.requests or not snapshot.records.get("http"):
+    if not snapshot.ids_withheld:
         return None
     return f"Request ids are withheld at METADATA_ONLY exposure, so {consequence} (SHARPIT_EXPOSE_VALUES)."

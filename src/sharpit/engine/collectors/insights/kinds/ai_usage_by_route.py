@@ -44,7 +44,7 @@ def _count(value: object) -> int | None:
 
 def not_applicable(snapshot: Snapshot) -> str | None:
     requests = snapshot.requests
-    if not requests and snapshot.records.get("http"):
+    if snapshot.ids_withheld:
         return IDS_WITHHELD  # http records exist but none names an id: the exposure withheld them
     if not requests or any(r.trace_id for r in requests):
         return None

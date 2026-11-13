@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Runtime insights leave out, and count in the check's reason and the report's limitations, a request that started before events the journal evicted or cleared (BootUI's `LEFT_OUT_BEFORE_LOSS`): a request that lost its statements is no longer reported clean.
+
 ### Added
 
 - Runtime insights `safe-method-dml` (a GET or HEAD request that executed an INSERT, UPDATE, DELETE or MERGE, one finding per route naming the verb, never the statement); `lazy-sql-after-handler` answers not applicable because sharpit marks no handler end.

@@ -232,6 +232,7 @@ class RuntimeJournal:
         self._accepted: Counter[str] = Counter()
         self._dropped: Counter[str] = Counter()
         self._evicted = 0
+        self._loss_horizon: int | None = None  # EvidenceRing.lossHorizonMillis
         self._reentrant = 0  # a plain int, never a Counter key: a refusal during a read must not resize what it walks
         self._binding_bound: str | None = None
         self._accepting = True
@@ -286,13 +287,25 @@ class RuntimeJournal:
         stamp = time.time_ns() // 1_000_000
         while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
             self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
-            _, removed, _ = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
+            lost, removed, lost_at = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
+            self._lose(lost, lost_at)
             self._bytes -= removed
             self._evicted += 1
         self._events.append((cast("dict[str, object]", stored), size, stamp))
         self._bytes += size
         self._accepted[source] += 1
         return True
+
+    def _lose(self, event: Mapping[str, object], stamp: int) -> None:
+        """``EvidenceRing.lost``: the loss horizon moves past an evicted or cleared event of a request, an execution
+        or a trace, at its start (``epochMillis``, else the sql event's ``startedAt``, else when it was offered), never
+        past now, so a stepped-back clock cannot hide every request until the restart."""
+        if event.get("requestId") is None and event.get("executionId") is None and event.get("traceId") is None:
+            return
+        started = next((v for v in map(event.get, ("epochMillis", "startedAt")) if _count(v)), stamp)
+        started = min(cast("int", started), time.time_ns() // 1_000_000)
+        if self._loss_horizon is None or started > self._loss_horizon:
+            self._loss_horizon = started
 
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
@@ -341,18 +354,21 @@ class RuntimeJournal:
 
     def view(
         self, sources: Iterable[str]
-    ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None]:
-        """``status()``, ``records(s)`` per source and the newest event's epoch ms from ONE lock acquisition."""
+    ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None, int | None]:
+        """``status()``, ``records(s)`` per source, the newest event's epoch ms and the loss horizon (BootUI
+        ``lossHorizonMillis``: the latest start of an evicted or cleared unit-of-work event, None while none was lost)
+        from ONE lock acquisition."""
         held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
         with self._lock:
             status = self._status()
+            horizon = self._loss_horizon
             newest = None
             for event, _, stamp in self._events:  # one pass, whatever the number of sources read
                 if (bucket := held.get(cast("str", event.get("source")))) is not None:
                     bucket.append(event)
                 newest = stamp if newest is None or stamp > newest else newest  # BootUI takes the max epoch
         memo: dict[tuple[str, str | None], object] = {}
-        return status, {s: self._masked(s, events, memo) for s, events in held.items()}, newest
+        return status, {s: self._masked(s, events, memo) for s, events in held.items()}, newest, horizon
 
     def suspend(self) -> None:
         with self._lock:
@@ -364,6 +380,8 @@ class RuntimeJournal:
 
     def discard(self) -> None:
         with self._lock:
+            for event, _, stamp in self._events:  # a running request loses what it recorded before the clear
+                self._lose(event, stamp)
             self._events.clear()
             self._bytes = 0
 
