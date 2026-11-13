@@ -14,11 +14,10 @@ from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
-from sharpit.engine.collectors.insights.sqlcapture import DISABLED as SQL_CAPTURE_DISABLED
 from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
+from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
-from sharpit.engine.sqla import TRACING_DISABLED, sql_trace_unavailable_reason
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -312,7 +311,8 @@ class InsightsService:
 
 
 def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: SqlCapture) -> str | None:
-    """The SQL-capture caveat for a read of SQL (required or optional) once statements were journaled, else None."""
+    """The SQL-capture caveat for a read of SQL (required or optional) while a SQL source is enabled and producing for
+    the journal (BootUI ``snapshot.records``: the source is on, not that statements exist), else None."""
     if capture.reason is None or not any(snapshot.journaled(s) for s in SQL_SOURCES):
         return None
     if not (observation.reads | observation.optional_reads) & SQL_SOURCES:
@@ -342,12 +342,6 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         panel = ctx.settings.panels.get(panel_id)
         return panel is None or panel.enabled
 
-    def sql_capture() -> SqlCapture:  # SqlCapture.of: switched off, no recorder (neither source in use), or capturing
-        reason = sql_trace_unavailable_reason(ctx)
-        if reason is None:
-            return SqlCapture.capturing()
-        return SqlCapture.not_recorded(SQL_CAPTURE_DISABLED if reason == TRACING_DISABLED else None)
-
     return ctx.lazy(
-        "runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, sql_capture)
+        "runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx))
     )
