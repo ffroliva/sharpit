@@ -580,3 +580,56 @@ def test_errors_behind_2xx_claims_no_transaction_evidence_while_its_panel_is_dis
     client, handle = _tutorial(tmp_path, panels={"transactions": {"enabled": False}})
     assert client.get("/items/undo").status_code == 200
     assert _k2(handle)["status"] == "NOT_APPLICABLE"
+
+
+# BootUI ``TransactionRecorder.record`` (v2.3.0, 296-340) offers the event from the ``active`` map, whatever the buffer did.
+def test_transaction_journal_event_survives_the_panel_row_being_cleared():
+    handle, engine = _install()
+    with engine.begin() as conn:
+        _read(conn)
+        handle.context.capture.transactions.clear()  # DELETE /transactions while the transaction is open
+    assert len(_records(handle)) == 1
+
+
+def test_transaction_journal_event_survives_the_panel_row_being_evicted(tmp_path: Path):
+    handle, engine = _install(engine=_file_engine(tmp_path), transactions_max_entries=1)
+    with engine.connect() as one, engine.connect() as two:
+        _read(one)
+        _read(two)
+        one.commit()
+        two.commit()
+    assert len(_records(handle)) == 2
+
+
+def test_transaction_journal_read_only_savepoint_is_not_rolled_back():
+    handle, engine = _install()
+    with engine.begin() as conn:
+        savepoint = conn.begin_nested()
+        _read(conn)
+        savepoint.rollback()
+    assert [(r["savepoint"], r["rolledBack"]) for r in _records(handle)] == [(True, False), (False, False)]
+
+
+def test_transaction_journal_read_only_transaction_with_a_released_savepoint_is_not_rolled_back():
+    handle, engine = _install()
+    with engine.connect() as conn:
+        with conn.begin_nested():
+            _read(conn)
+        conn.rollback()
+    assert [(r["savepoint"], r["rolledBack"]) for r in _records(handle)] == [(True, False), (False, False)]
+
+
+def test_transaction_journal_select_behind_long_whitespace_is_not_a_write():
+    handle, engine = _install()
+    with engine.connect() as conn:
+        conn.execute(sa.text("\n" + " " * 20 + "SELECT 1"))
+        conn.rollback()
+    assert [r["rolledBack"] for r in _records(handle)] == [False]
+
+
+# ported: RecorderPublishingTests.aDisabledRecorderPublishesNothing
+def test_transaction_journal_disabled_recorder_publishes_nothing():
+    handle, engine = _install(transactions_enabled=False)
+    with engine.begin() as conn:
+        _write(conn)
+    assert _records(handle) == ()
