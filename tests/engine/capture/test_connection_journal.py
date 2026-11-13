@@ -427,3 +427,15 @@ def test_connection_released_after_the_hook_is_suspended_is_not_journaled_with_a
     conn.close()
     assert _records(handle) == ()
     assert len(_records(other)) == 1  # control: the install that is not suspended still journals the release
+
+
+# Fable (#184): the uninstall variant: an uninstalled capture takes no event while another install keeps the listeners
+def test_connection_released_after_uninstall_is_not_journaled_with_a_second_install():
+    handle = _install()
+    other = _install(engine=handle.engine)
+    conn = handle.engine.connect()
+    conn.execute(sa.text("select 1"))
+    handle.uninstall_capture()
+    conn.close()
+    assert _records(handle) == ()
+    assert len(_records(other)) == 1  # control: the install still capturing journals the release
