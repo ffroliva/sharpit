@@ -414,3 +414,16 @@ def test_connection_released_after_the_hook_is_suspended_is_not_journaled():
     handle.context.capture.wiring.resume_hook(HOOK_SQLA_LISTENERS)
     _use(handle.engine)
     assert len(_records(handle)) == 1  # and the producer works again after the resume
+
+
+# code-review (#184, 48766ccc): a second install keeps the shared checkin listener attached; the suspended one still
+# receives nothing
+def test_connection_released_after_the_hook_is_suspended_is_not_journaled_with_a_second_install():
+    handle = _install()
+    other = _install(engine=handle.engine)
+    conn = handle.engine.connect()
+    conn.execute(sa.text("select 1"))
+    handle.context.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+    conn.close()
+    assert _records(handle) == ()
+    assert len(_records(other)) == 1  # control: the install that is not suspended still journals the release
