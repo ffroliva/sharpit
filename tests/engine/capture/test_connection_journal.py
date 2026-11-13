@@ -81,7 +81,9 @@ def _request(handle: Any, request_id: str) -> Any:
 
 # ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
 def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
-    handle = _install()
+    # a threshold no hold reaches: a cold first connection on a slow runner held it past the 100 ms default (the slow
+    # verdict itself has its own test), so ``failedOrSlow is False`` below does not depend on the runner's speed
+    handle = _install(sql_trace_slow_query_threshold_millis=60_000)
     token = _request(handle, "0123456789abcdef")
     try:
         before = time.perf_counter_ns()
@@ -185,7 +187,11 @@ def test_connection_journal_not_offered_when_source_disabled():
     assert _records(disabled) == ()
     dropped = disabled.context.capture.journal.status()["dropped"]
     assert "connection" not in dropped  # BootUI follows and counts nothing then
-    assert not sqla.attached()["checkout"]  # and no pool listener runs for it
+    from sharpit.engine.sqla import connections  # noqa: PLC0415
+
+    # and no pool listener acts for it: once added the listeners stay installed (removing one under live traffic can
+    # fail the host's pool call), so the switch is the flag
+    assert not connections.following()
     enabled = _install()  # control: the same release is offered when the source is enabled
     _use(enabled.engine)
     assert len(_records(enabled)) == 1
@@ -381,3 +387,22 @@ def test_connection_event_of_no_request_does_not_move_the_horizon():
     _use(handle.engine)
     _use(handle.engine)
     assert _horizon(handle) is None
+
+
+# code-review (#184): removing a class-level Pool listener while another thread checks connections in or out can fail
+# the host's ``connect()``/``close()`` (SQLAlchemy iterates the listener collection), so the pool listeners stay
+# installed once added and a flag switches them off
+def test_pool_listeners_stay_installed_and_go_inert_while_the_hook_is_suspended():
+    from sharpit.engine.sqla import connections  # noqa: PLC0415
+
+    sa = sqla.sqlalchemy_module()
+    handle = _install()
+    assert sa.event.contains(sa.pool.Pool, "checkout", connections.checkout)
+    handle.context.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+    assert sa.event.contains(sa.pool.Pool, "checkout", connections.checkout)  # not removed under live traffic
+    assert sa.event.contains(sa.pool.Pool, "checkin", connections.checkin)
+    with handle.engine.connect() as conn:
+        assert connections.CHECKOUT_KEY not in conn.connection._connection_record.info  # inert: follows nothing
+    handle.context.capture.wiring.resume_hook(HOOK_SQLA_LISTENERS)
+    _use(handle.engine)
+    assert len(_records(handle)) == 1  # and the producer works again after the resume
