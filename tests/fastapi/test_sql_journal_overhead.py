@@ -72,7 +72,8 @@ def test_sql_journal_event_overhead_budget(handle: SharpitHandle):
 def test_sql_journal_event_overhead_budget_on_a_full_ring(handle: SharpitHandle):
     """The same budget when every offer evicts an event of a request (the loss-horizon path of ``_append``)."""
     capture = handle.context.capture
-    assert capture.journal is not None
+    original = capture.journal
+    assert original is not None
     full = RuntimeJournal(max_events=FULL_RING, sources=("sql",))
     statement = sa.text("select * from (select 1 as n) where n = :n")
     token = REQUEST.set(RequestInfo("r-full", handle.context.context_id, "GET", "/x", None, 0, None))
@@ -98,6 +99,7 @@ def test_sql_journal_event_overhead_budget_on_a_full_ring(handle: SharpitHandle)
 
             result = paired(off, on, ROUNDS)
     finally:
+        capture.journal = original
         REQUEST.reset(token)
     assert full.status()["evictedEvents"] > 0
     assert getattr(full, "_loss_horizon", 0) is not None  # the evicted events named a request (the base has no horizon)

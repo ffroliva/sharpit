@@ -8,6 +8,7 @@ Times are explicit milliseconds so the 16 ms slack never makes a neighbouring re
 
 from __future__ import annotations
 
+import threading
 import time
 from types import SimpleNamespace
 from typing import Any, cast
@@ -294,6 +295,32 @@ def test_coverage_and_the_window_agree_on_the_requests_judged() -> None:
     report = InsightsService(two_requests_the_first_left_out()).report()
     http = next(c for c in report["coverage"] if c["source"] == "http")  # type: ignore[attr-defined]
     assert http["events"] == report["window"]["requests"]  # type: ignore[index]
+
+
+def test_a_view_during_a_clear_waits_for_the_loss_horizon_it_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    journal = RuntimeJournal()
+    journal.offer({**sql("select 1", 1_005), "requestId": "r1"})
+    walking, release = threading.Event(), threading.Event()
+    real = journal_module._lost_start  # noqa: SLF001
+
+    def slow(*args: Any) -> int | None:
+        walking.set()  # the clear is walking what it dropped, outside the ring lock
+        release.wait(5)
+        return real(*args)
+
+    monkeypatch.setattr(journal_module, "_lost_start", slow)
+    clear = threading.Thread(target=journal.discard)
+    clear.start()
+    assert walking.wait(5)
+    seen: list[int | None] = []
+    reader = threading.Thread(target=lambda: seen.append(journal.view([])[3]))
+    reader.start()
+    reader.join(0.3)
+    assert reader.is_alive()  # a view that did not wait would answer an empty ring with no horizon
+    release.set()
+    clear.join(5)
+    reader.join(5)
+    assert seen == [1_005]
 
 
 def test_a_report_with_no_request_left_out_asks_no_event_whether_it_was(monkeypatch: pytest.MonkeyPatch) -> None:
