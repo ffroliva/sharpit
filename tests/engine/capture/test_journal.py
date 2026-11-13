@@ -81,6 +81,33 @@ def test_an_offer_made_while_the_host_copy_runs_is_accepted_not_reentrant() -> N
     assert journal.status()["retainedEvents"] == 2
 
 
+class _FiresMidWalk(deque):  # type: ignore[type-arg]
+    """The ring: ``fire`` runs after its first item is yielded, in the middle of a read's iteration."""
+
+    fire: Any = None
+
+    def __iter__(self) -> Any:
+        for n, item in enumerate(super().__iter__()):
+            yield item
+            if n == 0:
+                self.fire()
+
+
+class _CounterFiresMidWalk(Counter):  # type: ignore[type-arg]
+    """The dropped counter: ``dict(counter)`` walks ``keys()``, and ``fire`` runs after its first key."""
+
+    fire: Any = None
+
+    def __iter__(self) -> Any:  # a Counter that iterates its own way is copied through ``keys()``
+        return super().__iter__()
+
+    def keys(self) -> Any:
+        for n, key in enumerate(super().keys()):
+            yield key
+            if n == 0:
+                self.fire()
+
+
 @pytest.mark.parametrize(
     ("where", "read"), [("ring", "records"), ("ring", "view"), ("counters", "status"), ("counters", "view")]
 )
@@ -90,39 +117,24 @@ def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_cou
     journal.offer_flat({"source": "sql", "sql": "select 1"})
     journal.offer_flat({"source": "sql", "sql": "select 2"})
     nested: list[bool] = []
-    # the ring case appends if it is let in; the counters case counts a refusal into the counter being copied
+    # the ring case appends if it is let in; the counters case counts a refusal while the counter is being walked
     offered = {"source": "log", "level": "WARN"} if where == "ring" else {"source": "other"}
 
-    class Finalized:
-        def __del__(self) -> None:
+    def fire() -> None:
+        if not nested:  # a finalizer: the offer is made from inside the read
             nested.append(journal.offer_flat(dict(offered)))
-
-    class Ring(deque):  # type: ignore[type-arg]
-        def __iter__(self) -> Any:
-            for n, item in enumerate(super().__iter__()):
-                yield item
-                if n == 0 and not nested:
-                    Finalized()
-
-    class Spy(Counter):  # type: ignore[type-arg]
-        def __iter__(self) -> Any:  # a Counter that iterates its own way is copied through ``keys()``
-            return super().__iter__()
-
-        def keys(self) -> Any:  # ``dict(counter)`` iterates the keys: the finalizer runs in the MIDDLE of that walk
-            for n, key in enumerate(super().keys()):
-                yield key
-                if n == 0 and not nested:
-                    Finalized()
-            if not nested:
-                Finalized()
 
     before: dict[str, int] = {}
     if where == "ring":
-        journal._events = Ring(journal._events)  # pyright: ignore[reportPrivateUsage]
+        ring = _FiresMidWalk(journal._events)  # pyright: ignore[reportPrivateUsage]
+        ring.fire = fire
+        journal._events = ring  # pyright: ignore[reportPrivateUsage]
     else:
-        journal.offer_flat({"source": "unconfigured"})  # one key to iterate, so a refusal adds a SECOND while it runs
+        journal.offer_flat({"source": "unconfigured"})  # one key to walk, so a refusal adds a SECOND while it runs
         before = {"unconfigured": 1}
-        journal._dropped = Spy(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+        counter = _CounterFiresMidWalk(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+        counter.fire = fire
+        journal._dropped = counter  # pyright: ignore[reportPrivateUsage]
     reads = {"records": lambda: journal.records("sql"), "view": lambda: journal.view(["sql"]), "status": journal.status}
     raised: list[str] = []
     try:
