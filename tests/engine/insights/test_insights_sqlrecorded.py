@@ -17,7 +17,6 @@ import sqlalchemy as sa
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
-from sharpit.engine.collectors import sqlastats
 from sharpit.engine.collectors.insights import sqlcapture
 from sharpit.engine.collectors.insights.service import insights_service
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS, HOOK_SQLITE_LISTENERS
@@ -94,14 +93,15 @@ def test_an_attached_engine_is_recorded_before_any_statement(handles: list[Any])
     assert capture.reason is None
 
 
-# finding 6: SQLAlchemy imported late, its engine never attached here: the fact follows the recorded events
-def test_an_engine_created_after_install_is_recorded_only_when_its_statements_are(handles: list[Any]) -> None:
-    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+# finding 6 (audit): an engine no discovery panel registered still records statements here: the fact follows them
+def test_statements_of_an_engine_no_panel_discovered_make_this_context_recorded(handles: list[Any]) -> None:
     engine = _engine()
+    off = {panel: {"enabled": False} for panel in sqla.DISCOVERY_PANELS}
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False, panels=off)
     with engine.begin() as conn:
         conn.execute(sa.text("update t set n = 1"))
-    recorded_events = ctx.capture.sql_trace.rows()
-    assert sqlcapture.for_context(ctx).recorded == bool(recorded_events)
+    assert ctx.capture.sql_trace.rows()
+    assert sqlcapture.for_context(ctx).recorded
 
 
 # finding 7: an idle raw-sqlite3 app is not recorded until its first statement reaches this context
@@ -130,7 +130,7 @@ def test_the_raw_sqlite_fact_does_not_move_the_application_family_evidence(
     ctx = _install(handles)
     _raw_sqlite()
     assert ctx.capture.raw_sqlite_seen  # application_family still reads it; the recorded fact is its own field
-    assert ctx.capture.sqlite3_delivered
+    assert "sqlite3" in ctx.capture.delivered_sources
 
 
 def _both_used(handles: list[Any]) -> Any:
@@ -209,13 +209,3 @@ def test_the_panel_off_with_the_flag_on_does_not_name_the_flag(handles: list[Any
 def test_the_flag_off_still_names_the_flag(handles: list[Any]) -> None:
     ctx = _install(handles, sql_trace_enabled=False)
     assert "SHARPIT_SQL_TRACE_ENABLED=false" in str(sqlcapture.for_context(ctx).reason)
-
-
-# one fact, read by every surface that answers "is SQL recorded"
-def test_the_panel_reason_and_sqlastats_agree_with_the_insights_fact(handles: list[Any], no_sqlalchemy: None) -> None:
-    ctx = _install(handles)
-    assert sqlcapture.for_context(ctx).reason == NOT_RECORDED
-    assert sqla.sql_trace_unavailable_reason(ctx) == NOT_RECORDED
-    assert sqlastats.statistics_report(ctx)["unavailableReason"] == NOT_RECORDED
-    _raw_sqlite()
-    assert sqla.sql_trace_unavailable_reason(ctx) is None

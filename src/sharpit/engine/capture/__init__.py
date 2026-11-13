@@ -79,6 +79,7 @@ class CaptureState:
     engine_registry: EngineRegistry | None = None
     raw_sqlite_seen: bool = False
     sqlite3_delivered: bool = False  # a raw sqlite3 statement was delivered to THIS context (the recorded fact)
+    delivered_sources: set[str] = field(default_factory=set[str])  # SQL sources that delivered a statement here
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
     hooks: HookRegistry = field(default_factory=HookRegistry)
