@@ -131,10 +131,8 @@ def test_a_failing_transaction_capture_supplier_says_transactions_not_sql(handle
     def broken() -> Any:
         raise RuntimeError("boom")
 
-    ctx.lazy(
-        "runtime-insights", lambda: InsightsService(ctx.capture.journal, [NeedsTransaction()], 8000, None, None, broken)
-    )
-    check = next(c for c in insights_service(ctx).report()["checks"] if c["kind"] == REQUIRED)
+    service = InsightsService(ctx.capture.journal, [NeedsTransaction()], 8000, None, None, broken)
+    check = next(c for c in service.report()["checks"] if c["kind"] == REQUIRED)
     assert check["reason"] == (
         "Whether this application's transactions are recorded could not be read (RuntimeError), "
         "so no transaction is counted."

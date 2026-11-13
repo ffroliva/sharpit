@@ -582,7 +582,7 @@ def test_errors_behind_2xx_claims_no_transaction_evidence_while_its_panel_is_dis
     assert _k2(handle)["status"] == "NOT_APPLICABLE"
 
 
-# BootUI ``TransactionRecorder.record`` (v2.3.0, 296-340) offers the event from the ``active`` map, whatever the buffer did.
+# BootUI ``TransactionRecorder.record`` (v2.3.0, 296-340) offers the event from ``active``, whatever the buffer did.
 def test_transaction_journal_event_survives_the_panel_row_being_cleared():
     handle, engine = _install()
     with engine.begin() as conn:
