@@ -270,7 +270,7 @@ def clear_exceptions(ctx: SharpitContext) -> dict[str, Any]:
 
 
 def sql_trace_report(ctx: SharpitContext) -> dict[str, Any]:
-    """``SqlTraceReport``; unavailable while tracing is off or SQLAlchemy is not imported."""
+    """``SqlTraceReport``; unavailable while tracing is off, SQLAlchemy is not imported or no database is in use."""
     recorder = ctx.capture.sql_trace
     reason = sql_trace_unavailable_reason(ctx)
     if recorder is None or reason is not None:

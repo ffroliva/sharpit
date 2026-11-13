@@ -339,7 +339,7 @@ def unavailable_report(reason: str) -> dict[str, Any]:
 def insights_report(
     recorder: SqlTraceRecorder | None, exchanges: HttpExchangeBuffer | None, reason: str | None
 ) -> dict[str, Any]:
-    """``SqlTraceInsightsService.insights``; ``reason`` (tracing off, SQLAlchemy absent) makes it unavailable."""
+    """``SqlTraceInsightsService.insights``; a ``reason`` (tracing off, no SQLAlchemy, no database) makes it so."""
     if recorder is None or reason is not None:
         return unavailable_report(reason or "SQL tracing is not active, so there are no retained statements to rank.")
     rows = recorder.rows()

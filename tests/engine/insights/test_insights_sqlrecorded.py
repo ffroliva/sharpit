@@ -1,5 +1,6 @@
 """Whether this context records SQL at all (BootUI ``SqlCapture.of`` + ``SqlTraceRecorder.hasWrappedDataSource``,
-v2.3.0): one per-context fact, read by the insights, the SQL Trace panel reasons and ``sqlastats``.
+v2.3.0): one per-context fact, read by the insights and, as "in use", by the SQL Trace panel and its reads
+(not ``sqlastats``).
 
 BootUI's fact is known at WRAP time (a DataSource is registered), not when a statement first runs: the SQLAlchemy
 analogue is an engine attached to the context, and raw sqlite3 (no wrap-time object) is a statement delivered to it."""

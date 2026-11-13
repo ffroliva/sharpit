@@ -1,6 +1,6 @@
 """SQL capture state in the runtime insights: RuntimeInsightsService.java:975-1008 (v2.3.0) with SqlCapture.DISABLED.
 The flag off, or the sql-trace panel off, is not a panel being unavailable: a check that needs SQL is UNAVAILABLE and an
-optional SQL read is a caveat. Whether a database is in use at all is task W5c-sql-recorded-fact, not tested here."""
+optional SQL read is a caveat. Whether a database is in use at all is tested in test_insights_sqlrecorded.py."""
 
 from __future__ import annotations
 

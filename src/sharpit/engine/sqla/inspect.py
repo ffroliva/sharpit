@@ -192,6 +192,9 @@ class EngineRegistry:
         self._bases: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()  # name before any "#n"
         self._lock = threading.RLock()
         self._snapshot: tuple[tuple[weakref.ReferenceType[Any], str], ...] = ()
+        self.seen_any = (
+            False  # write-once: an engine was registered here (engines are held weakly and may be collected)
+        )
 
     def add(self, engine: object) -> None:
         """Register a sync ``Engine`` or an ``AsyncEngine`` (its ``sync_engine``); anything else is ignored."""
@@ -212,6 +215,7 @@ class EngineRegistry:
                 n += 1
                 unique = f"{name}#{n}"
             self._names[sync] = unique
+            self.seen_any = True
             self._bases[sync] = name
             self._snapshot = tuple((weakref.ref(key), value) for key, value in self._names.items())
 

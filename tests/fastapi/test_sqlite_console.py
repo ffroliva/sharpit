@@ -46,11 +46,11 @@ def _install(**options: Any) -> SharpitHandle:
 
 def test_console_shows_sqlite3_data_source():
     handle = _install()
+    connection = sqlite3.connect(":memory:")
+    connection.execute("select 1")  # raw sqlite3 has no wrap-time object: in use from its first statement
     report = tools.sql_trace_report(handle.context)
     assert report["available"] is True
     assert "sqlite3" in report["dataSources"]
-    connection = sqlite3.connect(":memory:")
-    connection.execute("select 1")
     entries = tools.sql_trace_report(handle.context)["entries"]
     assert [e["sql"] for e in entries] == ["select ?"]
     connection.close()
@@ -74,6 +74,7 @@ def test_console_shows_early_connections_limitation():
     """A6: a connection opened before capture started is a displayed limit."""
     early = REAL_CONNECT(":memory:")
     handle = _install()
+    sqlite3.connect(":memory:").execute("select 1")  # in use from its first statement
     report = tools.sql_trace_report(handle.context)
     assert sqlite.EARLY_CONNECTIONS in report["warnings"]
     early.close()
@@ -201,6 +202,7 @@ def test_panel_available_with_sqlite3_only(monkeypatch: pytest.MonkeyPatch):
     app = FastAPI()
     handle = install(app, enabled="ON", show_banner=False)
     _HANDLES.append(handle)
+    sqlite3.connect(":memory:").execute("select 1")  # raw sqlite3 is in use from its first statement
     body = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)).get("/sharpit/api/panels").json()
     row = next(p for p in body["panels"] if p["id"] == "sql-trace")
     assert row["available"] is True
