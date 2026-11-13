@@ -111,10 +111,10 @@ def _ai(snapshot: Snapshot, warm: list[Breakdown]) -> list[str]:
     ]
 
 
-def _pool_wait(snapshot: Snapshot) -> list[str]:
-    """The ``connection`` events' ``waitNanos`` is always 0: a pool wait is not a phase. Named only for an app whose
+def _pool_wait(warm: list[Breakdown]) -> list[str]:
+    """The ``connection`` events' ``waitNanos`` is always 0: a pool wait is not a phase. Named only for a route whose
     requests took pooled connections."""
-    if not snapshot.records.get("connection"):
+    if not any(b.request.children["connection"] for b in warm):
         return []
     return [
         "A wait for a pooled connection is not measured (SQLAlchemy reports none), so it stays in the span it "
@@ -129,7 +129,7 @@ def _limitations(snapshot: Snapshot, cold_known: bool, unplaced: int, warm: list
         "sharpit marks no handler or response phase, so filters, handler, and response write are one unattributed "
         "span around the recorded SQL statements.",
         *_ai(snapshot, warm),
-        *_pool_wait(snapshot),
+        *_pool_wait(warm),
     ]
 
 
@@ -195,7 +195,7 @@ def _route(snapshot: Snapshot, route: str, requests: list[Request], cold_known: 
 def evaluate(snapshot: Snapshot) -> Evaluation:
     cold_known = int(snapshot.status["evictedEvents"]) == 0  # ``firstRequestIsCold``
     by_route: dict[str, list[Request]] = defaultdict(list)
-    for request in project_requests(snapshot, "sql", "ai"):
+    for request in project_requests(snapshot, "sql", "ai", "connection"):
         by_route[request.route].append(request)
     findings: list[Finding] = []
     eligible = 0

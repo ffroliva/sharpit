@@ -82,7 +82,9 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
-        if _counting and (followed := getattr(conn._dbapi_connection, _connections.FAIRY_ATTR, None)) is not None:  # noqa: SLF001
+        # the fairy's own dict: ``getattr`` on a fairy without the attribute falls through to the DBAPI connection
+        fairy = conn._dbapi_connection if _counting else None  # noqa: SLF001 - None too when invalidated
+        if fairy is not None and (followed := fairy.__dict__.get(_connections.FAIRY_ATTR)) is not None:
             followed.statements += 1  # BootUI ``ConnectionCheckout.statementExecuted``: the application's own only
         _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets

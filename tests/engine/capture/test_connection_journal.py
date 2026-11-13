@@ -317,3 +317,20 @@ def test_connection_journal_two_installs_each_journal_their_own_engines_release_
     _use(ours.engine, 0)
     assert len(_records(ours)) == 1
     assert _records(theirs) == ()
+
+
+def test_connection_journal_a_checkout_that_failed_after_the_listener_ran_offers_no_event():
+    # review finding: a user checkout listener that raises makes SQLAlchemy check the record in again; the application
+    # never obtained that connection, and BootUI's ``checkoutConnection`` only runs after ``getConnection`` returned
+    handle = _install()
+
+    def refuse(*_args: object) -> None:
+        raise RuntimeError("tenant hook failed")
+
+    sa.event.listen(sa.pool.Pool, "checkout", refuse)  # registered after sharpit's, so it runs after it
+    try:
+        with pytest.raises(RuntimeError, match="tenant hook failed"):
+            handle.engine.connect()
+    finally:
+        sa.event.remove(sa.pool.Pool, "checkout", refuse)
+    assert _records(handle) == ()

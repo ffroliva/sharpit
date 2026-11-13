@@ -43,12 +43,12 @@ SOURCE = "connection"
 class Checkout:
     """One connection from checkout to release; ``statements`` is bumped by the statement listener (see listeners)."""
 
-    __slots__ = ("contexts", "epoch_ms", "obtained_ns", "pool", "request", "statements", "thread", "trace_id")
+    __slots__ = ("contexts", "epoch_ms", "obtained_ns", "pool", "request_id", "statements", "thread", "trace_id")
 
     def __init__(self, contexts: list[SharpitContext], pool: object, request: RequestInfo | None) -> None:
         self.contexts = [weakref.ref(c) for c in contexts]  # a leaked connection must not keep an install alive
         self.pool = pool
-        self.request = request
+        self.request_id = None if request is None else request.id  # not the request: a record's info outlives it
         self.epoch_ms = time.time_ns() // 1_000_000
         self.thread = threading.current_thread().name
         self.trace_id = otel.current_trace_id()
@@ -74,11 +74,10 @@ def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
 
 def checkin(dbapi_connection: Any, record: Any) -> None:
     """The application released the connection: offer its event once (a second checkin finds no state)."""
-    del dbapi_connection
     try:
         state: Checkout | None = record.info.pop(CHECKOUT_KEY, None)
-        if state is None:
-            return
+        if state is None or (dbapi_connection is None and not state.statements):
+            return  # an invalidated record that ran nothing: a checkout that failed after our listener, never the app's
         held = max(0, time.perf_counter_ns() - state.obtained_ns)
         for ref in state.contexts:
             ctx = ref()
@@ -95,7 +94,6 @@ def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
         return
     try:  # the event is built inside the guard: a failure loses this event, never the host's release
         registry = ctx.capture.engine_registry
-        request = state.request
         journal.offer_flat(
             {
                 "source": SOURCE,
@@ -103,9 +101,7 @@ def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
                 "durationNanos": held,
                 "traceId": state.trace_id,
                 "thread": state.thread,
-                "requestId": None
-                if request is None
-                else request.id,  # checkout routed to its own request's context only
+                "requestId": state.request_id,  # checkout routed to its own request's context only
                 "failedOrSlow": recorder.slow_held(held),
                 "dataSource": registry.name_of_pool(state.pool) if registry is not None else None,
                 "waitNanos": 0,

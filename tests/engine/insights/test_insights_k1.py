@@ -469,7 +469,7 @@ def test_a_recorded_connection_source_says_a_pool_wait_is_not_measured() -> None
     try:
         for _ in range(6):
             run.request(ORDERS, 40, (10, 10))
-        run.journal.offer({"source": "connection", "requestId": "r1", "dataSource": "db", "durationNanos": 5})
+        run.journal.offer({"source": "connection", "requestId": "r2", "dataSource": "db", "durationNanos": 5})
         limitations = run.rows()[ORDERS]["limitations"]
         assert any("wait for a pooled connection" in text and "not measured" in text for text in limitations)
     finally:
@@ -488,5 +488,21 @@ def test_a_recorded_connection_source_with_no_connection_event_adds_no_pool_wait
         for _ in range(6):
             run.request(ORDERS, 40, (10, 10))
         assert not any("pooled connection" in text for text in run.rows()[ORDERS]["limitations"])
+    finally:
+        run.close()
+
+
+def test_the_pool_wait_limitation_is_named_only_for_a_route_whose_requests_took_a_connection() -> None:
+    run = Run(("http", "sql", "connection"))
+    try:
+        for _ in range(6):
+            run.request(ORDERS, 40, (10, 10))  # r1..r6
+        health = "GET /healthz"
+        for _ in range(6):
+            run.request(health, 5)
+        run.journal.offer({"source": "connection", "requestId": "r2", "dataSource": "db", "durationNanos": 5})
+        rows = run.rows()
+        assert any("pooled connection" in text for text in rows[ORDERS]["limitations"])
+        assert not any("pooled connection" in text for text in rows[health]["limitations"])
     finally:
         run.close()
