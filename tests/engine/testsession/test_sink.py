@@ -406,7 +406,7 @@ def test_orphans_are_deduplicated() -> None:
         sink.register_app(app)
         sink.snapshot_apps(lambda _app: EMPTY)
         del app
-        gc.collect()
+        gc.collect(0)  # the app is a fresh young object; a full collect walks the whole collected-suite heap
         sink.snapshot_apps(lambda _app: EMPTY)
     assert len(sink._orphan_snapshots) == 1
 
