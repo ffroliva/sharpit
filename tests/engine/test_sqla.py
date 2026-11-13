@@ -25,6 +25,7 @@ from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo  # noqa: E402
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.masking import Exposure, Masker  # noqa: E402
+from sharpit.engine.sources import dispatch  # noqa: E402
 from sharpit.engine.sqla import orm as sqla_orm  # noqa: E402
 from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -179,6 +180,23 @@ def test_conn_info_fallback_without_request():
         sqla.after_cursor_execute(conn, cursor, "select 7", (), None, False)
         assert sqla.START_KEY not in conn.info  # read back with pop: never leaks into the next statement
     assert [e["sql"] for e in _entries(handle)] == ["select ?"]
+
+
+@pytest.mark.parametrize(("raw", "expected"), [(None, -1), ("3", -1), (2.5, -1), (True, -1), (-1, -1), (4, 4)])
+def test_the_event_carries_the_drivers_rowcount_as_an_int(monkeypatch: pytest.MonkeyPatch, raw: Any, expected: int):
+    engine = sa.create_engine("sqlite://")
+    _install(engines=[engine])
+    delivered: list[Any] = []
+
+    def collect(event: Any, *_: Any) -> None:
+        delivered.append(event)
+
+    monkeypatch.setattr(dispatch, "deliver", collect)
+    with engine.connect() as conn:
+        cursor = types.SimpleNamespace(rowcount=raw)
+        sqla.before_cursor_execute(conn, cursor, "update t set a = 1", (), None, False)
+        sqla.after_cursor_execute(conn, cursor, "update t set a = 1", (), None, False)
+    assert [(type(e.rowcount), e.rowcount) for e in delivered] == [(int, expected)]
 
 
 def test_internal_statements_not_traced():
