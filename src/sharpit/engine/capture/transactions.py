@@ -299,14 +299,13 @@ class TransactionRecorder:
         if not self.recording and journal is None:
             return -1
         now = time.time_ns()
+        abandoned: JournalStart | None = None
         with self._lock:
             entry_id = next(self._ids)
             if self.recording:
                 self._make_room_locked()
             if len(self._open) >= 2 * self.max_entries:  # the oldest: an abandoned row never ends
-                abandoned = self._open.pop(next(iter(self._open)))
-                if (start := abandoned["_journal"]) is not None:
-                    start[0].count_dropped(JOURNAL_SOURCE)
+                abandoned = self._open.pop(next(iter(self._open)))["_journal"]
             row = _ROW_FIXED.copy()
             row["id"] = entry_id
             row["methodName"] = method or "unknown"
@@ -323,6 +322,8 @@ class TransactionRecorder:
                 self._entries.append(row)
                 self._total += 1
             self._open[entry_id] = row
+        if abandoned is not None:  # the journal's lock is never taken under this one
+            abandoned[0].count_dropped(JOURNAL_SOURCE)
         return entry_id
 
     def _make_room_locked(self) -> None:
@@ -349,16 +350,21 @@ class TransactionRecorder:
         ``writes``: the connection's write count now (``WRITES``)."""
         if entry_id < 0:
             return
+        lost: JournalStart | None = None
         with self._lock:
             row = self._open.pop(entry_id, None)
             if row is None:
                 return
             self._close_locked(row, status, error)
             if settle:
+                if len(self._unsettled) >= 2 * self.max_entries:  # a settle that never comes (a detached connection)
+                    lost = self._unsettled.pop(next(iter(self._unsettled)))["_journal"]
                 self._unsettled[entry_id] = row
             while len(self._entries) > self.max_entries:
                 if not self._evict_completed_locked():
                     break
+        if lost is not None:
+            lost[0].count_dropped(JOURNAL_SOURCE)
         self.changes.signal()
         if not settle:  # a commit is offered once its DBAPI commit has returned or failed (``settle``)
             _publish(row, error, writes)
