@@ -19,6 +19,7 @@ from tests.overhead import check_budget, paired  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo  # noqa: E402
 from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.engine.sqltext.lexer import read_all  # noqa: E402
 from sharpit.engine.sqltext.rules import MYSQL_84, READINGS  # noqa: E402
@@ -27,6 +28,7 @@ from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 pytestmark = pytest.mark.needs_sqlalchemy
 
 BUDGET_NS = 50_000
+FULL_RING = 64  # a ring that is full: every recorded statement evicts one, and the evicted event names a request
 ROUNDS, PER_ROUND = 45, 200
 MISS_BUDGET_NS = 300_000  # a distinct statement: the scan and the masker's passes; overhead-budgets.md has the numbers
 MISS_ROUNDS, MISS_PER_ROUND = 20, 50  # 1,000 distinct statements a side
@@ -75,6 +77,37 @@ def test_statement_overhead_budget(handle: SharpitHandle):
     assert recorder is not None
     assert recorder.report([])["totalCaptured"] == captured
     check_budget("SQL listener per statement", result, BUDGET_NS, "µs", 1000)
+
+
+def test_statement_overhead_budget_on_a_full_ring(handle: SharpitHandle):
+    """The same 50 µs when the journal's ring is full, as a long-running app's is: every statement evicts an event of
+    a request, and the loss horizon moves (the cost an empty-ring run never pays)."""
+    engine = handle.context.engines[0]
+    journal = handle.context.capture.journal
+    assert journal is not None
+    journal.max_events = FULL_RING
+    statement = sa.text("select * from (select 1 as n) where n = :n")
+    token = REQUEST.set(RequestInfo("r-full", handle.context.context_id, "GET", "/x", None, 0, None))
+    try:
+        with engine.connect() as conn:  # type: ignore[attr-defined]
+            _round(conn, statement)  # warm the statement cache and the normaliser cache
+            sqla.remove(handle.context)
+
+            def on() -> int:
+                sqla.add(handle.context, statements=True, discovery=True)
+                r = _round(conn, statement)
+                sqla.remove(handle.context)
+                return r
+
+            def off() -> int:
+                return _round(conn, statement)
+
+            on()  # fills the ring
+            result = paired(off, on, ROUNDS)
+    finally:
+        REQUEST.reset(token)
+    assert journal.status()["evictedEvents"] > 0
+    check_budget("SQL listener per statement, full ring", result, BUDGET_NS, "µs", 1000)
 
 
 def test_recorder_cache_miss_within_budget(handle: SharpitHandle):

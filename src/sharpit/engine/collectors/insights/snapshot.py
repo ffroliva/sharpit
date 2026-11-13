@@ -44,6 +44,10 @@ PoolSizes = Callable[[str], int | None]  # a data source's maximum pool size by 
 SharedPools = Callable[[str], str | None]  # the pool class of a data source whose checkouts share one connection
 Producing = Callable[[str], bool]  # whether this install's producer of a source can run now (its listener is armed)
 
+# RuntimeInsightsService.LOSS_HORIZON_SLACK_MILLIS: how long after the horizon a request may still have lost an event
+LOSS_HORIZON_SLACK_MILLIS = 16
+LEFT_OUT_BEFORE_LOSS = "started before events the journal evicted or cleared"  # RuntimeInsightsService constant
+
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
 
 
@@ -60,17 +64,25 @@ class Snapshot:
     shared_pools: SharedPools | None = None  # sharpit only: pools whose checkouts are one connection
     # enabled sources whose producer is not armed here: not recorded, though no setting says so
     unarmed: frozenset[str] = frozenset()
+    loss_horizon: int | None = None  # the latest start of an evicted or cleared unit-of-work event; None while none
 
     @cached_property
     def request_index(self) -> RequestIndex:
         """The http requests, projected once per snapshot however many kinds read them."""
         from sharpit.engine.collectors.insights.requests import RequestIndex  # noqa: PLC0415 - requests imports this
 
-        return RequestIndex(self.records.get("http", ()))
+        return RequestIndex(self.records.get("http", ()), self.loss_horizon)
 
     @property
     def requests(self) -> tuple[Request, ...]:
         return self.request_index.requests
+
+    @property
+    def ids_withheld(self) -> bool:
+        """http events were recorded but none kept its request id (the exposure withheld them). A request left out
+        before a loss kept its id, so it is not this."""
+        index = self.request_index
+        return not index.requests and not index.left_out and bool(self.records.get("http"))
 
     def journaled(self, source: str) -> bool:
         """BootUI ``records``: the journal records ``source`` (a source with its panel off is still journaled)."""
@@ -125,7 +137,7 @@ def project(
     enabled_produced = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
     produced = [s for s in enabled_produced if producing is None or producing(s)]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
-    status, records, newest = journal.view([s for s in produced if s not in hidden])
+    status, records, newest, horizon = journal.view([s for s in produced if s not in hidden])
     return Snapshot(
         status,
         records,
@@ -135,4 +147,5 @@ def project(
         pool_sizes,
         shared_pools,
         frozenset(enabled_produced) - set(produced),
+        horizon,
     )

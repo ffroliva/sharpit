@@ -169,15 +169,17 @@ def _journal_event(
     info: RequestInfo | None,
     thread: str,
     site: str | None,
-) -> tuple[dict[str, str | int | bool | None], int]:
-    """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope) and its charged size, computed here per
-    statement instead of by walking the event: the literal-free text, never a parameter.
+) -> tuple[dict[str, str | int | bool | None], int, int]:
+    """BootUI's ``sql`` journal event (``SqlPayload`` and its envelope), its charged size and its loss start (what the
+    journal's ``_lost_start`` would read: its start if it names a unit of work, else 0), computed here per statement
+    instead of by walking the event: the literal-free text, never a parameter.
 
     ``phase`` is None: BootUI's ``RequestPhase`` (FILTERS/HANDLER/RESPONSE) has no sharpit source, and outside a request
     it is null, so the lifespan's STARTUP/SHUTDOWN is not carried."""
     trace_id = otel.current_trace_id()
     request_id = info.id if info is not None and info.context_id == ctx.context_id else None
     site = site if recorder.capture_call_site else None
+    started_at = time.time_ns() // 1_000_000 - event.duration_ns // 1_000_000
     record: dict[str, str | int | bool | None] = {
         "source": "sql",
         "sql": text,
@@ -185,7 +187,7 @@ def _journal_event(
         "requestId": request_id,
         "thread": thread,
         "durationNanos": event.duration_ns,
-        "startedAt": time.time_ns() // 1_000_000 - event.duration_ns // 1_000_000,
+        "startedAt": started_at,
         "dataSource": None,
         "failed": event.error is not None,
         "phase": None,
@@ -196,7 +198,7 @@ def _journal_event(
         "batchSize": _batch(event),
         "callSite": site,
     }
-    return record, (
+    size = (
         _SQL_EVENT_BYTES
         + len(text)
         + len(thread)
@@ -204,6 +206,7 @@ def _journal_event(
         + (SCALAR_BYTES if request_id is None else len(request_id))
         + (SCALAR_BYTES if site is None else len(site))
     )
+    return record, size, started_at if request_id is not None or trace_id is not None else 0
 
 
 def _trace_text(
@@ -249,7 +252,8 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
         journal = ctx.capture.journal
         if journal is not None and text is not None:
             try:  # its own guard: a journal failure is never reported as the SQL hook's
-                journal.offer_flat(*_journal_event(ctx, recorder, event, text, info, thread, site))
+                record, size, started = _journal_event(ctx, recorder, event, text, info, thread, site)
+                journal.offer_flat(record, size, started)
             except Exception as exc:  # noqa: BLE001
                 _context_failed(ctx, exc, "sql journal")
 

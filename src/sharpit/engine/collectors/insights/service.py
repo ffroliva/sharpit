@@ -16,6 +16,7 @@ from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import (
     DEFAULT_AI_TOKEN_THRESHOLD,
+    LEFT_OUT_BEFORE_LOSS,
     PanelEnabled,
     PoolSizes,
     Producing,
@@ -191,7 +192,10 @@ def _link(snapshot: Snapshot, event: Row) -> int:
 
 def _coverage(snapshot: Snapshot) -> list[Row]:
     rows: list[Row] = []
-    for source, events in snapshot.records.items():
+    index = snapshot.request_index
+    for source, retained in snapshot.records.items():
+        # InsightsSnapshot.of reads the visible entries; with nothing left out they are all of them
+        events = [e for e in retained if not index.left_out_event(e)] if index.left_out else list(retained)
         if not events:
             continue
         linked = [_link(snapshot, event) for event in events]
@@ -203,22 +207,41 @@ def _coverage(snapshot: Snapshot) -> list[Row]:
 
 
 def _window(snapshot: Snapshot) -> Row:
-    status = snapshot.status
+    status, left_out = snapshot.status, snapshot.request_index.left_out
     return {
         "runId": status["runId"], "firstEventAt": status["oldestRetainedAt"], "lastEventAt": snapshot.newest_at,
-        "retainedEvents": status["retainedEvents"], "requests": len(snapshot.records.get("http", ())),
+        "retainedEvents": status["retainedEvents"], "requests": len(snapshot.records.get("http", ())) - left_out,
         "evictedEvents": status["evictedEvents"], "droppedEvents": status["droppedEvents"],
     }  # fmt: skip
 
 
+def _left_out(units: int) -> str | None:
+    """``leftOutBeforeLoss``: the requests left out because they started before an event the journal lost."""
+    if not units:
+        return None
+    one = units == 1
+    return (
+        f"{counted(units, 'request or execution', 'requests or executions')} {LEFT_OUT_BEFORE_LOSS}, so "
+        f"{'it is left out: some of its' if one else 'they are left out: some of their'} events may be missing."
+    )
+
+
+def _left_out_reasons(observation: Observation, snapshot: Snapshot) -> list[str]:
+    left_out = _left_out(snapshot.request_index.left_out) if getattr(observation, "uses_requests", True) else None
+    return [left_out] if left_out else []
+
+
 def _limitations(snapshot: Snapshot) -> list[str]:
     evicted = int(snapshot.status["evictedEvents"])
-    if not evicted:
-        return []
-    return [
-        f"The journal evicted {counted(evicted, 'older event')}, so requests before the oldest retained event "
-        "are not projected."
-    ]
+    limitations: list[str] = []
+    if evicted:
+        limitations.append(
+            f"The journal evicted {counted(evicted, 'older event')}, so requests before the oldest retained event "
+            "are not projected."
+        )
+    if left_out := _left_out(snapshot.request_index.left_out):
+        limitations.append(left_out)
+    return limitations
 
 
 def _report(
@@ -338,6 +361,7 @@ class InsightsService:
             reasons.append(
                 self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
             )  # masked away: still say work went uncounted
+        reasons += _left_out_reasons(observation, snapshot)  # what it did not judge: empty is not "nothing found"
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
         status = _check_status(evaluation.worked, partial)

@@ -2,9 +2,9 @@
 
 Deviations (proposed): an operation joins its request by request id, else by trace id (sharpit's AI event carries no
 start time for BootUI's time-window join, and there is no PROPAGATED tier: REQUEST_ID is a request-id join, TRACE_ID
-the rest); an operation that joins no retained request is counted in the check's ``uncounted`` text; a call without
-``durationNanos`` is left out of the median, which is then not stated; the not-applicable reason names no Java
-framework.
+the rest); an operation that joins no retained request, and is no left-out request's, is counted in the check's
+``uncounted`` text; a call without ``durationNanos`` is left out of the median, which is then not stated;
+the not-applicable reason names no Java framework.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def _count(value: object) -> int | None:
 
 def not_applicable(snapshot: Snapshot) -> str | None:
     requests = snapshot.requests
-    if not requests and snapshot.records.get("http"):
+    if snapshot.ids_withheld:
         return IDS_WITHHELD  # http records exist but none names an id: the exposure withheld them
     if not requests or any(r.trace_id for r in requests):
         return None
@@ -223,7 +223,8 @@ def _uncounted(snapshot: Snapshot) -> str | None:
     events = snapshot.records.get("ai", ())
     if not snapshot.available("http"):
         return NO_ROUTE if events else None
-    unjoined = sum(snapshot.request_index.owner(event) is None for event in events)
+    index = snapshot.request_index  # a left-out request's call is skipped, not counted (``visibleEntries`` l.815-823)
+    unjoined = sum(index.owner(event) is None and not index.left_out_event(event) for event in events)
     if not unjoined:
         return None
     verb = "it is" if unjoined == 1 else "they are"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import importlib
 import importlib.util
 import json
@@ -455,6 +456,22 @@ def test_recorded_lists_only_sources_with_events() -> None:
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, sources=("sql", "http", "log"))
     journal.offer({"source": "http"})
     assert journal.status()["recorded"] == {"http": 1}
+
+
+class _Kind(enum.Enum):
+    SQL = "sql"
+
+
+@pytest.mark.parametrize("source", [b"sql", _Kind.SQL, object()], ids=["bytes", "enum", "object"])
+def test_a_source_that_is_not_a_string_is_counted_failed_and_not_stored(source: object) -> None:
+    # the release behaviour: the host's own ``source`` is read, not its text copy (``_plain`` turns bytes, an Enum or an
+    # object into a string), so it never lands under a key of the host's making
+    journal = _journal_module().RuntimeJournal(max_events=10)
+    assert journal.offer({"source": source, "sql": "select 1"}) is False
+    status = journal.status()
+    assert status["dropped"] == {"failed": 1}
+    assert status["recorded"] == {}
+    assert status["retainedEvents"] == 0
 
 
 def test_dropped_is_keyed_by_source_and_unattributed_drops_by_reason() -> None:
