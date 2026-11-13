@@ -82,7 +82,7 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
-        if _counting and (followed := conn.info.get(_connections.CHECKOUT_KEY)) is not None:
+        if _counting and (followed := getattr(conn._dbapi_connection, _connections.FAIRY_ATTR, None)) is not None:  # noqa: SLF001
             followed.statements += 1  # BootUI ``ConnectionCheckout.statementExecuted``: the application's own only
         _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets

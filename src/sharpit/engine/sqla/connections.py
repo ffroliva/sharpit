@@ -34,6 +34,9 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 CHECKOUT_KEY = "sharpit_connection"
+FAIRY_ATTR = (
+    "_sharpit_checkout"  # the same state on the checkout's fairy: the statement count reads it in two attribute hits
+)
 SOURCE = "connection"
 
 
@@ -63,7 +66,8 @@ def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
         pool = getattr(proxy, "_pool", None)
         targets = dispatch.connection_targets(pool, SOURCE)
         if targets:  # a source the journal does not record follows nothing and counts nothing, as BootUI's
-            record.info[CHECKOUT_KEY] = Checkout(targets, pool, REQUEST.get())
+            state = record.info[CHECKOUT_KEY] = Checkout(targets, pool, REQUEST.get())
+            setattr(proxy, FAIRY_ATTR, state)
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's checkout
         dispatch.routing_failed(exc)
 
