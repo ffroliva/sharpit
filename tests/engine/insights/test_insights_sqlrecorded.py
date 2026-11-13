@@ -12,8 +12,8 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-
 import sqlalchemy as sa
+
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
@@ -41,8 +41,9 @@ def no_sqlalchemy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "sqlalchemy", None)  # the application never imports SQLAlchemy
 
 
-def _install(handles: list[Any], **options: Any) -> Any:
-    sqla.detach_all()
+def _install(handles: list[Any], detach: bool = True, **options: Any) -> Any:
+    if detach:
+        sqla.detach_all()
     handle = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False, **options)
     handles.append(handle)
     return handle.context
@@ -117,7 +118,7 @@ def test_an_idle_raw_sqlite_app_reads_not_recorded_until_the_first_statement(
 def test_a_raw_sqlite_statement_no_context_received_leaves_both_not_recorded(
     handles: list[Any], no_sqlalchemy: None
 ) -> None:
-    first, second = _install(handles), _install(handles)
+    first, second = _install(handles), _install(handles, detach=False)
     _raw_sqlite()
     assert sqlcapture.for_context(first).reason == NOT_RECORDED
     assert sqlcapture.for_context(second).reason == NOT_RECORDED

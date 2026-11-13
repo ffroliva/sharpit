@@ -16,7 +16,7 @@ from sharpit import install
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.finding import Evaluation
 from sharpit.engine.collectors.insights.service import InsightsService, insights_service
-from sharpit.engine.collectors.insights.sqlcapture import SqlCapture
+from sharpit.engine.collectors.insights.sqlcapture import PANEL_OFF, SqlCapture
 
 SQL_OFF = "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
 CAVEAT = f"{SQL_OFF} Its SQL and connection evidence is not counted."
@@ -70,7 +70,9 @@ def test_the_disabled_panel_wins_over_the_capture_reason(handles: list[Any]) -> 
 # ported: BootUiAutoConfiguration.bootUiSqlTraceRecorder (v2.3.0:803): enabled = sqlTrace.isEnabled() && panel enabled
 def test_the_sql_trace_panel_off_with_the_flag_on_is_sql_capture_disabled(handles: list[Any]) -> None:
     report = _report(handles, [_HTTP, _SQL], panels={"sql-trace": {"enabled": False}})
-    assert CAVEAT in str(_check(report, "route-time-breakdown")["reason"])
+    assert f"{PANEL_OFF} Its SQL and connection evidence is not counted." in str(
+        _check(report, "route-time-breakdown")["reason"]
+    )
 
 
 # ported: RuntimeInsightsServiceTests.checksThatReadSqlAreUnavailableWhereThisApplicationsSqlIsNotRecorded

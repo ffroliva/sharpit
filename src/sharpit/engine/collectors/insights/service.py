@@ -318,14 +318,15 @@ class InsightsService:
         if not capture.recorded and reads_sql:
             return _check(observation, "UNAVAILABLE", 0, 0, capture.reason), []
         partial, unseen = _partial(observation, snapshot), _unseen(observation, snapshot)
-        if caveat := _sql_capture_caveat(observation, snapshot, capture):
+        caveat = _sql_capture_caveat(observation, snapshot, capture)
+        if caveat:
             unseen.append(caveat)
         try:
             evaluation: Evaluation = evaluate(snapshot)
         except Exception:  # noqa: BLE001 - a kind never crashes the host or the other kinds
             logger.debug("insights kind %s could not be evaluated", observation.kind)  # the id only, never the error
             return _check(observation, "UNAVAILABLE", 0, 0, NOT_EVALUATED), []
-        reasons = [partial] if partial else list(unseen)
+        reasons = [partial, caveat] if partial and caveat else [partial] if partial else list(unseen)
         if evaluation.uncounted:
             reasons.append(
                 self._mask(evaluation.uncounted) or UNCOUNTED_WITHHELD
@@ -346,7 +347,7 @@ def _sql_capture_caveat(observation: Observation, snapshot: Snapshot, capture: S
         return None
     if not (observation.reads | observation.optional_reads) & SQL_SOURCES:
         return None
-    return capture.reason + NOT_RECORDED_SUFFIX
+    return capture.reason if capture.recorded else capture.reason + NOT_RECORDED_SUFFIX
 
 
 def _detail(
