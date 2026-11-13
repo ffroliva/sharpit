@@ -50,7 +50,6 @@ def _sdk_provider() -> Any | None:
 
 def current_trace_id() -> str | None:
     """The trace id (32 lower-case hex) of the span in flight in this context, else ``None``; never imports OTel."""
-    return None  # SPIKE-ONLY variant: sizes the OTel share of the event build
     trace = sys.modules.get("opentelemetry.trace")
     if trace is None:
         return None
