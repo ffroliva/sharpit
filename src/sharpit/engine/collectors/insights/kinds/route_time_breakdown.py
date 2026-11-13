@@ -9,7 +9,8 @@ Deviations (proposed, by field; the phase maths is ``route_phases``):
   against it, as BootUI does; a request without either is unplaced (left out and counted), never placed by wall
   clock. The stack never marks phases (BootUI's WebFlux branch): no handler-unmarked split, no ``Other filters``,
   ``Handler`` or ``Response write`` phase, and the WebFlux limitation names sharpit. The sql text is never read.
-- ``connection``, ``rest-client``, ``authorization``, ``orm`` and ``messaging`` have no producer: their phases, the
+- ``rest-client``, ``authorization``, ``orm`` and ``messaging`` have no producer (``connection`` has, but its
+  ``waitNanos`` is always 0, so its wait phase is absent): their phases, the
   authorization-share and decision-count prominence triggers and the Kafka limitation are absent. ``ai`` events carry
   no wall-clock start, so their time stays unattributed and a limitation names the requests that made AI calls.
 - ``resources`` (CPU and allocation) and virtual-thread limitations: http carries neither. The code-paths handler

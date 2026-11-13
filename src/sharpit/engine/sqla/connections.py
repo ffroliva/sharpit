@@ -7,6 +7,10 @@ Deviations from BootUI: ``waitNanos`` is always 0, which BootUI's readers take a
 and ``JournalAggregates`` add it up): the ``checkout`` event fires after the pool handed the connection over and no
 event marks when the request for it began, so a wait is never invented. The event is offered with the correlation
 current at checkout, on whichever thread releases it, as BootUI's ``ConnectionCheckout`` does.
+
+shortcut: the state sits in one slot of the pool record's ``info``. A pool that hands one record to several concurrent
+checkouts (StaticPool, SingletonThreadPool: sqlite in memory) therefore journals one event for the overlapping
+checkouts, the last one's; upgrade to a state keyed per fairy if such a pool needs one event per checkout.
 """
 
 # pyright: reportPrivateUsage=false
@@ -50,6 +54,7 @@ def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
     """Start following the connection just obtained, when a journal that records the source will take it."""
     del dbapi_connection
     try:
+        record.info.pop(CHECKOUT_KEY, None)  # a state left by a checkout whose checkin listener was gone is not ours
         if INTERNAL.get():
             return
         pool = getattr(proxy, "_pool", None)
