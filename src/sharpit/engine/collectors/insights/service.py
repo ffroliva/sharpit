@@ -15,8 +15,8 @@ from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
 from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
-from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
+from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
 
 if TYPE_CHECKING:
