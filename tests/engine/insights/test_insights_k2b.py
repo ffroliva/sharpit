@@ -566,3 +566,30 @@ def test_a_kind_with_the_http_exchanges_panel_off_answers_boot_uis_hidden_reques
     assert check["status"] == "NOT_APPLICABLE"
     assert check["reason"] == "The http-exchanges panel is disabled, so its unit-of-work evidence cannot be evaluated."
     assert not rows
+
+
+# BootUI quotes the journal's text once and never masks the finished sentence (FrameworkWarningsByRoute.java:244);
+# sharpit masks the sentence too, and that second pass must not read the closing quote as part of a masked value.
+def test_framework_warnings_by_route_a_masked_value_in_the_quoted_text_keeps_the_closing_quote() -> None:
+    run = Run()
+    run.request(200, log(POOL, ERROR, "pool low for password=hunter2"))
+    (row,) = run.rows(WARNINGS)
+    assert row["sentence"] == (
+        f'`{ORDERS}` logged `ERROR` from `{POOL}` in 1 of 1 request (1 event): "pool low for password=******".'
+    )
+    assert "hunter2" not in run.dump(WARNINGS)
+
+
+@pytest.mark.parametrize("secret", ["hunter2", "hunter2", "hunter2"])
+def test_framework_warnings_by_route_text_cannot_forge_the_quote_marker(secret: str) -> None:
+    run = Run()
+    run.request(200, log(POOL, ERROR, f"pool low for password={secret} and token={secret}"))
+    (row,) = run.rows(WARNINGS)
+    assert "hunter2" not in run.dump(WARNINGS)
+    assert "" not in str(row["sentence"])
+
+
+def test_framework_warnings_by_route_a_quoted_text_is_still_withheld_at_metadata_only() -> None:
+    run = Run(Exposure.METADATA_ONLY)
+    run.request(200, log(POOL, ERROR, "pool low for password=hunter2"))
+    assert "pool low" not in run.dump(WARNINGS)
