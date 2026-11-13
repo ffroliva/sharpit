@@ -7,7 +7,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Runtime insights: with the SQL trace flag off, or the sql-trace panel off, a check that reads SQL is UNAVAILABLE with the capture reason and a check that optionally reads it carries the caveat (BootUI `SqlCapture.DISABLED`); whether a database is in use at all is not decided yet.
 - Runtime insights `safe-method-dml` (a GET or HEAD request that executed an INSERT, UPDATE, DELETE or MERGE, one finding per route naming the verb, never the statement); `lazy-sql-after-handler` answers not applicable because sharpit marks no handler end.
 - Email panel (GET /email, /email/{id}, /email/{id}/eml, DELETE /email, get_emails, CLI mail): outgoing mail captured at `smtplib` and `aiosmtplib` `sendmail`, bounded, with SHARPIT_EMAIL_MAX_ENTRIES, _MAX_BODY_LENGTH, _DEV_TRAP and _MASK_CONTENT; secret-shaped text is masked even when content is shown, unless the exposure is FULL; the dev trap never connects.
 - Internal: a shared class-method wrap helper for capture integrations (`engine/capture/wraps.py`).
@@ -90,6 +89,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Runtime insights treat SQL capture that is switched off as a state, not a clean result (BootUI `SqlCapture.DISABLED`). SQL trace flag off, sql-trace panel on: a check that requires SQL evidence (`safe-method-dml`) is UNAVAILABLE with the capture reason, and a check that reads it optionally is evaluated and carries the caveat. sql-trace panel off, flag on or off: a check that requires SQL evidence is NOT_APPLICABLE (the disabled-panel reason wins), and an optional reader carries the caveat. Both on: unchanged. A default install with no SQLAlchemy imported or hooks suspended still evaluates SQL checks as clean; that is the follow-up task `W5c-sql-recorded-fact`.
 - Runtime Insights counts a journal source as evidence only while its panel is enabled (BootUI `visible()`/`available()`): a disabled panel reads as absent evidence and the check names it; with the http-exchanges panel off, a kind that examines requests answers not applicable for its unit-of-work evidence.
 - The live BootUI capture rejects every request outside GET and the allow-listed POSTs, keys uncaptured routes individually, and confines raw output outside git work trees. Machine identity values, including short logins and home path variants, are retained by the artifact leak gate.
 
