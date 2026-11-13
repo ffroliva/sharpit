@@ -59,6 +59,10 @@ def for_context(ctx: SharpitContext) -> SqlCapture:
     listeners routed here, or raw sqlite3 statements seen here (the patch is process-wide and attached at install, so
     its presence alone proves no database is used). A suspended hook records nothing. SQLAlchemy older than 2.0 is
     BootUI's R2DBC shape: not recorded, or recorded except that library when sqlite3 is in use.
+
+    Known limit, as in BootUI (it reads the capture at report time too): this is the state now, while the journal window
+    may be from before a hook was suspended or attached; an idle raw-sqlite3 app reads not recorded until its first
+    statement.
     """
     if not ctx.settings.sql_trace_enabled:
         return SqlCapture.not_recorded(DISABLED)

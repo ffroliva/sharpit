@@ -343,5 +343,6 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         return panel is None or panel.enabled
 
     return ctx.lazy(
-        "runtime-insights", lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx))
+        "runtime-insights",
+        lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx)),
     )
