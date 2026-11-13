@@ -194,6 +194,27 @@ def test_the_loss_horizon_never_moves_past_now() -> None:
     assert journal.view([])[3] <= time.time_ns() // 1_000_000  # type: ignore[operator]
 
 
+# ported: EvidenceRing.lost (v2.3.0 l.155-172) only raises the horizon, clamped to now at loss time; a clock stepped
+# back afterwards leaves it where it was, as in BootUI. The audit's NTP scenario is BootUI's own behaviour.
+def test_a_clock_stepped_back_after_a_loss_keeps_the_horizon(monkeypatch: pytest.MonkeyPatch) -> None:
+    journal = RuntimeJournal(max_events=1)
+    monkeypatch.setattr(time, "time_ns", lambda: 10_000 * 1_000_000)
+    journal.offer({**sql("select 1", 9_000), "requestId": "a"})
+    journal.offer({**sql("select 2", 9_500), "requestId": "b"})  # evicts a: horizon 9_000
+    monkeypatch.setattr(time, "time_ns", lambda: 1_000 * 1_000_000)  # stepped back ten minutes' worth
+    journal.offer({**sql("select 3", 900), "requestId": "c"})  # evicts b: min(9_500, now 1_000) is below the horizon
+    assert journal.view([])[3] == 9_000
+
+
+# BootUI v2.3.0 RuntimeJournal.enqueue (l.337-338) counts a refused or failed offer and stamps droppedAt of its source;
+# it calls no ring.lost, so the horizon stays put. Sharpit has no per-source lostMillis (deviation row, not ported).
+def test_a_failed_or_reentrant_offer_does_not_move_the_horizon() -> None:
+    journal = RuntimeJournal()
+    journal.offer({"source": 5, "requestId": "r1", "startedAt": 1_005})  # not a source: failed
+    journal.count_dropped("reentrant")
+    assert journal.view([])[3] is None
+
+
 def test_a_request_starting_within_the_slack_of_the_horizon_is_left_out() -> None:
     journal = after_losing_a_statement_at(1_000, 1_016)  # ported: LOSS_HORIZON_SLACK_MILLIS = 16, inclusive
     assert ONE_LEFT_OUT in str(check(journal, ROUTE_TIME)["reason"])
