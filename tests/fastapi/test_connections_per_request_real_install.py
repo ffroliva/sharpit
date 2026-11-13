@@ -83,7 +83,7 @@ def test_connections_per_request_real_install_nested_connections_are_found_with_
     assert "pool of 5 connections" in str(rows[0]["whatToCheck"][1])  # 3 + 2 overflow: SQLAlchemy's maximum
     assert _check(ctx)["status"] == "EVALUATED"
     assert _check(ctx)["eligibleRequests"] == 2
-    assert "hands one connection" not in str(_check(ctx)["reason"])  # a queue pool gives each checkout its own
+    assert "hands the same connection" not in str(_check(ctx)["reason"])  # a queue pool gives each checkout its own
 
 
 def test_connections_per_request_real_install_a_pool_with_no_maximum_uses_p(tmp_path: pathlib.Path) -> None:
@@ -101,5 +101,5 @@ def test_connections_per_request_real_install_a_shared_connection_pool_cannot_sh
     assert _rows(ctx) == []  # one pooled connection serves both checkouts: one event, nothing to overlap
     check = _check(ctx)
     assert check["status"] == "EVALUATED"
-    assert "hands one connection to every checkout" in str(check["reason"])
+    assert "hands the same connection to a checkout made while another is held" in str(check["reason"])
     assert "StaticPool" in str(check["reason"])

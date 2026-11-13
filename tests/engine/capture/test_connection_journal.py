@@ -246,6 +246,7 @@ def test_connection_journal_failed_or_slow_follows_the_slow_query_threshold():
     with handle.engine.connect() as conn:
         conn.execute(sa.text("select 1"))
         time.sleep(0.12)
+    recorder.slow_query_threshold_millis = 10**9  # the control release cannot be slow, however loaded the runner
     _use(handle.engine)
     assert [r["failedOrSlow"] for r in _records(handle)] == [True, False]
 

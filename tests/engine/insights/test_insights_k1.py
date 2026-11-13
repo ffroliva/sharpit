@@ -469,6 +469,7 @@ def test_a_recorded_connection_source_says_a_pool_wait_is_not_measured() -> None
     try:
         for _ in range(6):
             run.request(ORDERS, 40, (10, 10))
+        run.journal.offer({"source": "connection", "requestId": "r1", "dataSource": "db", "durationNanos": 5})
         limitations = run.rows()[ORDERS]["limitations"]
         assert any("wait for a pooled connection" in text and "not measured" in text for text in limitations)
     finally:
@@ -479,3 +480,13 @@ def test_no_connection_source_no_pool_wait_limitation(run: Run) -> None:
     for _ in range(6):
         run.request(ORDERS, 40, (10, 10))
     assert not any("pooled connection" in text for text in run.rows()[ORDERS]["limitations"])
+
+
+def test_a_recorded_connection_source_with_no_connection_event_adds_no_pool_wait_limitation() -> None:
+    run = Run(("http", "sql", "connection"))  # an app that never takes a pooled connection has no wait to name
+    try:
+        for _ in range(6):
+            run.request(ORDERS, 40, (10, 10))
+        assert not any("pooled connection" in text for text in run.rows()[ORDERS]["limitations"])
+    finally:
+        run.close()
