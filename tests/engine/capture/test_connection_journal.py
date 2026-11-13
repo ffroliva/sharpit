@@ -204,11 +204,7 @@ def test_connection_journal_not_offered_when_source_disabled():
     assert _records(disabled) == ()
     dropped = disabled.context.capture.journal.status()["dropped"]
     assert "connection" not in dropped  # BootUI follows and counts nothing then
-    from sharpit.engine.sqla import connections  # noqa: PLC0415
-
-    # and no pool listener acts for it: once added the listeners stay installed (removing one under live traffic can
-    # fail the host's pool call), so the switch is the flag
-    assert not connections.following()
+    assert not sqla.attached()["checkout"]  # and no pool listener runs for it
     enabled = _install()  # control: the same release is offered when the source is enabled
     _use(enabled.engine)
     assert len(_records(enabled)) == 1
