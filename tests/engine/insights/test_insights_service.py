@@ -72,7 +72,7 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
     assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
-    assert {"ai", "sql", "exception", "log"} <= snapshot_module.PRODUCED_SOURCES
+    assert {"ai", "sql", "exception", "log", "connection"} <= snapshot_module.PRODUCED_SOURCES
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
@@ -96,6 +96,10 @@ def test_every_produced_source_has_a_producer_test() -> None:
             "test_http_journal_event_offered_once_per_request_with_bootui_fields",
         ),
         "mail": ("tests/engine/capture/test_mail.py", "test_mail_journal_event_is_metadata_only"),
+        "connection": (
+            "tests/engine/capture/test_connection_journal.py",
+            "test_connection_journal_event_offered_once_per_release_with_bootui_fields",
+        ),
     }
     assert set(producer_tests) == snapshot_module.PRODUCED_SOURCES
     root = Path(__file__).resolve().parents[3]

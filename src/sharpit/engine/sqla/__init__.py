@@ -67,6 +67,7 @@ from sharpit.engine.sqla.events import (  # noqa: E402
 from sharpit.engine.sqla.inspect import (  # noqa: E402
     EngineRegistry,
     live_engine_drivers,
+    maximum_pool_size,
 )
 from sharpit.engine.sqla.listeners import (  # noqa: E402
     DISCOVERY_EVENT,
@@ -81,6 +82,7 @@ from sharpit.engine.sqla.listeners import (  # noqa: E402
     detach_all,
     detach_session,
     engine_connect,
+    following_connections,
     handle_error,
     note_request_captured,
     remove,
@@ -136,9 +138,11 @@ __all__ = [
     "detach_all",
     "detach_session",
     "engine_connect",
+    "following_connections",
     "handle_error",
     "is_internal",
     "live_engine_drivers",
+    "maximum_pool_size",
     "logger",
     "note_request_captured",
     "remove",

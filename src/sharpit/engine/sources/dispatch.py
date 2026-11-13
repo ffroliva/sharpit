@@ -88,6 +88,36 @@ def _targets(engine: object | None) -> list[SharpitContext]:
     return held or (contexts if len(contexts) == 1 else [])
 
 
+def _pool_targets(pool: object) -> list[SharpitContext]:
+    """``_targets`` for a pool: the contexts whose engines own it. Not shared with ``_targets``: that one runs per
+    statement and takes no extra call (+0.2 µs measured), so the two routes stay apart."""
+    contexts = [c for r in _refs if (c := r()) is not None]
+    info = REQUEST.get()
+    if info is not None:
+        return [c for c in contexts if c.context_id == info.context_id]
+    held = [
+        c
+        for c in contexts
+        if c.capture.engine_registry is not None and c.capture.engine_registry.name_of_pool(pool) is not None
+    ]
+    return held or (contexts if len(contexts) == 1 else [])
+
+
+def connection_targets(pool: object, source: str) -> list[SharpitContext]:
+    """The contexts that journal a connection checked out of ``pool``, routed as a statement is (a request's own
+    context, else the contexts whose engines own the pool, else the only one); each has a SQL recorder, a journal that
+    records ``source`` and does not suspend SQLAlchemy. The panel's pause does not gate them (BootUI
+    ``checkoutConnection``: logical connections only feed the journal)."""
+    return [
+        c
+        for c in _pool_targets(pool)
+        if c.capture.sql_trace is not None
+        and c.capture.journal is not None
+        and c.capture.journal.accepts(source)
+        and "sqlalchemy" not in c.capture.suspended_sources
+    ]
+
+
 def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
     """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on."""
     if source == "sqlite3":

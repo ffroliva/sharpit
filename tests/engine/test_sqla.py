@@ -742,7 +742,7 @@ def test_failed_timeout_restore_invalidates_the_app_connection():
 class _Ctx:
     context_id = "feedc0de00000000"
     engines: tuple[()] = ()
-    capture = types.SimpleNamespace(engine_registry=None)
+    capture = types.SimpleNamespace(engine_registry=None, journal=None)
 
 
 def test_collected_context_detaches_listeners():

@@ -9,7 +9,8 @@ Deviations (proposed, by field; the phase maths is ``route_phases``):
   against it, as BootUI does; a request without either is unplaced (left out and counted), never placed by wall
   clock. The stack never marks phases (BootUI's WebFlux branch): no handler-unmarked split, no ``Other filters``,
   ``Handler`` or ``Response write`` phase, and the WebFlux limitation names sharpit. The sql text is never read.
-- ``connection``, ``rest-client``, ``authorization``, ``orm`` and ``messaging`` have no producer: their phases, the
+- ``rest-client``, ``authorization``, ``orm`` and ``messaging`` have no producer (``connection`` has, but its
+  ``waitNanos`` is always 0, so its wait phase is absent): their phases, the
   authorization-share and decision-count prominence triggers and the Kafka limitation are absent. ``ai`` events carry
   no wall-clock start, so their time stays unattributed and a limitation names the requests that made AI calls.
 - ``resources`` (CPU and allocation) and virtual-thread limitations: http carries neither. The code-paths handler
@@ -110,6 +111,17 @@ def _ai(snapshot: Snapshot, warm: list[Breakdown]) -> list[str]:
     ]
 
 
+def _pool_wait(warm: list[Breakdown]) -> list[str]:
+    """The ``connection`` events' ``waitNanos`` is always 0: a pool wait is not a phase. Named only for a route whose
+    requests took pooled connections."""
+    if not any(b.request.children["connection"] for b in warm):
+        return []
+    return [
+        "A wait for a pooled connection is not measured (SQLAlchemy reports none), so it stays in the span it "
+        "happened in."
+    ]
+
+
 def _limitations(snapshot: Snapshot, cold_known: bool, unplaced: int, warm: list[Breakdown]) -> list[str]:
     return [
         *_evicted(snapshot, cold_known),
@@ -117,6 +129,7 @@ def _limitations(snapshot: Snapshot, cold_known: bool, unplaced: int, warm: list
         "sharpit marks no handler or response phase, so filters, handler, and response write are one unattributed "
         "span around the recorded SQL statements.",
         *_ai(snapshot, warm),
+        *_pool_wait(warm),
     ]
 
 
@@ -182,7 +195,7 @@ def _route(snapshot: Snapshot, route: str, requests: list[Request], cold_known: 
 def evaluate(snapshot: Snapshot) -> Evaluation:
     cold_known = int(snapshot.status["evictedEvents"]) == 0  # ``firstRequestIsCold``
     by_route: dict[str, list[Request]] = defaultdict(list)
-    for request in project_requests(snapshot, "sql", "ai"):
+    for request in project_requests(snapshot, "sql", "ai", "connection"):
         by_route[request.route].append(request)
     findings: list[Finding] = []
     eligible = 0

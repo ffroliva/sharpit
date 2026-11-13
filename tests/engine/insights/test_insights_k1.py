@@ -462,3 +462,47 @@ def test_two_kinds_in_one_report_build_the_request_join_once() -> None:
         assert len(calls) == events  # every sql event joined once; there are no ai events
     finally:
         run.close()
+
+
+def test_a_recorded_connection_source_says_a_pool_wait_is_not_measured() -> None:
+    run = Run(("http", "sql", "connection"))
+    try:
+        for _ in range(6):
+            run.request(ORDERS, 40, (10, 10))
+        run.journal.offer({"source": "connection", "requestId": "r2", "dataSource": "db", "durationNanos": 5})
+        limitations = run.rows()[ORDERS]["limitations"]
+        assert any("wait for a pooled connection" in text and "not measured" in text for text in limitations)
+    finally:
+        run.close()
+
+
+def test_no_connection_source_no_pool_wait_limitation(run: Run) -> None:
+    for _ in range(6):
+        run.request(ORDERS, 40, (10, 10))
+    assert not any("pooled connection" in text for text in run.rows()[ORDERS]["limitations"])
+
+
+def test_a_recorded_connection_source_with_no_connection_event_adds_no_pool_wait_limitation() -> None:
+    run = Run(("http", "sql", "connection"))  # an app that never takes a pooled connection has no wait to name
+    try:
+        for _ in range(6):
+            run.request(ORDERS, 40, (10, 10))
+        assert not any("pooled connection" in text for text in run.rows()[ORDERS]["limitations"])
+    finally:
+        run.close()
+
+
+def test_the_pool_wait_limitation_is_named_only_for_a_route_whose_requests_took_a_connection() -> None:
+    run = Run(("http", "sql", "connection"))
+    try:
+        for _ in range(6):
+            run.request(ORDERS, 40, (10, 10))  # r1..r6
+        health = "GET /healthz"
+        for _ in range(6):
+            run.request(health, 5)
+        run.journal.offer({"source": "connection", "requestId": "r2", "dataSource": "db", "durationNanos": 5})
+        rows = run.rows()
+        assert any("pooled connection" in text for text in rows[ORDERS]["limitations"])
+        assert not any("pooled connection" in text for text in rows[health]["limitations"])
+    finally:
+        run.close()
