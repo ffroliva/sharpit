@@ -126,6 +126,20 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
   telemetry database without logging it; 114 more are reported as INFO;
 - No production code was changed to get these numbers.
 
+## How close to BootUI
+
+sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, and 0.7.0 targets BootUI 2.4.0.
+
+| | sharpit 0.5.0 | sharpit 0.6.0 | BootUI 2.3.0 | BootUI 2.4.0 |
+|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 28 | 28 |
+| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 66 | not captured |
+
+How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
+
 ## Installation and extras
 
 Python 3.12+. Runtime dependencies are only `starlette>=0.44` and `packaging>=23`.
