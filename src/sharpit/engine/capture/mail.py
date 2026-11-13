@@ -295,7 +295,7 @@ class MailRecorder:
             if not any(r is me for r in _live()):
                 _refs = (*_refs, weakref.ref(me, _forget))
             _watch_import()  # first: an import after this line meets the hook, one before it is in sys.modules below
-            _wrap_senders(trap=any(r.dev_trap for r in _live()))
+            _wrap_senders(sys.modules.get("aiosmtplib"), trap=_trap_on())
             return "smtplib" in _WRAPPED and "aiosmtplib" in _WRAPPED
 
     def disarm(self) -> None:
@@ -333,7 +333,7 @@ def _prune(*, dead: weakref.ref[MailRecorder] | None = None, drop: MailRecorder 
     live = _live()
     if not live:
         _unwrap(list(reversed(_WRAPPED)))  # the newest wrap first
-    elif not any(r.dev_trap for r in live):
+    elif not _trap_on(live):
         _unwrap(_TRAP_WRAPS)
 
 
@@ -561,10 +561,12 @@ class _LateImport(importlib.abc.MetaPathFinder):
                 def wrapped(module: Any) -> None:
                     exec_module(module)
                     if module.__name__ == "aiosmtplib":  # a shared loader (zipimport) loads other modules too
-                        _wrap_loaded_or_refuse()
+                        _wrap_loaded_or_refuse(module)
 
                 setattr(wrapped, _PATCHED, True)
                 spec.loader.exec_module = wrapped  # type: ignore[union-attr]
+        except ImportError:  # a finder's own failure: nothing loads, so the host sees that error, not ours
+            raise
         except Exception as exc:  # noqa: BLE001 - never a bare error into the host's import
             return _refuse_or_pass(exc)
         return spec
@@ -572,12 +574,12 @@ class _LateImport(importlib.abc.MetaPathFinder):
 
 _FINDER = _LateImport()
 _PATCHED = "__sharpit_late_import__"
-_seen: weakref.ref[Any] | None = None  # the aiosmtplib module the senders were last wrapped on
+_seen: weakref.ref[type] | None = None  # the aiosmtplib.SMTP class the senders were last wrapped on
 _REFUSED = "sharpit's dev trap could not wrap aiosmtplib, so it is not imported: unwrapped it would send real mail"
 
 
-def _trap_on() -> bool:
-    return any(r.dev_trap for r in _live())
+def _trap_on(live: list[MailRecorder] | None = None) -> bool:
+    return any(r.dev_trap for r in (_live() if live is None else live))
 
 
 def _refuse_or_pass(cause: Exception) -> None:
@@ -586,9 +588,9 @@ def _refuse_or_pass(cause: Exception) -> None:
         raise ImportError(_REFUSED, name="aiosmtplib") from cause
 
 
-def _wrap_loaded_or_refuse() -> None:
+def _wrap_loaded_or_refuse(module: Any, *, blocking: bool = True) -> None:
     try:
-        _wrap_loaded()
+        _wrap_loaded(module, blocking=blocking)
     except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
         if _trap_on():  # none of the package may stay loaded: ``from aiosmtplib.smtp import ...`` would skip the hook
             for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
@@ -596,17 +598,21 @@ def _wrap_loaded_or_refuse() -> None:
         _refuse_or_pass(exc)
 
 
-def _wrap_loaded() -> None:
-    """``aiosmtplib`` has just loaded: wrap it (again, for a re-import) for every armed recorder, or raise. With a trap
-    on, both the capture and the transport wrap must hold, or the module is refused."""
-    if not _LOCK.acquire(timeout=5):  # a finalizer on the thread inside arm() must not hang the import
-        raise TimeoutError("the mail registry stayed locked")
+def _wrap_loaded(module: Any, *, blocking: bool = True) -> None:
+    """``aiosmtplib`` has just loaded: wrap ``module`` (again, for a re-import) for every armed recorder, or raise. With
+    a trap on, both the capture and the transport wrap must hold, or the module is refused. ``blocking=False`` (a
+    request's event-loop thread) skips the wrap when the registry is busy: the next request start covers it."""
+    # a finalizer on the thread inside arm() must not hang the import
+    if not _LOCK.acquire(timeout=5 if blocking else 0):
+        if blocking:
+            raise TimeoutError("the mail registry stayed locked")
+        return
     try:
         live = _live()
         if live:
             _unwrap((_AIOSMTPLIB_CONNECT, "aiosmtplib"))  # a stale record of an earlier module object
-            _wrap_senders(trap=any(r.dev_trap for r in live))
-            if _trap_on() and not {"aiosmtplib", _AIOSMTPLIB_CONNECT} <= _WRAPPED.keys():
+            _wrap_senders(module, trap=_trap_on(live))
+            if _trap_on(live) and not {"aiosmtplib", _AIOSMTPLIB_CONNECT} <= _WRAPPED.keys():
                 raise RuntimeError("aiosmtplib.SMTP could not be wrapped")
     finally:
         _LOCK.release()
@@ -614,15 +620,16 @@ def _wrap_loaded() -> None:
 
 def ensure_wrapped() -> None:
     """The second layer behind ``_LateImport``: an ``aiosmtplib`` that loaded past the hook (another library's finder
-    answered first) is wrapped, or refused as the hook refuses, at the next request start. Never from a read (a GET
-    patches nothing); with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
+    answered first), or whose ``SMTP`` class a reload replaced, is wrapped, or refused as the hook refuses, at the next
+    request start. Never blocks the event loop (a busy registry skips this request), never from a read (a GET patches
+    nothing); with nothing changed it costs one ``sys.modules`` lookup and an identity check."""
     module = sys.modules.get("aiosmtplib")
-    if module is None or not _refs or (_seen is not None and _seen() is module):
+    if module is None or not _refs or (_seen is not None and _seen() is getattr(module, "SMTP", None)):
         return
     if getattr(getattr(module, "__spec__", None), "_initializing", False):  # another thread is importing it now
         return
     with contextlib.suppress(Exception):  # a refusal has already dropped the package; the request goes on
-        _wrap_loaded_or_refuse()
+        _wrap_loaded_or_refuse(module, blocking=False)
 
 
 def _watch_import() -> None:
@@ -642,20 +649,19 @@ def _wrap_one(family: str, owner: type, name: str, make: Callable[[Callable[...,
         _WRAPPED[family] = lambda: False  # ours from an earlier arm whose remover could not run; still in place
 
 
-def _wrap_senders(*, trap: bool) -> None:
+def _wrap_senders(module: Any, *, trap: bool) -> None:
     """The capture wraps; the trap's transport wraps only once a recorder with the trap on is armed, so a host without
     the trap keeps its own connect."""
     _wrap_one("smtplib", smtplib.SMTP, "sendmail", _sync_sendmail)
     if trap:
         _wrap_one("smtplib.connect", smtplib.SMTP, "connect", _sync_connect)
         _wrap_one("smtplib.starttls", smtplib.SMTP, "starttls", _sync_starttls)
-    module = sys.modules.get("aiosmtplib")
     owner = getattr(module, "SMTP", None)
     if not isinstance(owner, type):
         return
     _wrap_one("aiosmtplib", owner, "sendmail", _async_sendmail)
     global _seen  # noqa: PLW0603
-    _seen = weakref.ref(module)
+    _seen = weakref.ref(owner)
     response = getattr(module, "SMTPResponse", None)
     if trap and callable(response):  # without it the trap stays sendmail-only for this aiosmtplib
         _wrap_one(_AIOSMTPLIB_CONNECT, owner, "_create_connection", _async_create_connection(response))

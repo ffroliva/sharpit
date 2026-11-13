@@ -1192,7 +1192,7 @@ def test_a_reload_that_replaces_the_smtp_class_is_wrapped_again(
 def test_the_module_that_just_loaded_is_the_one_wrapped(
     late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
 ):
-    # PR #182 r4 review: _wrap_senders looked "aiosmtplib" up again in sys.modules instead of using the module it was given
+    # PR #182 r4 review: _wrap_senders looked "aiosmtplib" up again in sys.modules, not the module it was given
     with harness(email_dev_trap=True) as h:
         module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
         real_unwrap = mail._unwrap  # noqa: SLF001
