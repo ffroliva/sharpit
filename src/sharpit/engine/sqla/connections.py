@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, RequestInfo
 from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports this package
+from sharpit.engine.sqla import listeners as _listeners  # the module: listeners imports this one
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -94,8 +95,8 @@ def checkin(dbapi_connection: Any, record: Any) -> None:
 def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
     journal = ctx.capture.journal
     recorder = ctx.capture.sql_trace
-    # another install keeps the shared listeners attached: a suspended capture still takes nothing
-    if journal is None or recorder is None or "sqlalchemy" in ctx.capture.suspended_sources:
+    # another install keeps the shared listeners attached: a suspended or uninstalled capture still takes nothing
+    if journal is None or recorder is None or not _listeners.routes_statements(ctx):
         return
     try:  # the event is built inside the guard: a failure loses this event, never the host's release
         registry = ctx.capture.engine_registry

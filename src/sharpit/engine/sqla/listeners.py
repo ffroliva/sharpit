@@ -251,6 +251,11 @@ def remove(ctx: SharpitContext) -> None:
         _sync_listeners()
 
 
+def routes_statements(ctx: SharpitContext) -> bool:
+    """``ctx`` still takes SQLAlchemy events: ``add`` routed it, and no suspend or uninstall (``remove``) has since."""
+    return _statement_contexts.get(ctx.context_id) is ctx
+
+
 def detach_all() -> None:
     """Forget every context and remove every listener (tests start from a clean slate with it)."""
     global _session  # noqa: PLW0603
