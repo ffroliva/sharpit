@@ -15,6 +15,7 @@ from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
 from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports this package
 from sharpit.engine.sqla import _lock
+from sharpit.engine.sqla import connections as _connections
 from sharpit.engine.sqla import orm as _orm
 from sharpit.engine.sqla.dialect_source import engine_dialect
 from sharpit.engine.sqla.orm import (
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 STATEMENT_EVENTS = ("before_cursor_execute", "after_cursor_execute", "handle_error")
+POOL_EVENTS = ("checkout", "checkin")  # the connection journal event: follow a connection, offer it when released
 DISCOVERY_EVENT = "engine_connect"
 DISCOVERY_PANELS = (
     "alembic",
@@ -52,6 +54,7 @@ _discovery_refs: tuple[weakref.ref[SharpitContext], ...] = ()
 # contexts that asked for statements through ``add`` (``routed`` reads it); weak, so a collected one stops counting
 _statement_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 _session = False  # the test-session sink wants statements too (spec 0.3.0 §8.1)
+_counting = False  # a pool listener follows connections, so each statement bumps its connection's count
 
 
 def engine_connect(conn: Any) -> None:
@@ -79,6 +82,8 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
+        if _counting and (followed := conn.info.get(_connections.CHECKOUT_KEY)) is not None:
+            followed.statements += 1  # BootUI ``ConnectionCheckout.statementExecuted``: the application's own only
         _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
@@ -184,27 +189,44 @@ _LISTENERS: dict[str, Callable[..., None]] = {
     "before_cursor_execute": before_cursor_execute,
     "after_cursor_execute": after_cursor_execute,
     "handle_error": handle_error,
+    "checkout": _connections.checkout,
+    "checkin": _connections.checkin,
 }
+
+
+def _records_connections(ctx: SharpitContext) -> bool:
+    """Whether ``ctx``'s journal is configured for ``connection`` (BootUI ``journal.records(CONNECTION)``)."""
+    journal = ctx.capture.journal
+    return journal is not None and (journal.sources is None or _connections.SOURCE in journal.sources)
+
+
+def _target(sa: Any, name: str) -> Any:
+    """The class a listener sits on: the pool events belong to ``Pool``, the rest to ``Engine``."""
+    return sa.pool.Pool if name in POOL_EVENTS else sa.engine.Engine
 
 
 def _sync_listeners() -> None:
     """Listen while a context needs the event, remove once none does (callers hold ``_lock``)."""
     # swapped whole under the lock, read lock-free
-    global _discovery_refs  # noqa: PLW0603
+    global _discovery_refs, _counting  # noqa: PLW0603
     _discovery_refs = tuple(weakref.ref(c) for c in _discovery_contexts.values())
     sa = _sqla.sqlalchemy_module()
     if sa is None:
         return
+    followed = any(_records_connections(c) for c in _statement_contexts.values())
+    _counting = followed
     wanted = {
         DISCOVERY_EVENT: bool(_discovery_contexts),
         **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts) or _session),
+        **dict.fromkeys(POOL_EVENTS, followed),
     }
     for name, fn in _LISTENERS.items():
-        present = sa.event.contains(sa.engine.Engine, name, fn)
+        target = _target(sa, name)
+        present = sa.event.contains(target, name, fn)
         if wanted[name] and not present:
-            sa.event.listen(sa.engine.Engine, name, fn)
+            sa.event.listen(target, name, fn)
         elif present and not wanted[name]:
-            sa.event.remove(sa.engine.Engine, name, fn)
+            sa.event.remove(target, name, fn)
 
 
 def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
@@ -292,6 +314,20 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
         return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
 
 
+def following_connections(ctx: SharpitContext) -> bool:
+    """Whether the pool listener runs for ``ctx``: the ``connection`` journal event can be produced."""
+    with _lock:
+        return ctx.context_id in _statement_contexts and all(attached_pool_events().values())
+
+
+def attached_pool_events() -> dict[str, bool]:
+    sa = _sqla.sqlalchemy_module()
+    return {
+        name: sa is not None and bool(sa.event.contains(_target(sa, name), name, _LISTENERS[name]))
+        for name in POOL_EVENTS
+    }
+
+
 def note_request_captured() -> None:
     if not _session:
         return
@@ -300,8 +336,8 @@ def note_request_captured() -> None:
 
 
 def attached() -> dict[str, bool]:
-    """Event name -> whether sharpit's class-level listener is on ``Engine``."""
+    """Event name -> whether sharpit's class-level listener is on ``Engine`` (``Pool`` for the pool events)."""
     sa = _sqla.sqlalchemy_module()
     if sa is None:
         return dict.fromkeys(_LISTENERS, False)
-    return {name: bool(sa.event.contains(sa.engine.Engine, name, fn)) for name, fn in _LISTENERS.items()}
+    return {name: bool(sa.event.contains(_target(sa, name), name, fn)) for name, fn in _LISTENERS.items()}

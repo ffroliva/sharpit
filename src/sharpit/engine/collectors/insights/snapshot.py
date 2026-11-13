@@ -22,8 +22,8 @@ from sharpit.settings_registry import JOURNAL_SOURCES
 if TYPE_CHECKING:
     from sharpit.engine.collectors.insights.requests import Request, RequestIndex
 
-# W7 A2 (#134), W5a P-http, P-sql, P-exception, W7 E, P-log
-PRODUCED_SOURCES: frozenset[str] = frozenset({"ai", "exception", "http", "log", "mail", "sql"})
+# W7 A2 (#134), W5a P-http, P-sql, P-exception, W7 E, P-log, P-connection
+PRODUCED_SOURCES: frozenset[str] = frozenset({"ai", "connection", "exception", "http", "log", "mail", "sql"})
 
 
 # JournalSourcePanels.panelsOf (v2.3.0 :31-48) with sharpit's panel ids. A source whose BootUI panel sharpit lacks maps
@@ -40,6 +40,7 @@ SOURCE_PANELS: Mapping[str, tuple[str, ...]] = {
     "processes": ("side-effects",), "files": ("side-effects",),
 }  # fmt: skip
 PanelEnabled = Callable[[str], bool]
+Producing = Callable[[str], bool]  # whether this install's producer of a source can run now (its listener is armed)
 
 DEFAULT_AI_TOKEN_THRESHOLD = 8000  # AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
 
@@ -86,12 +87,17 @@ def hidden_panels(source: str, panel_enabled: PanelEnabled | None) -> tuple[str,
 
 
 def project(
-    journal: Any, ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD, panel_enabled: PanelEnabled | None = None
+    journal: Any,
+    ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
+    panel_enabled: PanelEnabled | None = None,
+    producing: Producing | None = None,
 ) -> Snapshot:
     """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear.
-    ``panel_enabled`` None: every panel is enabled."""
+    ``panel_enabled`` None: every panel is enabled. ``producing`` None: every produced source's producer can run."""
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
-    produced = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
+    produced = [
+        s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES and (producing is None or producing(s))
+    ]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
     status, records, newest = journal.view([s for s in produced if s not in hidden])
     return Snapshot(status, records, newest, ai_token_threshold, hidden)

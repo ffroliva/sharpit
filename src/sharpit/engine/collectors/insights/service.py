@@ -10,10 +10,17 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sharpit.engine import sqla
 from sharpit.engine.collectors.insights import listing
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
-from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHOLD, PanelEnabled, Snapshot, project
+from sharpit.engine.collectors.insights.snapshot import (
+    DEFAULT_AI_TOKEN_THRESHOLD,
+    PanelEnabled,
+    Producing,
+    Snapshot,
+    project,
+)
 from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
@@ -217,8 +224,10 @@ class InsightsService:
         ai_token_threshold: int = DEFAULT_AI_TOKEN_THRESHOLD,
         panel_enabled: PanelEnabled | None = None,
         sql_capture: Callable[[], SqlCapture] | None = None,
+        producing: Producing | None = None,
     ) -> None:
         self.journal = journal
+        self.producing = producing  # None: every produced source's producer can run
         self.sql_capture = sql_capture or SqlCapture.capturing  # RuntimeInsightsService.sqlCapture, default capturing
         self.panel_enabled = panel_enabled  # None: every panel counts as enabled
         # BootUI rejects a non-positive threshold at startup; sharpit takes the default (settings fail-safe)
@@ -248,7 +257,7 @@ class InsightsService:
     def _build(self) -> tuple[Row, Details]:
         if self.journal is None:
             return _report(False, DISABLED, None, [], [], [], []), {}
-        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled)
+        snapshot = project(self.journal, self.ai_token_threshold, self.panel_enabled, self.producing)
         capture = self._capture()
         checks: list[Row] = []
         found: list[tuple[Row, Finding]] = []
@@ -342,7 +351,12 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         panel = ctx.settings.panels.get(panel_id)
         return panel is None or panel.enabled
 
+    def producing(source: str) -> bool:  # a source whose listener is not armed here is not recorded, however enabled
+        return source != "connection" or sqla.following_connections(ctx)
+
     return ctx.lazy(
         "runtime-insights",
-        lambda: InsightsService(ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx)),
+        lambda: InsightsService(
+            ctx.capture.journal, None, threshold, panel_enabled, lambda: sql_capture_for(ctx), producing
+        ),
     )

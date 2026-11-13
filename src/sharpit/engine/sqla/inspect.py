@@ -218,6 +218,14 @@ class EngineRegistry:
     def holds(self, engine: object) -> bool:
         return any(ref() is engine for ref, _ in self._snapshot)
 
+    def name_of_pool(self, pool: object) -> str | None:
+        """The display name of the registered engine that owns ``pool`` (what the connection-pools panel shows)."""
+        for ref, name in self._snapshot:
+            engine = ref()
+            if engine is not None and engine.pool is pool:
+                return name
+        return None
+
     def engines(self) -> list[tuple[str, Any]]:
         """``(display name, Engine)`` in registration order."""
         return [(name, engine) for ref, name in self._snapshot if (engine := ref()) is not None]
