@@ -5,9 +5,11 @@ import importlib.util
 import json
 import threading
 import time
+from collections import Counter, deque
 from dataclasses import fields
 from typing import Any
 
+import pytest
 from tests.overhead import check_budget, paired
 
 from sharpit.engine.capture import CaptureState
@@ -64,17 +66,157 @@ def test_journal_bounds_and_counts_drops() -> None:
     assert sum(status["dropped"].values()) == status["droppedEvents"]
 
 
-def test_reentrant_append_is_dropped_and_counted() -> None:
+def test_an_offer_made_while_the_host_copy_runs_is_refused_and_counted() -> None:
+    """The copy runs outside the lock, so only the thread's own flag stops an offer made from inside it."""
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)
     event = {"source": "test", "message": "outer"}
 
-    class Reentrant(dict):
+    class Nested(dict):
         def items(self):
             journal.offer(event)
             return super().items()
 
-    assert journal.offer(Reentrant(source="test", message="outer")) is True
+    assert journal.offer(Nested(source="test", message="outer")) is True
     assert journal.status()["dropped"].get("reentrant", 0) == 1
+    assert journal.status()["retainedEvents"] == 1
+
+
+def test_a_host_repr_that_offers_does_not_recurse() -> None:
+    """A host ``__repr__`` that offers an event holding another such object: bounded at one retained, none failed."""
+    journal = _journal_module().RuntimeJournal(max_events=1000, max_bytes=100_000, sources=("test",))
+
+    class Host:
+        def __repr__(self) -> str:
+            journal.offer({"source": "test", "value": Host()})
+            return "host"
+
+    assert journal.offer({"source": "test", "value": Host()}) is True
+    status = journal.status()
+    assert status["retainedEvents"] == 1
+    assert status["dropped"] == {"reentrant": 1}
+
+
+class _FiresMidWalk(deque):  # type: ignore[type-arg]
+    """The ring: ``fire`` runs after its first item is yielded, in the middle of a read's iteration."""
+
+    fire: Any = None
+
+    def __iter__(self) -> Any:
+        for n, item in enumerate(super().__iter__()):
+            yield item
+            if n == 0:
+                self.fire()
+
+
+class _CounterFiresMidWalk(Counter):  # type: ignore[type-arg]
+    """The dropped counter: ``dict(counter)`` walks ``keys()``, and ``fire`` runs after its first key."""
+
+    fire: Any = None
+
+    def __iter__(self) -> Any:  # a Counter that iterates its own way is copied through ``keys()``
+        return super().__iter__()
+
+    def keys(self) -> Any:
+        for n, key in enumerate(super().keys()):
+            yield key
+            if n == 0:
+                self.fire()
+
+
+@pytest.mark.parametrize(
+    ("where", "read"), [("ring", "records"), ("ring", "view"), ("counters", "status"), ("counters", "view")]
+)
+def test_an_offer_made_while_this_thread_reads_under_the_lock_is_refused_and_counted(where: str, read: str) -> None:
+    """A finalizer (garbage collection) can run in the middle of a read's iteration or counter copy, on this thread."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "log"))
+    journal.offer_flat({"source": "sql", "sql": "select 1"})
+    journal.offer_flat({"source": "sql", "sql": "select 2"})
+    nested: list[bool] = []
+    # the ring case appends if it is let in; the counters case counts a refusal while the counter is being walked
+    offered = {"source": "log", "level": "WARN"} if where == "ring" else {"source": "other"}
+
+    def fire() -> None:
+        if not nested:  # a finalizer: the offer is made from inside the read
+            nested.append(journal.offer_flat(dict(offered)))
+
+    before: dict[str, int] = {}
+    if where == "ring":
+        ring = _FiresMidWalk(journal._events)  # pyright: ignore[reportPrivateUsage]
+        ring.fire = fire
+        journal._events = ring  # pyright: ignore[reportPrivateUsage]
+    else:
+        journal.offer_flat({"source": "unconfigured"})  # one key to walk, so a refusal adds a SECOND while it runs
+        before = {"unconfigured": 1}
+        counter = _CounterFiresMidWalk(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+        counter.fire = fire
+        journal._dropped = counter  # pyright: ignore[reportPrivateUsage]
+    reads = {"records": lambda: journal.records("sql"), "view": lambda: journal.view(["sql"]), "status": journal.status}
+    raised: list[str] = []
+    try:
+        reads[read]()
+    except (ValueError, RuntimeError) as exc:  # the defect: an exception where a read is answered
+        raised.append(f"{type(exc).__name__}: {exc}")
+    assert raised == []
+    assert nested == [False]
+    assert journal.status()["dropped"] == {**before, "reentrant": 1}
+    assert journal.status()["retainedEvents"] == 2
+
+
+def test_a_finalizer_counting_another_key_during_a_counter_walk_does_not_resize_it() -> None:
+    """``count_dropped("log")`` (the log tail's suspended-journal path) from a finalizer mid-walk adds no key."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql",))
+    journal.offer_flat({"source": "unconfigured"})
+    counter = _CounterFiresMidWalk(journal._dropped)  # pyright: ignore[reportPrivateUsage]
+    fired: list[None] = []
+    counter.fire = lambda: fired or (fired.append(None), journal.count_dropped("log"))  # once: the next walk is ours
+    journal._dropped = counter  # pyright: ignore[reportPrivateUsage]
+    raised: list[str] = []
+    try:
+        journal.status()
+    except RuntimeError as exc:  # the defect: an exception where a read is answered
+        raised.append(str(exc))
+    assert raised == []
+    assert journal.status()["dropped"] == {"unconfigured": 1, "reentrant": 1}
+
+
+def test_a_nested_offer_during_an_append_is_refused_before_it_copies_anything() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("sql", "log"))
+    copied: list[str] = []
+    nested: list[bool] = []
+
+    class Spy(dict):  # type: ignore[type-arg]
+        def items(self) -> Any:
+            copied.append("items")
+            return super().items()
+
+    class Finalized:
+        def __del__(self) -> None:
+            nested.append(journal.offer(Spy(source="log", level="WARN")))
+
+    class Slot(deque):  # type: ignore[type-arg]
+        def append(self, item: Any) -> None:
+            Finalized()
+            super().append(item)
+
+    journal._events = Slot()  # pyright: ignore[reportPrivateUsage]
+    assert journal.offer({"source": "sql", "sql": "select 1"}) is True
+    assert nested == [False]
+    assert copied == []  # refused at entry: no host-side copy under the held lock
+
+
+def test_the_host_copy_of_an_event_runs_outside_the_lock() -> None:
+    """``__str__``/``__repr__`` of a host object run in ``_snapshot``: another thread must not wait on them."""
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, sources=("log",))
+    held: list[bool] = []
+
+    class Host:
+        def __repr__(self) -> str:
+            held.append(journal._owned())  # pyright: ignore[reportPrivateUsage]
+            return "host"
+
+    assert journal.offer({"source": "log", "value": Host()}) is True
+    assert held
+    assert held == [False] * len(held)
 
 
 def test_journal_masks_raw_events_when_records_are_read() -> None:
