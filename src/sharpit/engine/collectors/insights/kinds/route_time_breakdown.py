@@ -112,8 +112,9 @@ def _ai(snapshot: Snapshot, warm: list[Breakdown]) -> list[str]:
 
 
 def _pool_wait(snapshot: Snapshot) -> list[str]:
-    """The ``connection`` source is recorded but its ``waitNanos`` is always 0: a pool wait is not a phase."""
-    if not snapshot.available("connection"):
+    """The ``connection`` events' ``waitNanos`` is always 0: a pool wait is not a phase. Named only for an app whose
+    requests took pooled connections."""
+    if not snapshot.records.get("connection"):
         return []
     return [
         "A wait for a pooled connection is not measured (SQLAlchemy reports none), so it stays in the span it "

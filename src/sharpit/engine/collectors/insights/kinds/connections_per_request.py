@@ -10,8 +10,9 @@ Deviations (proposed, by field):
   and says so: "nothing found" over connections it could not place is never a clean result.
 - ``not_applicable``: http records exist but none names a request id (the exposure withheld them), so no connection can
   be placed in a request.
-- ``shared pool``: SQLAlchemy's ``StaticPool`` and ``SingletonThreadPool`` (in-memory sqlite) hand one connection to
-  every checkout, so a nested checkout is one event and cannot overlap anything; the check says so in its reason.
+- ``shared pool``: SQLAlchemy's ``StaticPool`` and ``SingletonThreadPool`` (in-memory sqlite) hand the same
+  connection to a checkout made while another is held (``SingletonThreadPool``: on one thread), so a nested checkout
+  is one event and cannot overlap anything; the check says so in its reason.
 - the pool size is a queue pool's size plus its overflow (``DataSourcePoolSizes`` reads Hikari's maximum); another pool
   or an unbounded overflow has none, and the estimate then uses P.
 """
@@ -160,8 +161,8 @@ def _shared_pool_notes(snapshot: Snapshot) -> list[str]:
         name for event in snapshot.records.get("connection", ()) if isinstance(name := event.get("dataSource"), str)
     )
     return [
-        f"The pool of `{name}` ({pool}) hands one connection to every checkout, so a connection held inside another "
-        "is journaled once and cannot be counted as held together."
+        f"The pool of `{name}` ({pool}) hands the same connection to a checkout made while another is held, so a "
+        "connection held inside another is journaled once and cannot be counted as held together."
         for name in names
         if (pool := snapshot.shared_pool(name))
     ]
