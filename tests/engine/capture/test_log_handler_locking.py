@@ -7,7 +7,6 @@ the test and hang the interpreter at exit (``logging.shutdown`` takes the handle
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import subprocess
@@ -232,27 +231,22 @@ def test_fail_reads_the_failed_flag_only_with_its_lock_held(monkeypatch: pytest.
     assert len(warnings) == 1
 
 
-class _Seen(Exception):
-    """An exception whose mark lookup reports whether ``_MARK_LOCK`` is held while the host's ``__getattr__`` runs."""
+def test_mark_seen_reads_an_already_marked_exception_without_the_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The common repeat (the same exception logged again in the same request) takes no lock: a slow host
+    ``__getattr__`` on an exception stalls no other thread's ``record()``."""
+    real = exceptions_module._mark  # pyright: ignore[reportPrivateUsage]
+    reads: list[bool] = []
 
-    def __init__(self) -> None:
-        super().__init__("seen")
-        self.lookups: list[bool] = []
+    def watched(exc: BaseException, slot: str) -> str | None:
+        reads.append(exceptions_module._MARK_LOCK.locked())  # pyright: ignore[reportPrivateUsage]
+        return real(exc, slot)
 
-    def __getattr__(self, name: str) -> object:
-        if name.startswith("__sharpit_seen"):
-            self.__dict__.setdefault("lookups", []).append(exceptions_module._MARK_LOCK.locked())  # pyright: ignore[reportPrivateUsage]
-        raise AttributeError(name)
-
-
-def test_mark_seen_runs_no_host_lookup_under_the_lock_for_an_exception_already_marked() -> None:
-    """The common repeat (the same exception logged again in the same request) needs no lock and no host call under it."""
-    error = _Seen()
+    monkeypatch.setattr(exceptions_module, "_mark", watched)
+    error = ValueError("seen")
     assert exceptions_module.mark_seen(error, "req-1", "_lookup") is True
-    error.lookups.clear()
-    exceptions_module._FALLBACK[(id(error), "_lookup")] = "req-1"  # pyright: ignore[reportPrivateUsage]
+    reads.clear()
     assert exceptions_module.mark_seen(error, "req-1", "_lookup") is False
-    assert error.lookups == [False]
+    assert reads == [False]
 
 
 def test_mark_seen_counts_one_exception_logged_on_two_threads_once() -> None:
