@@ -59,14 +59,14 @@ def test_journal_bounds_and_counts_drops() -> None:
     status = journal.status()
     assert status["retainedEvents"] <= 100
     assert status["retainedBytes"] <= 4096
-    assert status["evictedEvents"] + status["retainedEvents"] == 10_000, "every event is retained or counted evicted"
-    assert status["droppedEvents"] == 0, "queue-capacity refuses nothing: there is no queue"
+    offered = status["evictedEvents"] + status["retainedEvents"] + status["droppedEvents"]
+    assert offered == 10_000, "every event is retained, counted evicted, or counted dropped (the queue was full)"
     assert sum(status["dropped"].values()) == status["droppedEvents"]
 
 
-def test_reentrant_append_is_dropped_and_counted() -> None:
+def test_an_offer_made_from_inside_an_offer_is_queued_not_dropped() -> None:
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)
-    event = {"source": "test", "message": "outer"}
+    event = {"source": "test", "message": "inner"}
 
     class Reentrant(dict):
         def items(self):
@@ -74,7 +74,9 @@ def test_reentrant_append_is_dropped_and_counted() -> None:
             return super().items()
 
     assert journal.offer(Reentrant(source="test", message="outer")) is True
-    assert journal.status()["dropped"].get("reentrant", 0) == 1
+    status = journal.status()
+    assert status["recorded"] == {"test": 2}
+    assert status["droppedEvents"] == 0
 
 
 def test_journal_masks_raw_events_when_records_are_read() -> None:
@@ -358,7 +360,7 @@ def test_a_suspended_journal_accepts_no_source() -> None:
     assert journal.accepts("sql") is False
 
 
-def test_count_dropped_takes_the_lock_the_other_writers_hold() -> None:
+def test_count_dropped_never_waits_for_the_lock_a_reader_holds() -> None:
     from sharpit.engine.capture.journal import RuntimeJournal
 
     journal = RuntimeJournal(max_events=10, max_bytes=10_000, queue_capacity=10)
@@ -366,7 +368,73 @@ def test_count_dropped_takes_the_lock_the_other_writers_hold() -> None:
     worker = threading.Thread(target=lambda: (journal.count_dropped("log"), done.set()))
     with journal._lock:
         worker.start()
-        blocked = not done.wait(0.3)
+        finished = done.wait(5)
     worker.join(5)
-    assert blocked
-    assert done.is_set()
+    assert finished
+    assert journal.status()["dropped"] == {"log": 1}
+
+
+def test_an_offer_never_waits_for_the_lock_a_reader_holds() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=10_000, queue_capacity=1000)
+    results: list[bool] = []
+    worker = threading.Thread(target=lambda: results.extend(journal.offer({"source": "t", "n": i}) for i in range(500)))
+    with journal._lock:  # a reader stalled mid-read; 500 offers pass the drain threshold (128) several times
+        worker.start()
+        worker.join(5)
+        finished = not worker.is_alive()
+    assert finished
+    assert results == [True] * 500
+    status = journal.status()
+    assert status["retainedEvents"] + status["evictedEvents"] == 500
+
+
+def test_a_read_sees_every_event_offered_before_it_in_order() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=1000, max_bytes=1_000_000, sources=("t",))
+    for i in range(10):
+        journal.offer({"source": "t", "n": i})
+    assert journal.status()["queueDepth"] == 0
+    assert [r["n"] for r in journal.records("t")] == list(range(10))
+
+
+def test_every_offer_is_retained_evicted_or_dropped_under_four_producers() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=100, max_bytes=1_000_000, queue_capacity=300, sources=("t",))
+
+    def publish() -> None:
+        for i in range(3000):
+            journal.offer({"source": "t" if i % 3 else "other", "n": i})
+
+    workers = [threading.Thread(target=publish) for _ in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    status = journal.status()
+    assert status["recorded"] == {"t": status["retainedEvents"] + status["evictedEvents"]}
+    assert status["dropped"].get("other") == 4 * 1000
+    assert status["dropped"].get("t", 0) + status["recorded"]["t"] == 4 * 2000
+
+
+def test_a_full_queue_counts_the_refused_offer_under_its_source() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=100, max_bytes=1_000_000, queue_capacity=2, sources=("t",))
+    journal._lock.acquire()  # no drain can run on this thread's behalf from another one; same thread re-enters it
+    try:
+        journal._queue.extend([({"source": "t"}, 1, 0, "t")] * 2)
+        assert journal.offer({"source": "t"}) is False
+    finally:
+        journal._lock.release()
+    assert journal.status()["dropped"] == {"t": 1}
+
+
+def test_an_offer_made_while_the_same_thread_drains_neither_deadlocks_nor_raises() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=1000, max_bytes=1_000_000, sources=("t",))
+
+    class Finalizer:
+        def __del__(self) -> None:  # runs wherever the interpreter chooses, here inside the drain's popleft
+            journal.offer({"source": "t", "n": "from-finalizer"})
+
+    journal.offer({"source": "t", "n": 1})
+    journal._queue.append(({"source": "t", "n": Finalizer()}, 1, 0, "t"))
+    journal.offer({"source": "t", "n": 2})
+    status = journal.status()
+    assert status["droppedEvents"] == 0
+    assert status["recorded"]["t"] >= 3
