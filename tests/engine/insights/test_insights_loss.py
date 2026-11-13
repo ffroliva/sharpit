@@ -443,3 +443,53 @@ def test_at_metadata_only_a_loss_reads_as_withheld_ids_never_as_a_clean_check() 
     only_http(journal, 1_010)  # evicts the statement
     reason = str(check(journal, ROUTE_TIME)["reason"])
     assert "withheld" in reason
+
+
+def test_a_request_whose_statement_alone_was_evicted_is_left_out_through_a_real_install() -> None:
+    # the loss start the sql producer hands the ring (sources/dispatch._journal_event) is the only thing that can move
+    # the horizon here: R's http event stays, and nothing of Q (the later request) is lost
+    sa = pytest.importorskip("sqlalchemy")
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+    from sharpit.engine import sqla
+    from sharpit.engine.collectors.insights.service import insights_service
+
+    sqla.detach_all()
+    try:
+        engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+        with engine.begin() as conn:
+            conn.execute(sa.text("create table views (id integer, n integer)"))
+        app = FastAPI()
+
+        @app.get("/bump")
+        async def bump() -> dict[str, int]:  # R: a GET that writes
+            with engine.begin() as conn:
+                conn.execute(sa.text("update views set n = n + 1"))
+            return {"ok": 1}
+
+        @app.get("/peek")
+        async def peek() -> dict[str, int]:  # Q: a GET that reads
+            with engine.begin() as conn:
+                conn.execute(sa.text("select n from views"))
+            return {"ok": 1}
+
+        ctx = install(
+            app, enabled="ON", show_banner=False, config_scan=False, engines=[engine],
+            runtime_journal_sources=("http", "sql"),
+        ).context  # fmt: skip
+        journal = ctx.capture.journal
+        assert journal is not None
+        journal.max_events = 3  # R sql, R http, Q sql fill it; Q http evicts R's statement, the one event lost
+        client: Any = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+        assert client.get("/bump").status_code == 200
+        time.sleep(0.1)  # Q starts well past the horizon plus its slack
+        assert client.get("/peek").status_code == 200
+        report = insights_service(ctx).report()
+    finally:
+        sqla.detach_all()
+    assert journal.view([])[3] is not None
+    reason = str(next(c for c in report["checks"] if c["kind"] == SAFE)["reason"])  # type: ignore[attr-defined]
+    assert ONE_LEFT_OUT in reason
+    assert [o for o in report["observations"] if o["kind"] == SAFE] == []  # type: ignore[attr-defined]
