@@ -6,11 +6,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import gc
+import importlib.abc
+import importlib.machinery
 import smtplib
 import socket
 import sys
 import threading
 import types
+import unittest.mock
 import weakref
 from collections.abc import Callable, Iterator
 from email.message import EmailMessage
@@ -21,6 +24,7 @@ import pytest
 from fastapi import FastAPI, WebSocket
 from mailsink import API, OPTIONS, Harness, harness, isolated_mail_registry, smtp_sink
 from sharpit import install
+from sharpit.engine.capture import mail
 from sharpit.engine.panels import PANELS
 
 pytestmark = pytest.mark.usefixtures(isolated_mail_registry.__name__)
@@ -665,6 +669,76 @@ def test_a_non_ascii_address_is_still_captured():
         with smtplib.SMTP("127.0.0.1", h.sink.port) as smtp:
             smtp.sendmail("app@example.test", ["alice@example.test"], raw)
         assert [m["subject"] for m in h.emails()["messages"]] == ["accents"]
+
+
+def test_uninstall_leaves_no_recorder_when_smtplib_cannot_be_wrapped(monkeypatch: pytest.MonkeyPatch):
+    # code-review finding 1: a patched sendmail made arm() answer False and the teardown was never registered
+    monkeypatch.setattr(smtplib.SMTP, "sendmail", unittest.mock.MagicMock(name="host_sendmail"))
+    with harness(email_dev_trap=True):
+        assert mail._live()  # noqa: SLF001
+    assert mail._live() == []  # noqa: SLF001
+
+
+class _SeesTheImport(importlib.abc.MetaPathFinder):
+    """A post-import hook already on ``sys.meta_path`` (an APM agent, wrapt): it must still see ``aiosmtplib``."""
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> None:
+        self.seen.append(fullname)
+
+
+def test_a_late_import_still_reaches_the_finders_behind_the_trap_hook(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 2: the hook answered from PathFinder alone, so later finders never saw the import
+    seen = _SeesTheImport()
+    monkeypatch.setattr(sys, "meta_path", [*sys.meta_path, seen])
+    with harness(email_dev_trap=True):
+        late_aiosmtplib()
+    assert "aiosmtplib" in seen.seen
+
+
+def test_a_reimported_aiosmtplib_is_wrapped_again(late_aiosmtplib: Callable[[], types.ModuleType]):
+    # code-review finding 7: the second import built a new class the stale wrap record skipped
+    with harness(email_dev_trap=True):
+        late_aiosmtplib()
+        del sys.modules["aiosmtplib"]
+        module = late_aiosmtplib()
+        assert "__sharpit_original__" in module.SMTP.__dict__["sendmail"].__dict__  # type: ignore[attr-defined]
+
+
+class _FrozenLoader:
+    __slots__ = ("_inner",)  # no instance dict: ``loader.exec_module = ...`` raises AttributeError
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def create_module(self, _spec: Any) -> None:
+        return None
+
+    def exec_module(self, module: types.ModuleType) -> None:
+        self._inner.exec_module(module)
+
+
+class _FrozenLoaderFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname != "aiosmtplib":
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        assert spec is not None
+        spec.loader = _FrozenLoader(spec.loader)
+        return spec
+
+
+def test_a_loader_the_hook_cannot_wrap_never_fails_the_hosts_import(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # code-review finding 4: an error inside the hook reached the host's ``import aiosmtplib``
+    monkeypatch.setattr(sys, "meta_path", [*sys.meta_path, _FrozenLoaderFinder()])
+    with harness():
+        assert late_aiosmtplib().SMTP  # type: ignore[attr-defined]
 
 
 def test_mail_journal_event_is_metadata_only():
