@@ -15,7 +15,9 @@ import pytest
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.exchanges import http_event
 from sharpit.engine.capture.journal import RuntimeJournal
+from sharpit.engine.collectors.insights.requests import project_requests
 from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.collectors.insights.snapshot import project
 
 LEFT_OUT = "started before events the journal evicted or cleared"
 ONE_LEFT_OUT = f"1 request or execution {LEFT_OUT}, so it is left out: some of its events may be missing."
@@ -207,3 +209,114 @@ def test_every_request_left_out_is_not_request_ids_withheld(kind: str) -> None:
 def test_a_request_starting_inside_the_slack_is_left_out() -> None:
     journal = after_losing_a_statement_at(1_000, 1_010)  # 10 ms after the horizon: only the slack leaves it out
     assert ONE_LEFT_OUT in str(check(journal, ROUTE_TIME)["reason"])
+
+
+def traced_event(source: str, trace: str, at: int) -> Row:
+    return {"source": source, "traceId": trace, "thread": "MainThread", "epochMillis": at}
+
+
+def two_requests_one_trace_after_a_loss() -> RuntimeJournal:
+    """r1 (trace t) lost a statement and is left out; a trace-only event of r1 stays; r2 (also trace t) is judged."""
+    journal = RuntimeJournal(max_events=4)
+    info = RequestInfo("r1", "ctx", "GET", "/api/items", None, 0, 1_000_000_000)
+    journal.offer({**sql("select 1", 1_005), "requestId": "r1"})
+    journal.offer({**http_event(info, [], 1_000_000_000, 200, "/api/items"), "traceId": "t"})
+    journal.offer(traced_event("sql", "t", 1_010))  # a trace-only event of r1
+    info = RequestInfo("r2", "ctx", "GET", "/api/items", None, 0, 5_000_000_000)
+    journal.offer({**http_event(info, [], 5_000_000_000, 200, "/api/items"), "traceId": "t"})
+    journal.offer({**sql("select 2", 5_005), "requestId": "r2"})  # evicts r1's statement: r1 is left out
+    return journal
+
+
+# ported: RuntimeInsightsService.visibleEntries (v2.3.0): `owner = aiCallOwners.ownerOf(event)`, then the event is
+# skipped when `incomplete.contains("request:" + owner)`; the owner is resolved among ALL retained requests
+def test_a_trace_only_event_of_a_left_out_request_joins_no_later_request_of_the_same_trace() -> None:
+    snapshot = project(two_requests_one_trace_after_a_loss())
+    judged = project_requests(snapshot, "sql")
+    assert [r.request_id for r in judged] == ["r2"]
+    assert [e["epochMillis"] for e in judged[0].children["sql"] if e.get("requestId") is None] == []
+
+
+def test_the_trace_only_event_of_a_left_out_request_is_not_counted_as_linked_by_trace() -> None:
+    coverage = next(
+        c for c in InsightsService(two_requests_one_trace_after_a_loss()).report()["coverage"] if c["source"] == "sql"
+    )  # type: ignore[attr-defined]
+    assert coverage["byTraceId"] == 0
+
+
+def two_requests_the_first_left_out() -> RuntimeJournal:
+    """Ring of 4: r1's first statement is evicted, so r1 is left out while its second statement stays retained."""
+    journal = RuntimeJournal(max_events=4)
+    journal.offer({**sql("select 1a", 1_005), "requestId": "r1"})
+    journal.offer({**sql("select 1b", 1_006), "requestId": "r1"})
+    info = RequestInfo("r1", "ctx", "GET", "/api/items", None, 0, 1_000_000_000)
+    journal.offer(http_event(info, [], 1_000_000_000, 200, "/api/items"))
+    journal.offer({**sql("select 2", 2_005), "requestId": "r2"})
+    info = RequestInfo("r2", "ctx", "GET", "/api/items", None, 0, 2_000_000_000)
+    journal.offer(http_event(info, [], 2_000_000_000, 200, "/api/items"))
+    return journal
+
+
+# ported: InsightsSnapshot.of (v2.3.0) builds `coverage` and `httpRequests()` from the VISIBLE entries, so a request
+# left out is in neither
+def test_coverage_counts_only_the_events_of_requests_still_judged() -> None:
+    rows = {c["source"]: c for c in InsightsService(two_requests_the_first_left_out()).report()["coverage"]}  # type: ignore[attr-defined]
+    assert (rows["http"]["events"], rows["sql"]["events"]) == (1, 1)
+
+
+def test_coverage_and_the_window_agree_on_the_requests_judged() -> None:
+    report = InsightsService(two_requests_the_first_left_out()).report()
+    http = next(c for c in report["coverage"] if c["source"] == "http")  # type: ignore[attr-defined]
+    assert http["events"] == report["window"]["requests"]  # type: ignore[index]
+
+
+class HostEvent(dict[str, object]):
+    """An event whose ``get`` is host code: it must never run while the journal's lock is held."""
+
+    held: list[bool]
+    journal: RuntimeJournal
+
+    def get(self, key: str, default: object = None) -> object:  # type: ignore[override]
+        self.held.append(self.journal._owned())  # noqa: SLF001
+        return super().get(key, default)
+
+
+def host_event(journal: RuntimeJournal, held: list[bool], body: Row) -> HostEvent:
+    event = HostEvent(body)
+    event.held, event.journal = held, journal
+    return event
+
+
+def test_the_oversize_branch_reads_the_stored_copy_never_the_host_event_under_the_lock() -> None:
+    journal = RuntimeJournal(max_bytes=1_500)
+    held: list[bool] = []
+    big = {**sql("update t set n = ? /* " + "x" * 5_000 + " */", 1_005), "requestId": "r1"}
+    journal.offer(host_event(journal, held, big))
+    held.clear()  # whatever the copy read before the lock
+    journal.offer(host_event(journal, held, big))
+    assert True not in held
+    assert journal.view([])[3] == 1_005  # and the horizon still moved
+
+
+def test_an_eviction_is_accounted_before_the_horizon_moves(monkeypatch: pytest.MonkeyPatch) -> None:
+    journal = RuntimeJournal(max_events=1)
+    journal.offer({**sql("select 1", 1_005), "requestId": "r1"})
+
+    def explode(*_: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(journal, "_lose", explode)
+    journal.offer({**sql("select 2", 2_005), "requestId": "r2"})  # counted failed, never raised into the host
+    assert journal.status()["evictedEvents"] == 1  # r1 left the ring, so it is counted
+    assert journal._bytes == 0  # noqa: SLF001  # and its bytes are given back
+
+
+def test_clearing_walks_the_cleared_events_outside_the_ring_lock() -> None:
+    journal = RuntimeJournal()
+    held: list[bool] = []
+    journal.offer_flat(host_event(journal, held, {**sql("select 1", 1_005), "requestId": "r1"}), 100)  # type: ignore[arg-type]
+    held.clear()
+    journal.discard()
+    assert held
+    assert True not in held
+    assert journal.view([])[3] == 1_005
