@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-13
+
 ### Fixed
 
 - Runtime insights leave out, and count in the check's reason and the report's limitations, a request that started before events the journal evicted or cleared (BootUI's `LEFT_OUT_BEFORE_LOSS`): a request that lost its statements is no longer reported clean, including one whose statement was larger than the journal's whole byte bound, and the window's request count and the coverage no longer include a left-out request or its events, and a trace-only event of one joins no later request that shares its trace.
@@ -100,6 +102,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Added user documentation for pytest gate failures, exit statuses, fail-closed unknown results, report-only mode and baselines.
 - Every MCP tool and every setting is documented, and the installation page has the panel to library to extra table: the MCP page lists the 37 read tools and, separately, the 17 action tools (CLI endpoint only, never MCP); the settings page lists the 28 settings it was missing (`SHARPIT_APP_PACKAGE`, `SHARPIT_TRANSACTIONS_*`, `SHARPIT_POSTGRESQL_MAX_*`, `SHARPIT_MYSQL_MAX_*`, `SHARPIT_DATABASE_ADVISOR_MAX_*`, `SHARPIT_ARCHITECTURE_MAX_*`, `SHARPIT_SECURITY_LOGS_MAX_LOGS`, `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`) and all 31 panel ids; `tests/test_tracker_docs.py` fails when a registered tool, a setting or an extra is missing from the docs.
+
+### Known limitations
+
+- SQLAlchemy's class-level listeners (`Engine` statement events, `Pool` checkout and checkin, `Mapper` load, the
+  transactions panel's checkin) are added and removed at runtime when a hook is first attached, suspended, resumed or
+  uninstalled. A host call that SQLAlchemy is dispatching at that moment on another thread can fail with "deque
+  mutated during iteration". This was already true in 0.5.0; a fix for every class-level listener is planned for 0.7.0.
+- `connection` journal events: `statements` is always -1 (unknown, so no SQL statement pays for a count; only BootUI's
+  `ConnectionReacquisition`, not built yet, reads it) and `waitNanos` is always 0 (SQLAlchemy reports no pool wait).
+- The SQL Trace panel, its report, insights and MCP/CLI reads stay available before any database is in use; BootUI
+  makes them unavailable until a DataSource is wrapped (planned for 0.7.0).
+- Runtime insights: after a SQLAlchemy listener attach that failed (or after `uninstall_capture()`) with an engine
+  registered, a SQL-reading check still reads as recorded.
+- On SQLite, a double-quoted run that names no column is a string, so with parameter capture off sharpit can show a
+  literal value it reads as an identifier (#59, unchanged since 0.4.0).
+- Masking a quoted text twice can mask it differently from BootUI, which masks it once (cosmetic; planned for 0.7.0).
+- The transactions journal source (P-transaction) is not in this release (planned for 0.7.0).
 
 ## [0.5.0] - 2026-11-08
 
@@ -344,7 +363,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0

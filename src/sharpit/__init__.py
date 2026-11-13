@@ -1,6 +1,6 @@
 """sharpit is a local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 from typing import TYPE_CHECKING  # noqa: E402  # after __version__, the only version site
 
