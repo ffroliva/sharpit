@@ -695,16 +695,14 @@ jobs:
           test "${{ needs.lowest-shard.result }}" = success
 
   no-sqlalchemy-shard:
-    # SQLAlchemy is optional: sharpit must install, import and serve every panel without it. Push and dispatch only
-    # (owner's wall-clock rule, 2026-11-13): every one of its tests also runs on a PR's Windows and coverage legs, and the
-    # import-boundary AST test (tests/engine/test_import_boundary.py) fails a PR that imports sqlalchemy outside engine/sqla.
+    # SQLAlchemy is optional: sharpit must install, import and serve every panel without it
     name: no-sqlalchemy shard (${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/2, 2/2]
+        shard: [1/3, 2/3, 3/3]
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -754,7 +752,7 @@ jobs:
           retention-days: 7
       # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
       # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
-      - if: ${{ !cancelled() && (matrix.shard == '2/2') }}
+      - if: ${{ !cancelled() && (matrix.shard == '3/3') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
         run: uv run --no-sync python -m pytest -q -n 0 -m "not needs_sqlalchemy" "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
@@ -800,17 +798,13 @@ jobs:
         run: |
           test "${{ needs.changes.result }}" = success
           if [ "$CODE_CHANGED" = false ]; then exit 0; fi
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            echo "Pull request: the no-SQLAlchemy shards run on push to main, mvp and release/**, not here."
-            exit 0
-          fi
           test "${{ needs.no-sqlalchemy-shard.result }}" = success
 
   masking-gates:
     # The four files that outweigh any shard ceiling alone, every row: test_masking_scales_linearly.py (487 s of CPU
     # time on Linux), test_statement_surfaces.py (386 s on Windows), test_lane_gate.py (418 s on Windows) and
     # test_gates_bite.py (488 s on Windows, 279 s on Linux). The shards leave them out (tests/_shard.py OWN_JOB) and
-    # this job runs them whole. No job timeout is set, so GitHub's 6 h default covers them.
+    # this job runs them whole. Starts once the coverage shards finish (see `live`). No job timeout is set, so GitHub's 6 h default covers them.
     # Owner decision (2026-11-11, overriding pytest-speed's "no shards as the fix"): one job per gate file group on
     # both OSes, since what is left is work the tests need. Split by file in the matrix, never by an environment variable:
     # the gates' own nested pytest runs inherit os.environ. Ceiling per row: tests/test_ci_layout.py GATE_SECONDS.
@@ -825,7 +819,7 @@ jobs:
           - { os: ubuntu-latest, part: gates-bite, files: "tests/masking/test_gates_bite.py" }
           - { os: ubuntu-latest, part: scales, files: "tests/masking/test_masking_scales_linearly.py" }
           - { os: ubuntu-latest, part: surfaces-lane, files: "tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py" }
-    needs: changes
+    needs: [changes, coverage-shard]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     steps:
@@ -957,6 +951,9 @@ jobs:
           PYTHONPATH=. "$RUNNER_TEMP/smoke/bin/python" scripts/ci/wheel_smoke.py
 
   live:
+    # Starts once the coverage shards finish, not with them (2026-11-13): jobs share one ~16-20 runner pool, `sonar` waits for
+    # the last coverage shard, and runners went to whichever job asked first, so coverage ended 3.7 min in and `sonar` 5.6. These two
+    # are the longest jobs `sonar` does not wait for; a failed coverage shard skips them and their check job fails.
     name: live (${{ matrix.server }})
     strategy:
       fail-fast: false
@@ -967,7 +964,7 @@ jobs:
           - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: "mariadb or oracle_control and backslash and mysql or oracle_control and mssql", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3" }
           - { server: postgresql, image: postgres:18.2, port: 5432, filter: "postgresql or scs_off_no_cut or inverse_plant", legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3 test_example_app_records_its_server_family=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
           - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or test_example_app_records_its_server_family and mysql", legs: "sqlite-default=2817", required: "test_example_app_records_its_server_family=1 test_a_refused_statement_keeps_its_value_hidden=1" }
-    needs: changes
+    needs: [changes, coverage-shard]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30

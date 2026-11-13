@@ -16,8 +16,8 @@ sharpit 0.3.0 passed the full local gate and still failed three of these jobs on
 | `test` (Python 3.12, 3.13, 3.14; Windows 3.14) | the full suite on every leg; lint, format, pyright strict and the github.com link check on the Ubuntu 3.12 leg only (version-independent: pyright pins 3.12). uv's cache is on in every job. The suite runs in `test shard (os, python, i/n)` jobs; each required `test (os, python)` check only reports whether every shard passed (see *Shards* below) | `uv sync --locked --extra test && uv run ruff check && uv run ruff format --check && uv run pyright && uv run pytest -q -n auto` (add `--python 3.12` / `3.14` to change interpreter; `SHARPIT_SHARD=2/4` runs one shard) |
 | `coverage` | coverage for the code-scan, with the `sys.monitoring` tracer, in three `coverage shard (i/3)` jobs; `coverage` fails unless every shard passed, then `coverage combine`s their data into the `coverage.xml` sonar reads. Every overhead budget test skips itself while a tracer runs (`tests/overhead.py::paired`) and the plain `test` legs enforce it | `COVERAGE_CORE=sysmon COVERAGE_FILE="$TEMP/.coverage" uv run pytest -q -n auto --cov=sharpit --cov-report=xml`. Subprocess runs (pytester) are measured through `[tool.coverage.run] patch = ["subprocess"]`. `COVERAGE_FILE` must stay outside the repo: `no_side_effects` treats files in the cwd as writes |
 | `sonar` (needs `coverage`) | the code-scan quality gate (new-code coverage ≥ 85%, no new issues) and the ratchet: open issues on `main` equal `sonar-baseline.txt` | not reproducible offline; read the PR's quality gate and issues on the code-scan dashboard. When a merged PR fixed issues, `main` goes red until `sonar-baseline.txt` is lowered in a one-line PR (`scripts/ci/sonar_ratchet.py` prints the number) |
-| `lowest` | the lowest direct dependency versions sharpit claims to support (Python 3.12), in three `lowest shard (i/3)` jobs (the pull request's Python 3.12 leg) | `uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 && uv run --no-sync pytest -q -n auto` (`--no-sync`: a plain `uv run` re-locks and undoes the resolution). Restore `uv.lock` afterwards if the sync rewrote it |
-| `no-sqlalchemy` (push and dispatch only; a PR passes it with a note) | sharpit installs, imports and serves every panel without SQLAlchemy, in two `no-sqlalchemy shard (i/2)` jobs | `uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite --no-install-package alembic --no-install-package greenlet && uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"`. A test that needs SQLAlchemy uses `pytest.importorskip` and the `needs_sqlalchemy` marker |
+| `lowest` | the lowest direct dependency versions sharpit claims to support (Python 3.12), in three `lowest shard (i/3)` jobs | `uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 && uv run --no-sync pytest -q -n auto` (`--no-sync`: a plain `uv run` re-locks and undoes the resolution). Restore `uv.lock` afterwards if the sync rewrote it |
+| `no-sqlalchemy` | sharpit installs, imports and serves every panel without SQLAlchemy | `uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite --no-install-package alembic --no-install-package greenlet && uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"`. A test that needs SQLAlchemy uses `pytest.importorskip` and the `needs_sqlalchemy` marker |
 | `sharpit-gate` | dogfood: the example's fixed route passes `pytest --sharpit`, its planted N+1 fails it; reports uploaded as an artifact | `uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml` (must pass) and `-k n_plus_one --sharpit` (must fail) |
 | `ui` | the committed build in `src/sharpit/ui/static` matches `ui/` | `cd ui && npm ci --ignore-scripts && npm run build && git diff --exit-code -- ../src/sharpit/ui/static`. Never build while the worktree's pytest runs: `no_side_effects` sees the new files |
 | `vitest` | UI component and unit tests | `cd ui && npm ci --ignore-scripts && npm test` |
@@ -49,7 +49,7 @@ The four files heavier than any shard alone (`tests/_shard.py` `OWN_JOB`: the ma
 | Ubuntu 3.12, 3.14 (locked deps, push only) | 4 each |
 | `coverage` (the 3.13 leg) | 5 |
 | `lowest` | 3 |
-| `no-sqlalchemy` (push only) | 2 |
+| `no-sqlalchemy` | 3 |
 
 Branch protection requires the job names in the first table, so each keeps a job that `needs:` its shards and runs
 `if: always()` (a skipped required check counts as green): it fails unless the whole shard matrix succeeded. `sonar` does the same with `coverage` (it
@@ -68,9 +68,9 @@ full matrix runs on every merge before anything ships.
 |---|---|---|
 | Windows 3.14, 6 shards (`test-shard`) | yes | yes |
 | Ubuntu 3.12 and 3.14, 4 shards each (`test-shard-locked`) | no | yes |
-| `no-sqlalchemy`, 2 shards (`no-sqlalchemy-shard`) | no | yes |
 | Ubuntu 3.13 under coverage, 5 shards (`coverage-shard`), `sonar`, `coverage` | yes | yes |
-| `lowest` (3.12), masking gates, `live`, `lint`, `ui`, `vitest`, `wheel` | yes | yes |
+| `lowest` (3.12), `no-sqlalchemy`, `lint`, `ui`, `vitest`, `wheel` | yes | yes |
+| masking gates, `live` (start after the coverage shards) | yes | yes |
 
 - GitHub Actions cannot read `matrix` in a job-level `if`, so the push-only rows are a second job, `test-shard-locked`,
   with `test-shard`'s steps line for line; `tests/test_ci_layout.py` fails when the two drift.
@@ -96,15 +96,17 @@ the last `completed_at` minus the first `created_at`, runner-minutes the sum of 
 | 43199441634 (PR #156) | sqlite heap-walk fix | 6.7 | 77.5 | `test shard (windows, 6/6)` 3.3 min; jobs queued up to 2.9 min, 20 at once |
 | 43201435266 (PR #156) | weights refreshed after the fix | 6.7 | 77.7 | `test shard (ubuntu, 3.14, 4/4)` 4.3 min; queued up to 3.0 min |
 
-Measured 2026-11-13 over the last 20 PR runs (43390056583-43445844447, 44 jobs each): wall 4.7-8.5 min, average 6.1;
-62 runner-min; queue before a job starts averaged 9-90 s, up to 4.5 min. Per job class (average run time): Windows
-shard 138 s, coverage shard 108 s, `lowest` shard 115 s, `no-sqlalchemy` shard 107 s, masking gates 75-179 s, live
-61-174 s, `sonar` 97 s. The last job to finish was `sonar` in 12 of 20 runs (it starts only after the coverage shards,
-and the coverage leg ends 2.0-4.6 min in), otherwise a Windows shard or masking gate. In every shard job the pytest step
-is 85-98 s of 105-140 s; checkout, setup-uv and sync are 5-25 s. The runner-minutes are the lever, so the change below
-takes `no-sqlalchemy` (13% of the minutes, tests that also run on the Windows and coverage legs) off the pull request and
-cuts `lowest` to three shards: 44 jobs and 62 runner-min become 40 and ~54. Row to add once measured: the first PR run
-on this layout.
+Measured 2026-11-13 over the last 24 PR runs (44 jobs each): wall 4.7-8.5 min, average 6.0; ~62 runner-min. Average
+end time from the first job's creation: coverage shards 223 s, `sonar` 335 s, masking gates 310 s, `live` 293 s, Windows
+shards 287 s, `lowest` 209 s, `no-sqlalchemy` 214 s. `sonar` is 101 s: 82 s the scan itself, 13 s checkout, uv sync, cache
+and artifact download, so starting its setup early would save little. A coverage shard runs 108 s but the last one
+starts ~115 s in: jobs wait for a runner, the pool (not setup) sets the wall. A 20-runner list-scheduling model fed these
+per-job averages reproduces the observed 6.0 min at ~16 runners and predicts ~5.5 min with `lowest` at 3 shards and
+`masking gates` and `live` starting after the coverage shards (`needs: [changes, coverage-shard]`), so the coverage
+shards get runners first and `sonar` starts earlier. Not yet observed on CI: add the row from the first PR run on this
+layout (Windows 6 + coverage 5 + lowest 3 + no-sqlalchemy 3 + masking and live rows; 51 matrix jobs).
+`no-sqlalchemy` stays on every PR: it is the only leg that runs sharpit without SQLAlchemy installed, so the same ids on
+the other legs (which have it) would not check that.
 
 After the heap-walk fix the shards are balanced and no test file drifts by worker; the wall is the account's 20-runner
 pool (77 runner-min, so ~3.9 min even perfectly packed) plus `sonar` (~2 min) after the coverage shards. Its Python
