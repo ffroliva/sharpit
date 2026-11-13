@@ -26,7 +26,7 @@ pytestmark = pytest.mark.needs_sqlalchemy
 NOT_RECORDED = "The runtime journal does not record the {} source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
 NOT_ARMED = (
     "The {} source is enabled in the runtime journal, but its listener is not armed here "
-    "(SQLAlchemy is not imported, no engine is attached, or SQL capture is suspended): nothing is recorded."
+    "(SQLAlchemy is not imported or its listeners are suspended): nothing is recorded."
 )
 PASSWORD_CANARY = "zq-password-canary-77"
 FIELDS = {
@@ -163,7 +163,9 @@ def test_connection_journal_a_stale_checkout_is_not_offered_at_a_later_release()
     with handle.engine.connect() as conn:
         record = conn.connection._connection_record  # noqa: SLF001
     baseline = len(_records(handle))
-    record.info[connections.CHECKOUT_KEY] = connections.Checkout([handle.context], None, None)  # left behind
+    record.info[connections.CHECKOUT_KEY] = connections.Checkout(
+        [handle.context], handle.engine.pool, None
+    )  # left behind
     with internal():
         connections.checkout(None, record, None)  # sharpit's own reuse of the record follows nothing
     connections.checkin(None, record)
@@ -289,3 +291,28 @@ def test_connection_journal_routes_a_release_without_scanning_the_registered_eng
         _use(handle.engine, 0)
     assert len(_records(handle)) == 6
     assert scans == []
+
+
+def test_connection_journal_a_pool_that_is_none_has_no_engine_name():
+    handle = _install()
+    registry = handle.context.capture.engine_registry
+    try:
+        name = registry.name_of_pool(None)  # a proxy with no ``_pool`` is no engine's pool, not an error
+    except TypeError as exc:
+        name = f"raised {exc}"
+    assert name is None
+
+
+def test_connection_journal_unarmed_optional_read_says_the_listener_is_off():
+    handle = _install(sources=("connection", "sql", "http"))
+    handle.context.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+    check = next(c for c in insights_service(handle.context).report()["checks"] if c["kind"] == "route-time-breakdown")
+    assert "whose listener is not armed here" in str(check["reason"])
+    assert NOT_RECORDED.format("connection") not in str(check["reason"])
+
+
+def test_connection_journal_two_installs_each_journal_their_own_engines_release_outside_a_request():
+    ours, theirs = _install(), _install()
+    _use(ours.engine, 0)
+    assert len(_records(ours)) == 1
+    assert _records(theirs) == ()
