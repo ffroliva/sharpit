@@ -1063,6 +1063,7 @@ def test_an_aiosmtplib_loaded_past_the_hook_is_trapped_by_the_next_request(
 ):
     # PR #182 r3 review: a finder inserted ahead of the hook loaded aiosmtplib unwrapped, so the trap leaked
     with harness(email_dev_trap=True) as h:
+        h.client.get("/warm-up")  # the first request is the attachers' last retry: the import comes after it
         monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
         module = late_aiosmtplib()
         assert not _wrapped_after_late_import(module)  # the side door: the hook never ran
