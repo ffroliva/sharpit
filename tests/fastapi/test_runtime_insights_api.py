@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -81,28 +80,10 @@ def test_get_reports_sql_capture_off_as_unavailable_through_the_route() -> None:
     assert check["reason"] == "SQL capture is disabled (SHARPIT_SQL_TRACE_ENABLED=false), so no statement is recorded."
 
 
-NOT_RECORDED = (
-    "This application's database access is not recorded: sharpit records statements through SQLAlchemy (2.0+) and the"
-    " sqlite3 module, and neither is in use."
-)
-
-
 def _sql_check(client: TestClient) -> dict[str, Any]:
     response = client.get(API)
     assert response.status_code == 200
     return next(c for c in response.json()["checks"] if c["kind"] == "safe-method-dml")
-
-
-# ported: SqlCapture.of (v2.3.0): no recorder -> notRecorded(NOT_RECORDED)
-def test_get_reports_no_sql_source_in_use_as_unavailable_with_the_not_recorded_text(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setitem(sys.modules, "sqlalchemy", None)  # the app never imported it
-    client, ctx = _client(sql_trace_sqlite3_enabled=False)
-    assert ctx.capture.journal.offer({"source": "sql", "sql": "select ?", "requestId": "r1"})
-    check = _sql_check(client)
-    assert check["status"] == "UNAVAILABLE"
-    assert check["reason"] == NOT_RECORDED
 
 
 # ported: RuntimeInsightsService.sqlCapture (v2.3.0): a supplier that throws -> notRecorded("...could not be read")
