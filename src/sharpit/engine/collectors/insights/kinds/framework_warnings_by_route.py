@@ -24,7 +24,7 @@ from dataclasses import dataclass, field, replace
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests
 from sharpit.engine.collectors.insights.snapshot import Snapshot
-from sharpit.engine.collectors.insights.text import counted, quoted, stable_hash, unit
+from sharpit.engine.collectors.insights.text import carried, counted, quoted, stable_hash, unit
 
 KIND = "framework-warnings-by-route"
 TITLE = "Framework warnings by route"
@@ -157,7 +157,7 @@ def _finding(route: str, key: str, group: _Group, eligible: int) -> Finding:
     sentence = (
         f"`{route}` logged `{group.level}` from `{group.logger}` in {len(group.rows)} of "
         f"{counted(eligible, unit(route))} ({counted(group.events, 'event')})"
-        + ("." if shown is None else f': "{quoted(shown)}".')
+        + ("." if shown is None else f': "{carried(shown)}".')
     )
     checks = _checks(template)
     finding = Finding(

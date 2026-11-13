@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from importlib import import_module
 from typing import Any
 
@@ -24,6 +25,7 @@ from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.service import InsightsService
 from sharpit.engine.collectors.insights.snapshot import project
+from sharpit.engine.collectors.insights.text import SPAN_CLOSE, SPAN_OPEN
 from sharpit.engine.masking import Exposure, Masker
 
 HOTSPOTS, WARNINGS = "exception-hotspots", "framework-warnings-by-route"
@@ -71,7 +73,14 @@ class Run:
         module = import_module(f"sharpit.engine.collectors.insights.kinds.{MODULES[kind]}")
         evaluate = getattr(module, "evaluate", None)
         assert evaluate is not None, f"{kind} is not implemented"
-        return evaluate(project(self.journal))
+        evaluation: Evaluation = evaluate(project(self.journal))
+        return replace(  # the markers are the service's concern; these tests read the kind's words
+            evaluation,
+            findings=[
+                replace(f, sentence=f.sentence.replace(SPAN_OPEN, "").replace(SPAN_CLOSE, ""))
+                for f in evaluation.findings
+            ],
+        )
 
     def report(self) -> Row:
         return InsightsService(self.journal).report()

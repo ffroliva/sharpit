@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import re
+import secrets
+from collections.abc import Callable
+
 _FNV_BASIS, _FNV_PRIME, _MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
 
 
@@ -31,6 +35,35 @@ def quoted(text: str | None) -> str:
     """``InsightText.quoted``: whitespace flattened, cut to 80 characters with an ellipsis."""
     flat = " ".join((text or "").split())
     return flat if len(flat) <= MAX_QUOTED else flat[: MAX_QUOTED - 1] + "…"
+
+
+# A journal text quoted inside a sentence is masked again with the sentence, and the masker reads whatever follows a
+# masked ``key=******`` as that value's tail, so the sentence's closing quote and full stop vanished. The kind marks
+# the text; the service masks each marked text and the kind's own words as separate segments (BootUI masks a quoted
+# text once and never the sentence, ``FrameworkWarningsByRoute.java:244``). The markers carry a per-process random
+# nonce, so a journal text cannot forge one to split a secret across segments.
+_NONCE = secrets.token_hex(8)
+SPAN_OPEN, SPAN_CLOSE = f"{_NONCE}", f"{_NONCE}"
+_SPAN = re.compile(f"{SPAN_OPEN}(.*?){SPAN_CLOSE}", re.DOTALL)
+
+
+def carried(text: str | None) -> str:
+    """``quoted`` for a text the sentence carries from the journal: marked, so the service masks it on its own."""
+    return SPAN_OPEN + quoted(text) + SPAN_CLOSE
+
+
+def mask_segments(mask: Callable[[str], str | None], text: str) -> str | None:
+    """``mask`` over ``text`` as its marked texts and the rest, each on its own; the markers never reach the output.
+    Text with no marker is ``mask(text)``, byte for byte. Any segment withheld (``None``) withholds the whole."""
+    if SPAN_OPEN not in text:
+        return mask(text)
+    masked: list[str] = []
+    for part in _SPAN.split(text):  # the texts between markers and the marked texts themselves, in order
+        shown = mask(part) if part else ""
+        if shown is None:
+            return None
+        masked.append(shown)
+    return "".join(masked)
 
 
 # repeated-selects' default floor (RepeatedSelects.java:44-61); the kind's lane shares these literals, not a copy

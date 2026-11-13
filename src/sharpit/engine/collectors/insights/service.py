@@ -17,7 +17,7 @@ from sharpit.engine.collectors.insights.snapshot import DEFAULT_AI_TOKEN_THRESHO
 from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, SQL_SOURCES, SqlCapture
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
-from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
+from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, mask_segments, stable_hash
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -225,7 +225,8 @@ class InsightsService:
         self.ai_token_threshold = ai_token_threshold if ai_token_threshold >= 1 else DEFAULT_AI_TOKEN_THRESHOLD
         self.observations: Sequence[Observation] = KINDS if observations is None else observations
         masker = getattr(journal, "masker", None)
-        self._mask: Mask = masker.mask_text if masker else str
+        mask_one: Mask = masker.mask_text if masker else str
+        self._mask: Mask = lambda text: mask_segments(mask_one, text)
 
     def report(self) -> Row:
         return self._build()[0]
