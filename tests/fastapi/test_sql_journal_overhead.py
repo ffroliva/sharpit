@@ -16,10 +16,10 @@ sa = pytest.importorskip("sqlalchemy")
 from tests.overhead import check_budget, paired  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
-from sharpit.engine.capture.correlation import REQUEST, RequestInfo  # noqa: E402
-from sharpit.engine.capture.journal import RuntimeJournal  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo  # noqa: E402
+from sharpit.engine.capture.journal import RuntimeJournal  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
