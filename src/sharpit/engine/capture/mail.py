@@ -31,7 +31,6 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib.abc
-import importlib.machinery
 import smtplib
 import sys
 import threading
@@ -114,7 +113,8 @@ def _address(pair: tuple[str, str]) -> str:
         return formataddr(pair)
     except UnicodeEncodeError:  # SMTPUTF8: formataddr only encodes ASCII; keep the text as written
         name, address = pair
-        return f"{name} <{address}>" if name and address else address or name
+        quoted = '"' + name.replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"') + '"'
+        return f"{quoted} <{address}>" if name and address else address or name
 
 
 def _content(part: EmailMessage | None) -> str | None:
@@ -193,6 +193,7 @@ class MailRecorder:
         self.max_body_length = max(1, max_body_length)
         self.dev_trap = dev_trap
         self.paused = False
+        self.teardown_registered = False
         self._strict = Masker(Exposure.MASKED, True, token, identity_key=masker.identity_key)
         self._capture = capture
         self.context_id = context_id
@@ -293,9 +294,10 @@ class MailRecorder:
                 _refs = (*_refs, weakref.ref(me, _forget))
             _wrap_senders(trap=any(r.dev_trap for r in _live()))
             _watch_import()
-            return "smtplib" in _WRAPPED
+            return "smtplib" in _WRAPPED and "aiosmtplib" in _WRAPPED
 
     def disarm(self) -> None:
+        self.teardown_registered = False
         with _LOCK:
             _prune(drop=self)
 
@@ -527,50 +529,51 @@ def _async_create_connection(response: Callable[[int, str], Any]) -> Callable[[C
 class _LateImport(importlib.abc.MetaPathFinder):
     """Scoped to ``aiosmtplib`` alone: when the host imports it after ``install()`` (inside a handler, a background
     task) the module is wrapped the moment it finishes loading, before the host can use it. BootUI's post-processor
-    wraps every ``JavaMailSender`` bean as it is created, so a late one is never missed either."""
+    wraps every ``JavaMailSender`` bean as it is created, so a late one is never missed either. It answers from the
+    finders behind it, so another import hook still sees the import, and it is inert without an armed recorder."""
 
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
-        if fullname != "aiosmtplib":
+        if fullname != "aiosmtplib" or not _refs:
             return None
-        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
-        loader = getattr(spec, "loader", None)
-        exec_module = getattr(loader, "exec_module", None)
-        if spec is None or exec_module is None:
-            return spec
+        try:
+            behind = sys.meta_path[sys.meta_path.index(self) + 1 :]
+            spec = next((s for f in behind if (s := f.find_spec(fullname, path, target)) is not None), None)
+            exec_module = spec.loader.exec_module  # type: ignore[union-attr]
 
-        def wrapped(module: Any) -> None:
-            exec_module(module)
-            _wrap_loaded()
+            def wrapped(module: Any) -> None:
+                exec_module(module)
+                _wrap_loaded()
 
-        loader.exec_module = wrapped  # type: ignore[union-attr]
+            spec.loader.exec_module = wrapped  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001 - never an error into the host's import: the module then loads unwrapped
+            return None
         return spec
 
 
+_FINDER = _LateImport()
+
+
 def _wrap_loaded() -> None:
-    """``aiosmtplib`` has just loaded: wrap it for every armed recorder. Never an error into the host's import."""
+    """``aiosmtplib`` has just loaded: wrap it (again, for a re-import) for every armed recorder. Never an error into
+    the host's import."""
+    if not _LOCK.acquire(timeout=5):  # a finalizer on the thread inside arm() must not hang the import
+        return
     try:
-        with _LOCK:
-            live = _live()
-            if live:
-                _wrap_senders(trap=any(r.dev_trap for r in live))
+        live = _live()
+        if live:
+            _unwrap(("aiosmtplib.connect", "aiosmtplib"))  # a stale record of an earlier module object
+            _wrap_senders(trap=any(r.dev_trap for r in live))
     except Exception:  # noqa: BLE001, S110 - the host's import never fails on the capture
         pass
+    finally:
+        _LOCK.release()
 
 
 def _watch_import() -> None:
-    """Under ``_LOCK``: until ``aiosmtplib`` is imported, watch for it; the watch ends with the last recorder."""
-    if "aiosmtplib" in sys.modules or "aiosmtplib.import" in _WRAPPED:
-        return
-    finder = _LateImport()
-    sys.meta_path.insert(0, finder)
-    _WRAPPED["aiosmtplib.import"] = lambda: _drop_finder(finder)
-
-
-def _drop_finder(finder: _LateImport) -> bool:
-    if finder not in sys.meta_path:
-        return False
-    sys.meta_path.remove(finder)
-    return True
+    """Until ``aiosmtplib`` is imported, watch for it. The hook stays on ``sys.meta_path`` (inert with no recorder
+    armed): removing it could shift a list the import system is iterating."""
+    if "aiosmtplib" not in sys.modules and _FINDER not in sys.meta_path:
+        sys.meta_path.insert(0, _FINDER)
 
 
 def _wrap_one(family: str, owner: type, name: str, make: Callable[[Callable[..., Any]], Callable[..., Any]]) -> None:
@@ -601,8 +604,15 @@ def _wrap_senders(*, trap: bool) -> None:
 
 
 def attach(ctx: Any) -> Callable[[], None] | None:
-    """A ``CaptureState.attachers`` entry: arm (an ``aiosmtplib`` imported later is wrapped by ``_LateImport``)."""
+    """A ``CaptureState.attachers`` entry: arm, and answer the remover once every sender is wrapped. Until then it is
+    retried (startup, first request) and undone at uninstall; an ``aiosmtplib`` imported later is wrapped by
+    ``_LateImport`` as it loads."""
     recorder: MailRecorder | None = ctx.capture.mail
     if recorder is None:
         return None
-    return recorder.disarm if recorder.arm() else None
+    if recorder.arm():
+        return recorder.disarm
+    if not recorder.teardown_registered:
+        recorder.teardown_registered = True
+        ctx.capture.teardowns.append(recorder.disarm)
+    return None
