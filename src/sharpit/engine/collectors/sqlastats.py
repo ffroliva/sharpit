@@ -125,7 +125,7 @@ def n_plus_one(
 def _unavailable_reason(ctx: SharpitContext) -> str | None:
     if not ctx.settings.panels["sql-trace"].enabled:
         return panels.disabled_reason("sql-trace")
-    reason = sqla.sql_trace_unavailable_reason(ctx)
+    reason = sqla.tracing_unavailable_reason(ctx)
     return reason if reason is not None or ctx.capture.sql_trace is not None else sqla.TRACING_DISABLED
 
 

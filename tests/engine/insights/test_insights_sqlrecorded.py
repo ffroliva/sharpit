@@ -18,9 +18,9 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla, tools
 from sharpit.engine.collectors import sqlastats
-from sharpit.engine.tools04 import sql_trace as sql_trace_tools
 from sharpit.engine.collectors.insights import sqlcapture
 from sharpit.engine.collectors.insights.service import insights_service
+from sharpit.engine.tools04 import sql_trace as sql_trace_tools
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS, HOOK_SQLITE_LISTENERS
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -87,6 +87,8 @@ def test_sqlalchemy_imported_with_no_engine_reads_not_recorded(handles: list[Any
     assert check["reason"] == NOT_RECORDED
 
 
+# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded (SqlCapture.of(wrapped, true, false))
+# ported: SqlTraceRecorderTests.tracksWrappedDataSourceNames
 # the wrap-time fact: an engine attached to THIS context is a recorded database before its first statement
 def test_an_attached_engine_is_recorded_before_any_statement(handles: list[Any]) -> None:
     ctx = _install(handles, engines=[_engine()], sql_trace_sqlite3_enabled=False)
@@ -142,6 +144,8 @@ def _both_used(handles: list[Any]) -> Any:
     return ctx
 
 
+# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded  # noqa: E501
+# (SqlCapture.of(wrapped, true, true): recordedExcept)
 # finding 3: one hook detached, the other still recording: recorded, naming what is missed
 def test_the_sqlalchemy_hook_suspended_is_recorded_except_sqlalchemy(handles: list[Any]) -> None:
     ctx = _both_used(handles)
@@ -151,6 +155,8 @@ def test_the_sqlalchemy_hook_suspended_is_recorded_except_sqlalchemy(handles: li
     assert "SQLAlchemy" in str(capture.reason)
 
 
+# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded  # noqa: E501
+# (SqlCapture.of(wrapped, true, true): recordedExcept)
 # finding 4: only the sqlite3 hook suspended
 def test_the_sqlite_hook_suspended_is_recorded_except_sqlite3(handles: list[Any]) -> None:
     ctx = _both_used(handles)
@@ -177,6 +183,8 @@ def test_a_partly_suspended_capture_keeps_the_caveat_on_a_check_that_reads_sql(h
     assert "SQLAlchemy" in str(check["reason"])
 
 
+# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded  # noqa: E501
+# (SqlCapture.of(wrapped, true, true): recordedExcept R2DBC_NOT_RECORDED)
 # finding 9: SQLAlchemy older than 2.0 beside raw sqlite3: what is missed is said, and it is not "neither is in use"
 def test_an_unsupported_sqlalchemy_beside_sqlite3_names_the_version_it_cannot_record(
     handles: list[Any], monkeypatch: pytest.MonkeyPatch
@@ -189,6 +197,8 @@ def test_an_unsupported_sqlalchemy_beside_sqlite3_names_the_version_it_cannot_re
     assert UNSUPPORTED in str(capture.reason)
 
 
+# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded  # noqa: E501
+# (SqlCapture.of(unwrapped, true, true): R2DBC_ONLY)
 def test_an_unsupported_sqlalchemy_and_no_sqlite3_is_not_recorded_and_names_the_version(
     handles: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -214,7 +224,7 @@ def test_the_flag_off_still_names_the_flag(handles: list[Any]) -> None:
 
 
 # ported: SqlTraceInsightsServiceTests.reportsUnavailableWhenNoDataSourceHasBeenWrapped
-# (SqlTraceInsightsService.java:62 and SqlTraceControllerSupport.report:65, v2.3.0: no wrapped DataSource -> unavailable)
+# (SqlTraceInsightsService.java:62, SqlTraceControllerSupport.report:65, v2.3.0: no wrapped DataSource: unavailable)
 def test_the_sql_trace_report_is_unavailable_while_no_engine_is_attached(handles: list[Any]) -> None:
     ctx = _install(handles, sql_trace_sqlite3_enabled=False)
     report = tools.sql_trace_report(ctx)
@@ -242,3 +252,8 @@ def test_the_sql_trace_report_is_available_once_an_engine_is_attached(handles: l
 def test_sqlalchemy_statistics_keeps_its_own_availability_with_no_engine_attached(handles: list[Any]) -> None:
     ctx = _install(handles, sql_trace_sqlite3_enabled=False)
     assert sqlastats.statistics_report(ctx)["available"] is True
+
+
+def test_a_not_recorded_capture_cannot_carry_a_limitation() -> None:
+    with pytest.raises(ValueError, match="no limitation"):
+        sqlcapture.SqlCapture(not_recorded_reason="x", limitation="y")

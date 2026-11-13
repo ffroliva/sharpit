@@ -68,10 +68,10 @@ def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
     """``SqlCapture.of``'s second branch for ``ctx``: is a database in use here, and is its hook attached.
 
     BootUI's fact is known at wrap time (``SqlTraceRecorder.hasWrappedDataSource``): a SQLAlchemy engine attached to
-    this context is the analogue; raw sqlite3 (no wrap-time object) counts once a statement was delivered to this context. Nothing here runs per statement: engines are
-    registered when they connect; with no discovery panel the engines are unknown, and attaching the SQL
-    listeners (``engines_unseen``) is the fact. A hook detached from a source in use is named (``recordedExcept``);
-    every one detached: not recorded.
+    this context is the analogue; raw sqlite3 (no wrap-time object) counts once a statement was delivered to this
+    context. Nothing here runs per statement: engines are registered when they connect; with no discovery panel the
+    engines are unknown, and attaching the SQL listeners (``engines_unseen``) is the fact. A hook detached from a
+    source in use is named (``recordedExcept``); every one detached: not recorded.
     """
     capture = ctx.capture
     registry = capture.engine_registry
@@ -88,14 +88,28 @@ def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
     return False, " ".join([SUSPENDED_ALL if missed else NOT_RECORDED, *extra])
 
 
-def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+def tracing_unavailable_reason(ctx: SharpitContext) -> str | None:
     """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app.
 
-    Whether a statement is recorded at all is ``sources_recorded``; the panel stays available beside it, as BootUI's
-    SQL Trace panel does with no traced DataSource (a deviation row)."""
+    ``sqlastats`` reads this one: BootUI's Hibernate statistics follow the session factory, never the SQL recorder
+    (``HibernateStatisticsService.report``, v2.3.0), so no engine attached does not make them unavailable."""
     if not ctx.settings.sql_trace_enabled:
         return TRACING_DISABLED
     return None if sqlite3_traced(ctx) else unavailable_reason()
+
+
+def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """The SQL Trace panel and its insights: ``tracing_unavailable_reason``, then no database in use here.
+
+    BootUI reports both unavailable while no DataSource is wrapped (``SqlTraceControllerSupport.report`` and
+    ``SqlTraceInsightsService.insights``, v2.3.0). A patched raw sqlite3 module counts as in use for the panel (it has
+    no wrap-time object, and the panel must not vanish until the first statement); one text replaces BootUI's two
+    (a deviation row)."""
+    reason = tracing_unavailable_reason(ctx)
+    if reason is not None or sqlite3_traced(ctx):
+        return reason
+    recorded, why = sources_recorded(ctx)
+    return None if recorded else why
 
 
 # the submodules import the names above, so they load after them
@@ -192,6 +206,7 @@ __all__ = [
     "SUSPENDED_ALL",
     "sources_recorded",
     "sql_trace_unavailable_reason",
+    "tracing_unavailable_reason",
     "sqlalchemy_module",
     "sqlite3_traced",
     "unavailable_reason",

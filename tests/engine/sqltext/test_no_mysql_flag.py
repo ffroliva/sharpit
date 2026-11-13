@@ -261,6 +261,9 @@ def _ctx() -> SharpitContext:
         _Introspector(),
     )
     recorder = ctx.capture.sql_trace = SqlTraceRecorder(ctx.masker)
+    ctx.capture.engines_unseen = (
+        True  # rows exist, so a database is in use (BootUI SqlTraceControllerSupport.report:65)
+    )
     ctx.capture.exchanges = HttpExchangeBuffer(10)
     ctx.capture.exchanges.add(
         exchange_row(

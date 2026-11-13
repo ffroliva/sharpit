@@ -30,22 +30,36 @@ SQL_SOURCES = frozenset({"sql", "connection"})  # RuntimeInsightsService.readsSq
 
 @dataclass(frozen=True)
 class SqlCapture:
-    """``SqlCapture`` record: ``reason`` is why statements are not recorded, or, when ``recorded``, what they miss."""
+    """``SqlCapture`` record: not recorded (its reason), or recorded, with what it misses (``limitation``) if any.
 
-    recorded: bool
-    reason: str | None
+    The two texts exclude each other, so "not recorded with a limitation" cannot be constructed."""
+
+    not_recorded_reason: str | None = None
+    limitation: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.not_recorded_reason is not None and self.limitation is not None:
+            raise ValueError("a capture that is not recorded has no limitation to name")
+
+    @property
+    def recorded(self) -> bool:
+        return self.not_recorded_reason is None
+
+    @property
+    def reason(self) -> str | None:
+        return self.limitation if self.recorded else self.not_recorded_reason
 
     @classmethod
     def capturing(cls) -> SqlCapture:
-        return cls(True, None)
+        return cls()
 
     @classmethod
     def recorded_except(cls, limitation: str) -> SqlCapture:
-        return cls(True, limitation)
+        return cls(limitation=limitation)
 
     @classmethod
     def not_recorded(cls, reason: str) -> SqlCapture:
-        return cls(False, reason)
+        return cls(not_recorded_reason=reason)
 
 
 def for_context(ctx: SharpitContext) -> SqlCapture:

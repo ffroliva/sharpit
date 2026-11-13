@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from tests.engine.insights.test_insights_k1 import Run
+from tests.engine.insights.journal_run import Run
 
 from fastapi import FastAPI
 from sharpit import install
