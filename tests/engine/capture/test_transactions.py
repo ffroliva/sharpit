@@ -782,3 +782,47 @@ def test_a_direct_begin_names_its_caller_as_the_call_site(monkeypatch) -> None:
     tx_begin(connection)
     method = recorder.report([])["entries"][0]["methodName"]
     assert method.split(":")[1] == "test_a_direct_begin_names_its_caller_as_the_call_site"
+
+
+class _CountingJournal:
+    def __init__(self) -> None:
+        self.dropped = 0
+        self.recorder: TransactionRecorder | None = None
+        self.held_lock = False
+
+    def count_dropped(self, _source: str) -> None:
+        self.dropped += 1
+        self.held_lock = self.recorder is not None and self.recorder._lock._is_owned()  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+
+def _journal_begin(recorder: TransactionRecorder, journal: _CountingJournal, key: int) -> int:
+    return recorder.begin(
+        key,
+        parent=None,
+        method="m",
+        thread="t",
+        trace_id=None,
+        connection_id=None,
+        journal=(journal, None, (0, None, False, False, False, None, 0)),  # pyright: ignore[reportArgumentType]
+    )
+
+
+def test_an_abandoned_open_row_is_counted_dropped_outside_the_recorder_lock() -> None:
+    """The journal lock must never be taken under the recorder lock (the log handler's deadlock, fixed in #177)."""
+    recorder = TransactionRecorder(Masker("MASKED", True, None), application=lambda: None, max_entries=2)
+    journal = _CountingJournal()
+    journal.recorder = recorder
+    for key in range(5):  # nothing ends: the fifth begin finds 2 * max_entries open rows
+        _journal_begin(recorder, journal, key)
+    assert journal.dropped >= 1
+    assert journal.held_lock is False
+
+
+def test_unsettled_commits_are_bounded_and_counted_dropped() -> None:
+    """A commit whose settle never arrives (a detached connection has no pool checkin) must not leak its row."""
+    recorder = TransactionRecorder(Masker("MASKED", True, None), application=lambda: None, max_entries=2)
+    journal = _CountingJournal()
+    for key in range(10):
+        recorder.end(_journal_begin(recorder, journal, key), "COMMITTED", settle=True)
+    assert len(recorder._unsettled) <= 4  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert journal.dropped >= 6
