@@ -190,7 +190,7 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 - [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/): CI gates for queries, N+1, exceptions, and advisors
 - [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
 - [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): tracing SQLAlchemy and raw `sqlite3`
-- [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the MCP endpoint, its read tools and the action tools each panel gates
+- [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its tools
 - [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers
 - [How it works](https://ffroliva.github.io/sharpit/how-it-works/) and [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/)
