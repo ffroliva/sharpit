@@ -249,22 +249,58 @@ def test_mark_seen_reads_an_already_marked_exception_without_the_lock(monkeypatc
     assert reads == [False]
 
 
-def test_mark_seen_counts_one_exception_logged_on_two_threads_once() -> None:
-    """Both threads see no mark: the lock must make the second one re-read and see the first's."""
+class _ContendedLock:
+    """``_MARK_LOCK`` that says when a thread had to wait for it."""
+
+    def __init__(self, contended: threading.Event) -> None:
+        self.real, self.contended = threading.Lock(), contended
+
+    def __enter__(self) -> bool:
+        if not self.real.acquire(blocking=False):
+            self.contended.set()  # the second thread is held at the lock: the first may go on
+            self.real.acquire()
+        return True
+
+    def __exit__(self, *exc: object) -> None:
+        self.real.release()
+
+
+def test_mark_seen_counts_one_exception_logged_on_two_threads_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Thread A reads no mark and stops before it sets one; B starts then, and A goes on only once B has either read
+    the same empty mark or been held at the lock. With the lock and its re-check B sees A's mark; without either both
+    count the exception as new. An event handshake, no timing."""
+    settled, a_read = threading.Event(), threading.Event()
+    monkeypatch.setattr(exceptions_module, "_MARK_LOCK", _ContendedLock(settled))
+    real = exceptions_module._mark  # pyright: ignore[reportPrivateUsage]
+    reads = {"A": 0, "B": 0}
+
+    def mark(exc: BaseException, slot: str) -> str | None:
+        who = threading.current_thread().name
+        prior = real(exc, slot)
+        reads[who] += 1
+        if reads[who] == 2:  # the read that decides: inside the lock when there is one
+            if who == "A":
+                a_read.set()
+                assert settled.wait(10)
+            else:
+                settled.set()  # B has read the same state A did
+        return prior
+
+    monkeypatch.setattr(exceptions_module, "_mark", mark)
     error = ValueError("one exception")
-    firsts: list[bool] = []
-    start = threading.Barrier(2, timeout=5)
+    firsts: dict[str, bool] = {}
 
-    def mark() -> None:
-        start.wait()
-        firsts.append(exceptions_module.mark_seen(error, None, "_race"))
+    def run(who: str) -> None:
+        firsts[who] = exceptions_module.mark_seen(error, None, "_race")
 
-    threads = [threading.Thread(target=mark) for _ in range(2)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert firsts.count(True) == 1
+    a = threading.Thread(target=run, args=("A",), name="A")
+    b = threading.Thread(target=run, args=("B",), name="B")
+    a.start()
+    assert a_read.wait(10)
+    b.start()
+    a.join(15)
+    b.join(15)
+    assert firsts == {"A": True, "B": False}
 
 
 class _ProbeLock:
