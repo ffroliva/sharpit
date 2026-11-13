@@ -284,7 +284,8 @@ class MailRecorder:
     # --- arming -------------------------------------------------------------------------------------------------------
 
     def arm(self) -> bool:
-        """Wrap what can be wrapped now and watch for a later ``aiosmtplib``; ``True`` once ``smtplib`` is wrapped."""
+        """Wrap what can be wrapped now and watch for a later ``aiosmtplib``; ``True`` once ``smtplib`` and ``aiosmtplib``
+        are both wrapped (``False`` without ``aiosmtplib``: the attacher is retried and torn down at uninstall)."""
         # _refs is swapped whole under the lock and read lock-free by the wrappers
         global _refs  # noqa: PLW0603
         with _LOCK:
@@ -542,22 +543,34 @@ class _LateImport(importlib.abc.MetaPathFinder):
             return None
         try:
             behind = sys.meta_path[sys.meta_path.index(self) + 1 :]
-            spec = next((s for f in behind if (s := f.find_spec(fullname, path, target)) is not None), None)
+            spec = next(
+                (
+                    s
+                    for f in behind
+                    if hasattr(f, "find_spec") and (s := f.find_spec(fullname, path, target)) is not None
+                ),
+                None,
+            )
             if spec is None:  # not installed: nothing loads, so nothing can send
                 return None
             exec_module = spec.loader.exec_module  # type: ignore[union-attr]
+            if not getattr(exec_module, _PATCHED, False):  # a shared loader is probed again and again: patch it once
 
-            def wrapped(module: Any) -> None:
-                exec_module(module)
-                _wrap_loaded_or_refuse()
+                @functools.wraps(exec_module)
+                def wrapped(module: Any) -> None:
+                    exec_module(module)
+                    if module.__name__ == "aiosmtplib":  # a shared loader (zipimport) loads other modules too
+                        _wrap_loaded_or_refuse()
 
-            spec.loader.exec_module = wrapped  # type: ignore[union-attr]
+                setattr(wrapped, _PATCHED, True)
+                spec.loader.exec_module = wrapped  # type: ignore[union-attr]
         except Exception as exc:  # noqa: BLE001 - never a bare error into the host's import
             return _refuse_or_pass(exc)
         return spec
 
 
 _FINDER = _LateImport()
+_PATCHED = "__sharpit_late_import__"
 _REFUSED = "sharpit's dev trap could not wrap aiosmtplib, so it is not imported: unwrapped it would send real mail"
 
 
@@ -575,11 +588,15 @@ def _wrap_loaded_or_refuse() -> None:
     try:
         _wrap_loaded()
     except Exception as exc:  # noqa: BLE001 - the capture never fails a host's import, unless a trap must hold
+        if _trap_on():  # none of the package may stay loaded: ``from aiosmtplib.smtp import ...`` would skip the hook
+            for name in [n for n in sys.modules if n == "aiosmtplib" or n.startswith("aiosmtplib.")]:
+                del sys.modules[name]
         _refuse_or_pass(exc)
 
 
 def _wrap_loaded() -> None:
-    """``aiosmtplib`` has just loaded: wrap it (again, for a re-import) for every armed recorder, or raise."""
+    """``aiosmtplib`` has just loaded: wrap it (again, for a re-import) for every armed recorder, or raise. With a trap
+    on, both the capture and the transport wrap must hold, or the module is refused."""
     if not _LOCK.acquire(timeout=5):  # a finalizer on the thread inside arm() must not hang the import
         raise TimeoutError("the mail registry stayed locked")
     try:
@@ -587,8 +604,8 @@ def _wrap_loaded() -> None:
         if live:
             _unwrap((_AIOSMTPLIB_CONNECT, "aiosmtplib"))  # a stale record of an earlier module object
             _wrap_senders(trap=any(r.dev_trap for r in live))
-            if _trap_on() and "aiosmtplib" not in _WRAPPED:
-                raise RuntimeError("aiosmtplib.SMTP.sendmail could not be wrapped")
+            if _trap_on() and not {"aiosmtplib", _AIOSMTPLIB_CONNECT} <= _WRAPPED.keys():
+                raise RuntimeError("aiosmtplib.SMTP could not be wrapped")
     finally:
         _LOCK.release()
 
