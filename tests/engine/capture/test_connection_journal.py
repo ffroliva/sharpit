@@ -126,7 +126,11 @@ def test_connection_journal_checkout_nanos_on_the_sql_clock():
 def test_connection_journal_data_source_never_carries_the_url_or_password(exposure: str):
     engine = sa.create_engine("sqlite://")
     engine.url = engine.url.set(
-        username="app", password=PASSWORD_CANARY, host="db.example", database="orders", query={"password": PASSWORD_CANARY}
+        username="app",
+        password=PASSWORD_CANARY,
+        host="db.example",
+        database="orders",
+        query={"password": PASSWORD_CANARY},
     )
     handle = _install(engine=engine, expose_values=exposure)
     _use(engine)
@@ -160,7 +164,8 @@ def test_connection_journal_not_offered_when_source_disabled():
     disabled = _install(sources=("http",))
     _use(disabled.engine)
     assert _records(disabled) == ()
-    assert disabled.context.capture.journal.status()["dropped"] == {"connection": 1}
+    assert "connection" not in disabled.context.capture.journal.status()["dropped"]  # BootUI follows and counts nothing then
+    assert not sqla.attached()["checkout"]  # and no pool listener runs for it
     enabled = _install()  # control: the same release is offered when the source is enabled
     _use(enabled.engine)
     assert len(_records(enabled)) == 1
@@ -187,7 +192,7 @@ def test_connection_journal_carries_the_request_id_of_this_install_only():
         _use(ours.engine)
     finally:
         REQUEST.reset(token)
-    assert [r["requestId"] for r in _records(ours)] == [None, "r-ours"]
+    assert [r["requestId"] for r in _records(ours)] == ["r-ours"]
     assert "r-theirs" not in json.dumps(_records(ours))
 
 
@@ -207,11 +212,18 @@ def test_connection_journal_a_failing_build_never_reaches_the_host(monkeypatch: 
     assert len(_records(handle)) == 1
 
 
+# ported: SqlTraceRecorder.isSlow (the threshold is the SQL Trace slow-query threshold, 100 ms by default)
 def test_connection_journal_failed_or_slow_follows_the_slow_query_threshold():
-    handle = _install(sql_trace_slow_query_threshold_millis=1)
+    handle = _install()
+    recorder = handle.context.capture.sql_trace
+    assert recorder.slow_held(99_999_999) is False
+    assert recorder.slow_held(100_000_000) is True
+    recorder.slow_query_threshold_millis = 0  # 0 disables slow marking
+    assert recorder.slow_held(10**12) is False
+    recorder.slow_query_threshold_millis = 100
     with handle.engine.connect() as conn:
         conn.execute(sa.text("select 1"))
-        time.sleep(0.01)
+        time.sleep(0.12)
     _use(handle.engine)
     assert [r["failedOrSlow"] for r in _records(handle)] == [True, False]
 
