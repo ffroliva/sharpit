@@ -122,3 +122,20 @@ def test_the_route_reports_the_flag_off_check(handles: list[Any]) -> None:
     check = next(c for c in checks if c["kind"] == REQUIRED)
     assert check["status"] == "UNAVAILABLE"
     assert check["reason"] == OFF
+
+
+def test_a_failing_transaction_capture_supplier_says_transactions_not_sql(handles: list[Any]) -> None:
+    _, handle = _open(handles)
+    ctx = handle.context
+
+    def broken() -> Any:
+        raise RuntimeError("boom")
+
+    ctx.lazy(
+        "runtime-insights", lambda: InsightsService(ctx.capture.journal, [NeedsTransaction()], 8000, None, None, broken)
+    )
+    check = next(c for c in insights_service(ctx).report()["checks"] if c["kind"] == REQUIRED)
+    assert check["reason"] == (
+        "Whether this application's transactions are recorded could not be read (RuntimeError), "
+        "so no transaction is counted."
+    )
