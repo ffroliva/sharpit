@@ -116,9 +116,14 @@ are split in non-POSIX mode so backslashes in paths survive.
 
 ### On the author's own project: gflow-cli
 
-Run by sharpit's author on the 0.3.0 integration branch against gflow-cli (a public FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-01-gflow-cli-sharpit.md)), sharpit ran across **5,662** tests (5 failed by sharpit gates):
-- **0 unattributed SQL statements** across ~53k statements executed (27,997 attributed + 25,092 filtered);
-- **6 N+1 findings**, of which 1 was a real defect, 2 were noise (filtered since 0.3.0), and 3 were expected polling;
+Run by sharpit's author with sharpit 0.6.0 from PyPI against gflow-cli's `develop` branch on 2026-11-13 (a public
+FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-13-gflow-cli-sharpit-0.6.0.md)),
+sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpit gates):
+
+- **0 unattributed SQL statements** across ~58k statements executed (25,772 attributed + 32,583 filtered);
+- **0 N+1 findings** (the 0.3.0 run reported 6 N+1 findings on the suite of the time);
+- **4 swallowed exceptions** fail the gate, at three places where gflow-cli's telemetry deliberately ignores a broken
+  telemetry database without logging it; 114 more are reported as INFO;
 - No production code was changed to get these numbers.
 
 ## Installation and extras
