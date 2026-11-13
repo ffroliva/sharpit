@@ -14,6 +14,7 @@ import smtplib
 import socket
 import sys
 import threading
+import time
 import types
 import unittest.mock
 import weakref
@@ -1143,3 +1144,81 @@ def test_reading_the_emails_never_wraps_aiosmtplib(
         module = late_aiosmtplib()
         assert h.emails()["messages"] == []
         assert not _wrapped_after_late_import(module)
+
+
+def _loaded_past_the_hook(
+    h: Harness, late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+) -> types.ModuleType:
+    h.client.get("/warm-up")  # the first request is the attachers' last retry: the import comes after it
+    monkeypatch.setattr(sys, "meta_path", [_AheadFinder(), *sys.meta_path])
+    return late_aiosmtplib()
+
+
+def test_a_request_start_never_waits_for_the_mail_registry_lock(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: the check blocked the event loop up to 5 s while another thread held the registry lock
+    with harness(email_dev_trap=True) as h:
+        module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        assert mail._LOCK.acquire(timeout=1)  # noqa: SLF001 - another thread is inside arm()
+        try:
+            started = time.perf_counter()
+            mail.ensure_wrapped()
+            waited = time.perf_counter() - started
+        finally:
+            mail._LOCK.release()  # noqa: SLF001
+        assert waited < 0.05
+        assert not _wrapped_after_late_import(module)
+        mail.ensure_wrapped()  # the next request start covers it
+        assert _wrapped_after_late_import(module)
+
+
+def test_a_reload_that_replaces_the_smtp_class_is_wrapped_again(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: the second layer compared module objects, and a reload keeps the module object
+    with harness(email_dev_trap=True) as h:
+        module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        mail.ensure_wrapped()
+        assert _wrapped_after_late_import(module)
+        namespace: dict[str, Any] = {}
+        exec(_LATE_AIOSMTPLIB, namespace)  # noqa: S102 - what importlib.reload does to the same module object
+        module.SMTP = namespace["SMTP"]  # type: ignore[attr-defined]
+        assert not _wrapped_after_late_import(module)
+        mail.ensure_wrapped()
+        assert _wrapped_after_late_import(module)
+
+
+def test_the_module_that_just_loaded_is_the_one_wrapped(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: _wrap_senders looked "aiosmtplib" up again in sys.modules instead of using the module it was given
+    with harness(email_dev_trap=True) as h:
+        module = _loaded_past_the_hook(h, late_aiosmtplib, monkeypatch)
+        real_unwrap = mail._unwrap  # noqa: SLF001
+
+        def swap_then_unwrap(families: Any) -> None:
+            sys.modules["aiosmtplib"] = types.ModuleType("aiosmtplib")  # another thread replaced the entry
+            real_unwrap(families)
+
+        monkeypatch.setattr(mail, "_unwrap", swap_then_unwrap)
+        mail.ensure_wrapped()
+        assert _wrapped_after_late_import(module)
+
+
+class _FailingFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
+        if fullname == "aiosmtplib":
+            raise ImportError("behind failed")
+        return None
+
+
+def test_an_import_error_from_a_finder_behind_the_hook_is_not_replaced_by_the_refusal(
+    late_aiosmtplib: Callable[[], types.ModuleType], monkeypatch: pytest.MonkeyPatch
+):
+    # PR #182 r4 review: a finder's own ImportError means nothing loads, so the host must see that error
+    with harness(email_dev_trap=True):
+        behind = sys.meta_path.index(mail._FINDER) + 1  # noqa: SLF001
+        monkeypatch.setattr(sys, "meta_path", [*sys.meta_path[:behind], _FailingFinder(), *sys.meta_path[behind:]])
+        with pytest.raises(ImportError, match="behind failed"):
+            late_aiosmtplib()
