@@ -58,10 +58,9 @@ def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
         if INTERNAL.get():
             return
         pool = getattr(proxy, "_pool", None)
-        targets = dispatch.connection_targets(pool)
-        accepting = [c for c in targets if c.capture.journal is not None and c.capture.journal.accepts(SOURCE)]
-        if accepting:  # a source the journal does not record follows nothing and counts nothing, as BootUI's
-            record.info[CHECKOUT_KEY] = Checkout(accepting, pool, REQUEST.get())
+        targets = dispatch.connection_targets(pool, SOURCE)
+        if targets:  # a source the journal does not record follows nothing and counts nothing, as BootUI's
+            record.info[CHECKOUT_KEY] = Checkout(targets, pool, REQUEST.get())
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's checkout
         dispatch.routing_failed(exc)
 

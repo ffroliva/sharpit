@@ -1,8 +1,9 @@
 """The ``connection`` journal event's overhead budget: what following and offering one released connection adds.
 
 The event fires once per connection RELEASE, not per statement, so its budget is per release. "Off" detaches the pool
-listener, so the budget covers the whole path (checkout hook, routing, pool name, offer), not only the offer. Rounds alternate and the
-first side swaps every round, through tests/overhead.py; how to read a failure: docs/development/overhead-budgets.md.
+listener, so the budget covers the whole path (checkout hook, routing, pool name, offer), not only the offer. Rounds
+alternate and the first side swaps every round, through tests/overhead.py; how to read a failure:
+docs/development/overhead-budgets.md.
 """
 
 from __future__ import annotations

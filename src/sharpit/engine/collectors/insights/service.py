@@ -69,6 +69,14 @@ def _not_recorded(source: str) -> str:
     return f"The runtime journal does not record the {source} source (SHARPIT_RUNTIME_JOURNAL_SOURCES)."
 
 
+def _not_armed(source: str) -> str:
+    """The setting enables ``source`` but its listener is off, so no setting is wrong (sharpit only)."""
+    return (
+        f"The {source} source is enabled in the runtime journal, but its listener is not armed here "
+        "(SQLAlchemy is not imported, no engine is attached, or SQL capture is suspended): nothing is recorded."
+    )
+
+
 def _panels_label(panels: Sequence[str]) -> str:
     """``The sql-trace panel`` / ``The a, b and c panels`` (``RuntimeInsightsService.panelsLabel``)."""
     if len(panels) == 1:
@@ -82,6 +90,8 @@ def _verb(panels: Sequence[str]) -> str:
 
 def _missing(snapshot: Snapshot, source: str) -> str:
     """Why a required source is absent (``missingSource``): not journaled, else its disabled panel is named."""
+    if source in snapshot.unarmed:
+        return _not_armed(source)
     if not snapshot.journaled(source):
         return _not_recorded(source)
     panels = snapshot.hidden[source]
@@ -119,6 +129,10 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     for source in sorted(observation.optional_reads):
         if panels := snapshot.hidden.get(source):
             unseen.append(f"{_panels_label(panels)} {_verb(panels)} disabled, so its evidence is not counted.")
+        elif source in snapshot.unarmed:
+            unseen.append(
+                f"Without the {source} source, whose listener is not armed here, its evidence is not counted."
+            )
         elif not snapshot.journaled(source):
             unseen.append(
                 f"Without the {source} source, which the runtime journal does not record, its evidence is not counted."

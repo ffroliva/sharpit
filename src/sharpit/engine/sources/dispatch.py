@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 import weakref
-from collections.abc import Sized
+from collections.abc import Callable, Sized
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine import otel
@@ -20,6 +20,7 @@ from sharpit.engine.sqltext import Dialect
 if TYPE_CHECKING:
     from sharpit.engine.capture.sqltrace import SqlTraceRecorder
     from sharpit.engine.context import SharpitContext
+    from sharpit.engine.sqla.inspect import EngineRegistry
 
 
 class SqlEvent(NamedTuple):
@@ -74,40 +75,31 @@ def _context_failed(ctx: SharpitContext, exc: BaseException, hook: str = "sql st
         routing_failed(exc)
 
 
-def _targets(engine: object | None) -> list[SharpitContext]:
-    """In a request: its own context only. Outside: the contexts holding the engine, else the only context."""
+def _route(holds: Callable[[EngineRegistry], bool]) -> list[SharpitContext]:
+    """In a request: its own context only. Outside: the contexts whose engines satisfy ``holds``, else the only one."""
     contexts = [c for r in _refs if (c := r()) is not None]
     info = REQUEST.get()
     if info is not None:
         return [c for c in contexts if c.context_id == info.context_id]
-    held = (
-        [c for c in contexts if c.capture.engine_registry is not None and c.capture.engine_registry.holds(engine)]
-        if engine is not None
-        else []
-    )
+    held = [c for c in contexts if c.capture.engine_registry is not None and holds(c.capture.engine_registry)]
     return held or (contexts if len(contexts) == 1 else [])
 
 
-def connection_targets(pool: object) -> list[SharpitContext]:
-    """The contexts that journal a connection checked out of ``pool``: a request's own context, else the contexts whose
-    engines own the pool, else the only context; each has a SQL recorder and a journal and does not suspend SQLAlchemy.
-    The panel's pause does not gate them (BootUI ``checkoutConnection``: logical connections only feed the journal)."""
-    contexts = [c for r in _refs if (c := r()) is not None]
-    info = REQUEST.get()
-    if info is not None:
-        chosen = [c for c in contexts if c.context_id == info.context_id]
-    else:
-        held = [
-            c
-            for c in contexts
-            if c.capture.engine_registry is not None and c.capture.engine_registry.name_of_pool(pool) is not None
-        ]
-        chosen = held or (contexts if len(contexts) == 1 else [])
+def _targets(engine: object | None) -> list[SharpitContext]:
+    return _route(lambda registry: engine is not None and registry.holds(engine))
+
+
+def connection_targets(pool: object, source: str) -> list[SharpitContext]:
+    """The contexts that journal a connection checked out of ``pool``, routed as a statement is (a request's own
+    context, else the contexts whose engines own the pool, else the only one); each has a SQL recorder, a journal that
+    records ``source`` and does not suspend SQLAlchemy. The panel's pause does not gate them (BootUI
+    ``checkoutConnection``: logical connections only feed the journal)."""
     return [
         c
-        for c in chosen
+        for c in _route(lambda registry: registry.name_of_pool(pool) is not None)
         if c.capture.sql_trace is not None
         and c.capture.journal is not None
+        and c.capture.journal.accepts(source)
         and "sqlalchemy" not in c.capture.suspended_sources
     ]
 

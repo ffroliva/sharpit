@@ -54,6 +54,9 @@ class Snapshot:
     hidden: Mapping[str, tuple[str, ...]] = field(
         default_factory=dict[str, tuple[str, ...]]
     )  # source -> its off panels
+    unarmed: frozenset[str] = (
+        frozenset()
+    )  # enabled sources whose producer is not armed here (not recorded, by no setting)
 
     @cached_property
     def request_index(self) -> RequestIndex:
@@ -95,9 +98,8 @@ def project(
     """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear.
     ``panel_enabled`` None: every panel is enabled. ``producing`` None: every produced source's producer can run."""
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
-    produced = [
-        s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES and (producing is None or producing(s))
-    ]
+    enabled_produced = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
+    produced = [s for s in enabled_produced if producing is None or producing(s)]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
     status, records, newest = journal.view([s for s in produced if s not in hidden])
-    return Snapshot(status, records, newest, ai_token_threshold, hidden)
+    return Snapshot(status, records, newest, ai_token_threshold, hidden, frozenset(enabled_produced) - set(produced))

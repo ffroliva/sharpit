@@ -192,6 +192,7 @@ class EngineRegistry:
         self._bases: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()  # name before any "#n"
         self._lock = threading.RLock()
         self._snapshot: tuple[tuple[weakref.ReferenceType[Any], str], ...] = ()
+        self._pool_names: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()  # pool -> engine name
 
     def add(self, engine: object) -> None:
         """Register a sync ``Engine`` or an ``AsyncEngine`` (its ``sync_engine``); anything else is ignored."""
@@ -219,10 +220,17 @@ class EngineRegistry:
         return any(ref() is engine for ref, _ in self._snapshot)
 
     def name_of_pool(self, pool: object) -> str | None:
-        """The display name of the registered engine that owns ``pool`` (what the connection-pools panel shows)."""
+        """The display name of the registered engine that owns ``pool`` (what the connection-pools panel shows).
+        Called per checkout: a pool already matched is a dict hit; a miss scans the engines and learns a match."""
+        known = self._pool_names.get(pool)
+        if known is not None:
+            return known
         for ref, name in self._snapshot:
             engine = ref()
             if engine is not None and engine.pool is pool:
+                self._pool_names[pool] = (
+                    name  # a disposed engine gets a new pool: that one misses once, the old one dies
+                )
                 return name
         return None
 
