@@ -75,6 +75,14 @@ def _use(engine: Any, statements: int = 1) -> None:
             conn.execute(sa.text("select :n"), {"n": n})
 
 
+def _by_value(value: object) -> object:
+    """A copy compared by value: a dict's items, a slotted object's slots (a ``Checkout``), else the value."""
+    if isinstance(value, dict):
+        return {k: _by_value(v) for k, v in value.items()}
+    slots = getattr(type(value), "__slots__", ())
+    return {s: getattr(value, s, None) for s in slots} if slots else value
+
+
 def _request(handle: Any, request_id: str) -> Any:
     return REQUEST.set(RequestInfo(request_id, handle.context.context_id, "GET", "/x", None, 0, None))
 
@@ -111,7 +119,8 @@ def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_co
         conn.execute(sa.text("select 0"))  # warm: SQLAlchemy creates its own lazy attributes on first use
 
         def state() -> dict[str, object]:
-            return {k: dict(v) if isinstance(v, dict) else v for k, v in vars(fairy).items()}
+            # the fairy keeps its state in __slots__ and the pool record, so compare the record's info by value too
+            return {"fairy": _by_value(vars(fairy)), "record": _by_value(fairy._connection_record.info)}
 
         before = state()
         conn.execute(sa.text("select 1"))
@@ -397,20 +406,15 @@ def test_connection_event_of_no_request_does_not_move_the_horizon():
     assert _horizon(handle) is None
 
 
-# code-review (#184): removing a class-level Pool listener while another thread checks connections in or out can fail
-# the host's ``connect()``/``close()`` (SQLAlchemy iterates the listener collection), so the pool listeners stay
-# installed once added and a flag switches them off
-def test_pool_listeners_stay_installed_and_go_inert_while_the_hook_is_suspended():
-    from sharpit.engine.sqla import connections  # noqa: PLC0415
-
-    sa = sqla.sqlalchemy_module()
+# code-review (#184, fc37f10c): a connection checked out before the hook is suspended and released after it is not
+# journaled into the suspended capture
+def test_connection_released_after_the_hook_is_suspended_is_not_journaled():
     handle = _install()
-    assert sa.event.contains(sa.pool.Pool, "checkout", connections.checkout)
+    conn = handle.engine.connect()
+    conn.execute(sa.text("select 1"))
     handle.context.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
-    assert sa.event.contains(sa.pool.Pool, "checkout", connections.checkout)  # not removed under live traffic
-    assert sa.event.contains(sa.pool.Pool, "checkin", connections.checkin)
-    with handle.engine.connect() as conn:
-        assert connections.CHECKOUT_KEY not in conn.connection._connection_record.info  # inert: follows nothing
+    conn.close()
+    assert _records(handle) == ()
     handle.context.capture.wiring.resume_hook(HOOK_SQLA_LISTENERS)
     _use(handle.engine)
     assert len(_records(handle)) == 1  # and the producer works again after the resume
