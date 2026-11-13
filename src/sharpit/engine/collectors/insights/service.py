@@ -180,10 +180,10 @@ def _coverage(snapshot: Snapshot) -> list[Row]:
 
 
 def _window(snapshot: Snapshot) -> Row:
-    status = snapshot.status
+    status, left_out = snapshot.status, snapshot.request_index.left_out
     return {
         "runId": status["runId"], "firstEventAt": status["oldestRetainedAt"], "lastEventAt": snapshot.newest_at,
-        "retainedEvents": status["retainedEvents"], "requests": len(snapshot.records.get("http", ())),
+        "retainedEvents": status["retainedEvents"], "requests": len(snapshot.records.get("http", ())) - left_out,
         "evictedEvents": status["evictedEvents"], "droppedEvents": status["droppedEvents"],
     }  # fmt: skip
 

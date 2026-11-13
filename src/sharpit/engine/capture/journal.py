@@ -281,10 +281,11 @@ class RuntimeJournal:
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
         stored, size = prepared
+        stamp = time.time_ns() // 1_000_000
         if size > self.max_bytes:
             self._dropped[source] += 1  # one event larger than the whole byte bound
+            self._lose(event, stamp)  # EvidenceRing.add (v2.3.0): the refused event is lost too
             return False
-        stamp = time.time_ns() // 1_000_000
         while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
             self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
             lost, removed, lost_at = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted

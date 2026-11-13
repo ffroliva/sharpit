@@ -154,7 +154,9 @@ def test_an_oversize_statement_leaves_its_request_out_of_the_safe_method_dml_che
     journal = RuntimeJournal(max_bytes=1_500)
     request(journal, 1, 1_000, sql("update t set n = ? /* " + "x" * 5_000 + " */", 1_005))
     request(journal, 2, 2_000, sql("select id from products", 2_005))
-    assert check(journal, SAFE)["reason"] == ONE_LEFT_OUT
+    row = check(journal, SAFE)
+    assert ONE_LEFT_OUT in str(row["reason"])  # after "The journal dropped 1 events ..."
+    assert row["eligibleRequests"] == 1  # r2 only
 
 
 # BootUI v2.3.0 offers nothing to the ring while paused or for a source it does not record, and calls no ring.lost
@@ -200,3 +202,8 @@ def test_a_request_starting_after_the_slack_is_judged() -> None:
 def test_every_request_left_out_is_not_request_ids_withheld(kind: str) -> None:
     journal = after_losing_a_statement_at(1_000, 1_005)
     assert "withheld" not in str(check(journal, kind)["reason"])
+
+
+def test_a_request_starting_inside_the_slack_is_left_out() -> None:
+    journal = after_losing_a_statement_at(1_000, 1_010)  # 10 ms after the horizon: only the slack leaves it out
+    assert ONE_LEFT_OUT in str(check(journal, ROUTE_TIME)["reason"])
