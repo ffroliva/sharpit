@@ -72,6 +72,7 @@ def test_get_returns_the_report_with_every_bootui_key() -> None:
     assert len(body["checks"]) == 28
 
 
+# ported: RuntimeInsightsControllerTests.sqlChecksAreUnavailableOnSpringMvcAndWebFluxWhenNoDataSourceIsTraced (disabled)
 def test_get_reports_sql_capture_off_as_unavailable_through_the_route() -> None:
     client, ctx = _client(sql_trace_enabled=False)
     assert ctx.capture.journal.offer({"source": "sql", "sql": "select ?", "requestId": "r1"})

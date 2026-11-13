@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
@@ -158,12 +159,15 @@ def _sql_report(handles: list[Any], events: list[dict[str, Any]], **options: Any
     return insights_service(handle.context).report()
 
 
+# ported: RuntimeInsightsServiceTests.checksThatReadSqlAreUnavailableWhereThisApplicationsSqlIsNotRecorded
+# ported: RuntimeInsightsControllerTests.sqlChecksAreUnavailableOnSpringMvcAndWebFluxWhenNoDataSourceIsTraced (disabled)
 def test_a_required_sql_check_with_sql_capture_off_is_unavailable_with_the_capture_reason(handles: list[Any]) -> None:
     check = _check(_sql_report(handles, [_SQL], sql_trace_enabled=False), "safe-method-dml")
     assert check["status"] == "UNAVAILABLE"
     assert check["reason"] == SQL_OFF
 
 
+# ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded (SqlCapture.of(disabled, true, false))
 def test_an_optional_sql_read_with_sql_capture_off_is_a_caveat_with_the_not_counted_suffix(handles: list[Any]) -> None:
     check = _check(_sql_report(handles, [_HTTP, _SQL], sql_trace_enabled=False), "route-time-breakdown")
     assert check["status"] != "UNAVAILABLE"
@@ -177,8 +181,26 @@ def test_the_disabled_panel_wins_over_the_capture_reason(handles: list[Any]) -> 
     assert check["reason"] == "The sql-trace panel, whose evidence this reads, is disabled."
 
 
+@pytest.mark.needs_sqlalchemy
 def test_sql_capture_on_adds_no_capture_text(handles: list[Any]) -> None:
-    on = _sql_report(handles, [_HTTP, _SQL], sql_trace_enabled=True)
-    default = _sql_report(handles, [_HTTP, _SQL])
-    assert json.dumps(on["checks"], sort_keys=True) == json.dumps(default["checks"], sort_keys=True)  # window: run id
-    assert "SQL capture is disabled" not in json.dumps(on)
+    import sqlalchemy as sa  # noqa: PLC0415 - the marker gates it
+
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+    app = FastAPI()
+
+    @app.get("/w")
+    def write() -> dict[str, int]:
+        with engine.begin() as conn:
+            conn.execute(sa.text("select 1"))
+        return {"ok": 1}
+
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, engines=[engine])
+    handles.append(handle)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        assert client.get("/w").status_code == 200  # the listeners are attached: SQL capture really records
+    for event in (_HTTP, _SQL):
+        assert handle.context.capture.journal.offer(event)
+    check = _check(insights_service(handle.context).report(), "safe-method-dml")
+    assert check["status"] != "UNAVAILABLE"
+    assert "SQL capture" not in str(check["reason"])
+    assert "not recorded" not in str(check["reason"])
