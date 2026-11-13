@@ -45,6 +45,7 @@ _FALLBACK_MAX = 64
 # exceptions that refuse attributes: (id, store slot) -> mark; no reference, so frames are not kept alive (spec §7.2)
 _FALLBACK: dict[tuple[int, str], str] = {}
 _FALLBACK_LOCK = threading.Lock()
+_MARK_LOCK = threading.Lock()  # one check-then-set of a mark at a time: an exception logged on two threads counts once
 # set while this thread holds a store or fallback lock: a record from a finalizer then is dropped, not deadlocked
 _BUSY = threading.local()
 _TOKENS = itertools.count()
@@ -84,16 +85,17 @@ def mark_seen(exc: BaseException, request_id: str | None, slot: str = "") -> boo
     """True the first time ``exc`` is seen in this request by the store owning ``slot``. Outside a request, an
     exception already marked is the server's own log of one that escaped a request (uvicorn's "Exception in ASGI
     application"): not new."""
-    prior = _mark(exc, slot)
-    if request_id is None:
-        if prior is not None:
+    with _guarded(_MARK_LOCK):
+        prior = _mark(exc, slot)
+        if request_id is None:
+            if prior is not None:
+                return False
+            _set_mark(exc, slot, f"~{next(_TOKENS)}")
+            return True
+        if prior == request_id:
             return False
-        _set_mark(exc, slot, f"~{next(_TOKENS)}")
+        _set_mark(exc, slot, request_id)
         return True
-    if prior == request_id:
-        return False
-    _set_mark(exc, slot, request_id)
-    return True
 
 
 def unknown_group(gid: str) -> str:

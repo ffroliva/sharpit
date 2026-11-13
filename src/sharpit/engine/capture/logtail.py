@@ -12,7 +12,7 @@ import logging
 import secrets
 import threading
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping
 from functools import lru_cache
 from typing import Any, cast
 
@@ -20,6 +20,7 @@ from sharpit.engine import otel
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
 from sharpit.engine.capture.exceptions import class_name
 from sharpit.engine.capture.journal import REENTRANT, JournalSink
+from sharpit.engine.capture.lockfree import LockFreeHandler
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, log_statement
@@ -42,6 +43,9 @@ class LogTailBuffer:
         self._bytes = 0
         self._seq = 0
         self._lock = threading.Lock()
+        self._held = (
+            threading.local()
+        )  # set while this thread holds ``_lock``: a finalizer's line is dropped, not waited on
         self.boot_nonce = secrets.token_hex(8)  # per process start: an SSE id from another process replays all
         self.stream = LineStream(self.after)
 
@@ -50,7 +54,9 @@ class LogTailBuffer:
     # needs a retry on the deque's RuntimeError.
     def append(self, line: dict[str, Any]) -> int:
         size = len((line.get("message") or "").encode()) + len((line.get("thread") or "").encode())
-        with self._lock:
+        if getattr(self._held, "on", False):  # a GC finalizer logging on the thread that holds the lock
+            return 0
+        with self._locked():
             self._seq += 1
             seq = self._seq
             self._lines.append((seq, line, size))
@@ -61,10 +67,19 @@ class LogTailBuffer:
         return seq
 
     def clear(self) -> None:
-        with self._lock:
+        with self._locked():
             self._lines.clear()
             self._bytes = 0
         self.stream.signal()
+
+    @contextlib.contextmanager
+    def _locked(self) -> Generator[None]:
+        with self._lock:
+            self._held.on = True
+            try:
+                yield
+            finally:
+                self._held.on = False
 
     def recent(self) -> list[dict[str, Any]]:
         """Oldest first (BootUI ``recent()``)."""
@@ -162,7 +177,7 @@ def _record_message(record: logging.LogRecord, masker: Masker, dialect: Dialect)
         return record.msg if type(record.msg) is str else type(record.msg).__name__
 
 
-class SharpitLogHandler(logging.Handler):
+class SharpitLogHandler(LockFreeHandler):
     """Level ``NOTSET``: it sees what the app's logger levels let through and changes no level (spec §7.5)."""
 
     def __init__(
@@ -180,23 +195,8 @@ class SharpitLogHandler(logging.Handler):
         self.context_id: str | None = None  # the installed context a request's id must belong to to be offered
         self._local = threading.local()
         self._failed = False
+        self._fail_lock = threading.Lock()  # taken only on the failure path: one warning with no handler lock
         self.template_cache = lru_cache(maxsize=TEMPLATE_CACHE)(self._cached_template)
-
-    # No handler lock (as ``logging.NullHandler``): ``Handler.handle`` would hold it across ``emit``, which waits on the
-    # journal lock, while a thread holding the journal lock logs from a GC finalizer and waits on this one. ``emit``
-    # keeps its state in thread-locals and the buffer and journal lock themselves. ``acquire``/``release`` (used by
-    # ``logging.shutdown``) are no-ops without a lock; ``handle`` is overridden because 3.13+ does ``with self.lock``.
-    def createLock(self) -> None:
-        self.lock = None
-
-    def _at_fork_reinit(self) -> None:
-        pass
-
-    def handle(self, record: logging.LogRecord) -> bool:
-        result = self.filter(record)
-        if result:
-            self.emit(result if isinstance(result, logging.LogRecord) else record)
-        return bool(result)
 
     def handleError(self, record: logging.LogRecord) -> None:
         """A bad record never prints a traceback from sharpit."""
@@ -348,9 +348,10 @@ class SharpitLogHandler(logging.Handler):
 
     def _fail(self, exc: Exception) -> None:
         """One warning, straight to ``lastResort`` (no traceback, never back into this handler)."""
-        if self._failed:
-            return
-        self._failed = True
+        with self._fail_lock:
+            if self._failed:
+                return
+            self._failed = True
         last = logging.lastResort
         if last is not None:
             warning = logging.makeLogRecord(
