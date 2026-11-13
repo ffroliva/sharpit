@@ -137,7 +137,7 @@ def test_a_repeating_group_on_sqlite_keeps_its_fingerprint(
 
 @pytest.mark.needs_sqlalchemy
 def test_sqlite_without_a_key_is_unknown_and_can_be_allowed(
-    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     state_dir = pytester.path / "state"
     state_dir.write_text("not a directory")
@@ -158,7 +158,7 @@ def test_sqlite_without_a_key_is_unknown_and_can_be_allowed(
     assert allowed_report["status"] == "unknown"
     # Finding (CI run 43348526909): the nested run left a.db open, so the next nested run's basetemp clean-up died
     # with WinError 32 (tests/test_cache_dir.py, Windows only).
-    for database in (tmp_path_factory.getbasetemp() / "basetemp").glob("test_nplus_one*/a.db"):
+    for database in (pytester.path.parent / "basetemp").glob("test_nplus_one*/a.db"):  # the nested run's basetemp
         database.unlink()  # raises PermissionError while a connection holds the file
 
 
