@@ -26,6 +26,7 @@ pytestmark = pytest.mark.needs_sqlalchemy
 NOT_RECORDED = sqlcapture.NOT_RECORDED
 _HTTP = {"source": "http", "requestId": "r1", "status": 200, "route": "GET /a", "routeTemplate": "/a"}
 UNSUPPORTED = "SQLAlchemy 1.4.0 is imported, but sharpit needs 2.0 or later"
+SQLA_SUSPENDED = "SQL capture is suspended for SQLAlchemy (its hook is detached), so its statements are not counted."
 
 
 @pytest.fixture
@@ -179,8 +180,8 @@ def test_a_partly_suspended_capture_keeps_the_caveat_on_a_check_that_reads_sql(h
     ctx = _both_used(handles)
     ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
     check = _dml_check(ctx)
-    assert check["status"] != "UNAVAILABLE"
-    assert "SQLAlchemy" in str(check["reason"])
+    assert check["status"] == "INSUFFICIENT"  # evaluated (no GET ran SQL), not UNAVAILABLE
+    assert SQLA_SUSPENDED in str(check["reason"])
 
 
 # ported: RuntimeInsightsServiceTests.sqlCaptureNamesWhyStatementsAreNotRecorded  # noqa: E501
