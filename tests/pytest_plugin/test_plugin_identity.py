@@ -32,6 +32,7 @@ def test_nplus_one(tmp_path):
         session.commit()
     with Session(engine) as session:
         assert sum(len(owner.pets) for owner in session.query(Owner).all()) == 22
+    engine.dispose()
 """
 
 
