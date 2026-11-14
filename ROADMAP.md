@@ -47,3 +47,16 @@ panels:
   `authorization`, `gc`, `app-event`, `resources`, `agent.executors`);
 - what 2.4.0 changes inside existing features;
 - the known limitations listed under 0.6.0 in [CHANGELOG.md](CHANGELOG.md).
+
+## After 0.7.0: Flask
+
+The next framework adapter is Flask ([#75](https://github.com/ffroliva/sharpit/issues/75)). The engine is already
+framework-free: the adapter implements the `AppIntrospector` port (`engine/spi.py`) over Flask's `url_map`, `config`,
+`extensions` and blueprints, and Flask imports live only under `sharpit/flask/`. The gate comes first, the console
+second:
+
+1. request correlation through `before_request` and `teardown_request`, setting the existing `REQUEST` context var;
+2. SQL capture through the existing SQLAlchemy listeners, so Flask-SQLAlchemy gets the same N+1 and query-budget
+   checks;
+3. the pytest plugin finding a Flask app through an adapter lookup instead of importing `FastApiIntrospector`;
+4. then `sharpit.install(app)` for Flask, a `flask` extra and an `examples/flask_sqla` sample.
