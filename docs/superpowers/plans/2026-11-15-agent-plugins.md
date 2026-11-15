@@ -19,7 +19,7 @@ with a `SHARPIT_MCP_URL` override, exactly as BootUI's plugin points at `http://
 
 ## Global Constraints
 
-- `src/sharpit/__init__.py` is the only version site: no `version` key in any plugin or marketplace file.
+- `src/sharpit/__init__.py` is the one version source. The Agent Plugins schema requires a `version`, so the two manifests under `plugins/sharpit/` carry a copy, pinned by `tests/test_agent_plugin.py`; marketplace files carry none.
 - Reads have no side effects, and MCP is off by default (`SHARPIT_MCP_ENABLED=OFF`): the plugin must never enable it,
   start a process or write a file on the user's behalf.
 - Port BootUI, do not reinvent: read BootUI's plugin files at the pinned tag before writing ours (Task 1).
@@ -42,13 +42,13 @@ with a `SHARPIT_MCP_URL` override, exactly as BootUI's plugin points at `http://
 
 **Files:** none changed; findings go in the PR body.
 **Interfaces:** Produces the exact file set and key names for Claude Code and Cursor.
-- [ ] **Step 1:** In a BootUI clone, read `.claude-plugin/marketplace.json`, `plugins/bootui/.claude-plugin/plugin.json`,
+- [x] **Step 1:** In a BootUI clone, read `.claude-plugin/marketplace.json`, `plugins/bootui/.claude-plugin/plugin.json`,
   `plugins/bootui/mcp.json`, `plugins/bootui/plugin.json`, `.cursor-plugin/marketplace.json` and
   `plugins/README.md` at the pinned tag (`git -C <clone> show v2.3.0:<path>`; fall back to current `main` if a path
   is missing at the tag and say so).
-- [ ] **Step 2:** Write the file list and the keys that differ between the Claude and Cursor variants (BootUI's own
+- [x] **Step 2:** Write the file list and the keys that differ between the Claude and Cursor variants (BootUI's own
   `ClaudeCodePluginPayloadTests` and `AgentPluginPayloadTests` name what it asserts: read them).
-- [ ] **Step 3:** Decide Cursor layout from that reading. If BootUI's Cursor plugin needs a directory Cursor reads from
+- [x] **Step 3:** Decide Cursor layout from that reading. If BootUI's Cursor plugin needs a directory Cursor reads from
   `main` of a public repo, copy its layout; otherwise stop and record the gap.
 
 ### Task 2: Plugin payload with its tests
@@ -57,56 +57,71 @@ with a `SHARPIT_MCP_URL` override, exactly as BootUI's plugin points at `http://
 `plugins/sharpit/mcp.json`, `plugins/sharpit/skills/sharpit/SKILL.md` (copy of `skills/sharpit/SKILL.md`),
 `plugins/sharpit/README.md`.
 **Interfaces:** Produces the installable Claude Code plugin `sharpit@sharpit`. Consumes `skills/sharpit/SKILL.md`.
-- [ ] **Step 1:** Write failing tests (ported shape: `# ported: ClaudeCodePluginPayloadTests.<case>`):
+- [x] **Step 1:** Write failing tests (ported shape: `# ported: ClaudeCodePluginPayloadTests.<case>`):
   `test_marketplace_lists_plugin_with_existing_source`, `test_plugin_json_has_name_description_license_repository`,
   `test_plugin_has_no_version_key` (expected failure: files missing, so assert on the file existing first so the red
   is the assertion, not a crash), `test_mcp_url_is_loopback`, `test_mcp_has_no_credentials`,
   `test_plugin_skill_equals_repo_skill`, `test_plugin_files_are_not_in_the_wheel` (reads `pyproject.toml` hatch config).
-- [ ] **Step 2:** Run `uv run python scripts/dev/red_check.py tests/test_agent_plugin.py` and confirm each failure is the
+- [x] **Step 2:** Run `uv run python scripts/dev/red_check.py tests/test_agent_plugin.py` and confirm each failure is the
   named assertion.
-- [ ] **Step 3:** Create the files. `mcp.json`: `{"mcpServers":{"sharpit":{"type":"http","url":"${SHARPIT_MCP_URL:-http://127.0.0.1:8000/sharpit/api/mcp}"}}}`
+- [x] **Step 3:** Create the files. `mcp.json`: `{"mcpServers":{"sharpit":{"type":"http","url":"${SHARPIT_MCP_URL:-http://127.0.0.1:8000/sharpit/api/mcp}"}}}`
   following Task 1's keys. `plugin.json` homepage points at `https://ffroliva.github.io/sharpit/mcp/`.
-- [ ] **Step 4:** Tests green. Delete one control (change the URL host) and confirm `test_mcp_url_is_loopback` fails.
-- [ ] **Step 5:** Commit `feat: Claude Code plugin marketplace with the sharpit skill and local MCP connection`.
+- [x] **Step 4:** Tests green. Delete one control (change the URL host) and confirm `test_mcp_url_is_loopback` fails.
+- [x] **Step 5:** Commit `feat: Claude Code plugin marketplace with the sharpit skill and local MCP connection`.
 
 ### Task 3: Refresh the user-facing skill the plugin ships
 
 **Files:** `skills/sharpit/SKILL.md`, `plugins/sharpit/skills/sharpit/SKILL.md`.
-- [ ] **Step 1:** Failing test `test_skill_version_matches_package` (reads `sharpit.__version__`, expects the skill's
+- [x] **Step 1:** Failing test `test_skill_version_matches_package` (reads `sharpit.__version__`, expects the skill's
   "0.x.y" banner to match; red today: it says 0.5.0, the package is 0.6.0).
-- [ ] **Step 2:** Count the MCP tools from code (`uv run python -c` over the registry in `engine/tools.py` and `tools04/`,
+- [x] **Step 2:** Count the MCP tools from code (`uv run python -c` over the registry in `engine/tools.py` and `tools04/`,
   split read versus action) and correct the "50 read-only tools" sentence.
-- [ ] **Step 3:** Put the enable step and the `SHARPIT_MCP_URL` override first in the MCP section: MCP is off by
+- [x] **Step 3:** Put the enable step and the `SHARPIT_MCP_URL` override first in the MCP section: MCP is off by
   default, the endpoint is POST only, remote agents need the bearer token.
-- [ ] **Step 4:** Re-copy to the plugin; both tests green. Commit `docs: skill states the current version and tool count, and the MCP enable step first`.
+- [x] **Step 4:** Re-copy to the plugin; both tests green. Commit `docs: skill states the current version and tool count, and the MCP enable step first`.
 
 ### Task 4: Cursor plugin
 
 **Files:** `.cursor-plugin/marketplace.json` and the Cursor plugin files Task 1 lists.
-- [ ] **Step 1:** Tests mirroring Task 2 for the Cursor payload (`# ported: AgentPluginPayloadTests.<case>`), red first.
-- [ ] **Step 2:** Create the files from Task 1's layout; same loopback and no-credentials tests cover them.
-- [ ] **Step 3:** Commit `feat: Cursor plugin marketplace for the sharpit MCP connection`.
+- [x] **Step 1:** Tests mirroring Task 2 for the Cursor payload (`# ported: AgentPluginPayloadTests.<case>`), red first.
+- [x] **Step 2:** Create the files from Task 1's layout; same loopback and no-credentials tests cover them.
+- [x] **Step 3:** Commit `feat: Cursor plugin marketplace for the sharpit MCP connection`.
 
 ### Task 5: Live verification
 
 **Files:** evidence note in the PR body; no repo change unless a client fails.
-- [ ] **Step 1:** Run the sample app per `/sharpit:live-verify` with `SHARPIT_MCP_ENABLED=ON`; confirm
+- [x] **Step 1:** Run the sample app per `/sharpit:live-verify` with `SHARPIT_MCP_ENABLED=ON`; confirm
   `POST /sharpit/api/mcp` answers `initialize` and `tools/list` with curl.
-- [ ] **Step 2:** In Claude Code: `/plugin marketplace add <worktree path>`, `/plugin install sharpit@sharpit`, then
+- [x] **Step 2:** In Claude Code: `/plugin marketplace add <worktree path>`, `/plugin install sharpit@sharpit`, then
   confirm `/mcp` shows sharpit connected and one read tool returns data. Record the Claude Code version.
-- [ ] **Step 3:** Repeat in Cursor if installed. If a client cannot connect, record the exact error and keep that client
+- [x] **Step 3:** Repeat in Cursor if installed. If a client cannot connect, record the exact error and keep that client
   out of the README; do not paper over it.
-- [ ] **Step 4:** Confirm MCP off (`SHARPIT_MCP_ENABLED` unset) answers with the disabled message, not a crash.
+- [x] **Step 4:** Confirm MCP off (`SHARPIT_MCP_ENABLED` unset) answers with the disabled message, not a crash.
 
 ### Task 6: Docs and changelog
 
 **Files:** `README.md`, `website/docs/mcp.md`, `CHANGELOG.md`, `docs/README.md` if it indexes plugins.
-- [ ] **Step 1:** Run the README order test first and note which sections it pins.
-- [ ] **Step 2:** Add "Use with an AI agent" to the README (Claude Code commands, Cursor path, the enable step), only for
+- [x] **Step 1:** Run the README order test first and note which sections it pins.
+- [x] **Step 2:** Add "Use with an AI agent" to the README (Claude Code commands, Cursor path, the enable step), only for
   clients Task 5 verified. Add the same to `website/docs/mcp.md`.
-- [ ] **Step 3:** CHANGELOG entry under Unreleased. Log the choice of plugins over registry listings as a deviation row if
+- [x] **Step 3:** CHANGELOG entry under Unreleased. Log the choice of plugins over registry listings as a deviation row if
   spec §14 tracks distribution.
-- [ ] **Step 4:** `/sharpit:doc-review`, then commit `docs: install sharpit as a Claude Code or Cursor plugin`.
+- [x] **Step 4:** `/sharpit:doc-review`, then commit `docs: install sharpit as a Claude Code or Cursor plugin`.
+
+## Execution notes (2026-11-15)
+
+- **One payload serves three clients.** Task 4 (Cursor) needed no extra directory: BootUI's layout is one `plugins/` payload
+  with two manifests, advertised by `.claude-plugin/`, `.cursor-plugin/` and (added here) `.agents/plugins/` marketplaces.
+- **Version rule changed.** The portable manifest requires `version`; the plan's "no version key anywhere" was wrong for it.
+  AGENTS.md and `skills/release/SKILL.md` now say so, and the release bump fails a named test until the copies are updated.
+- **Skill refresh (Task 3):** "50 read-only tools" was correct (71 registered, 21 CLI-only actions). Only the 0.5.0 banner was stale.
+- **No Gemini CLI extension.** Its manifest must sit at the repo root, which would ship sharpit's maintainer skills (release,
+  check, predict) to users. Gemini is a documented `httpUrl` snippet instead. Antigravity's format was not researched.
+- **Live verification (Task 5):** curl against the sample app on a leased port (`initialize`, `tools/list` = 50, `get_overview`,
+  GET 405, non-loopback Host 403), then a headless Claude Code session with `--plugin-dir plugins/sharpit` and
+  `SHARPIT_MCP_URL` called `get_overview` and returned the app name. Cursor and Codex were not run.
+- **Full suite:** a run with other work in parallel showed failures and errors; run quietly, 16 failed (11 are timing budgets,
+  plus 5 others) and all 16 pass on re-run alone (3 stragglers pass in 3 s once the machine was idle). No `src/` file changed.
 
 ### Task 7: Owner steps after merge (not agent work)
 
