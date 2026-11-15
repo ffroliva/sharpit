@@ -1,0 +1,16 @@
+{
+  "name": "sharpit",
+  "owner": {
+    "name": "Flavio Oliva",
+    "url": "https://github.com/ffroliva"
+  },
+  "description": "sharpit: a local-only developer console for FastAPI apps, driven from Claude Code.",
+  "plugins": [
+    {
+      "name": "sharpit",
+      "source": "./plugins/sharpit",
+      "category": "Developer Tools",
+      "keywords": ["fastapi", "starlette", "python", "mcp", "observability", "diagnostics"]
+    }
+  ]
+}

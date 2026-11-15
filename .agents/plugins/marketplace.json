@@ -1,0 +1,20 @@
+{
+  "name": "sharpit",
+  "interface": {
+    "displayName": "sharpit"
+  },
+  "plugins": [
+    {
+      "name": "sharpit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sharpit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
