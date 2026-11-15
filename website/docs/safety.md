@@ -18,6 +18,19 @@
   runs only on an explicit POST.
 - **Fails closed.** When off, or in a `prod`/`production` profile (unless `SHARPIT_ENABLED=ON` forces it on, with a warning), the whole mount answers a plain 404 (see [Why does a plain `uvicorn app:app` give 404?](activation.md) for what that does and does not hide).
 
+## If sharpit reaches production
+
+sharpit is a development and test tool. It is not meant to run in production, but an app can ship with
+`sharpit.install(app)` still in it. `tests/fastapi/test_production_use_case.py` pins what happens then:
+
+- **No dev signal (a plain `uvicorn app:app`), or a `prod`/`production` profile:** sharpit is inert. Every path under
+  `/sharpit`, reads and actions alike, answers 404. Your own routes are untouched, no SQL listener or log handler is
+  attached, and nothing is written.
+- **`enabled="ON"` hard-coded in `install()` (or `SHARPIT_ENABLED=ON`):** that is an explicit override, and it wins
+  over a `prod` profile. sharpit logs *"Profile 'prod' is in SHARPIT_DISABLED_PROFILES but SHARPIT_ENABLED=ON forces it
+  on."* at startup and then answers loopback callers only. Every remote request, reads and actions alike, gets 403.
+  Do not ship `enabled="ON"`: use a dev profile or the dev-server signal so production never turns it on.
+
 ## Behind a TLS-terminating proxy
 
 The Origin check compares scheme, host and port. If a proxy terminates TLS and forwards plain HTTP, uvicorn must see
