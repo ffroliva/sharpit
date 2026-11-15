@@ -140,6 +140,26 @@ Over MCP an agent cannot change a logger level, clear a buffer, pause SQL record
 stay in the UI, or a plain HTTP call to `POST /sharpit/api/cli/tools/<tool>`, so anything that changes state or sends
 data off the machine needs a person.
 
+## Plugins and clients
+
+The repository ships one plugin directory, `plugins/sharpit`, that holds the connection (`mcp.json`) and the skill. Three
+marketplace files advertise it.
+
+| Client | How to connect | Tested |
+|---|---|---|
+| Claude Code | `/plugin marketplace add ffroliva/sharpit`, then `/plugin install sharpit@sharpit` | Yes: `claude plugin validate` passes, and a headless session with `--plugin-dir plugins/sharpit` called `get_overview` against the sample app |
+| Cursor | the plugin in `.cursor-plugin/marketplace.json` | Manifest shape only (`tests/test_agent_plugin.py`); not run in Cursor |
+| Codex | the plugin in `.agents/plugins/marketplace.json` | Manifest shape only; not run in Codex |
+| Gemini CLI | in `settings.json`: `"mcpServers": {"sharpit": {"httpUrl": "http://127.0.0.1:8000/sharpit/api/mcp"}}` | Not run; the key is from Gemini CLI's configuration reference |
+
+Turn the endpoint on first (`SHARPIT_MCP_ENABLED=ON`); until then the plugin connects and every call answers that the server is
+disabled. The URL assumes port 8000. Claude Code reads `SHARPIT_MCP_URL` to override it; elsewhere edit the URL in the client's
+MCP settings. The plugin holds no token: it is for the loopback endpoint only, and a remote agent needs sharpit's bearer
+token, which you set in your own client configuration.
+
+Not published to any MCP registry yet: sharpit's MCP endpoint lives inside your application, and the official MCP Registry,
+Smithery and Glama's checks expect a server they can start themselves.
+
 ## Agent skill
 
 An agent skill that teaches an AI assistant to install and use sharpit is in

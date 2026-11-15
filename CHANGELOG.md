@@ -5,6 +5,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
+
+### Fixed
+
+- The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
+
 ## [0.6.0] - 2026-11-13
 
 ### Fixed
