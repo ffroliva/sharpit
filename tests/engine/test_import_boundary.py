@@ -77,7 +77,9 @@ CLI_STDLIB = frozenset(
         "collections.abc",  # Tasks 2-7: collection and callable type annotations
         "dataclasses",  # Tasks 2, 3 and 5: client, outcome and options records
         "enum",  # Task 3: exit codes and outcome values
-        "importlib",  # Task 4: bundled manifest resources
+        # Task 4: bundled manifest resources, as ``from importlib.resources import files``; ``importlib`` itself is
+        # refused because ``import_module`` loads any module by name
+        "importlib.resources",
         "io",  # Task 7: text stream handling
         "json",  # Tasks 2, 4 and 7: HTTP bodies, manifest and JSON output
         "os",  # Task 5: environment options and NO_COLOR
@@ -87,9 +89,11 @@ CLI_STDLIB = frozenset(
         "textwrap",  # Task 7: help text rendering
         "time",  # Task 2: request timeout accounting
         "typing",  # Tasks 2-7: public type annotations
+        "urllib.error",  # Task 2: HTTPError and URLError from the client's requests
         "urllib.parse",  # Task 5: URL normalization
     }
 )
+CLI_CLIENT_LIBRARIES = ("urllib.request", "http.client")  # allowed in sharpit/cli/client.py only, by GATEKEEPERS
 
 
 # a dotted call (or assignment target) that changes interpreter state; reads such as gc.get_objects() are not here
@@ -242,7 +246,7 @@ def cli_dependency_violations(root: Path | None = None) -> list[str]:
         if not any(_within(name, (allowed,)) for allowed in CLI_STDLIB)
         and not _within(name, ("sharpit.cli",))
         and name != "sharpit"
-        and not any(_within(name, (gatekeeper,)) for gatekeeper in GATEKEEPERS)
+        and not _within(name, CLI_CLIENT_LIBRARIES)
     ] + package_name_violations(package / "cli", source_name="CLI")
 
 
@@ -566,6 +570,10 @@ def test_cli_dependency_allow_list_is_fixed_and_gatekeeps_transitive_network_mod
         "telnetlib",
         "cgi",
         "nntplib",
+        "importlib",  # import_module would load any module by name
+        "importlib.metadata",
+        "subprocess",  # gated libraries other than the client's two are refused here too
+        "sqlalchemy",
     )
     (cli / "leak.py").write_text("\n".join(f"import {name}" for name in bad), encoding="utf-8")
     (cli / "client.py").write_text("import urllib.request\nimport http.client\n", encoding="utf-8")
@@ -573,15 +581,14 @@ def test_cli_dependency_allow_list_is_fixed_and_gatekeeps_transitive_network_mod
         "from __future__ import annotations\n"
         "import argparse, dataclasses, enum, io, json, os, re, shutil, sys, textwrap, time, typing\n"
         "from collections.abc import Callable\n"
-        "from importlib import metadata, resources\n"
+        "from importlib.resources import files\n"
+        "from urllib.error import HTTPError, URLError\n"
         "import urllib.parse\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(sys.modules[__name__], "SRC", source)
 
-    assert [v.split(" imports ", 1)[1] for v in cli_dependency_violations()] == [
-        name for name in bad if name not in {"_socket", "_ssl"}
-    ]
+    assert [v.split(" imports ", 1)[1] for v in cli_dependency_violations()] == list(bad)
     assert [v.split(": only")[0] for v in gatekeeper_violations() if "_socket" in v or "_ssl" in v] == [
         "sharpit/cli/leak.py imports _socket",
         "sharpit/cli/leak.py imports _ssl",
@@ -649,7 +656,7 @@ def test_the_cli_imports_only_the_standard_library_and_itself(tmp_path: Path, mo
         "import sharpit.settings_registry\nimport httpx\nimport requests\nimport packaging\n"
         "import sharpit.cli_extra\n"  # a sibling that only shares the prefix is outside the cli package
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import sharpit.engine\n"
-        "import json\nimport urllib.parse\nfrom importlib import metadata\n"
+        "import json\nimport urllib.parse\nfrom importlib.resources import files\n"
         "import sharpit.cli.y\nfrom . import y\n",
         encoding="utf-8",
     )
