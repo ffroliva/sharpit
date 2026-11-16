@@ -96,12 +96,10 @@ def test_live_engine_driver_counts_as_covered(pytester: pytest.Pytester) -> None
         from sqlalchemy.ext.asyncio import create_async_engine
         engine = create_async_engine('sqlite+aiosqlite:///:memory:')
         """,
-        test_app="def test_no_query(): pass",
+        # imported by the tests, so the driver is loaded when the session's facts are taken
+        test_app="import appmod\n\ndef test_no_query(): pass",
     )
-    # the engine is named only to get its module imported: it is no app, so rest-api is unknown, and allowed here
-    result = pytester.runpytest_subprocess(
-        "--sharpit", "--sharpit-app=appmod:engine", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
-    )
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 0
     data = json.loads((pytester.path / "report.json").read_text())
