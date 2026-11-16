@@ -91,9 +91,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
    fixture; every action has a test that a read-only panel refuses it.
 5. **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
 6. **Network** is used only by actions that call out in BootUI too (the OSV/EPSS scan, the GitHub refresh); their
-   failures are reported in the action's status and release the lock. The command-line client (`sharpit/cli/client.py`)
-   runs in its own process and sends only the request named by the user's command to the sharpit API URL the user gives;
-   it is not part of the console installed in the host application.
+   failures are reported in the action's status and release the lock.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
@@ -106,8 +104,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
 2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin`, `sharpit.ui` or
    `sharpit.cli`, not even for a type. No module outside `sharpit/cli/` imports `sharpit.cli`; modules under
-   `sharpit/cli/` never import `fastapi`, `starlette`, `sharpit.fastapi`, `sharpit.pytest_plugin`, `sharpit.ui` or
-   `sharpit.engine`. When the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector`
+   `sharpit/cli/` import only the standard library and `sharpit.cli`, not even for a type. When the engine needs
+   something from an adapter, it declares a `Protocol` port (`AppIntrospector`
    in `engine/spi.py`, `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...). Inside `engine/collectors/insights/` the rule holds per
