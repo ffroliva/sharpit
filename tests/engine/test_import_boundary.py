@@ -1,7 +1,9 @@
 """Module boundaries, checked on every run (Spring Modulith style). AGENTS.md "Architecture rules" lists the same rules.
 
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
-2. Dependencies point inward: no module outside ``sharpit/cli/`` imports ``sharpit.cli``; ``sharpit/cli/`` imports no framework or adapter package (``fastapi``, ``starlette``, ``sharpit.fastapi``, ``sharpit.pytest_plugin``, ``sharpit.ui`` or ``sharpit.engine``).
+2. Dependencies point inward: no module outside ``sharpit/cli/`` imports ``sharpit.cli``; ``sharpit/cli/`` imports no
+   framework or adapter package (``fastapi``, ``starlette``, ``sharpit.fastapi``, ``sharpit.pytest_plugin``,
+   ``sharpit.ui`` or ``sharpit.engine``).
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
    code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
    Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
@@ -508,8 +510,8 @@ def test_only_the_cli_client_may_use_urllib_in_the_cli_package(tmp_path: Path, m
     monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
 
     assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
-        "sharpit/cli/other.py imports http.client",
         "sharpit/cli/other.py imports urllib.request",
+        "sharpit/cli/other.py imports http.client",
     ]
 
 
