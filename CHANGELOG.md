@@ -12,6 +12,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
+- `pytest --sharpit --sharpit-app` no longer reports the REST API advisor as `PASSED` for an object whose routes it cannot read (a WSGI app, a hand-wrapped middleware, the coroutine of an `async` factory, any factory result with no stored route list): the advisor is `UNKNOWN` with the reason `"application routes cannot be inspected (<module.Class>); expected an app, a router or a zero-argument factory"`. A suite that named such an object went green before and is now `unknown` (exit 1) unless `--sharpit-allow-unknown` is passed. An explicit FastAPI or Starlette app with no routes stays the confirmed-empty `PASSED`.
+- `--sharpit-app` accepts an `APIRouter` or a Starlette `Router`: it was called as if it were a factory and reported `"application could not load (TypeError)"`. A router's assessment covers its routes only, not the handlers an app adds around it. The named object is called only when it accepts no arguments; one that is inspectable, has a `router` attribute, needs arguments or has an unreadable signature is used as it is.
 
 ## [0.6.0] - 2026-11-13
 

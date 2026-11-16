@@ -368,15 +368,29 @@ def _path_regex(path: str, prefix_only: bool) -> str | None:
         return None
 
 
-def _route_list(app: object) -> list[BaseRoute]:
-    """Routes from Starlette's stored objects, avoiding Mount.routes descriptor access."""
+def _stored_routes(app: object) -> list[BaseRoute] | None:
+    """Routes from Starlette's stored objects, avoiding Mount.routes descriptor access; None: no route list to read."""
     values = _attrs(app)
     if issubclass(type(app), Starlette):
         router = values.get("router")
         if router is not None:
             values = _attrs(router)
     routes = values.get("routes")
-    return cast(list[BaseRoute], routes) if isinstance(routes, list) else []
+    return cast(list[BaseRoute], routes) if isinstance(routes, list) else None
+
+
+def inspectable(app: object) -> bool:
+    """Whether ``app`` stores a route list this introspector reads: an empty list is confirmed empty, none unknown.
+
+    A class is never an app, whatever its own attributes hold.
+    """
+    return not issubclass(type(app), type) and _stored_routes(app) is not None
+
+
+def _route_list(app: object) -> list[BaseRoute]:
+    """The stored routes, ``[]`` when there is no route list to read."""
+    routes = _stored_routes(app)
+    return routes if routes is not None else []
 
 
 def _secured_route(
