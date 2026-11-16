@@ -552,6 +552,7 @@ def test_the_cli_imports_only_the_standard_library_and_itself(tmp_path: Path, mo
         "import sharpit.ui\nimport sharpit.engine\n"
         "from sharpit import install\nfrom sharpit.report import summary\nfrom sharpit import settings\n"
         "import sharpit.settings_registry\nimport httpx\nimport requests\nimport packaging\n"
+        "import sharpit.cli_extra\n"  # a sibling that only shares the prefix is outside the cli package
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import sharpit.engine\n"
         "import json\nimport urllib.parse\nfrom importlib import metadata\n"
         "import sharpit.cli.y\nfrom . import y\n",
@@ -574,6 +575,7 @@ def test_the_cli_imports_only_the_standard_library_and_itself(tmp_path: Path, mo
         "sharpit/cli/x.py imports httpx",
         "sharpit/cli/x.py imports requests",
         "sharpit/cli/x.py imports packaging",
+        "sharpit/cli/x.py imports sharpit.cli_extra",
         "sharpit/cli/x.py imports sharpit.engine",
     ]
 
