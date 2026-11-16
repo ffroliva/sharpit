@@ -1,0 +1,19 @@
+{
+  "name": "sharpit",
+  "owner": {
+    "name": "Flavio Oliva",
+    "url": "https://github.com/ffroliva"
+  },
+  "metadata": {
+    "description": "sharpit plugins for AI coding agents"
+  },
+  "plugins": [
+    {
+      "name": "sharpit",
+      "source": "./plugins/sharpit",
+      "description": "Inspect and diagnose a running FastAPI application through sharpit.",
+      "category": "Developer Tools",
+      "keywords": ["fastapi", "starlette", "python", "mcp", "observability", "diagnostics"]
+    }
+  ]
+}

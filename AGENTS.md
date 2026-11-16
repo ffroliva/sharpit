@@ -22,7 +22,7 @@ Implementation plan: `docs/superpowers/plans/2026-10-30-sharpit-mvp.md`. BootUI 
 
 ```
 design/                        shared tokens, cross-surface design rules and slide kit
-src/sharpit/__init__.py        install, __version__ (the only version site)
+src/sharpit/__init__.py        install, __version__ (the one source; the manifests under plugins/sharpit/ carry a copy the Agent Plugins schema requires, pinned by tests/test_agent_plugin.py)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
 src/sharpit/engine/sqla/       the SQLAlchemy gatekeeper: listeners, events, orm, inspect, readonly (sharpit's own reads)

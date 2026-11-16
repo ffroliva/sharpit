@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sharpit",
+  "version": "0.6.0",
+  "description": "Ask a running FastAPI app about itself: routes, configuration, SQL, exceptions, health and advisors, over sharpit's read-only local MCP server.",
+  "author": {
+    "name": "Flavio Oliva",
+    "url": "https://github.com/ffroliva"
+  },
+  "homepage": "https://ffroliva.github.io/sharpit/mcp/",
+  "repository": "https://github.com/ffroliva/sharpit",
+  "license": "Apache-2.0",
+  "keywords": [
+    "fastapi",
+    "starlette",
+    "python",
+    "mcp",
+    "observability",
+    "diagnostics"
+  ]
+}

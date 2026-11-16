@@ -192,6 +192,22 @@ Other options are keyword arguments or environment variables, see [Settings](htt
 
 If `/sharpit` answers 404, read [Activation](https://ffroliva.github.io/sharpit/activation/): sharpit stays off unless a dev signal turns it on.
 
+## Use with an AI agent
+
+sharpit has a read-only MCP endpoint that a coding agent can query: routes, configuration, SQL, exceptions and health of the
+running app. It is off until you set `SHARPIT_MCP_ENABLED=ON`. Install the plugin and the agent gets the sharpit skill and the
+connection in one step:
+
+```
+/plugin marketplace add ffroliva/sharpit        # Claude Code
+/plugin install sharpit@sharpit
+```
+
+The same `plugins/sharpit` directory is listed for Cursor (`.cursor-plugin/marketplace.json`) and Codex
+(`.agents/plugins/marketplace.json`). The plugin points at `http://127.0.0.1:8000/sharpit/api/mcp`; if your app listens on
+another port, set `SHARPIT_MCP_URL` (Claude Code). Other clients, and what was tested, are in
+[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/).
+
 ## Documentation
 
 The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
