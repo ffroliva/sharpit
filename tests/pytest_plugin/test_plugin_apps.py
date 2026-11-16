@@ -546,3 +546,20 @@ def test_uninspectable_reason_never_formats_a_host_module_object() -> None:
 
     assert Loud.calls == 0
     assert "(?." in reason
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="deferred annotations (PEP 649) exist from Python 3.14")
+def test_load_app_calls_a_factory_annotated_with_a_type_checking_only_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+    namespace: dict[str, object] = {"made": app}
+    source = "def create_app(settings: Settings | None = None):\n    return made\n"
+    # dont_inherit: this file's `from __future__ import annotations` would turn the annotation into a string
+    exec(compile(source, "hostmod.py", "exec", dont_inherit=True), namespace)  # noqa: S102 - a host module on 3.14
+    _fake_module(monkeypatch, target=namespace["create_app"])
+
+    try:
+        loaded: object = apps.load_app("loadapp_fake:target")[1]
+    except NameError:  # the loader evaluated the annotation instead of only binding arguments
+        loaded = None
+
+    assert loaded is app
