@@ -103,6 +103,7 @@ ran. Predict reviewed that diff; task 2 holds what it changed.
 
 - [x] **Step 1:** End to end with a real Flask app outside the repo: both `--sharpit-app` forms are `UNKNOWN`, the
   N+1 finding still appears.
-- [ ] **Step 2:** `/sharpit:branch-review`.
+- [x] **Step 2:** `/sharpit:branch-review`: seven lenses in three reviewers. One High (Python 3.14 evaluated a
+  factory's annotations), fixed test-first; one Medium (the live-engine test did not bite), fixed; Lows recorded.
 - [ ] **Step 3:** Stop for the contributor: push and draft PR only on their word. PR body: cause, the
   `finding → test → red output` table, the limitation, the behaviour change.
