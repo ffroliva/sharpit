@@ -68,12 +68,13 @@ stays the confirmed-empty `PASSED`; the fix keeps it.
 | 12 | D3 | a host class with a non-string `__module__` | Medium | no host `__str__` runs; `?` in its place | Unit |
 | 13 | D8 | factory raises | Medium | `UNKNOWN`, `application could not load (<Type>)` unchanged | Integration |
 | 14 | D8 | factory with optional arguments | Medium | called | Unit |
-| 15 | D8 | `async def` factory (returns a coroutine) | Medium | `UNKNOWN`, was a false `PASSED`; covered by rule 1, reason names `builtins.coroutine` | covered by 1 |
+| 15 | D8 | `async def` factory (returns a coroutine) | Medium | `UNKNOWN`, was a false `PASSED`: the same path as row 1 (a factory result with no route list); reason names `builtins.coroutine` | no dedicated test |
 | 16 | D8 | hand-wrapped app `CORSMiddleware(app)` | Medium | `UNKNOWN`; reason hint tells the user what to pass | covered by 3 |
 | 17 | D8 | an existing suite names a non-app object only to import its module | Medium | becomes `UNKNOWN`: a behaviour change, in the changelog | existing test updated |
 | 18 | D5 | floor versions (`fastapi 0.115`, `starlette 0.44`): is `router.routes` a list there | High | the tests pass on `--resolution lowest-direct` | CI `lowest` job, run locally |
 | 19 | D8 | a zero-argument callable app instance (`__call__(self, *args)`) | Low | still called (stated limitation); result is `UNKNOWN` | none |
 | 20 | D8 | a router pass covers less than an app pass (no app-level handlers) | Low | stated in the changelog | none |
+| 21 | D5 | Python 3.14: a factory annotated with a `TYPE_CHECKING`-only name (found in branch review) | High | still called: annotations are not evaluated | Unit (3.14 only) |
 
 Scenario 17 is real: `tests/pytest_plugin/test_plugin_reports.py::test_live_engine_driver_counts_as_covered` passes
 `--sharpit-app=appmod:engine` (a SQLAlchemy `AsyncEngine`) to get the module imported, and relied on the empty pass.
@@ -90,6 +91,7 @@ Scenario 17 is real: `tests/pytest_plugin/test_plugin_reports.py::test_live_engi
 - `test_load_app_never_calls_a_callable_with_an_unavailable_signature`
 - `test_inspectable_is_false_for_a_class_that_holds_a_route_list`
 - `test_uninspectable_reason_passes_the_report_masker`
+- `test_load_app_calls_a_factory_annotated_with_a_type_checking_only_name` (Python 3.14)
 - the `lowest` CI job, locally, for the plugin app tests
 
 ## Deferred

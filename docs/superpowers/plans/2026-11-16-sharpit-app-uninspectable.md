@@ -91,13 +91,17 @@ ran. Predict reviewed that diff; task 2 holds what it changed.
 - [x] **Step 1:** Changelog `[Unreleased]` → `Fixed`: the false pass, routers accepted, what can turn `unknown`.
 - [x] **Step 2:** Website page: the `--sharpit-app` row of the option table. README and the 0.3.0 spec are left alone
   (contributor's ruling, 2026-11-16: keep the change to the bug fixes; the README stays true as it is).
-- [ ] **Step 3:** `lowest`, `no-sqlalchemy` and `coverage` jobs locally (`docs/development/ci.md`), each in its own
-  environment.
-- [ ] **Step 4:** `/sharpit:check`; commit `docs: --sharpit-app reports an uninspectable app as unknown`.
+- [x] **Step 3:** `lowest`, `no-sqlalchemy` and `coverage` jobs locally (`docs/development/ci.md`), each in its own
+  environment. Run as targeted subsets, not the full jobs: `lowest` (Python 3.12,
+  fastapi 0.115.7, starlette 0.44.0) on `tests/pytest_plugin` app/report/gate-default files and `tests/fastapi`:
+  1,307 passed, 1 overhead budget failed under load (passes alone; the change touches neither the capture
+  middleware nor the SQL listener); `no-sqlalchemy` on the changed plugin files: 45 passed; `coverage` on the
+  changed plugin files: 46 passed, `pytest_plugin/apps.py` 94%.
+- [x] **Step 4:** `/sharpit:check`; commit `docs: --sharpit-app reports an uninspectable app as unknown`.
 
 ### Task 5: Review and hand-over
 
-- [ ] **Step 1:** End to end with a real Flask app outside the repo: both `--sharpit-app` forms are `UNKNOWN`, the
+- [x] **Step 1:** End to end with a real Flask app outside the repo: both `--sharpit-app` forms are `UNKNOWN`, the
   N+1 finding still appears.
 - [ ] **Step 2:** `/sharpit:branch-review`.
 - [ ] **Step 3:** Stop for the contributor: push and draft PR only on their word. PR body: cause, the
