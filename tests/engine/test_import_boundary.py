@@ -28,7 +28,7 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 ENGINE = SRC / "sharpit" / "engine"
 COLLECTORS = ENGINE / "collectors"
 FRAMEWORKS = ("fastapi", "starlette")
-ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui")
+ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui", "sharpit.cli")
 GATEKEEPERS: dict[str, set[str]] = {
     "sqlalchemy": {"sharpit/engine/sqla"},  # a package: every module under engine/sqla/ (0.5.0 spec §4.1)
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
@@ -41,6 +41,7 @@ GATEKEEPERS: dict[str, set[str]] = {
         "sharpit/engine/collectors/vulns/osv.py",
         "sharpit/engine/collectors/vulns/epss.py",
         "sharpit/engine/collectors/github/client.py",
+        "sharpit/cli/client.py",
     },
     "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
     "subprocess": {
@@ -467,6 +468,43 @@ def test_github_network_imports_are_confined_to_github_client(tmp_path: Path, mo
     assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
         "sharpit/engine/collectors/github/dashboard.py imports urllib.request",
         "sharpit/engine/collectors/github/token.py imports http.client",
+    ]
+
+
+def test_only_the_cli_client_may_use_urllib_in_the_cli_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cli = tmp_path / "src" / "sharpit" / "cli"
+    cli.mkdir(parents=True)
+    (cli / "client.py").write_text("import urllib.request\n", encoding="utf-8")
+    (cli / "other.py").write_text("import urllib.request\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert gatekeeper_violations() == [
+        "sharpit/cli/other.py imports urllib.request: only "
+        "['sharpit/cli/client.py', 'sharpit/engine/collectors/github/client.py', "
+        "'sharpit/engine/collectors/vulns/epss.py', 'sharpit/engine/collectors/vulns/osv.py'] "
+        "may import urllib.request"
+    ]
+
+
+def test_nothing_outside_the_cli_imports_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "src"
+    cli = source / "sharpit" / "cli"
+    cli.mkdir(parents=True)
+    (cli / "inside.py").write_text("import sharpit.cli.x\n", encoding="utf-8")
+    for package in ("engine", "fastapi", "pytest_plugin"):
+        folder = source / "sharpit" / package
+        folder.mkdir(parents=True)
+        (folder / "x.py").write_text("import sharpit.cli\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    assert [
+        violation
+        for package in ("engine", "fastapi", "pytest_plugin")
+        for violation in adapter_violations(source / "sharpit" / package)
+    ] == [
+        "sharpit/engine/x.py imports sharpit.cli",
+        "sharpit/fastapi/x.py imports sharpit.cli",
+        "sharpit/pytest_plugin/x.py imports sharpit.cli",
     ]
 
 

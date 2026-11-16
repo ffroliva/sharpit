@@ -101,8 +101,9 @@ these on every run (a planted violation proves each rule still bites); a failing
 to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
 
 1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
-2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin` or `sharpit.ui`, not even for a type. When
-   the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
+2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin`, `sharpit.ui` or
+   `sharpit.cli`, not even for a type. No module under `fastapi/` or `pytest_plugin/` imports `sharpit.cli`. When the
+   engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
    `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...). Inside `engine/collectors/insights/` the rule holds per
@@ -110,8 +111,10 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
    `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` and `dotenv` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, `prometheus_client` only in
-   `engine/collectors/metrics/prometheus.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
-   `engine/collectors/vulns/` and the GitHub client `engine/collectors/github/client.py`, `subprocess` only in
+   `engine/collectors/metrics/prometheus.py`, `urllib.request` only in the OSV and EPSS clients under
+   `engine/collectors/vulns/`, the GitHub client `engine/collectors/github/client.py` and `sharpit/cli/client.py`;
+   `http.client` only in the OSV and EPSS clients under `engine/collectors/vulns/` and the GitHub client
+   `engine/collectors/github/client.py`, `subprocess` only in
    `engine/collectors/github/token.py` (`gh auth token`), APScheduler, Celery and arq only in their own module under
    `engine/collectors/scheduled/` (observed through `sys.modules`, never imported), `smtplib` and `aiosmtplib` only in `engine/capture/mail.py`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
    The AST gate covers `sys.addaudithook`, `sys.monitoring.use_tool_id`, `free_tool_id`, `clear_tool_id`, `set_events`, `set_local_events`, `register_callback`, and `restart_events`, plus `os.system`, `os.spawn*`, and `os.exec*`; these calls live only under `engine/sensors/`. `sys.settrace` and mutations of `gc.callbacks` are allowed only in `pytest_plugin/` and `engine/testsession/`. `subprocess`, `os.posix_spawn`, `os.fork`, and `os.popen` are not gated.
