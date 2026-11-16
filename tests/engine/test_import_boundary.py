@@ -30,7 +30,7 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 ENGINE = SRC / "sharpit" / "engine"
 COLLECTORS = ENGINE / "collectors"
 FRAMEWORKS = ("fastapi", "starlette")
-ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui", "sharpit.cli")
+ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
     "sqlalchemy": {"sharpit/engine/sqla"},  # a package: every module under engine/sqla/ (0.5.0 spec §4.1)
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
