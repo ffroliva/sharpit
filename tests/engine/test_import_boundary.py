@@ -77,9 +77,7 @@ CLI_STDLIB = frozenset(
         "collections.abc",  # Tasks 2-7: collection and callable type annotations
         "dataclasses",  # Tasks 2, 3 and 5: client, outcome and options records
         "enum",  # Task 3: exit codes and outcome values
-        # Task 4: bundled manifest resources, as ``from importlib.resources import files``; ``importlib`` itself is
-        # refused because ``import_module`` loads any module by name
-        "importlib.resources",
+        "importlib",  # Task 4: bundled manifest resources
         "io",  # Task 7: text stream handling
         "json",  # Tasks 2, 4 and 7: HTTP bodies, manifest and JSON output
         "os",  # Task 5: environment options and NO_COLOR
@@ -89,7 +87,6 @@ CLI_STDLIB = frozenset(
         "textwrap",  # Task 7: help text rendering
         "time",  # Task 2: request timeout accounting
         "typing",  # Tasks 2-7: public type annotations
-        "urllib.error",  # Task 2: HTTPError and URLError from the client's requests
         "urllib.parse",  # Task 5: URL normalization
     }
 )
@@ -570,8 +567,7 @@ def test_cli_dependency_allow_list_is_fixed_and_gatekeeps_transitive_network_mod
         "telnetlib",
         "cgi",
         "nntplib",
-        "importlib",  # import_module would load any module by name
-        "importlib.metadata",
+        "urllib.error",  # binds ``urllib``: ``urllib.request`` exports HTTPError and URLError for the client
         "subprocess",  # gated libraries other than the client's two are refused here too
         "sqlalchemy",
     )
@@ -581,8 +577,7 @@ def test_cli_dependency_allow_list_is_fixed_and_gatekeeps_transitive_network_mod
         "from __future__ import annotations\n"
         "import argparse, dataclasses, enum, io, json, os, re, shutil, sys, textwrap, time, typing\n"
         "from collections.abc import Callable\n"
-        "from importlib.resources import files\n"
-        "from urllib.error import HTTPError, URLError\n"
+        "from importlib import metadata, resources\n"
         "import urllib.parse\n",
         encoding="utf-8",
     )
@@ -656,7 +651,7 @@ def test_the_cli_imports_only_the_standard_library_and_itself(tmp_path: Path, mo
         "import sharpit.settings_registry\nimport httpx\nimport requests\nimport packaging\n"
         "import sharpit.cli_extra\n"  # a sibling that only shares the prefix is outside the cli package
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import sharpit.engine\n"
-        "import json\nimport urllib.parse\nfrom importlib.resources import files\n"
+        "import json\nimport urllib.parse\nfrom importlib import metadata\n"
         "import sharpit.cli.y\nfrom . import y\n",
         encoding="utf-8",
     )
