@@ -16,7 +16,7 @@ Outreach is the owner's call: a submission to a third party waits for an explici
 | Agent plugin (Claude Code, Cursor, Codex marketplaces) | self-hosted in this repo (`plugins/sharpit`) | listed; PR [#194](https://github.com/ffroliva/sharpit/pull/194) merged 2026-11-16; `claude plugin validate .` passes | https://github.com/ffroliva/sharpit/tree/main/plugins/sharpit | 2026-11-16 |
 | punkpeye/awesome-mcp-servers | PR | submitted, open; only a bot comment, asking for a Glama quality score (see Glama) | https://github.com/punkpeye/awesome-mcp-servers/pull/19620 | 2026-11-16 |
 | ComposioHQ/awesome-claude-skills | PR | **blocked**: the repo limits PRs to collaborators (below). Branch is on the fork | https://github.com/ffroliva/awesome-claude-skills/tree/add-sharpit | 2026-11-16 |
-| cursor.directory | web form (Manual tab) | submitted 2026-11-16, security scan pending, plugin hidden until it finishes | https://cursor.directory/plugins/sharpit | 2026-11-16 |
+| cursor.directory | web form (Manual tab) | **listed**: submitted 2026-11-16, scan finished, page public | https://cursor.directory/plugins/sharpit | 2026-11-16 |
 | hesreallyhim/awesome-claude-code | issue form | **blocked**: the repo limits new issues to collaborators (below) | https://github.com/hesreallyhim/awesome-claude-code | 2026-11-16 |
 | travisvn/awesome-claude-skills | PR | **not eligible**: under 10 stars, no AI-assisted PRs (below) | https://github.com/travisvn/awesome-claude-skills | 2026-11-16 |
 | PulseMCP | web form | **closed**: submissions paused since 2026-09-03 | https://www.pulsemcp.com/submit | 2026-11-16 |
