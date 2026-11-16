@@ -5,9 +5,10 @@
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
    code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
    Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
-4. Gatekeepers: an optional dependency or a network client is imported by one named file only, so the rest of the
-   package works without it (CI's ``no-sqlalchemy`` job). Network access is limited to named action clients and to
-   ``sharpit/cli/client.py``, which runs in a separate process and sends user-requested API calls.
+4. Gatekeepers: an optional dependency or a network client is imported only by its named gatekeeper file or package,
+   so the rest of the package works without it (CI's ``no-sqlalchemy`` job). ``urllib.request`` and ``http.client``
+   are limited to OSV, EPSS, GitHub and CLI clients; other network access is limited to named action clients. The CLI
+   client runs in a separate process and sends only user-requested API calls.
 5. Interpreter state (0.5.0 spec §4.4, §9): calls that change it (``tracemalloc.start``, ``gc.callbacks`` mutation,
    ``sys.settrace``/``setprofile``, ``sys.monitoring.use_tool_id``, ...) only in the test-session modules. Call
    sites, not imports: a ``gc.get_objects()`` heap walk stays legal anywhere.
@@ -44,7 +45,11 @@ GATEKEEPERS: dict[str, set[str]] = {
         "sharpit/engine/collectors/github/client.py",
         "sharpit/cli/client.py",
     },
-    "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
+    "http.client": {
+        "sharpit/engine/collectors/vulns/osv.py",
+        "sharpit/engine/collectors/github/client.py",
+        "sharpit/cli/client.py",
+    },
     "subprocess": {
         "sharpit/engine/collectors/github/token.py",  # gh auth token, the GitHub refresh action only
         "sharpit/engine/collectors/alembic_cli.py",  # python -m alembic, the Alembic migrate action only (W8 M1)
@@ -192,11 +197,26 @@ def adapter_violations(root: Path = ENGINE) -> list[str]:
 
 
 def cli_inward_violations(root: Path | None = None) -> list[str]:
-    return []
+    package = root or SRC / "sharpit"
+    allowed = package / "cli"
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in sorted(package.rglob("*.py"))
+        if not path.is_relative_to(allowed)
+        for name in imports(path)
+        if _within(name, ("sharpit.cli",))
+    ]
 
 
 def cli_outward_violations(root: Path | None = None) -> list[str]:
-    return []
+    package = root or SRC / "sharpit"
+    boundary = (*FRAMEWORKS, "sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui", "sharpit.engine")
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in sorted((package / "cli").rglob("*.py"))
+        for name in imports(path, skip_type_checking=True)
+        if _within(name, boundary)
+    ]
 
 
 def collector_violations(root: Path = COLLECTORS) -> list[str]:
@@ -525,7 +545,8 @@ def test_cli_does_not_import_framework_or_other_adapters(tmp_path: Path, monkeyp
     cli.mkdir(parents=True)
     (cli / "x.py").write_text(
         "import fastapi\nimport starlette\nimport sharpit.fastapi\nimport sharpit.pytest_plugin\n"
-        "import sharpit.ui\nimport sharpit.engine\n", encoding="utf-8"
+        "import sharpit.ui\nimport sharpit.engine\n",
+        encoding="utf-8",
     )
     monkeypatch.setattr(sys.modules[__name__], "SRC", source)
 
@@ -537,6 +558,7 @@ def test_cli_does_not_import_framework_or_other_adapters(tmp_path: Path, monkeyp
         "sharpit/cli/x.py imports sharpit.ui",
         "sharpit/cli/x.py imports sharpit.engine",
     ]
+
 
 def test_prometheus_client_import_is_confined_to_metrics_gatekeeper(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
