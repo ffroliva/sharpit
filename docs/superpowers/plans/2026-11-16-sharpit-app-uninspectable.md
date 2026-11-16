@@ -58,15 +58,15 @@ ran. Predict reviewed that diff; task 2 holds what it changed.
 
 **Interfaces:** Consumes `sharpit.fastapi.introspector.inspectable`, `sharpit.pytest_plugin.apps._configured_models`.
 
-- [ ] **Step 1:** Change the expected reason to
+- [x] **Step 1:** Change the expected reason to
   `application routes cannot be inspected (<module.Class>); expected an app, a router or a zero-argument factory`.
-- [ ] **Step 2:** `test_inspectable_is_false_for_a_class_that_holds_a_route_list`.
-- [ ] **Step 3:** `test_uninspectable_reason_passes_the_report_masker` (a recording masker on the fake state).
-- [ ] **Step 4:** `test_uninspectable_reason_never_formats_a_host_module_object` (non-string `__module__`).
-- [ ] **Step 5:** `test_load_app_never_calls_an_object_with_a_router_attribute`; remove the rule once to see it fail.
-- [ ] **Step 6:** `test_live_engine_driver_counts_as_covered` names a SQLAlchemy engine as the app to get its module
+- [x] **Step 2:** `test_inspectable_is_false_for_a_class_that_holds_a_route_list`.
+- [x] **Step 3:** `test_uninspectable_reason_passes_the_report_masker` (a recording masker on the fake state).
+- [x] **Step 4:** `test_uninspectable_reason_never_formats_a_host_module_object` (non-string `__module__`).
+- [x] **Step 5:** `test_load_app_never_calls_an_object_with_a_router_attribute`; remove the rule once to see it fail.
+- [x] **Step 6:** `test_live_engine_driver_counts_as_covered` names a SQLAlchemy engine as the app to get its module
   imported; it relied on the empty pass. Add `--sharpit-allow-unknown`, keep its assertion.
-- [ ] **Step 7:** `red_check.py` on the new and changed ids; commit `test: predict mitigations for the --sharpit-app fix`.
+- [x] **Step 7:** `red_check.py` on the new and changed ids; commit `test: predict mitigations for the --sharpit-app fix`.
 
 ### Task 3: The fix
 
@@ -74,27 +74,26 @@ ran. Predict reviewed that diff; task 2 holds what it changed.
 
 **Interfaces:** Produces `inspectable(app: object) -> bool`. `_route_list` keeps its signature and results.
 
-- [ ] **Step 1:** `_stored_routes(app) -> list[BaseRoute] | None`; `inspectable` (false for a class);
+- [x] **Step 1:** `_stored_routes(app) -> list[BaseRoute] | None`; `inspectable` (false for a class);
   `_route_list` on top of it.
-- [ ] **Step 2:** `load_app`: return the object unchanged when it is inspectable, not callable, has a `router`
+- [x] **Step 2:** `load_app`: return the object unchanged when it is inspectable, not callable, has a `router`
   attribute (`inspect.getattr_static` with a sentinel), has an unreadable signature or needs arguments
   (`inspect.signature(obj).bind()`); call it otherwise.
-- [ ] **Step 3:** `_configured_models`: not inspectable → `AdvisorRun("rest-api", "UNKNOWN", …)` with the masked
+- [x] **Step 3:** `_configured_models`: not inspectable → `AdvisorRun("rest-api", "UNKNOWN", …)` with the masked
   reason. The load-error branch is unchanged.
-- [ ] **Step 4:** Targeted tests green with `-n auto`; `/sharpit:check`.
-- [ ] **Step 5:** Commit `fix: distinguish uninspectable apps from empty apps in --sharpit-app`.
+- [x] **Step 4:** Targeted tests green with `-n auto`; `/sharpit:check`.
+- [x] **Step 5:** Commit `fix: distinguish uninspectable apps from empty apps in --sharpit-app`.
 
 ### Task 4: Docs and the special CI jobs
 
-**Files:** `CHANGELOG.md`, `README.md`, `website/docs/pytest-plugin.md`,
-`docs/superpowers/specs/2026-11-01-sharpit-0.3.0-design.md`
+**Files:** `CHANGELOG.md`, `website/docs/pytest-plugin.md`
 
-- [ ] **Step 1:** Changelog `[Unreleased]` → `Fixed`: the false pass, routers accepted, what can turn `unknown`.
-- [ ] **Step 2:** README and website page: one sentence with the reason wording.
-- [ ] **Step 3:** 0.3.0 spec §6, next to "confirmed-empty `PASSED`": name the new reason.
-- [ ] **Step 4:** `lowest`, `no-sqlalchemy` and `coverage` jobs locally (`docs/development/ci.md`), each in its own
+- [x] **Step 1:** Changelog `[Unreleased]` → `Fixed`: the false pass, routers accepted, what can turn `unknown`.
+- [x] **Step 2:** Website page: the `--sharpit-app` row of the option table. README and the 0.3.0 spec are left alone
+  (contributor's ruling, 2026-11-16: keep the change to the bug fixes; the README stays true as it is).
+- [ ] **Step 3:** `lowest`, `no-sqlalchemy` and `coverage` jobs locally (`docs/development/ci.md`), each in its own
   environment.
-- [ ] **Step 5:** `/sharpit:check`; commit `docs: --sharpit-app reports an uninspectable app as unknown`.
+- [ ] **Step 4:** `/sharpit:check`; commit `docs: --sharpit-app reports an uninspectable app as unknown`.
 
 ### Task 5: Review and hand-over
 
