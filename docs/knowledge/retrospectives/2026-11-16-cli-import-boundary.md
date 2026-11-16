@@ -8,11 +8,12 @@ tags: [sharpit, cli, architecture, import-boundary, testing]
 
 ## Outcome
 
-Commits `9831cdb1` and `cd59b3c3` establish the whole-package inward rule and an outward CLI import rule. The scanner
-checks imports from every module under `src/sharpit/`, and the CLI rule is tested against both the source tree and
-planted modules. The CLI standard-library allow-list is explicit and version-independent. `sharpit/cli/client.py`
-remains the only CLI module allowed to import `urllib.request` and `http.client`. CLI modules may import
-`__version__` from `sharpit`.
+Commit `9831cdb1` establishes the whole-package inward rule and the CLI dependency rule. Commit `cd59b3c3` tests that
+the inward rule does not exempt sibling package names that share the `sharpit.cli` prefix. Commit `66f93de4` replaces
+the runtime-derived standard-library allowance with an explicit list, adds `_socket` and `_ssl` gatekeepers, and
+permits only `__version__` from `sharpit` in CLI modules. The scanner checks imports from every module under
+`src/sharpit/`; the CLI rule is tested against both the source tree and planted modules. `sharpit/cli/client.py`
+remains the only CLI module allowed to import `urllib.request` and `http.client`.
 
 ## Decisions
 
