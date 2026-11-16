@@ -15,9 +15,9 @@ Outreach is the owner's call: a submission to a third party waits for an explici
 |---|---|---|---|---|
 | Agent plugin (Claude Code, Cursor, Codex marketplaces) | self-hosted in this repo (`plugins/sharpit`) | listed; PR [#194](https://github.com/ffroliva/sharpit/pull/194) merged 2026-11-16; `claude plugin validate .` passes | https://github.com/ffroliva/sharpit/tree/main/plugins/sharpit | 2026-11-16 |
 | punkpeye/awesome-mcp-servers | PR | submitted, open; only a bot comment, asking for a Glama quality score (see Glama) | https://github.com/punkpeye/awesome-mcp-servers/pull/19620 | 2026-11-16 |
-| ComposioHQ/awesome-claude-skills | PR | **blocked**: PR creation refused (below). Branch is on the fork | https://github.com/ffroliva/awesome-claude-skills/tree/add-sharpit | 2026-11-16 |
-| cursor.directory | web form (Manual tab) | **blocked**: not logged in (below) | https://cursor.directory/plugins/new | 2026-11-16 |
-| hesreallyhim/awesome-claude-code | issue form | **blocked**: a human must file it (below) | https://github.com/hesreallyhim/awesome-claude-code | 2026-11-16 |
+| ComposioHQ/awesome-claude-skills | PR | **blocked**: the repo limits PRs to collaborators (below). Branch is on the fork | https://github.com/ffroliva/awesome-claude-skills/tree/add-sharpit | 2026-11-16 |
+| cursor.directory | web form (Manual tab) | submitted 2026-11-16, security scan pending, plugin hidden until it finishes | https://cursor.directory/plugins/sharpit | 2026-11-16 |
+| hesreallyhim/awesome-claude-code | issue form | **blocked**: the repo limits new issues to collaborators (below) | https://github.com/hesreallyhim/awesome-claude-code | 2026-11-16 |
 | travisvn/awesome-claude-skills | PR | **not eligible**: under 10 stars, no AI-assisted PRs (below) | https://github.com/travisvn/awesome-claude-skills | 2026-11-16 |
 | PulseMCP | web form | **closed**: submissions paused since 2026-09-03 | https://www.pulsemcp.com/submit | 2026-11-16 |
 | mcp.so | web form | **blocked**: only a $39 paid submission (below) | https://mcp.so/submit | 2026-11-16 |
@@ -30,19 +30,16 @@ Outreach is the owner's call: a submission to a third party waits for an explici
 
 ## Blocked, with the reason
 
-- **cursor.directory.** `/plugins/new` redirects to a sign-in page (GitHub or Google). No password is typed by an
-  agent. The owner signs in; then use the **Manual** tab, not the GitHub auto-scan, which reads `skills/` and would
-  list the maintainer workflows as components. Declare one MCP server: `http://127.0.0.1:8000/sharpit/api/mcp`.
 - **ComposioHQ/awesome-claude-skills.** The entry is written (Development & Code Tools, alphabetical, between
   Septim Agents Pack and Skill Creator) and pushed to the fork, branch `add-sharpit`. `gh pr create` and the REST call
-  both refused (`does not have the correct permissions`; 404). The token has `repo` scope and the earlier PR
-  [#1905](https://github.com/ComposioHQ/awesome-claude-skills/pull/1905) went through, so the likely cause is a
-  repo-side limit; unverified, the interaction-limit endpoint needs admin. Owner: open it from
-  https://github.com/ffroliva/awesome-claude-skills/pull/new/add-sharpit.
-- **hesreallyhim/awesome-claude-code.** CONTRIBUTING: a recommendation "must be created by human beings", through the
-  web issue form, and "it is not possible to submit using the `gh` CLI"; breaking this risks a temporary restriction.
-  sharpit qualifies (first commit 2026-10-30, active). The owner files it:
-  https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml
+  refused it; the web compare page says "An owner of this repository has limited the ability to open a pull request to
+  users that are collaborators on this repository." That is a repo setting, so only a maintainer can lift it. Earlier
+  PR [#1905](https://github.com/ComposioHQ/awesome-claude-skills/pull/1905) predates it. Option: open an issue asking.
+- **hesreallyhim/awesome-claude-code.** The issue form (https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml)
+  opens with "An owner of this repository has limited the ability to create an issue to users that are collaborators on
+  this repository", checked signed in as ffroliva on 2026-11-16. A repo setting; only a maintainer can lift it. Their
+  CONTRIBUTING also says a recommendation must come from a human through that form, never `gh`. sharpit meets their
+  eligibility (first commit 2026-10-30, active).
 - **travisvn/awesome-claude-skills.** A skill under 10 stars is closed automatically (sharpit has 3), and a PR
   "explicitly generated / submitted with AI-assistance" is closed without comment. Revisit at 10 stars, with a
   human-written PR.
