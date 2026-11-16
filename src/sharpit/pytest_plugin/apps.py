@@ -160,24 +160,33 @@ def reconcile_workers(parts: Sequence[Any], names: Sequence[str], require_app: b
         parts[0].advisor_runs.append(run)
 
 
+def _signature(target: Callable[..., object]) -> inspect.Signature:
+    """The call signature, annotations left unevaluated: only the parameters are read."""
+    if sys.version_info >= (3, 14):  # deferred annotations (PEP 649): evaluating one may name a TYPE_CHECKING import
+        from annotationlib import Format  # noqa: PLC0415 - Python 3.14+ only
+
+        return inspect.signature(target, annotation_format=Format.FORWARDREF)
+    return inspect.signature(target)
+
+
 def _zero_argument_callable(target: object) -> bool:
     """Whether ``--sharpit-app`` names something to call for the app: it accepts no arguments and is no app itself.
 
-    Accepting no arguments does not prove it is a factory; an object that cannot be told apart is returned as it is.
+    Accepting no arguments does not prove it is a factory; an object that cannot be told apart is not called.
     """
     if inspectable(target) or not callable(target):
         return False
     if inspect.getattr_static(target, "router", _MISSING) is not _MISSING:
         return False
     try:
-        inspect.signature(target).bind()
+        _signature(target).bind()
     except (TypeError, ValueError):  # it needs arguments, or its signature cannot be read
         return False
     return True
 
 
 def _type_name(target: object) -> str:
-    """``module.qualname`` of the object's class; a part that is not a plain string is ``?``: no host code runs."""
+    """``module.qualname`` of the object's class; a part that is not a plain string is ``?``, never formatted."""
     kind = type(target)
     try:
         parts = (type.__getattribute__(kind, "__module__"), type.__getattribute__(kind, "__qualname__"))
