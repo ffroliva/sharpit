@@ -1,12 +1,17 @@
 """Module boundaries, checked on every run (Spring Modulith style). AGENTS.md "Architecture rules" lists the same rules.
 
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
-2. The engine never imports an adapter (``sharpit.fastapi``, ``sharpit.ui``): adapters depend on the engine only.
+2. Dependencies point inward: the engine never imports the adapters (``sharpit.fastapi``, ``sharpit.pytest_plugin``
+   or ``sharpit.ui``); no module outside ``sharpit/cli/`` imports ``sharpit.cli``; modules under ``sharpit/cli/``
+   import only the standard library and ``sharpit.cli``, not even for a type.
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
    code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
    Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
-4. Gatekeepers: an optional dependency or a network client is imported by one named file only, so the rest of the
-   package works without it (CI's ``no-sqlalchemy`` job) and nothing else can reach the network (safety model).
+4. Gatekeepers: an optional dependency or a network client is imported only by its named gatekeeper file or package,
+   so the rest of the package works without it (CI's ``no-sqlalchemy`` job). ``urllib.request`` is limited to
+   ``engine/collectors/vulns/osv.py``, ``engine/collectors/vulns/epss.py``, ``engine/collectors/github/client.py``
+   and ``cli/client.py``; ``http.client`` is limited to the same files except EPSS. Other network access is limited
+   to named action clients.
 5. Interpreter state (0.5.0 spec §4.4, §9): calls that change it (``tracemalloc.start``, ``gc.callbacks`` mutation,
    ``sys.settrace``/``setprofile``, ``sys.monitoring.use_tool_id``, ...) only in the test-session modules. Call
    sites, not imports: a ``gc.get_objects()`` heap walk stays legal anywhere.
@@ -41,8 +46,13 @@ GATEKEEPERS: dict[str, set[str]] = {
         "sharpit/engine/collectors/vulns/osv.py",
         "sharpit/engine/collectors/vulns/epss.py",
         "sharpit/engine/collectors/github/client.py",
+        "sharpit/cli/client.py",
     },
-    "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
+    "http.client": {
+        "sharpit/engine/collectors/vulns/osv.py",
+        "sharpit/engine/collectors/github/client.py",
+        "sharpit/cli/client.py",
+    },
     "subprocess": {
         "sharpit/engine/collectors/github/token.py",  # gh auth token, the GitHub refresh action only
         "sharpit/engine/collectors/alembic_cli.py",  # python -m alembic, the Alembic migrate action only (W8 M1)
@@ -186,6 +196,29 @@ def adapter_violations(root: Path = ENGINE) -> list[str]:
         for path in sorted(root.rglob("*.py"))
         for name in imports(path)
         if _within(name, ADAPTERS)
+    ]
+
+
+def cli_inward_violations(root: Path | None = None) -> list[str]:
+    package = root or SRC / "sharpit"
+    allowed = package / "cli"
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in sorted(package.rglob("*.py"))
+        if not path.is_relative_to(allowed)
+        for name in imports(path)
+        if _within(name, ("sharpit.cli",))
+    ]
+
+
+def cli_dependency_violations(root: Path | None = None) -> list[str]:
+    package = root or SRC / "sharpit"
+    stdlib = sys.stdlib_module_names
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in sorted((package / "cli").rglob("*.py"))
+        for name in imports(path)
+        if name.split(".", 1)[0] not in stdlib and not _within(name, ("sharpit.cli",))
     ]
 
 
@@ -467,6 +500,81 @@ def test_github_network_imports_are_confined_to_github_client(tmp_path: Path, mo
     assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
         "sharpit/engine/collectors/github/dashboard.py imports urllib.request",
         "sharpit/engine/collectors/github/token.py imports http.client",
+    ]
+
+
+def test_only_the_cli_client_may_use_urllib_in_the_cli_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cli = tmp_path / "src" / "sharpit" / "cli"
+    cli.mkdir(parents=True)
+    (cli / "client.py").write_text("import urllib.request\nimport http.client\n", encoding="utf-8")
+    (cli / "other.py").write_text("import urllib.request\nimport http.client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/cli/other.py imports urllib.request",
+        "sharpit/cli/other.py imports http.client",
+    ]
+
+
+def test_cli_import_boundaries_hold_on_the_real_tree() -> None:
+    assert cli_inward_violations() == []
+    assert cli_dependency_violations() == []
+
+
+def test_nothing_outside_the_cli_imports_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "src"
+    root = source / "sharpit"
+    for package in ("engine", "fastapi", "pytest_plugin", "report"):
+        folder = root / package
+        folder.mkdir(parents=True)
+        (folder / "x.py").write_text("import sharpit.cli\n", encoding="utf-8")
+    (root / "__init__.py").write_text("import sharpit.cli\n", encoding="utf-8")
+    (root / "cli").mkdir()
+    (root / "cli" / "inside.py").write_text("import sharpit.cli.x\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    assert cli_inward_violations() == [
+        "sharpit/__init__.py imports sharpit.cli",
+        "sharpit/engine/x.py imports sharpit.cli",
+        "sharpit/fastapi/x.py imports sharpit.cli",
+        "sharpit/pytest_plugin/x.py imports sharpit.cli",
+        "sharpit/report/x.py imports sharpit.cli",
+    ]
+
+
+def test_the_cli_imports_only_the_standard_library_and_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "src"
+    cli = source / "sharpit" / "cli"
+    cli.mkdir(parents=True)
+    (cli / "x.py").write_text(
+        "from __future__ import annotations\n"
+        "import fastapi\nimport starlette\nimport sharpit.fastapi\nimport sharpit.pytest_plugin\n"
+        "import sharpit.ui\nimport sharpit.engine\n"
+        "from sharpit import install\nfrom sharpit.report import summary\nfrom sharpit import settings\n"
+        "import sharpit.settings_registry\nimport httpx\nimport requests\nimport packaging\n"
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import sharpit.engine\n"
+        "import json\nimport urllib.parse\nfrom importlib import metadata\n"
+        "import sharpit.cli.y\nfrom . import y\n",
+        encoding="utf-8",
+    )
+    (cli / "y.py").write_text("", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    assert cli_dependency_violations() == [
+        "sharpit/cli/x.py imports fastapi",
+        "sharpit/cli/x.py imports starlette",
+        "sharpit/cli/x.py imports sharpit.fastapi",
+        "sharpit/cli/x.py imports sharpit.pytest_plugin",
+        "sharpit/cli/x.py imports sharpit.ui",
+        "sharpit/cli/x.py imports sharpit.engine",
+        "sharpit/cli/x.py imports sharpit",
+        "sharpit/cli/x.py imports sharpit.report",
+        "sharpit/cli/x.py imports sharpit",
+        "sharpit/cli/x.py imports sharpit.settings_registry",
+        "sharpit/cli/x.py imports httpx",
+        "sharpit/cli/x.py imports requests",
+        "sharpit/cli/x.py imports packaging",
+        "sharpit/cli/x.py imports sharpit.engine",
     ]
 
 
@@ -1008,6 +1116,11 @@ FROM_FORM_PLANTS: dict[str, tuple[dict[str, str], Callable[[Path], list[str]], l
         {"fastapi/__init__.py": "", "engine/tools.py": "from sharpit import fastapi\n"},
         lambda root: adapter_violations(root / "engine"),
         ["sharpit/engine/tools.py imports sharpit.fastapi"],
+    ),
+    "cli_from_sharpit": (
+        {"cli/__init__.py": "", "fastapi/x.py": "from sharpit import cli\n"},
+        cli_inward_violations,
+        ["sharpit/fastapi/x.py imports sharpit.cli"],
     ),
     "masking_in_lexer_from_engine": (
         {"engine/masking.py": "", "engine/sqltext/lexer.py": "from sharpit.engine import masking\n"},
