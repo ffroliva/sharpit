@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from sharpit import pytest_plugin
 from sharpit.engine.testsession.sink import report_masker
+from sharpit.fastapi.introspector import inspectable
 from sharpit.pytest_plugin import apps
 
 
@@ -299,7 +300,8 @@ def test_autodetect_names_app_by_shortest_module(monkeypatch: pytest.MonkeyPatch
 
 # --- --sharpit-app: an app whose routes cannot be inspected is unknown, never an empty pass (issue #75) -------------
 
-_UNINSPECTABLE = "application routes cannot be inspected (wsgiapp.Wsgi)"
+_EXPECTED = "; expected an app, a router or a zero-argument factory"
+_UNINSPECTABLE = f"application routes cannot be inspected (wsgiapp.Wsgi){_EXPECTED}"
 _WSGI_APP = """
 class Wsgi:  # shaped like a WSGI app: callable, two required arguments, no route list
     def __call__(self, environ, start_response):
@@ -480,3 +482,67 @@ def test_load_app_calls_a_factory_whose_arguments_are_optional(monkeypatch: pyte
     _fake_module(monkeypatch, target=create_app)
 
     assert apps.load_app("loadapp_fake:target")[1] is app
+
+
+def test_load_app_never_calls_an_object_with_a_router_attribute(monkeypatch: pytest.MonkeyPatch) -> None:
+    proxy = _Recorder()  # not inspectable (no route list of its own), yet it carries a router like an app does
+    vars(proxy)["router"] = None
+    _fake_module(monkeypatch, target=proxy)
+
+    _, loaded = apps.load_app("loadapp_fake:target")
+
+    assert proxy.calls == 0
+    assert loaded is proxy
+
+
+def test_inspectable_is_false_for_a_class_that_holds_a_route_list() -> None:
+    class Holder:
+        routes: list[object] = []  # noqa: RUF012 - the class attribute is the point
+
+    assert inspectable(Holder) is False
+
+
+class _TaggingMasker:
+    def mask_text(self, text: str) -> str:
+        return f"masked<{text}>"
+
+    def mask_path(self, text: str) -> str:
+        return text
+
+
+def _uninspectable_reason(target: object) -> str:
+    state = SimpleNamespace(
+        options=SimpleNamespace(advisors=True, app="fake_app:app", fail_on="HIGH"),
+        sink=SimpleNamespace(app_snapshots=list, facts=SimpleNamespace(advisor_runs=[]), masker=_TaggingMasker()),
+        dismissed=[],
+    )
+
+    apps._configured_models(state, lambda spec: (spec, target))
+
+    runs = state.sink.facts.advisor_runs
+    return str(runs[0].reason) if runs else ""  # no run: the app was taken as inspectable
+
+
+def test_uninspectable_reason_passes_the_report_masker() -> None:
+    reason = _uninspectable_reason(object())
+
+    assert reason == f"masked<application routes cannot be inspected (builtins.object){_EXPECTED}>"
+
+
+def test_uninspectable_reason_never_formats_a_host_module_object() -> None:
+    class Loud:
+        calls = 0
+
+        def __str__(self) -> str:
+            Loud.calls += 1
+            return "loud"
+
+    class Host:
+        pass
+
+    Host.__module__ = Loud()  # type: ignore[assignment]
+
+    reason = _uninspectable_reason(Host())
+
+    assert Loud.calls == 0
+    assert "(?." in reason

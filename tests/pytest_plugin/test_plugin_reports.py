@@ -98,8 +98,9 @@ def test_live_engine_driver_counts_as_covered(pytester: pytest.Pytester) -> None
         """,
         test_app="def test_no_query(): pass",
     )
+    # the engine is named only to get its module imported: it is no app, so rest-api is unknown, and allowed here
     result = pytester.runpytest_subprocess(
-        "--sharpit", "--sharpit-app=appmod:engine", "--sharpit-report=report.json", "-q"
+        "--sharpit", "--sharpit-app=appmod:engine", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
     assert result.ret == 0

@@ -368,6 +368,12 @@ def _path_regex(path: str, prefix_only: bool) -> str | None:
         return None
 
 
+def inspectable(app: object) -> bool:
+    """Whether ``app`` stores a route list this introspector reads."""
+    del app
+    return True  # stub: nothing is ever uninspectable, so the tests that expect False or UNKNOWN fail on their assert
+
+
 def _route_list(app: object) -> list[BaseRoute]:
     """Routes from Starlette's stored objects, avoiding Mount.routes descriptor access."""
     values = _attrs(app)
