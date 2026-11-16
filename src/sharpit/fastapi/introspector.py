@@ -387,6 +387,7 @@ def inspectable(app: object) -> bool:
 
 
 def _route_list(app: object) -> list[BaseRoute]:
+    """The stored routes, ``[]`` when there is no route list to read."""
     routes = _stored_routes(app)
     return routes if routes is not None else []
 
