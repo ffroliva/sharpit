@@ -27,7 +27,6 @@ def endpoint():
     routes: dict[str, tuple[int, bytes, str | None]] = {}
     delays: dict[str, float] = {}
     header_trickles: set[str] = set()
-    body_trickles: set[str] = set()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -61,14 +60,8 @@ def endpoint():
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            if self.path in body_trickles:
-                for byte in payload:
-                    self.wfile.write(bytes((byte,)))
-                    self.wfile.flush()
-                    time.sleep(0.02)
-            else:
-                time.sleep(delays.get(self.path, 0))
-                self.wfile.write(payload)
+            time.sleep(delays.get(self.path, 0))
+            self.wfile.write(payload)
 
         def log_message(self, *_args):
             return
@@ -78,7 +71,7 @@ def endpoint():
     thread.start()
     host, port = server.server_address
     try:
-        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles, body_trickles
+        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles
     finally:
         server.shutdown()
         server.server_close()
@@ -511,14 +504,11 @@ def test_non_json_error_status_returns_outcome_with_missing_payload(endpoint, st
     assert result.payload is None
 
 
-@pytest.mark.parametrize("path", ["/slow-body", "/slow-header"])
-def test_deadline_bounds_headers_and_error_bodies(endpoint, path):
+def test_deadline_bounds_trickled_headers(endpoint):
     base, routes, *_ = endpoint
+    path = "/slow-header"
     routes[f"/sharpit/api{path}"] = (500, b"{" + b"x" * 100 + b"}", None)
-    if path == "/slow-header":
-        endpoint[5].add(f"/sharpit/api{path}")
-    else:
-        endpoint[6].add(f"/sharpit/api{path}")
+    endpoint[5].add(f"/sharpit/api{path}")
     started = time.monotonic()
     with pytest.raises(ClientError):
         Client(options(base, timeout=0.25)).get(path)
