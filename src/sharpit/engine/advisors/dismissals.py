@@ -41,6 +41,7 @@ _NOTE_PREFIX = "n="
 NO_PANEL_MESSAGE = "Findings of advisor '{advisor}' are dismissed in sharpit.yml"
 _RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
 # no edge whitespace; inside, no C0/C1 control, line separator or lone surrogate (UTF-8 could not write it)
+MAX_IDENTITY_LENGTH = 512  # the quantifier of ``_IDENTITY``
 _IDENTITY = re.compile(r"(?!\s)[^\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff]{1,512}(?<!\s)")
 _INVALID_RULE = "Dismissed finding rule id is not a valid advisor rule id."
 
@@ -276,6 +277,11 @@ def _valid_finding(rule_id: str, identity: str, *, owned: bool = True) -> str | 
     if not _IDENTITY.fullmatch(identity) or _looks_like_a_note(identity):
         return "Dismissed finding identity is not a valid finding identity."
     return None
+
+
+def is_dismissable_identity(identity: str) -> bool:
+    """Whether a ``dismissedFindings`` entry can carry this identity (a longer or non-printable one cannot)."""
+    return _IDENTITY.fullmatch(identity) is not None and not _looks_like_a_note(identity)
 
 
 def _looks_like_a_note(identity: str) -> bool:

@@ -6,6 +6,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from sharpit.engine.advisors.dismissals import MAX_IDENTITY_LENGTH, is_dismissable_identity
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.findings import fails as fails  # the one predicate, re-exported
 from sharpit.engine.advisors.rules import Severity
@@ -60,15 +61,25 @@ def _finding(
     observed: int | None = None,
     *,
     severity: Severity = "HIGH",
-    legacy_identity: str | None = None,
+    dismissed_by_legacy: bool = False,
 ) -> Finding:
     fingerprint = Finding(rule_id, ADVISOR, severity, target, message, node_id, identity=identity).fingerprint
-    is_dismissed = (
-        fingerprint in dismissed
-        or (rule_id, identity or target) in dismissed_pairs
-        or (legacy_identity is not None and (rule_id, legacy_identity) in dismissed_pairs)
-    )
+    is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs or dismissed_by_legacy
     return Finding(rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed)
+
+
+def _legacy_identity(fact: SwallowedFact) -> str:
+    """The identity of 0.4.0 to 0.6.0, ``<path>:<line>:<Type>``: it moves with the line, so it is only still matched."""
+    return f"{fact.location}:{fact.type_name}"
+
+
+def _swallow_match(fact: SwallowedFact, pairs: Collection[tuple[str, str]]) -> tuple[str, bool, bool]:
+    """The one decision both the gate and the warnings read: the fact's identity, and whether a ``dismissedFindings``
+    entry matches it by that key and by the line-keyed legacy form. A fact from a worker of the earlier form has only
+    the legacy identity, which is then its key."""
+    identity = fact.identity or _legacy_identity(fact)
+    by_legacy = fact.identity is not None and (SWALLOWED, _legacy_identity(fact)) in pairs
+    return identity, (SWALLOWED, identity) in pairs, by_legacy
 
 
 def _swallowed_findings(
@@ -84,11 +95,18 @@ def _swallowed_findings(
     for fact in call.swallowed:
         gating = fact.programming_error or fact.type_name in DATABASE_ERRORS
         severity: Severity = "HIGH" if gating and not budget.allow_swallowed else "INFO"
-        legacy = _legacy_identity(fact)
-        identity = fact.identity or legacy
+        identity, _, by_legacy = _swallow_match(fact, dismissed_pairs)
+        fingerprint = Finding(SWALLOWED, ADVISOR, severity, fact.location, "", node, identity=identity).fingerprint
+        if is_dismissable_identity(identity):
+            tail = f"identity {identity}"
+        else:
+            tail = (
+                f"its identity cannot be dismissed by key (over {MAX_IDENTITY_LENGTH} characters); dismiss "
+                f"its fingerprint {fingerprint} in dismissedRules"
+            )
         message = (
             f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged); "
-            f"identity {identity}"
+            f"{tail}"
         )
         found.append(
             _finding(
@@ -101,34 +119,33 @@ def _swallowed_findings(
                 dismissed_pairs,
                 1,
                 severity=severity,
-                legacy_identity=legacy,
+                dismissed_by_legacy=by_legacy,
             )
         )
     return found
 
 
-def _legacy_identity(fact: SwallowedFact) -> str:
-    """The identity of 0.4.0 to 0.6.0, ``<path>:<line>:<Type>``: it moves with the line, so it is only still matched."""
-    return f"{fact.location}:{fact.type_name}"
-
-
 def legacy_dismissal_warnings(facts: TestFacts, dismissed_pairs: Collection[tuple[str, str]]) -> list[str]:
-    """One warning per line-keyed ``dismissedFindings`` entry that still dismisses a swallowed exception of this test
-    (and is not also written in the new form), naming the entry and the identity to replace it with."""
+    """One warning per line-keyed ``dismissedFindings`` entry that still dismisses a swallowed exception of this test:
+    it names the clause the entry matches, to be checked, or says the entry is redundant beside its new key."""
     call = facts.phases.get("call")
     warnings: list[str] = []
     for fact in () if call is None else call.swallowed:
-        legacy = _legacy_identity(fact)
-        if (
-            fact.identity is None
-            or (SWALLOWED, legacy) not in dismissed_pairs
-            or (SWALLOWED, fact.identity) in dismissed_pairs
-        ):
+        identity, by_key, by_legacy = _swallow_match(fact, dismissed_pairs)
+        if not by_legacy:
             continue
-        warnings.append(
-            f"dismissedFindings entry '{SWALLOWED} {legacy}' still matches by line number; replace it with "
-            f"'{SWALLOWED} {fact.identity}', which survives edits above the handler"
-        )
+        entry = f"dismissedFindings entry '{SWALLOWED} {_legacy_identity(fact)}'"
+        if by_key:
+            warnings.append(
+                f"{entry} is redundant: '{SWALLOWED} {identity}' already dismisses the same clause; "
+                "remove the line-keyed entry"
+            )
+        else:
+            warnings.append(
+                f"{entry} still matches by line number the clause '{SWALLOWED} {identity}'; check that this is the "
+                "clause the entry was meant for, then replace the entry with that key so it survives edits above the "
+                "handler"
+            )
     return warnings
 
 

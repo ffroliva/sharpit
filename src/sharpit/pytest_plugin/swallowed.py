@@ -36,29 +36,29 @@ class CaptureStatus:
     reason: str | None = None
 
 
-def _relative(filename: str) -> str:
+def _relative(filename: str, root: str) -> str:
     try:
-        path = os.path.relpath(filename)
+        path = os.path.relpath(filename, root)
     except ValueError:  # another drive (Windows)
         path = filename
-    if path.startswith(".."):  # outside the working directory: keep it absolute
+    if path.startswith(".."):  # outside the root: keep it absolute
         path = filename
     return Path(path).as_posix()
 
 
 @functools.lru_cache(maxsize=4096)
-def _fact(code: CodeType, offset: int, exc_type: type[BaseException]) -> SwallowedFact | None:
+def _fact(code: CodeType, offset: int, exc_type: type[BaseException], root: str) -> SwallowedFact | None:
     site = swallowing_site(code, offset, exc_type)
     if site is None:
         return None
-    path = _relative(code.co_filename)
+    path = _relative(code.co_filename, root)
     identity = site_identity(path, site, exc_type.__name__)
     return SwallowedFact(f"{path}:{site.line}", exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS), identity)
 
 
 class MonitoringCapture:
     def __init__(self, on_error: Callable[[BaseException], None] | None = None, root: Path | None = None) -> None:
-        del root  # stub: the working directory still decides
+        self._root = str(root) if root is not None else os.getcwd()  # paths read the same whatever the cwd becomes
         self.tool_id: int | None = None
         self._tool: MonitoringTool | None = None
         self._sink: SwallowedSink | None = None
@@ -91,7 +91,7 @@ class MonitoringCapture:
         if test is None or not is_application_frame(code.co_filename):
             return
         try:
-            fact = _fact(code, offset, type(exc))
+            fact = _fact(code, offset, type(exc), self._root)
             if fact is not None and self._sink is not None:
                 self._sink(test, fact)
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code
@@ -118,7 +118,7 @@ def attach_session(config: Any, state: Any) -> None:
     try:
         if getattr(state, "swallowed_capture", None) is not None:
             return
-        capture = MonitoringCapture(lambda error: plugin._record_hook_failure(state.sink, error))
+        capture = MonitoringCapture(lambda error: plugin._record_hook_failure(state.sink, error), config.rootpath)
         status = capture.attach(lambda tag, fact: record(state.sink, tag, fact))
         state.swallowed_capture = capture
         config.add_cleanup(capture.detach)
