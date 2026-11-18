@@ -68,7 +68,15 @@ def _source_diagnostics(sources: Sequence[Source]) -> list[dict[str, Any]]:
     return out
 
 
-def _message(tables: int, readable: int, failed: int, truncated: bool, complete: bool, errored: int) -> str:
+def _message(
+    tables: int,
+    readable: int,
+    failed: int,
+    truncated: bool,
+    complete: bool,
+    errored: int,
+    evidence_failed: bool = False,
+) -> str:
     """BootUI ``DatabaseAdvisorScanner``'s completion message."""
     text = (
         f"Database Advisor completed against {tables} {'table' if tables == 1 else 'tables'} across {readable} "
@@ -82,6 +90,8 @@ def _message(tables: int, readable: int, failed: int, truncated: bool, complete:
         text += " Some schema or catalog metadata could not be read; see the diagnostics."
     if errored:
         text += f" {errored} rule(s) failed to evaluate."
+    if evidence_failed and not failed and complete and errored == 0 and not truncated:
+        text += " Some advisor evidence could not be read; see the diagnostics."
     return text
 
 
@@ -99,6 +109,14 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         unverified = ["No physical schema could be read, so no rule could run."]
         detail = Detail(sources, 0, 0, tuple(diagnostics))
         return Evaluation("ERROR", NO_SCHEMA, (), (), evidence(False, False, unverified), detail)
+    orm_facts = readable[0].catalog.get("orm") if readable else None
+    if isinstance(orm_facts, dict) and "errors" in orm_facts:
+        level = "INFO" if orm_facts.get("known_absent") else "WARNING"
+        for error in orm_facts["errors"]:
+            diagnostics.append(_diagnostic("SQLAlchemy metadata", level, error))
+    elif isinstance(orm_facts, dict) and "skipped" in orm_facts:
+        level = "INFO" if orm_facts.get("known_absent") else "WARNING"
+        diagnostics.append(_diagnostic("SQLAlchemy metadata", level, orm_facts["skipped"]))
     evaluated: list[str] = []
     findings: list[Finding] = []
     skipped = errored = 0
@@ -121,10 +139,19 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         findings += [Finding(rule_id, ADVISOR, severity, target, text, identity=key) for target, text, key in hits]
     truncated = any(s.catalog.get("truncated") for s in readable)
     catalogs_complete = all(s.catalog.get("complete") for s in readable)
+    evidence_failed = any(d["level"] in ("WARNING", "ERROR") for d in diagnostics)
     problems = [f"{d['source']}: {d['message']}" for d in diagnostics if d["level"] in ("WARNING", "ERROR")]
-    complete = not problems and catalogs_complete and not truncated
+    complete = not evidence_failed and catalogs_complete and not truncated and errored == 0
     tables = sum(len(s.tables) for s in readable)
-    message = _message(tables, len(readable), len(sources) - len(readable), truncated, catalogs_complete, errored)
+    message = _message(
+        tables,
+        len(readable),
+        len(sources) - len(readable),
+        truncated,
+        catalogs_complete,
+        errored,
+        evidence_failed,
+    )
     return Evaluation(
         "SCANNED" if complete else "PARTIAL",
         message,
@@ -192,7 +219,11 @@ def _with_app_facts(ctx: SharpitContext, sources: list[Source]) -> list[Source]:
     """Each source with the declared models (ORM rules); the first with the SQL Trace window (DB-RUNTIME-001)."""
     if not sources:
         return sources
-    declared = rules_orm.facts(ctx.models)
+    try:
+        declared = rules_orm.facts(ctx.models)
+    except Exception as exc:  # noqa: BLE001
+        reason = f"Entity discovery failed: {exc}"
+        declared = {"skipped": reason, "known_absent": False, "errors": [reason]}
     trace = ctx.capture.sql_trace
     window = rules_runtime.facts(trace.rows() if trace is not None else [])
     first, *rest = sources
