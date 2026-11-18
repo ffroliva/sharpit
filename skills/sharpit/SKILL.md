@@ -248,9 +248,11 @@ sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)
 
 A skipped advisor does not make the session `unknown`; a database driver sharpit cannot trace still does.
 
-An advisor that read part of the app and listed what it could not (an opaque `app.mount(...)`) is `PARTIAL`: the run
-passes with a warning that no finding is not proof there is none, and a finding at or above `--sharpit-fail-on` still
-fails. An advisor that assessed nothing, or whose rule errored, stays `UNKNOWN`; lost capture stays `unknown`.
+An advisor that read the routes it could and met an opaque `app.mount(...)` is `PARTIAL`: the run passes with a
+warning that names what was not read and says no finding is not proof there is none; a finding at or above
+`--sharpit-fail-on` still fails. Everything else stays `UNKNOWN`: no usable routes plus a limitation, a router or
+exception handler sharpit could not read, an errored scan or a rule that threw. An app with no routes and no limitation
+is confirmed empty and passes. Lost capture stays `unknown`.
 
 ### Report-only mode and baselines
 

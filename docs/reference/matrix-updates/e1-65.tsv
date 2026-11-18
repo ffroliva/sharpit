@@ -2,3 +2,4 @@ gate:advisor-partial-status	partial	BootUI 2.4.0 FailOn exits 3 on a counted fin
 gate:advisor-merge-partial	partial	sharpit's own: session, app and worker statuses merge worst first, FAILED, UNKNOWN, SKIPPED, PARTIAL, PASSED, and one warning per partial app; BootUI has one scan
 gate:advisor-rule-error	partial	BootUI reports a rule that throws as a PARTIAL scan; sharpit keeps the advisor UNKNOWN because the rule that errored may be the one that finds the problem (the REST API report still says PARTIAL)
 gate:advisor-unusable-no-limitation	partial	An advisor that is not usable and lists no limitation is unchanged (PASSED when coverage is complete); BootUI treats zero usable evidence as unevaluable
+gate:advisor-introspection-failure	partial	Only an opaque mounted app makes an advisor PARTIAL; an unread router, exception handler or route is sharpit failing to assess (safety model 5) and stays UNKNOWN; BootUI lists every limitation as PARTIAL

@@ -5,21 +5,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Changed
-
-- `pytest --sharpit` no longer exits 1 on a run with no finding when an advisor assessed part of an application and
-  listed what it could not read, such as a mounted sub-app with no inspectable routes (#65). The advisor is `PARTIAL`:
-  the run passes with a warning that having no finding at or above `--sharpit-fail-on` is not proof there is none, and a
-  finding at or above it still fails. An advisor that assessed nothing, an errored scan or a rule that threw stays
-  `UNKNOWN`, and lost capture stays `unknown`. The advisor status enum of `sharpit-report/1` widens to include
-  `PARTIAL` (both copies of the schema); a consumer that switches on the status should accept the new value.
-
 ### Added
 
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
 
+### Changed
+
+- The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
+  assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.
+
 ### Fixed
 
+- `pytest --sharpit` no longer exits 1 on a run with no finding when an advisor read part of an application and met
+  an opaque mounted sub-app (#65). The advisor is `PARTIAL`: the run passes with a warning that names what was not
+  read and says that having no finding at or above `--sharpit-fail-on` is not proof there is none, and a finding at
+  or above it still fails. An unread router or exception handler, an errored scan, a rule that threw and an advisor
+  with no usable routes and a limitation stay `UNKNOWN`; lost capture stays `unknown`. A partly assessed advisor does
+  not count as having run for baselines: its baselined entries are neither reported fixed nor dropped.
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
 
 ## [0.6.0] - 2026-11-13
