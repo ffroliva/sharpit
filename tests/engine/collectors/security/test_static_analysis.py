@@ -1,0 +1,373 @@
+"""Tests for SEC-STATIC-001 detector (port of BootUI 2.4.0 StaticSecurityAnalysisDetectorTests)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from sharpit.engine.collectors.security.static_analysis import (
+    LIMITATION_TEXT,
+    RULE_ID,
+    State,
+    StaticSecurityAnalysisDetector,
+    strip_yaml_comments,
+)
+
+
+def _write(path: Path, text: str = "") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+# ported: StaticSecurityAnalysisDetectorTests.reportsUnconfiguredOnlyWhenAReadableBuildFileExists
+def test_reports_unconfigured_only_when_a_readable_build_file_exists(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    assert detector.inspect(tmp_path).state == State.NOT_APPLICABLE
+
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "test"\nversion = "0.1.0"\n')
+    assert detector.inspect(tmp_path).state == State.NOT_CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesMavenPluginManagementProfilesAndFindSecBugsDependency
+def test_recognizes_bandit_in_pyproject(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname = "test"\nversion = "0.1.0"\n\n[tool.bandit]\nexclude_dirs = ["tests"]\n',
+    )
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.treatsAnEmptyMavenRelativePathAsNoLocalParentToInspect
+def test_treats_pyproject_without_parent_or_analyzer_as_not_configured(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname = "application"\nversion = "1.0.0"\ndependencies = ["fastapi", "sqlalchemy"]\n',
+    )
+    assert detector.inspect(tmp_path).state == State.NOT_CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesMavenSonarAndLocalParentDeclarations
+def test_recognizes_sonar_project_properties_and_repo_root(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    module = tmp_path / "module"
+    _write(tmp_path / ".git" / "HEAD", "ref: refs/heads/main\n")
+    _write(tmp_path / "sonar-project.properties", "sonar.projectKey=test\n")
+    _write(module / "pyproject.toml", '[project]\nname = "module"\nversion = "1.0.0"\n')
+
+    assert detector.inspect(module).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesMavenParentPomInsideRelativePathDirectory
+def test_recognizes_repo_root_analyzer_from_submodule(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    module = tmp_path / "module"
+    _write(tmp_path / ".git" / "HEAD", "ref: refs/heads/main\n")
+    _write(tmp_path / "pyproject.toml", '[tool.bandit]\nexclude_dirs = ["tests"]\n')
+    _write(module / "pyproject.toml", '[project]\nname = "submodule"\nversion = "1.0.0"\n')
+
+    assert detector.inspect(module).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.followsMavenParentsThatInheritGroupAndVersion
+def test_follows_repo_root_semgrep_config_from_submodule(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    module = tmp_path / "module"
+    _write(tmp_path / ".git" / "HEAD", "ref: refs/heads/main\n")
+    _write(tmp_path / ".semgrep.yml", "rules:\n  - id: example\n    message: test\n")
+    _write(module / "pyproject.toml", '[project]\nname = "submodule"\nversion = "1.0.0"\n')
+
+    assert detector.inspect(module).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.reportsAnUninspectedDefaultParentOutsideTheRepositoryAsIndeterminate
+def test_reports_config_symlinked_outside_repo_as_indeterminate(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    outside = tmp_path / "outside"
+    repo = tmp_path / "repo"
+    _write(outside / "external.yml", "rules: []\n")
+    _write(repo / ".git" / "HEAD", "ref: refs/heads/main\n")
+    _write(repo / "pyproject.toml", '[project]\nname = "test"\n')
+
+    # Symlink to outside
+    try:
+        (repo / ".semgrep.yml").symlink_to(outside / "external.yml")
+    except OSError:
+        pytest.skip("Symlinks not supported in this environment")
+
+    assert detector.inspect(repo).state == State.INDETERMINATE
+
+
+# ported: StaticSecurityAnalysisDetectorTests.doesNotInspectAnUnrelatedPomAsTheDeclaredMavenParent
+def test_does_not_inspect_unrelated_file_outside_project_root(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    unrelated = tmp_path / "unrelated"
+    project = tmp_path / "project"
+    _write(unrelated / "sonar-project.properties", "sonar.projectKey=other\n")
+    _write(project / "pyproject.toml", '[project]\nname = "isolated"\n')
+
+    assert detector.inspect(project).state == State.NOT_CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesGradlePluginsVersionCatalogAliasesAndKnownConfigFiles
+def test_recognizes_semgrep_and_setup_cfg_configurations(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "setup.cfg", "[bandit]\nexclude = tests\n")
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+    tmp_path2 = tmp_path / "test2"
+    _write(tmp_path2 / "setup.cfg", "[metadata]\nname = pkg\n")
+    _write(tmp_path2 / ".semgrep.yml", "rules: []\n")
+    assert detector.inspect(tmp_path2).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesKotlinApplyPluginSyntax
+def test_recognizes_bandit_in_requirements_txt(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "requirements.txt", "fastapi>=0.100.0\nbandit>=1.7.0\nuvicorn\n")
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesGroovyNamedArgumentPluginApplication
+def test_recognizes_semgrep_in_requirements_txt(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "requirements-dev.txt", "pytest\nsemgrep\n")
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.marksUninspectedGradleBuildLogicAsIndeterminate
+def test_marks_uninspected_ruff_extend_or_separate_toml_as_indeterminate(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname = "test"\n\n[tool.ruff]\nextend = "base.toml"\n',
+    )
+    assert detector.inspect(tmp_path).state == State.INDETERMINATE
+
+    tmp2 = tmp_path / "t2"
+    _write(tmp2 / "pyproject.toml", '[project]\nname = "test"\n')
+    _write(tmp2 / "ruff.toml", '[lint]\nselect = ["S"]\n')
+    assert detector.inspect(tmp2).state == State.INDETERMINATE
+
+
+# ported: StaticSecurityAnalysisDetectorTests.doesNotTreatSpotBugsAnnotationsAsAnAnalyzerPlugin
+def test_does_not_treat_unrelated_packages_or_annotations_as_analyzer(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname = "test"\ndependencies = ["pydantic", "starlette", "cryptography"]\n',
+    )
+    assert detector.inspect(tmp_path).state == State.NOT_CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.stripsGradleCommentsWithoutTruncatingUrlsOrSlowingOnUnterminatedComments
+def test_strips_yaml_comments_without_truncating_urls_or_slowing(tmp_path: Path) -> None:
+    text = (
+        'name: "CI # not a comment"\n'
+        "# Full line comment\n"
+        'url: "https://example.com/api#section"\n'
+        "key: value # inline comment\n"
+    )
+    cleaned = strip_yaml_comments(text)
+    assert 'name: "CI # not a comment"' in cleaned
+    assert 'url: "https://example.com/api#section"' in cleaned
+    assert "key: value" in cleaned
+    assert "# inline comment" not in cleaned
+
+
+# ported: StaticSecurityAnalysisDetectorTests.ignoresAnalyzerExamplesInsideGradleStringsAndCatalogComments
+def test_ignores_analyzer_names_inside_comments_and_docstrings(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname = "test"\ndescription = "An app with no bandit analyzer"\n# bandit should be added later\n',
+    )
+    assert detector.inspect(tmp_path).state == State.NOT_CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.checksGradlePluginStringContextInBoundedTime
+def test_checks_yaml_and_config_context_in_bounded_time(tmp_path: Path) -> None:
+    # 1 MiB adversarial content: many repeated quotes and hashes
+    adversarial = ('"quoted" # comment\n' * 50_000)[: 1024 * 1024]
+    cleaned = strip_yaml_comments(adversarial)
+    assert cleaned.count("#") == 0
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesSemgrepAndSonarProjectConfiguration
+def test_recognizes_semgrep_and_sonar_project_configuration(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "test"\n')
+    _write(tmp_path / "sonar-project.properties", "sonar.projectKey=my-proj\n")
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+    tmp2 = tmp_path / "t2"
+    _write(tmp2 / "pyproject.toml", '[project]\nname = "test"\n')
+    _write(tmp2 / ".semgrep" / "config.yml", "rules: []\n")
+    assert detector.inspect(tmp2).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesRepositoryLevelCodeQlWorkflow
+def test_recognizes_repository_level_codeql_workflow(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "test"\n')
+    workflow = tmp_path / ".github" / "workflows" / "codeql.yml"
+    _write(
+        workflow,
+        "name: CodeQL\non: [push]\njobs:\n  analyze:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - uses: github/codeql-action/analyze@v3\n",
+    )
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.recognizesAnalyzerWorkflowsWithoutMatchingNamesOrComments
+def test_recognizes_analyzer_workflows_without_matching_names_or_comments(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "test"\n')
+    workflow = tmp_path / ".github" / "workflows" / "build.yaml"
+    _write(
+        workflow,
+        "name: Build\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: bandit -r src/\n",
+    )
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.
+# continuesPastEmptyOversizedAndSymlinkedFilesWhenAnalyzerIsDeclaredElsewhere
+def test_continues_past_oversized_and_symlinked_files_when_analyzer_declared_elsewhere(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    # Oversized build file
+    _write(tmp_path / "requirements.txt", "x\n" * 600_000)  # > 1 MiB
+    # But pyproject declares bandit
+    _write(tmp_path / "pyproject.toml", '[tool.bandit]\nexclude_dirs = ["tests"]\n')
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
+
+
+# ported: StaticSecurityAnalysisDetectorTests.treatsWorkflowDirectoriesSymlinkedOutsideTheRepositoryAsIndeterminate
+def test_treats_workflow_directories_symlinked_outside_repo_as_indeterminate(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    outside = tmp_path / "outside_workflows"
+    _write(outside / "ci.yml", "name: CI\n")
+    repo = tmp_path / "repo"
+    _write(repo / ".git" / "HEAD", "ref: refs/heads/main\n")
+    _write(repo / "pyproject.toml", '[project]\nname = "test"\n')
+
+    try:
+        (repo / ".github").mkdir(parents=True)
+        (repo / ".github" / "workflows").symlink_to(outside)
+    except OSError:
+        pytest.skip("Symlinks not supported in this environment")
+
+    assert detector.inspect(repo).state == State.INDETERMINATE
+
+
+# ported: StaticSecurityAnalysisDetectorTests.treatsMalformedXmlUnresolvableLocalParentsAndOversizedFilesAsIndeterminate
+def test_treats_malformed_build_file_and_oversized_files_as_indeterminate(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    # Malformed TOML syntax
+    _write(tmp_path / "pyproject.toml", "[project\nname = invalid\n")
+    assert detector.inspect(tmp_path).state == State.INDETERMINATE
+
+    # Oversized pyproject
+    tmp2 = tmp_path / "oversized"
+    _write(tmp2 / "pyproject.toml", "# " + "a" * (1_048_576 + 10))
+    assert detector.inspect(tmp2).state == State.INDETERMINATE
+
+
+# ported: StaticSecurityAnalysisDetectorTests.staticOnlyAdvisorDoesNotClaimRuntimeEvidenceOrScanOnRead
+def test_static_only_advisor_does_not_claim_runtime_evidence_or_scan_on_read(tmp_path: Path) -> None:
+    from sharpit.engine.advisors.dismissals import DismissalStore
+    from sharpit.engine.collectors.security import Inputs
+    from sharpit.engine.collectors.security.report import SecurityService
+    from sharpit.engine.masking import Exposure, Masker
+    from sharpit.engine.singleflight import SingleFlight
+    from sharpit.engine.spi import SecurityFacts, SecurityModel
+
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "test"\nversion = "0.1.0"\n')
+    introspections = 0
+
+    def make_inputs() -> Inputs:
+        nonlocal introspections
+        introspections += 1
+        return Inputs(
+            model=SecurityModel(False, (), (), (), ()),
+            facts=SecurityFacts(False, None, (), (), ()),
+            source=None,
+            project_root=tmp_path,
+        )
+
+    service = SecurityService(
+        make_inputs,
+        DismissalStore(tmp_path / "dismissals"),
+        Masker(Exposure.MASKED, True),
+        SingleFlight(),
+        max_retained=1000,
+    )
+
+    report_pre = service.report()
+    assert report_pre["scan"]["status"] == "NOT_SCANNED"
+    assert report_pre["results"] == []
+    assert introspections == 0
+
+    report_scanned = service.scan()
+    assert introspections == 1
+    assert report_scanned["scan"]["status"] == "PARTIAL"
+    assert report_scanned["rulesEvaluated"] == 1
+    assert report_scanned["evidence"]["usable"] is False
+    assert len(report_scanned["results"]) == 1
+    result = report_scanned["results"][0]
+    assert result["id"] == RULE_ID
+    assert result["severity"] == "INFO"
+    assert result["status"] == "VIOLATION"
+    assert "Bandit" in result["recommendation"]
+    assert "organization-managed CI" in result["description"]
+
+    # Rule violations query
+    violations = service.violations(RULE_ID, report_scanned["violationDetails"]["scanId"], 0, None)
+    assert violations["violationCount"] == 1
+
+    # Add analyzer declaration, scan again
+    _write(tmp_path / "sonar-project.properties", "sonar.projectKey=test\n")
+    report_cached = service.report()
+    assert report_cached["scan"]["status"] == "PARTIAL"
+    assert introspections == 1  # cached, no rescan
+
+    report_rescan = service.scan()
+    assert report_rescan["results"] == []
+    assert introspections == 2
+
+
+# ported: StaticSecurityAnalysisDetectorTests.staticOnlyAdvisorReportsProjectRootInspectionFailure
+def test_static_only_advisor_reports_project_root_inspection_failure(tmp_path: Path) -> None:
+    from sharpit.engine.advisors.dismissals import DismissalStore
+    from sharpit.engine.collectors.security import Inputs
+    from sharpit.engine.collectors.security.report import SecurityService
+    from sharpit.engine.masking import Exposure, Masker
+    from sharpit.engine.singleflight import SingleFlight
+    from sharpit.engine.spi import SecurityFacts, SecurityModel
+
+    # Directory with an oversized build file so inspection fails with INDETERMINATE
+    _write(tmp_path / "pyproject.toml", "x" * (1_048_576 + 10))
+
+    service = SecurityService(
+        lambda: Inputs(
+            model=SecurityModel(False, (), (), (), ()),
+            facts=SecurityFacts(False, None, (), (), ()),
+            source=None,
+            project_root=tmp_path,
+        ),
+        DismissalStore(tmp_path / "dismissals"),
+        Masker(Exposure.MASKED, True),
+        SingleFlight(),
+        max_retained=1000,
+    )
+
+    report = service.scan()
+    assert report["scan"]["status"] == "PARTIAL"
+    assert "could not be assessed" in report["scan"]["message"]
+    assert report["evidence"]["usable"] is False
+    assert LIMITATION_TEXT in report["evidence"]["limitations"]
+    assert report["results"] == []

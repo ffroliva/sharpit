@@ -31,6 +31,13 @@ from sharpit.engine.collectors.security import (
     rules_source,
     rules_transport,
 )
+from sharpit.engine.collectors.security.static_analysis import (
+    LIMITATION_TEXT,
+    Inspection,
+    State,
+    StaticSecurityAnalysisDetector,
+    StaticSecurityAnalysisRule,
+)
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import SecurityChain, SecurityFacts, SecurityModel
@@ -102,12 +109,38 @@ def _message(chains: int, limitations: list[str]) -> str:
     return message
 
 
-def scan_evaluation(inputs: Inputs) -> Evaluation:
-    """Every rule over one scan's inputs (BootUI ``SecurityScanner.scan``): a rule that raises is an analysis error."""
-    model = inputs.model
-    if not model.present:
+def _non_present_model_evaluation(model: Any, inspection: Inspection) -> Evaluation:
+    if inspection.state == State.NOT_APPLICABLE:
         limitations = list(model.limitations) or None
         return Evaluation("DISABLED", DISABLED_MESSAGE, (), (), evidence(limitations=limitations), _Done(()))
+    if inspection.state == State.CONFIGURED:
+        static_message = (
+            "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
+            " sharpit does not verify analyzer execution."
+        )
+        return Evaluation("PARTIAL", static_message, (StaticSecurityAnalysisRule.RULE_ID,), (), evidence(), _Done(()))
+    if inspection.state == State.NOT_CONFIGURED:
+        static_message = "No FastAPI application was found to inspect. No local static analyzer declaration was found."
+        finding_tuple = (StaticSecurityAnalysisRule.finding(),)
+        return Evaluation(
+            "PARTIAL", static_message, (StaticSecurityAnalysisRule.RULE_ID,), finding_tuple, evidence(), _Done(())
+        )
+    # INDETERMINATE
+    static_message = (
+        "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed."
+    )
+    ev = StaticSecurityAnalysisRule.add_assessment_limitation(evidence())
+    return Evaluation("PARTIAL", static_message, (), (), ev, _Done(()))
+
+
+def scan_evaluation(inputs: Inputs) -> Evaluation:
+    """Every rule over one scan's inputs (BootUI ``SecurityScanner.scan``): a rule that raises is an analysis error."""
+    detector = StaticSecurityAnalysisDetector()
+    inspection = detector.inspect(inputs.project_root)
+    model = inputs.model
+    if not model.present:
+        return _non_present_model_evaluation(model, inspection)
+
     limitations = _limitations(inputs)
     evaluated: list[str] = []
     findings: list[Finding] = []
@@ -126,6 +159,14 @@ def scan_evaluation(inputs: Inputs) -> Evaluation:
             Finding(definition.id, ADVISOR, definition.severity, v.target, v.message, identity=v.identity)
             for v in found
         )
+
+    if inspection.evaluated:
+        evaluated.append(StaticSecurityAnalysisRule.RULE_ID)
+    if inspection.state == State.NOT_CONFIGURED:
+        findings.append(StaticSecurityAnalysisRule.finding())
+    elif inspection.state == State.INDETERMINATE:
+        limitations.append(LIMITATION_TEXT)
+
     if errors:
         limitations.append(f"{len(errors)} rule(s) could not be evaluated.")
     status = "PARTIAL" if limitations else "SCANNED"
@@ -158,10 +199,13 @@ def build_inputs(
     reasons: list[str] = []
     root = appsource.resolve_app_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
     index = appsource.build_index(root) if root is not None else None  # dropped with the inputs after the scan
-    return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons))
+    pyproject_file = appsource.find_pyproject_path(root, sys.path) if root is not None else None
+    project_root = pyproject_file.parent if pyproject_file is not None else None
+    return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons), project_root=project_root)
 
 
 SPEC = ScanSpec("security", ANALYZER, DISCLAIMER, NOT_SCANNED_MESSAGE)
+RULE_DEFINITIONS = (*[r.definition for r in RULES], StaticSecurityAnalysisRule.rule_definition())
 
 
 class SecurityService(AdvisorScan):
@@ -178,7 +222,7 @@ class SecurityService(AdvisorScan):
     ) -> None:
         super().__init__(
             SPEC,
-            [r.definition for r in RULES],
+            RULE_DEFINITIONS,
             lambda _request: scan_evaluation(inputs()),
             scope=_scope,
             extra_sections=_extra,

@@ -389,4 +389,3 @@ def test_find_pyproject_path_refuses_site_packages(tmp_path: Path) -> None:
     _write(site_pkg / "__init__.py")
     _write(tmp_path / "site-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
     assert appsource.find_pyproject_path(site_pkg, [str(tmp_path / "site-packages")]) is None
-
