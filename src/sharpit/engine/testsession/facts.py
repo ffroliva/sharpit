@@ -63,6 +63,7 @@ class SwallowedFact:
     programming_error: bool
     # ``path:scope:Type#n/m``, built by the worker from the parsed source; None from a worker of an earlier form
     identity: str | None = None
+    legacy_location: str | None = None  # stub: not carried yet
 
     def to_json(self) -> dict[str, Any]:
         return {

@@ -339,7 +339,7 @@ def test_a_dismissal_survives_a_line_added_above_the_handler(pytester: pytest.Py
     assert result.ret == 0, result.stdout.str()
 
 
-def test_a_legacy_line_keyed_entry_still_dismisses_and_the_report_names_its_new_key(
+def test_a_legacy_line_keyed_entry_no_longer_dismisses_and_the_report_names_its_new_key(
     pytester: pytest.Pytester,
 ) -> None:
     _week_project(pytester)
@@ -348,8 +348,8 @@ def test_a_legacy_line_keyed_entry_still_dismisses_and_the_report_names_its_new_
     result = pytester.runpytest("-n", "2", *WEEK_ARGS)
 
     data = _report(pytester)
-    assert _planted(data)["dismissed"] is True
-    assert result.ret == 0, result.stdout.str()
+    assert _planted(data)["dismissed"] is False
+    assert result.ret == 1, result.stdout.str()
     assert [w for w in data["warnings"] if WEEK_LEGACY in w and WEEK_IDENTITY in w]
 
 
@@ -400,4 +400,5 @@ def test_the_path_is_relative_to_the_rootdir_not_to_the_working_directory(
 
     [(_, fact)] = seen
     assert fact.location == "rooted_app.py:5"
+    assert fact.legacy_location == f"{module.as_posix()}:5"  # the working-directory form of 0.4.0 to 0.6.0
     assert (fact.identity or "").startswith("rooted_app.py:rooted_swallow:KeyError#")

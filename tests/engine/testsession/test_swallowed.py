@@ -619,7 +619,48 @@ def test_byte_identical_clauses_of_one_scope_get_an_occurrence_suffix() -> None:
 
     digest = single.rpartition("#")[2]
     assert re.fullmatch(r"[0-9a-f]{8}", digest)
-    assert (first.rpartition("#")[2], second.rpartition("#")[2]) == (f"{digest}.1", f"{digest}.2")
+    assert (first.rpartition("#")[2], second.rpartition("#")[2]) == (f"{digest}.1/2", f"{digest}.2/2")
+
+
+def test_adding_a_twin_never_hands_a_dismissal_to_another_twin() -> None:
+    same = _clause("a", 0)
+    dismissed = _keys(_scope(same, same))[1]  # the second of two identical clauses
+
+    after = _keys(_scope(same, same, same))
+
+    assert len(after) == 3
+    assert dismissed not in after
+
+
+def test_deleting_a_twin_never_moves_a_dismissal_to_another_twin() -> None:
+    same = _clause("a", 0)
+    dismissed = _keys(_scope(same, same, same))[1]  # the second of three identical clauses
+
+    after = _keys(_scope(same, same))
+
+    assert len(after) == 2
+    assert dismissed not in after
+
+
+def test_a_line_inside_the_try_body_changes_the_identity_and_a_line_above_the_try_keeps_it() -> None:
+    base = _scope(_clause("a", 0))
+    inside = _replaced(base, "        a()\n", "        a()\n        b()\n")
+    above = _replaced(base, "    try:\n", "    x = 1\n    try:\n")
+
+    assert _keys(inside) != _keys(base)
+    assert _keys(above) == _keys(base)
+
+
+def _boom(*_args: object) -> str:
+    raise AssertionError("a static caller that needs lines only must not shape the clauses")
+
+
+def test_the_static_check_and_the_index_do_not_shape_or_hash_the_clauses(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _scope(_clause("a", 0), _clause("b", 1))
+    monkeypatch.setattr(swallowed, "_shape", _boom)
+
+    assert len(swallowing_lines(source)) == 2
+    assert handler_swallows(source, 4) is True
 
 
 _PROPERTY = _src(
