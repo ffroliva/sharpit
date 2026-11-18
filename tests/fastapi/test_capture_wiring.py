@@ -645,6 +645,31 @@ def test_a_capture_clock_failure_on_the_last_chunk_still_serves_the_response(
     assert [row["status"] for row in _buffer(handle).rows()] == [200]
 
 
+def _fail_recording_of(
+    monkeypatch: pytest.MonkeyPatch, buffer: HttpExchangeBuffer, *, metadata: str, repository: str
+) -> dict[str, int]:
+    """Make the row assembly fail for a request path ending ``metadata`` and ``buffer.add`` for one ending
+    ``repository``; every other exchange is recorded as usual. The counts say that each failure really ran."""
+    failures = {"metadata": 0, "repository": 0}
+    real_exchange_row, real_add = capture_mod.exchange_row, buffer.add
+
+    def exchange_row(*args: Any, path: str, **kwargs: Any) -> dict[str, Any]:
+        if path.endswith(metadata):
+            failures["metadata"] += 1
+            raise RuntimeError("secret-capture-message")
+        return real_exchange_row(*args, path=path, **kwargs)
+
+    def add(row: dict[str, Any]) -> None:
+        if row["path"].endswith(repository):
+            failures["repository"] += 1
+            raise RuntimeError("secret-capture-message")
+        real_add(row)
+
+    monkeypatch.setattr(capture_mod, "exchange_row", exchange_row)
+    monkeypatch.setattr(buffer, "add", add)
+    return failures
+
+
 def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
@@ -664,25 +689,7 @@ def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures
 
     handle = install(app, enabled="ON", show_banner=False)
     buffer = _buffer(handle)
-    metadata_reads = failed_adds = 0
-    real_exchange_row, real_add = capture_mod.exchange_row, buffer.add
-
-    def exchange_row(*args: Any, path: str, **kwargs: Any) -> dict[str, Any]:
-        nonlocal metadata_reads
-        if path.endswith("/metadata"):
-            metadata_reads += 1
-            raise RuntimeError("secret-capture-message")
-        return real_exchange_row(*args, path=path, **kwargs)
-
-    def add(row: dict[str, Any]) -> None:
-        nonlocal failed_adds
-        if row["path"].endswith("/repository"):
-            failed_adds += 1
-            raise RuntimeError("secret-capture-message")
-        real_add(row)
-
-    monkeypatch.setattr(capture_mod, "exchange_row", exchange_row)
-    monkeypatch.setattr(buffer, "add", add)
+    failures = _fail_recording_of(monkeypatch, buffer, metadata="/metadata", repository="/repository")
 
     async def stream_all() -> dict[str, list[Message]]:
         answers: dict[str, list[Message]] = {}
@@ -699,8 +706,7 @@ def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures
         assert start["status"] == 200, anomaly
         assert (b"content-type", b"application/pdf") in start["headers"], anomaly
         assert b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body") == body, anomaly
-    assert metadata_reads == 1
-    assert failed_adds == 1
+    assert failures == {"metadata": 1, "repository": 1}
     assert [(row["path"], row["status"], row["responseSizeBytes"]) for row in buffer.rows()] == [
         ("/api/recording-stream/normal", 200, len(body))
     ]
