@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import Awaitable, Callable, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -18,8 +20,10 @@ from examples.fastapi_sample.app import create_app
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
+import sharpit.fastapi.capture as capture_mod
 from fastapi import FastAPI, Request, WebSocket
 from sharpit import install
 from sharpit.engine import sqla
@@ -314,23 +318,56 @@ def test_probe_header_stripped_from_real_request():
     assert any(h["name"] == "x-sharpit-probe" for h in _rows(handle)[0]["requestHeaders"])
 
 
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def _explode(message: str) -> Callable[..., Any]:
+    def explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(message)
+
+    return explode
+
+
+async def _serve(app: FakeApp, scope: Scope, sent: list[Message], fail_start: Exception | None = None) -> None:
+    """One request straight into an ASGI app; ``fail_start`` makes the server's ``send`` fail on the response start."""
+
+    pending: list[Message] = [{"type": "http.request", "body": b"", "more_body": False}]
+
+    async def receive() -> Message:
+        if pending:
+            return pending.pop()
+        await asyncio.Event().wait()  # like a server with nothing more to say: a streaming response listens for it
+        raise AssertionError  # pragma: no cover
+
+    async def send(message: Message) -> None:
+        if fail_start is not None and message["type"] == "http.response.start":
+            raise fail_start
+        sent.append(message)
+
+    await app(scope, receive, send)
+
+
+def _starts(sent: list[Message]) -> list[Message]:
+    return [m for m in sent if m["type"] == "http.response.start"]
+
+
 def test_hook_failure_leaves_response(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
+    # ported: BootUiHttpExchangesFilterTests.repositoryFailureDoesNotAlterTheServedResponse
+    # ported: BootUiHttpExchangesWebFilterTests.repositoryFailureDoesNotPreventResponseCommitment
     app = FastAPI()
-    app.get("/ok")(lambda: {"ok": True})
+    app.get("/ok")(lambda: Response(content="complete", status_code=201, media_type="text/plain"))
     handle = install(app, enabled="ON", show_banner=False)
-
-    def explode(_row: object) -> None:
-        raise RuntimeError("secret-bearing message")
-
-    monkeypatch.setattr(_buffer(handle), "add", explode)
+    monkeypatch.setattr(_buffer(handle), "add", _explode("secret-bearing message"))
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
         for _ in range(3):
             resp = client.get("/ok")
-            assert (resp.status_code, resp.json()) == (200, {"ok": True})
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+            assert (resp.status_code, resp.text) == (201, "complete")
+    warnings = _warnings(caplog)
     assert len(warnings) == 1, warnings
     assert "request end" in warnings[0]
+    assert "RuntimeError" in warnings[0]
     assert "secret-bearing" not in warnings[0]
 
 
@@ -341,10 +378,7 @@ def test_metadata_failure_does_not_alter_a_committed_response(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     # ported: BootUiHttpExchangesFilterTests.metadataFailureDoesNotAlterACommittedResponse
-    from starlette.responses import Response
-
-    import sharpit.fastapi.capture as capture_mod
-
+    # ported: BootUiHttpExchangesWebFilterTests.metadataFailureDoesNotPreventResponseCommitment
     app = FastAPI()
 
     @app.get("/download")
@@ -352,11 +386,7 @@ def test_metadata_failure_does_not_alter_a_committed_response(
         return Response(content="complete", status_code=206, media_type="text/plain")
 
     handle = install(app, enabled="ON", show_banner=False)
-
-    def explode_metadata(*_args: Any, **_kwargs: Any) -> Any:
-        raise RuntimeError("secret-header-message")
-
-    monkeypatch.setattr(capture_mod, "exchange_row", explode_metadata)
+    monkeypatch.setattr(capture_mod, "exchange_row", _explode("secret-header-message"))
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
@@ -365,44 +395,13 @@ def test_metadata_failure_does_not_alter_a_committed_response(
         assert resp.text == "complete"
 
     assert _buffer(handle).rows() == []
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    warnings = _warnings(caplog)
     assert len(warnings) == 1
     assert "request end" in warnings[0]
     assert "RuntimeError" in warnings[0]
     assert "secret-header-message" not in warnings[0]
     assert "secret-query" not in warnings[0]
-
-
-def test_repository_failure_does_not_alter_the_served_response(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-):
-    # ported: BootUiHttpExchangesFilterTests.repositoryFailureDoesNotAlterTheServedResponse
-    from starlette.responses import Response
-
-    app = FastAPI()
-
-    @app.get("/download")
-    def download():
-        return Response(content="complete", status_code=201, media_type="text/plain")
-
-    handle = install(app, enabled="ON", show_banner=False)
-
-    def failing_add(_row: Any) -> None:
-        raise RuntimeError("secret-repository-message")
-
-    monkeypatch.setattr(_buffer(handle), "add", failing_add)
-
-    client = TestClient(app)
-    with caplog.at_level(logging.WARNING, logger="sharpit"):
-        resp = client.get("/download")
-        assert resp.status_code == 201
-        assert resp.text == "complete"
-
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "request end" in warnings[0]
-    assert "RuntimeError" in warnings[0]
-    assert "secret-repository-message" not in warnings[0]
+    assert "/download" not in warnings[0]
 
 
 @pytest.mark.parametrize(
@@ -414,14 +413,15 @@ def test_repository_failure_does_not_alter_the_served_response(
     ],
     ids=["runtime", "value", "key"],
 )
-@pytest.mark.parametrize("failing_buffer", [False, True], ids=["healthy-buffer", "failing-buffer"])
+@pytest.mark.parametrize("recording", ["healthy", "failing-add", "failing-metadata"])
 def test_preserves_every_application_exception_even_when_recording_also_fails(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     failure_factory: Callable[[], Exception],
-    failing_buffer: bool,
+    recording: str,
 ):
     # ported: BootUiHttpExchangesFilterTests.preservesEveryApplicationExceptionEvenWhenRecordingAlsoFails
+    # ported: BootUiHttpExchangesWebFilterTests.preservesApplicationErrorsAndLetsTheErrorHandlerCommitDespiteARecordingFailure  # noqa: E501
     app = FastAPI()
 
     failure = failure_factory()
@@ -432,12 +432,10 @@ def test_preserves_every_application_exception_even_when_recording_also_fails(
 
     handle = install(app, enabled="ON", show_banner=False)
 
-    if failing_buffer:
-
-        def failing_add(_row: Any) -> None:
-            raise RuntimeError("secret-repository-message")
-
-        monkeypatch.setattr(_buffer(handle), "add", failing_add)
+    if recording == "failing-add":
+        monkeypatch.setattr(_buffer(handle), "add", _explode("secret-repository-message"))
+    if recording == "failing-metadata":
+        monkeypatch.setattr(capture_mod, "exchange_row", _explode("secret-repository-message"))
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
@@ -445,23 +443,76 @@ def test_preserves_every_application_exception_even_when_recording_also_fails(
             client.get("/api/fail")
         assert exc_info.value is failure
 
-    if not failing_buffer:
+    store = handle.context.capture.exceptions
+    assert store is not None
+    assert type(failure).__name__ in [g["exceptionClassName"] for g in store.report()["groups"]]
+    if recording == "healthy":
         rows = _buffer(handle).rows()
         assert len(rows) == 1
         assert rows[0]["status"] == 500
         assert rows[0]["error"] is True
     else:
-        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        warnings = _warnings(caplog)
         assert len(warnings) == 1
         assert "request end" in warnings[0]
         assert "RuntimeError" in warnings[0]
         assert "secret-repository-message" not in warnings[0]
 
 
+class _Teapot(Exception):
+    pass
+
+
+@pytest.mark.parametrize("failing_buffer", [False, True], ids=["healthy-buffer", "failing-buffer"])
+def test_the_error_handler_commits_despite_a_recording_failure(monkeypatch: pytest.MonkeyPatch, failing_buffer: bool):
+    # ported: BootUiHttpExchangesWebFilterTests.preservesApplicationErrorsAndLetsTheErrorHandlerCommitDespiteARecordingFailure  # noqa: E501
+    app = FastAPI()
+
+    @app.exception_handler(_Teapot)
+    def handler(_request: Request, _exc: _Teapot):  # pyright: ignore[reportUnusedFunction]
+        return Response(content="complete", status_code=418, media_type="text/plain")
+
+    @app.get("/api/fail")
+    def fail():  # pyright: ignore[reportUnusedFunction]
+        raise _Teapot
+
+    handle = install(app, enabled="ON", show_banner=False)
+    if failing_buffer:
+        monkeypatch.setattr(_buffer(handle), "add", _explode("secret-repository-message"))
+
+    resp = TestClient(app).get("/api/fail")
+    assert (resp.status_code, resp.text) == (418, "complete")
+
+
+@pytest.mark.parametrize("failing_buffer", [False, True], ids=["healthy-buffer", "failing-buffer"])
+def test_application_and_send_failures_propagate_unchanged(monkeypatch: pytest.MonkeyPatch, failing_buffer: bool):
+    # ported: BootUiHttpExchangesWebFilterTests.doesNotSwallowSynchronousApplicationOrApplicationCommitFailures
+    handle = _handle()
+    if failing_buffer:
+        monkeypatch.setattr(_buffer(handle), "add", _explode("secret-repository-message"))
+    application_failure = RuntimeError("application")
+    send_failure = OSError("commit")
+
+    async def raises_at_once(_scope: Scope, _receive: Receive, _send: Send) -> None:
+        raise application_failure
+
+    async def answers(_scope: Scope, _receive: Receive, send: Send) -> None:
+        await send(_start(200))
+
+    with pytest.raises(RuntimeError) as application:
+        asyncio.run(_serve(CaptureMiddleware(raises_at_once, handle.context), _scope("/api/fail"), []))
+    assert application.value is application_failure
+    with pytest.raises(OSError, match="commit") as commit:
+        asyncio.run(_serve(CaptureMiddleware(answers, handle.context), _scope("/api/fail"), [], send_failure))
+    assert commit.value is send_failure
+
+
+@pytest.mark.parametrize("failing_step", ["mask_path", "request_id", "mail_wrapper", "first_request_hook"])
 def test_setup_failure_still_invokes_the_application_exactly_once(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failing_step: str
 ):
     # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce
+    # ported: BootUiHttpExchangesWebFilterTests.preparationFailuresStillInvokeTheApplicationExactlyOnce
     app = FastAPI()
     calls = 0
 
@@ -472,11 +523,15 @@ def test_setup_failure_still_invokes_the_application_exactly_once(
         return {"orders": []}
 
     handle = install(app, enabled="ON", show_banner=False)
-
-    def explode_mask_path(_path: str) -> str:
-        raise RuntimeError("secret-metadata-message")
-
-    monkeypatch.setattr(handle.context.masker, "mask_path", explode_mask_path)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    owner, name = {
+        "mask_path": (handle.context.masker, "mask_path"),
+        "request_id": (capture_mod, "new_request_id"),
+        "mail_wrapper": (capture_mod, "ensure_mail_wrapped"),
+        "first_request_hook": (wiring, "on_first_request"),
+    }[failing_step]
+    monkeypatch.setattr(owner, name, _explode("secret-metadata-message"))
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
@@ -486,32 +541,79 @@ def test_setup_failure_still_invokes_the_application_exactly_once(
 
     assert calls == 1
     assert _buffer(handle).rows() == []
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    warnings = _warnings(caplog)
     assert len(warnings) == 1
     assert "request start" in warnings[0]
     assert "RuntimeError" in warnings[0]
     assert "secret-metadata-message" not in warnings[0]
 
 
-def test_callback_registration_failure_still_serves_the_response(
+def test_an_exception_from_sharpits_own_route_reaches_the_host_after_one_invocation(caplog: pytest.LogCaptureFixture):
+    # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce (one invocation)
+    handle = _handle()
+    failure = ValueError("own-route-failure")
+    calls = 0
+
+    async def own_route(_scope: Scope, _receive: Receive, send: Send) -> None:
+        nonlocal calls
+        calls += 1
+        await send(_start(200))
+        raise failure
+
+    sent: list[Message] = []
+    with caplog.at_level(logging.WARNING, logger="sharpit"), pytest.raises(ValueError) as raised:
+        asyncio.run(_serve(CaptureMiddleware(own_route, handle.context), _scope("/sharpit/api/boom"), sent))
+    assert raised.value is failure
+    assert calls == 1
+    assert len(_starts(sent)) == 1
+    assert not any("request start" in w for w in _warnings(caplog))
+
+
+@pytest.mark.parametrize("failing_step", ["first_request_hook", "mail_wrapper"])
+def test_a_setup_failure_never_passes_a_forged_probe_header_to_the_host(
+    monkeypatch: pytest.MonkeyPatch, failing_step: str
+):
+    app = FastAPI()
+
+    @app.get("/echo")
+    def echo(request: Request) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+        return {"probe": request.headers.get("x-sharpit-probe")}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    owner, name = (
+        (wiring, "on_first_request") if failing_step == "first_request_hook" else (capture_mod, "ensure_mail_wrapped")
+    )
+    monkeypatch.setattr(owner, name, _explode("setup"))
+
+    resp = TestClient(app).get("/echo", headers={"X-Sharpit-Probe": "1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"probe": None}
+
+
+def test_a_capture_clock_failure_on_the_last_chunk_still_serves_the_response(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     # ported: BootUiHttpExchangesWebFilterTests.callbackRegistrationFailureStillServesTheResponse
-    from starlette.responses import Response
-
-    import sharpit.fastapi.capture as capture_mod
-
+    # adapted: only the capture clock of the response stamp fails (once); the row is still recorded at request end
     app = FastAPI()
+    fired: list[bool] = []
+
+    def failing_once() -> int:
+        if not fired:
+            fired.append(True)
+            raise RuntimeError("secret-send-message")
+        return time.perf_counter_ns()
 
     @app.get("/download")
     def download():
-        def failing_perf_counter() -> int:
-            raise RuntimeError("secret-send-message")
-
-        monkeypatch.setattr(capture_mod.time, "perf_counter_ns", failing_perf_counter)
+        monkeypatch.setattr(
+            capture_mod, "time", SimpleNamespace(perf_counter_ns=failing_once, time_ns=time.time_ns)
+        )  # after the request start: only the response stamp can fail
         return Response(content="complete", status_code=200, media_type="text/plain")
 
-    install(app, enabled="ON", show_banner=False)
+    handle = install(app, enabled="ON", show_banner=False)
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
@@ -519,22 +621,25 @@ def test_callback_registration_failure_still_serves_the_response(
         assert resp.status_code == 200
         assert resp.text == "complete"
 
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("response" in w and "RuntimeError" in w for w in warnings)
-    assert not any("secret-send-message" in w for w in warnings)
+    assert fired == [True]
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "hook response failed" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-send-message" not in warnings[0]
+    assert [row["status"] for row in _buffer(handle).rows()] == [200]
 
 
 def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     # ported: SpringHttpExchangeStreamingTest.streamsTheFullPdfDespiteMalformedMetadataAndRepositoryFailures
-    import sharpit.fastapi.capture as capture_mod
-
+    # ported: WebFluxHttpExchangeStreamingTest.streamsTheFullPdfDespiteARepositoryFailureDuringCommit  # noqa: E501
     app = FastAPI()
     body = b"%PDF-1.4\n" + b"x" * 200_000
 
     @app.get("/api/recording-stream/{anomaly}")
-    def stream_pdf(anomaly: str):
+    def stream_pdf(anomaly: str):  # pyright: ignore[reportUnusedFunction]
         def generate():
             chunk_size = 16384
             for i in range(0, len(body), chunk_size):
@@ -543,41 +648,50 @@ def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures
         return StreamingResponse(generate(), media_type="application/pdf")
 
     handle = install(app, enabled="ON", show_banner=False)
-    client = TestClient(app)
+    buffer = _buffer(handle)
+    metadata_reads = failed_adds = 0
+    real_exchange_row, real_add = capture_mod.exchange_row, buffer.add
 
-    # 1. Normal streaming without anomaly
-    resp = client.get("/api/recording-stream/normal")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-    assert resp.content == body
+    def exchange_row(*args: Any, path: str, **kwargs: Any) -> dict[str, Any]:
+        nonlocal metadata_reads
+        if path.endswith("/metadata"):
+            metadata_reads += 1
+            raise RuntimeError("secret-capture-message")
+        return real_exchange_row(*args, path=path, **kwargs)
 
-    # 2. Metadata failure during exchange_row assembly
-    def explode_metadata(*_args: Any, **_kwargs: Any) -> Any:
-        raise RuntimeError("secret-capture-message")
+    def add(row: dict[str, Any]) -> None:
+        nonlocal failed_adds
+        if row["path"].endswith("/repository"):
+            failed_adds += 1
+            raise RuntimeError("secret-capture-message")
+        real_add(row)
 
-    monkeypatch.setattr(capture_mod, "exchange_row", explode_metadata)
+    monkeypatch.setattr(capture_mod, "exchange_row", exchange_row)
+    monkeypatch.setattr(buffer, "add", add)
+
+    async def stream_all() -> dict[str, list[Message]]:
+        answers: dict[str, list[Message]] = {}
+        for anomaly in ("normal", "metadata", "repository"):
+            answers[anomaly] = []
+            await _serve(app, _scope(f"/api/recording-stream/{anomaly}"), answers[anomaly])
+        return answers
+
     with caplog.at_level(logging.WARNING, logger="sharpit"):
-        resp = client.get("/api/recording-stream/metadata")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "application/pdf"
-        assert resp.content == body
+        answers = asyncio.run(stream_all())
 
-    # 3. Repository add failure
-    monkeypatch.undo()
-
-    def failing_add(_row: Any) -> None:
-        raise RuntimeError("secret-capture-message")
-
-    monkeypatch.setattr(_buffer(handle), "add", failing_add)
-    with caplog.at_level(logging.WARNING, logger="sharpit"):
-        resp = client.get("/api/recording-stream/repository")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "application/pdf"
-        assert resp.content == body
-
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    for anomaly, sent in answers.items():
+        (start,) = _starts(sent)
+        assert start["status"] == 200, anomaly
+        assert (b"content-type", b"application/pdf") in start["headers"], anomaly
+        assert b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body") == body, anomaly
+    assert metadata_reads == 1
+    assert failed_adds == 1
+    assert [(row["path"], row["status"], row["responseSizeBytes"]) for row in buffer.rows()] == [
+        ("/api/recording-stream/normal", 200, len(body))
+    ]
+    warnings = _warnings(caplog)
     assert not any("secret-capture-message" in w for w in warnings)
-    assert not any("Cannot render error page" in w for w in warnings)
+    assert [("request end" in w, "RuntimeError" in w) for w in warnings] == [(True, True)]
 
 
 # --- wiring ---------------------------------------------------------------------------------------------------------
