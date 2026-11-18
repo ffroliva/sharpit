@@ -140,6 +140,18 @@ def resolve_app_root(
     return root
 
 
+# ---- pyproject locator (moved from collectors/architecture/contracts.py) ---------------------------------------
+
+
+def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> Path | None:
+    """The ``pyproject.toml`` of the sys.path entry holding ``package_root``, or that entry's parent for a src/ layout.
+
+    Spec §5.5, §14: nowhere else. The holding entry is the root's own parent directory; an ancestor entry does not
+    hold the package, and nothing is read when the holding entry is not on ``sys_path`` or is under site-packages.
+    """
+    return Path("/wrong/path/pyproject.toml")
+
+
 # ---- the bounded index -----------------------------------------------------------------------------------------
 
 

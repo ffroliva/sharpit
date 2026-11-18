@@ -374,3 +374,19 @@ def test_file_grown_past_the_size_bound_after_stat(tmp_path: Path, monkeypatch: 
     assert "grown.small" in index.modules
     assert "grown.grown" not in index.modules
     assert any("grown.py" in reason for reason in index.limitations)
+
+
+def test_find_pyproject_path_locates_pyproject(tmp_path: Path) -> None:
+    project = tmp_path / "my_project"
+    pkg = project / "src" / "pkg"
+    _write(pkg / "__init__.py")
+    pyproject = _write(project / "pyproject.toml", "[project]\nname='pkg'\n")
+    assert appsource.find_pyproject_path(pkg, [str(project / "src")]) == pyproject
+
+
+def test_find_pyproject_path_refuses_site_packages(tmp_path: Path) -> None:
+    site_pkg = tmp_path / "site-packages" / "pkg"
+    _write(site_pkg / "__init__.py")
+    _write(tmp_path / "site-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
+    assert appsource.find_pyproject_path(site_pkg, [str(tmp_path / "site-packages")]) is None
+
