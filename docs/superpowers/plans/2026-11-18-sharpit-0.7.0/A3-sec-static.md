@@ -34,9 +34,9 @@ bounded local build files and configuration without executing analyzers or claim
 
 ## Tasks
 
-- [ ] **Step 1:** Move `find_pyproject_path` from `engine/collectors/architecture/contracts.py` to `src/sharpit/engine/appsource.py` with site-packages guard; architecture collector re-exports or reuses from `appsource`.
-- [ ] **Step 2:** Create `src/sharpit/engine/collectors/security/static_analysis.py` with bounded file reading, symlink/junction/FIFO safety, YAML comment stripping, Python analyzer detection (Bandit, Semgrep, a `sonar-project.properties` file, CodeQL, Ruff), and `StaticSecurityAnalysisRule`.
-- [ ] **Step 3:** Wire `StaticSecurityAnalysisDetector` into `src/sharpit/engine/collectors/security/report.py` (`scan_evaluation` and `SecurityService`).
-- [ ] **Step 4:** Port the 22 `StaticSecurityAnalysisDetectorTests` cases adapted to Python project structure.
-- [ ] **Step 5:** Write safety, secrecy, performance, boundary, and non-FastAPI test suite covering all 9 required verification points.
-- [ ] **Step 6:** Update `docs/security-advisor-checks.md`, CHANGELOG, and `docs/reference/matrix-updates/a3-sec-static.tsv`. Run all verification gates.
+- [x] **Step 1:** Move `find_pyproject_path` from `engine/collectors/architecture/contracts.py` to `src/sharpit/engine/appsource.py` with site-packages guard; architecture collector re-exports or reuses from `appsource`.
+- [x] **Step 2:** Create `src/sharpit/engine/collectors/security/static_analysis.py` with bounded file reading, symlink/junction/FIFO safety, YAML comment stripping, Python analyzer detection (Bandit, Semgrep, a `sonar-project.properties` file, CodeQL, Ruff), and `StaticSecurityAnalysisRule`.
+- [x] **Step 3:** Wire `StaticSecurityAnalysisDetector` into `src/sharpit/engine/collectors/security/report.py` (`scan_evaluation` and `SecurityService`).
+- [x] **Step 4:** Port the 22 `StaticSecurityAnalysisDetectorTests` cases adapted to Python project structure.
+- [x] **Step 5:** Write safety, secrecy, performance, boundary, and non-FastAPI test suite covering all 9 required verification points.
+- [x] **Step 6:** Update `docs/security-advisor-checks.md`, CHANGELOG, and `docs/reference/matrix-updates/a3-sec-static.tsv`. Run all verification gates.

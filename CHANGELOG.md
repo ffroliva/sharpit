@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only during security scan (`POST /security/scan`), never on GET reads or MCP/CLI tools.
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
 
 ### Fixed
