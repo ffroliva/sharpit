@@ -107,7 +107,8 @@ def test_null_driver_name_is_reported_as_incomplete_evidence(monkeypatch: pytest
         out = _catalog(conn)
 
     assert out["complete"] is False
-    assert any("The database driver name was unavailable; driver settings are not evaluated." in d["message"] for d in out["diagnostics"])
+    expected = "The database driver name was unavailable; driver settings are not evaluated."
+    assert any(expected in d["message"] for d in out["diagnostics"])
 
 
 def test_a_null_url_is_a_warning_and_makes_evidence_incomplete(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,7 +120,8 @@ def test_a_null_url_is_a_warning_and_makes_evidence_incomplete(monkeypatch: pyte
         out = _catalog(conn)
 
     assert out["complete"] is False
-    assert any("The driver reported no database URL; driver settings configured in it are not evaluated." in d["message"] for d in out["diagnostics"])
+    expected = "The driver reported no database URL; driver settings configured in it are not evaluated."
+    assert any(expected in d["message"] for d in out["diagnostics"])
 
 
 def test_scan_with_findings_has_usable_true() -> None:
@@ -194,6 +196,10 @@ def test_unconfigured_mappers_neutral_info_skip_stays_scanned() -> None:
     class Base(DeclarativeBase):
         pass
 
+    class User(Base):
+        __tablename__ = "users"
+        id = sa.Column(sa.Integer, primary_key=True)
+
     orm_facts = rules_orm.facts((Base,))
     assert orm_facts["known_absent"] is True
 
@@ -233,7 +239,7 @@ def test_models_with_no_declarative_base_or_registry_warns_and_partial() -> None
     class Dummy:
         pass
 
-    orm_facts = rules_orm.facts((Dummy,))
+    orm_facts = rules_orm.facts((Dummy(),))
     assert orm_facts["known_absent"] is False
     assert any("Dummy" in str(err) for err in orm_facts["errors"])
 
@@ -291,7 +297,8 @@ def test_postgres_relation_inventory_warning_only_on_dedicated_signal() -> None:
         },
     )
     res_generic = report.evaluate([source_generic])
-    assert not any("PostgreSQL relation inventory is incomplete" in d["message"] for d in res_generic.detail.diagnostics)
+    msgs = [d["message"] for d in res_generic.detail.diagnostics]
+    assert not any("PostgreSQL relation inventory is incomplete" in m for m in msgs)
 
     # Dedicated relation_inventory_complete=False DOES trigger the warning
     source_dedicated = Source(
