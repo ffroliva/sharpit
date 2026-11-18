@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator
 
 import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import busy_part, part, render_parts
+from sharpit.engine.advisors.findings import AdvisorRun
 
 PACKAGED = Path(testsession_pkg.__file__).parent / "report.schema.json"
 PUBLISHED = Path(__file__).resolve().parents[1] / "docs" / "reference" / "report.schema.json"
@@ -73,3 +74,13 @@ def test_schema_requires_the_040_finding_keys(key: str) -> None:
     data = render_parts(busy_part())
     del data["findings"][0][key]
     assert _errors(data) != [], f"finding {key} is always emitted, so the schema must require it"
+
+
+@pytest.mark.parametrize("path", [PACKAGED, PUBLISHED], ids=["packaged", "published"])
+def test_schema_validates_a_report_with_a_partial_advisor(path: Path) -> None:
+    limits = {"usable": True, "coverageComplete": False, "limitations": ["a mount has no routes"]}
+    data = render_parts(part(advisor_runs=[AdvisorRun.of("rest-api", [], limits, app="app")]))
+    assert data["advisors"][0]["status"] == "PARTIAL"
+    assert data["advisors"][0]["apps"][0]["status"] == "PARTIAL"
+    errors = list(Draft202012Validator(json.loads(path.read_text(encoding="utf-8"))).iter_errors(data))
+    assert errors == []

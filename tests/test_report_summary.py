@@ -229,3 +229,19 @@ def test_summary_neutralises_bare_urls() -> None:
     from sharpit.report.summary import _esc  # pyright: ignore[reportPrivateUsage]
 
     assert _esc("go HTTPS://a.b/c, http://d and www.e.f") == "go HTTPS:​//a.b/c, http:​//d and www​.e.f"
+
+
+def test_summary_lists_a_partial_assessment_and_says_it_is_not_proof() -> None:
+    app = {"app": "main:app", "status": "PARTIAL", "reason": "Mounted application at /mcp/messages has no routes."}
+    report = _report(
+        gates={"failOnSeverity": "HIGH"},
+        advisors=[{"advisor": "rest-api", "status": "PARTIAL", "reason": app["reason"], "apps": [app]}],
+    )
+    text = render_summary(report)
+    assert "### Partial assessments" in text
+    assert "advisor 'rest-api' assessed part of main:app: Mounted application at /mcp/messages has no routes." in text
+    assert "having no finding at or above HIGH is not proof there is none" in text
+
+
+def test_summary_without_a_partial_assessment_has_no_partial_section() -> None:
+    assert "Partial assessments" not in render_summary(_report(gates={"failOnSeverity": "HIGH"}, advisors=[]))

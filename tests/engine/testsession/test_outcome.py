@@ -7,7 +7,7 @@ import pytest
 from engine.testsession.tsfakes import NODE, call_test, part, passed_run, source
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.testsession.facts import SessionFacts
-from sharpit.engine.testsession.outcome import MergedFacts, exit_fails, merge, session_status
+from sharpit.engine.testsession.outcome import MergedFacts, _worst, exit_fails, merge, session_status
 
 NO_APP = "no application: pass --sharpit-app or call sharpit.install in the tests"
 
@@ -35,8 +35,10 @@ def _failing(attempt: int = 1, worker: str = "gw0", node: str = NODE, *, dismiss
     return test
 
 
-def _run(status_findings: list[Finding], *, app: str = "A#1", limitations: list[str] | None = None) -> AdvisorRun:
-    evidence = {"usable": True, "coverageComplete": not limitations, "limitations": limitations or []}
+def _run(
+    status_findings: list[Finding], *, app: str = "A#1", limitations: list[str] | None = None, usable: bool = True
+) -> AdvisorRun:
+    evidence = {"usable": usable, "coverageComplete": not limitations, "limitations": limitations or []}
     return AdvisorRun.of("rest-api", status_findings, evidence, app=app)
 
 
@@ -83,6 +85,7 @@ def test_failed_advisor_preserves_unknown_reason_when_status_fails() -> None:
         "rest-api",
         [finding],
         {"usable": True, "coverageComplete": False, "limitations": ["one rule errored"]},
+        scan_status="ERROR",
     )
     result = session_status(
         merge([part(tests=[_failing()], sources=[], advisor_runs=[failed_incomplete])], []),
@@ -106,6 +109,7 @@ def test_merge_keeps_incomplete_reason_when_another_failed_run_is_complete() -> 
         "rest-api",
         [Finding("RAPI-INCOMPLETE", "rest-api", "HIGH", "GET /b", "finding")],
         {"usable": True, "coverageComplete": False, "limitations": ["one rule errored"]},
+        scan_status="ERROR",
         app="App#1",
     )
     result = session_status(
@@ -242,7 +246,7 @@ def test_driver_name_table(module: str, engines: set[str], covered: bool) -> Non
 
 
 def test_status_advisor_unknown() -> None:
-    limited = _run([], limitations=["an opaque mounted app"])
+    limited = _run([], limitations=["an opaque mounted app"], usable=False)
     assert _legacy_status(part(advisor_runs=[limited])) == (
         "unknown",
         ["advisor 'rest-api' could not assess: an opaque mounted app"],
@@ -276,7 +280,7 @@ def test_status_exception_source_lost_unknown() -> None:
 
 
 def test_merge_advisor_per_app_unknown_wins() -> None:
-    limited = _run([], limitations=["partial"], app="A#1")
+    limited = _run([], limitations=["partial"], app="A#1", usable=False)
     merged = merge(
         [part("gw0", advisor_runs=[passed_run("A#1"), passed_run("B#2")]), part("gw1", advisor_runs=[limited])], []
     )
@@ -372,7 +376,7 @@ def _incomplete_pair(app_b: str, worker_b: str) -> Any:
         app="App#A",
     )
     unknown = AdvisorRun.of(
-        "rest-api", [], {"usable": True, "coverageComplete": False, "limitations": ["app b errored"]}, app=app_b
+        "rest-api", [], {"usable": False, "coverageComplete": False, "limitations": ["app b errored"]}, app=app_b
     )
     return session_status(
         merge([part(advisor_runs=[failed]), part(worker_b, advisor_runs=[unknown])], []),
@@ -391,3 +395,77 @@ def test_unknown_app_beside_failed_app_keeps_unknown_reason() -> None:
 def test_unknown_worker_beside_failed_worker_keeps_unknown_reason() -> None:
     result = _incomplete_pair("App#A", "gw1")
     assert "advisor 'rest-api' could not assess: app b errored" in result.unknown_reasons
+
+
+def _partial(app: str = "A#1") -> AdvisorRun:
+    return _run([], limitations=["Mounted application at /mcp/messages has no inspectable routes."], app=app)
+
+
+def test_partial_advisor_passes_the_session_with_a_note() -> None:
+    # ported: FailOnTests.aPartialScanWithoutAFindingPassesButSaysItIsNotProof
+    merged = merge([part(advisor_runs=[_partial()])], [])
+    result = session_status(merged, allow_unknown=False, max_unattributed=10.0, advisors_enabled=True, fail_on="HIGH")
+    assert result.status == "pass"
+    assert result.unknown_reasons == []
+    assert merged.warnings == [
+        "advisor 'rest-api' assessed part of A#1: Mounted application at /mcp/messages has no inspectable routes.; "
+        "having no finding at or above HIGH is not proof there is none"
+    ]
+
+
+def test_partial_advisor_with_a_finding_still_fails_the_session() -> None:
+    # ported: FailOnTests.aPartialScanWithAFindingStillFails
+    finding = Finding("RAPI-MAP-001", "rest-api", "HIGH", "GET /x", "problem")
+    run = _run([finding], limitations=["Mounted application at /mcp/messages has no inspectable routes."])
+    result = _status(part(advisor_runs=[run]))
+    assert (result.status, result.fail_reasons) == ("fail", ["advisor 'rest-api' found 1 finding at or above HIGH"])
+    assert result.unknown_reasons == []
+
+
+def test_partial_advisor_does_not_mask_lost_sql() -> None:
+    result = _status(part(sources=[], advisor_runs=[_partial()]))
+    assert (result.status, result.unknown_reasons) == ("unknown", ["no SQL source attached"])
+
+
+def test_partial_advisor_does_not_mask_a_lost_worker() -> None:
+    result = _status(part(advisor_runs=[_partial()]), missing=("gw1",))
+    assert (result.status, result.unknown_reasons) == ("unknown", ["worker gw1 reported no sharpit facts"])
+
+
+def test_partial_worker_beside_a_passed_worker_passes() -> None:
+    # xdist: one worker saw an opaque mount, another assessed the same app completely
+    merged = merge([part("gw0", advisor_runs=[_partial()]), part("gw1", advisor_runs=[passed_run("A#1")])], [])
+    assert [run.status for run in merged.advisor_runs] == ["PARTIAL"]
+    result = session_status(merged, allow_unknown=False, max_unattributed=10.0, advisors_enabled=True, fail_on="HIGH")
+    assert result.status == "pass"
+
+
+def test_partial_worker_beside_an_unknown_worker_is_unknown() -> None:
+    unknown = _run([], limitations=["app errored"], usable=False)
+    result = _status(part("gw0", advisor_runs=[_partial()]), part("gw1", advisor_runs=[unknown]))
+    assert (result.status, result.unknown_reasons) == ("unknown", ["advisor 'rest-api' could not assess: app errored"])
+
+
+def test_partial_worker_beside_a_failed_worker_fails() -> None:
+    finding = Finding("RAPI-MAP-001", "rest-api", "HIGH", "GET /x", "problem")
+    result = _status(part("gw0", advisor_runs=[_partial()]), part("gw1", advisor_runs=[_run([finding])]))
+    assert result.status == "fail"
+
+
+@pytest.mark.parametrize(
+    ("statuses", "worst"),
+    [
+        (["PASSED", "PARTIAL"], "PARTIAL"),
+        (["PARTIAL", "SKIPPED"], "SKIPPED"),
+        (["PARTIAL", "UNKNOWN"], "UNKNOWN"),
+        (["PARTIAL", "UNKNOWN", "SKIPPED", "PASSED", "FAILED"], "FAILED"),
+        (["PARTIAL"], "PARTIAL"),
+    ],
+)
+def test_worst_status_order_puts_partial_between_skipped_and_passed(statuses: list[str], worst: str) -> None:
+    assert _worst(statuses) == worst
+
+
+def test_report_only_run_with_a_partial_advisor_exits_zero() -> None:
+    result = _status(part(advisor_runs=[_partial()]))
+    assert exit_fails(result.status, False, report_only=True, unknown_reasons=result.unknown_reasons) is False

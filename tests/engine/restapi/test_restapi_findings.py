@@ -29,6 +29,15 @@ class Pet:
     pass
 
 
+class _Meta(type):
+    def __getattr__(cls, name: str) -> object:
+        raise RuntimeError("lazy proxy")
+
+
+class _Lazy(metaclass=_Meta):
+    pass
+
+
 class PetTable:
     __table__ = object()
 
@@ -218,10 +227,26 @@ def test_no_routes_is_confirmed_empty():
     assert run.findings == ()
 
 
-def test_partial_scan_is_unknown():
-    run = assess(_model([route()], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
+def test_scan_with_no_usable_route_and_a_limitation_is_unknown():
+    run = assess(_model([], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
     assert run.status == "UNKNOWN"
     assert run.reason == LIMITATION
+
+
+def test_partial_scan_is_partial():
+    # issue 65: an app with readable routes and one opaque mount passes with a note
+    run = assess(_model([route()], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
+    assert run.status == "PARTIAL"
+    assert run.reason == LIMITATION
+
+
+def test_rule_error_stays_unknown():
+    # BootUI reports a rule that throws as a PARTIAL scan; sharpit's gate cannot tell a clean run from the rule that
+    # would have found the problem, so the advisor stays UNKNOWN
+    broken = route(response_model=_Lazy)
+    run = assess(_model([broken]), _masker())
+    assert run.status == "UNKNOWN"
+    assert run.reason == "rule evaluation: required REST API evidence was unavailable."
 
 
 def test_partial_scan_with_gate_finding_still_fails():

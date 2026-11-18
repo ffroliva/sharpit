@@ -316,3 +316,37 @@ def test_autodetect_names_app_by_shortest_module_across_workers(pytester: pytest
 
     assert "sharpit: using app short:app (pass --sharpit-app to choose)" in result.stdout.str()
     assert _rest_run(pytester)["status"] == "PASSED"
+
+
+def test_opaque_mount_passes_with_a_partial_note(pytester: pytest.Pytester) -> None:
+    # issue 65: a handler plus a mounted sub-app with no inspectable routes
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        from starlette.applications import Starlette
+
+        app = FastAPI()
+
+        @app.get('/items')
+        def items():
+            return []
+
+        app.mount('/mcp/messages', Starlette())
+        """,
+        test_mounted="""
+        import appmod
+
+        def test_uses_app():
+            assert appmod.app is not None
+        """,
+    )
+
+    result = pytester.runpytest("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 0
+    assert "not proof" in result.stdout.str()
+    assert "Mounted application at /mcp/messages has no inspectable routes." in result.stdout.str()
+    run = _rest_run(pytester)
+    assert run["status"] == "PARTIAL"
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "pass"
