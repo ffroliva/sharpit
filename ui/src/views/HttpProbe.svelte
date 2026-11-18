@@ -64,7 +64,7 @@
     return out;
   }
 
-  async function send() {
+  export async function send() {
     if (why) return;
     const headers = parseHeaders(headersText);
     failure = typeof headers === 'string' ? headers : null;
@@ -92,7 +92,7 @@
   const why = $derived(panelActionReason(panel));
 </script>
 
-<PanelShell title="HTTP Probe" notice={why}>
+<PanelShell {panel} title="HTTP Probe">
   <form class="form" onsubmit={(e) => (e.preventDefault(), void send())}>
     <div class="line">
       <select aria-label="Method" bind:value={method}>{#each METHODS as m}<option>{m}</option>{/each}</select>

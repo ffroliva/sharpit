@@ -55,11 +55,11 @@
 {/snippet}
 
 <PanelShell
+  {panel}
   title="Health"
   loading={tree.loading}
   error={tree.error}
   onretry={tree.reload}
-  notice={actionReason}
   count={Number.isFinite(checkedAt) ? `last run ${clock(checkedAt)}` : 'never run'}
 >
   {#snippet controls()}

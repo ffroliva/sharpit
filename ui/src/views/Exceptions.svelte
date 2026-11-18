@@ -38,7 +38,7 @@
     detail = null;
     if (selected) void loadDetail(id);
   }
-  async function act(run: () => Promise<unknown>) {
+  export async function act(run: () => Promise<unknown>) {
     if (why) return;
     failure = null;
     try {
@@ -48,8 +48,8 @@
       failure = errorText(e, 'The change failed.');
     }
   }
-  const setStatus = (g: ExceptionGroup, status: string) => act(() => post(`exceptions/${encodeURIComponent(g.id)}/status`, { status }));
-  const clear = () =>
+  export const setStatus = (g: ExceptionGroup, status: string) => act(() => post(`exceptions/${encodeURIComponent(g.id)}/status`, { status }));
+  export const clear = () =>
     act(async () => {
       selected = null;
       detail = null;
@@ -67,11 +67,11 @@
 {/snippet}
 
 <PanelShell
+  {panel}
   title="Exceptions"
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={why}
   count={report.data ? `${report.data.groups.length} groups, ${report.data.totalExceptions} total` : null}
 >
   {#snippet controls()}

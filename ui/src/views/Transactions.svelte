@@ -65,19 +65,29 @@
 </script>
 
 <PanelShell
+  {panel}
   title={panel.title}
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={actionReason}
   count={report.data?.available ? `${report.data.entries.length} of ${report.data.bufferSize} kept · ${report.data.totalCaptured} captured` : null}
 >
   {#snippet controls()}
-    {#if report.data?.available && !actionReason}
-      <button onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })} disabled={acting}>
+    {#if report.data?.available}
+      <button
+        onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })}
+        disabled={acting || !!actionReason}
+        title={actionReason ?? undefined}
+      >
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>
-      <button onclick={() => act('transactions/clear')} disabled={acting}>Clear</button>
+      <button
+        onclick={() => act('transactions/clear')}
+        disabled={acting || !!actionReason}
+        title={actionReason ?? undefined}
+      >
+        Clear
+      </button>
     {/if}
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}

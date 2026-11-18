@@ -60,13 +60,17 @@
   const statusClass = (s: string) => (s === 'FAILED' || s === 'ERROR' ? 'danger' : s === 'SKIPPED' || s === 'PARTIAL' ? 'warn' : s === 'AVAILABLE' || s === 'READ' ? 'ok' : 'muted');
 </script>
 
-<PanelShell title={panel.title} loading={report.loading} error={report.error} onretry={report.reload} notice={actionReason}>
+<PanelShell {panel} title={panel.title} loading={report.loading} error={report.error} onretry={report.reload}>
   {#snippet controls()}
-    {#if !actionReason}
-      <button class="primary" onclick={read} disabled={reading} aria-busy={reading}>
-        {reading ? 'Reading…' : 'Read MySQL'}
-      </button>
-    {/if}
+    <button
+      class="primary"
+      onclick={read}
+      disabled={reading || !!actionReason}
+      title={actionReason ?? undefined}
+      aria-busy={reading}
+    >
+      {reading ? 'Reading…' : 'Read MySQL'}
+    </button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if shown}

@@ -44,10 +44,10 @@
 
 <AdvisorPanel
   title="Vulnerabilities"
+  {panel}
   {report}
   {loadError}
   vulnerabilities
-  readOnlyReason={actionReason}
   onretry={load}
   scanDisabledReason={report && !report.scanningEnabled ? report.scan.message : null}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Scan with OSV.dev')}

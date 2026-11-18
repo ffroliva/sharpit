@@ -13,3 +13,35 @@ export function panelActionReason(panel: Partial<Panel> | null | undefined): str
   if (panel.readOnly !== false) return 'Action permissions are unavailable for this panel.';
   return null;
 }
+
+export interface RoutePanelState {
+  kind: 'disabled' | 'unavailable' | 'read-only';
+  label: 'Disabled' | 'Unavailable' | 'Read-only';
+  reason: string;
+}
+
+// ported: panelNavigation.js::routePanelState
+export function routePanelState(panel: Partial<Panel> | null | undefined): RoutePanelState | null {
+  if (panel?.enabled === false) {
+    return {
+      kind: 'disabled',
+      label: 'Disabled',
+      reason: panelDisabledReason(panel),
+    };
+  }
+  if (panel?.available === false) {
+    return {
+      kind: 'unavailable',
+      label: 'Unavailable',
+      reason: panel.unavailableReason || 'required support is unavailable',
+    };
+  }
+  if (panel?.readOnly === true) {
+    return {
+      kind: 'read-only',
+      label: 'Read-only',
+      reason: panel.readOnlyReason || 'mutating actions are disabled',
+    };
+  }
+  return null;
+}

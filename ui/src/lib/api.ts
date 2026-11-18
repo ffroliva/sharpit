@@ -18,14 +18,9 @@ export interface PanelAccessError extends ApiError {
 }
 
 export function isPanelAccessDenied(status: number, body: unknown): body is PanelAccessDeniedBody {
-  return (
-    status === 403 &&
-    typeof body === 'object' &&
-    body !== null &&
-    (body as Record<string, unknown>).error === PANEL_ACCESS_DENIED &&
-    typeof (body as Record<string, unknown>).reason === 'string' &&
-    ((body as Record<string, unknown>).reason as string).trim().length > 0
-  );
+  if (status !== 403 || typeof body !== 'object' || body === null) return false;
+  const b = body as Record<string, unknown>;
+  return b.error === PANEL_ACCESS_DENIED && typeof b.reason === 'string' && b.reason.trim().length > 0;
 }
 
 export function isPanelAccessError(error: unknown): error is PanelAccessError {
@@ -35,11 +30,11 @@ export function isPanelAccessError(error: unknown): error is PanelAccessError {
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly body: unknown,
+    readonly body: unknown = null,
     message?: string,
   ) {
     const defaultMsg = isPanelAccessDenied(status, body)
-      ? `${(body as { reason: string }).reason.trim()} (HTTP ${status})`
+      ? `${body.reason.trim()} (HTTP ${status})`
       : `HTTP ${status}`;
     super(message ?? defaultMsg);
     this.name = 'ApiError';
@@ -103,7 +98,8 @@ async function readJson(res: Response): Promise<unknown> {
 
 /** A string field of an error body, else undefined. */
 export function field(data: unknown, key: string): string | undefined {
-  const value = typeof data === 'object' && data !== null ? (data as Record<string, unknown>)[key] : undefined;
+  if (typeof data !== 'object' || data === null) return undefined;
+  const value = (data as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : undefined;
 }
 

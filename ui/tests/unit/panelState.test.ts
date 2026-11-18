@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { panelActionReason } from '../../src/lib/panelState';
+import { panelActionReason, routePanelState } from '../../src/lib/panelState';
 import type { Panel } from '../../src/lib/types';
 
 describe('panelState', () => {
@@ -52,5 +52,41 @@ describe('panelState', () => {
         readOnlyReason: 'Read only',
       }),
     ).toBe('Read only');
+  });
+
+  // ported: panelNavigation.test.js::panel navigation moves disabled and unavailable panels into the same explicit group used by the sidebar
+  it('routePanelState provides canonical route-state fallback descriptions for navigation', () => {
+    expect(routePanelState({ id: 'spring', enabled: false })).toEqual({
+      kind: 'disabled',
+      label: 'Disabled',
+      reason: 'Panel is disabled via SHARPIT_PANELS_SPRING_ENABLED=false',
+    });
+
+    expect(routePanelState({ id: 'spring', available: false })).toEqual({
+      kind: 'unavailable',
+      label: 'Unavailable',
+      reason: 'required support is unavailable',
+    });
+
+    expect(routePanelState({ id: 'spring', available: false, unavailableReason: 'Custom unavailable' })).toEqual({
+      kind: 'unavailable',
+      label: 'Unavailable',
+      reason: 'Custom unavailable',
+    });
+
+    expect(routePanelState({ id: 'spring', readOnly: true })).toEqual({
+      kind: 'read-only',
+      label: 'Read-only',
+      reason: 'mutating actions are disabled',
+    });
+
+    expect(routePanelState({ id: 'spring', readOnly: true, readOnlyReason: 'Custom read only' })).toEqual({
+      kind: 'read-only',
+      label: 'Read-only',
+      reason: 'Custom read only',
+    });
+
+    expect(routePanelState({ id: 'spring', enabled: true, available: true, readOnly: false })).toBeNull();
+    expect(routePanelState(null)).toBeNull();
   });
 });

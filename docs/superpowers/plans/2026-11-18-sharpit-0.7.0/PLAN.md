@@ -131,7 +131,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       request-profile timeline ties by SQL start, then by sequence (`RequestJournalProfiles.java:272-293,525-536`).
       Spike whether SQL can reach sharpit's aggregates after its execution has completed; if it can, port
       `rememberCompletedExecution` and the three `JournalAggregatesTests` cases (`JournalAggregates.java:110-111,888-901`).
-- [x] **A6 — read-only policy in the UI** (after W0). A Svelte port of #1602: `ApiError` shows `"<reason> (HTTP 403)"`
+- [~] **A6 — read-only policy in the UI** (after W0). A Svelte port of #1602: `ApiError` shows `"<reason> (HTTP 403)"`
       for a panel-access refusal, which is not treated as "server unreachable", plus a `panelActionReason(panel)`
       helper (disabled, unavailable, read-only, unknown) used by every panel that runs a confirmed action. Server
       behaviour is unchanged (`engine/guard.py` already returns the reason). Tests: `actionPolicy.test.js`,

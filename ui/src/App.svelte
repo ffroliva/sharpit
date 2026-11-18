@@ -3,8 +3,9 @@
   import Palette from './components/Palette.svelte';
   import TokenPrompt from './components/TokenPrompt.svelte';
   import { ApiError, authRequired, get } from './lib/api';
+  import { describeLoadError } from './lib/loadError';
   import { groupPanels, notBuilt } from './lib/nav';
-  import { panelActionReason } from './lib/panelState';
+  import { routePanelState } from './lib/panelState';
   import { href, route } from './lib/route';
   import { applyTheme, loadTheme, nextTheme, type Theme } from './lib/theme';
   import type { Panel } from './lib/types';
@@ -57,14 +58,12 @@
       shellError = null;
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
-        shellError = e instanceof ApiError ? `sharpit answered HTTP ${e.status}.` : 'The application is not responding.';
+        shellError = describeLoadError(e).message;
       }
     }
   }
   loadPanels();
 
-  // the server's own reasons where it gives one; a disabled panel's reason mirrors engine/panels.py
-  const reason = (p: Panel) => panelActionReason(p);
   const usable = (p: Panel) => p.available && p.enabled;
   const current = $derived(panels?.find((p) => p.id === $route.panel) ?? null);
 
@@ -134,17 +133,17 @@
         <div class="group">{group.title}</div>
         <ul aria-label={group.title}>
           {#each group.panels as p (p.id)}
-            {@const why = reason(p)}
+            {@const navState = routePanelState(p)}
             <li>
               <a
                 href={href(p.id)}
                 class:muted={!usable(p) || p.readOnly}
                 aria-current={p.id === $route.panel ? 'page' : undefined}
-                aria-describedby={why ? `why-${p.id}` : undefined}
+                aria-describedby={navState ? `why-${p.id}` : undefined}
               >
                 {p.title}
               </a>
-              {#if why}<div class="why sm" id="why-{p.id}">{why}</div>{/if}
+              {#if navState}<div class="why sm" id="why-{p.id}">{navState.reason}</div>{/if}
             </li>
           {/each}
         </ul>
@@ -178,7 +177,7 @@
       {:else if !usable(current)}
         <div class="empty">
           <h1>{current.title} is unavailable</h1>
-          <p>{reason(current)}</p>
+          <p>{routePanelState(current)?.reason}</p>
         </div>
       {:else}
         {#key `${current.id}|${$route.q}|${epoch}`}

@@ -74,11 +74,11 @@
 </script>
 
 <PanelShell
+  {panel}
   title="SQL Trace"
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={actionReason}
   count={report.data?.available ? `${report.data.entries.length} of ${report.data.bufferSize} kept · ${report.data.totalCaptured} captured` : null}
 >
   {#snippet controls()}

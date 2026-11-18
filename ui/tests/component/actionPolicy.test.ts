@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
+import { flushSync } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import Alembic from '../../src/views/Alembic.svelte';
+import Config from '../../src/views/Config.svelte';
 import Exceptions from '../../src/views/Exceptions.svelte';
 import Health from '../../src/views/Health.svelte';
+import HttpProbe from '../../src/views/HttpProbe.svelte';
+import MySql from '../../src/views/MySql.svelte';
+import PostgreSql from '../../src/views/PostgreSql.svelte';
 import SqlTrace from '../../src/views/SqlTrace.svelte';
 import Traces from '../../src/views/Traces.svelte';
+import Transactions from '../../src/views/Transactions.svelte';
+import PolicyPropWrapper from './PolicyPropWrapper.svelte';
 import { harness, json, panel, readOnly, until } from './support';
 
 const group = {
@@ -96,13 +103,11 @@ describe('Action policy in views', () => {
     expect(h.text()).toContain('HTTP 403');
   });
 
-  // ported: actionPolicy.test.js::Action policy changes during confirmation %s rechecks policy before issuing its request
-  it('Exceptions rechecks policy before issuing requests and disables actions when disabled or read-only', async () => {
+  it('Exceptions handler guard halts execution when panel is read-only and buttons are disabled', async () => {
     h.route((url) => (url === 'api/exceptions' ? json(200, exceptionsReport()) : undefined));
 
-    // Disabled panel
-    h.mount(Exceptions, {
-      panel: panel('exceptions', { enabled: false, readOnly: false }),
+    const view = h.mount<{ act: (fn: () => Promise<unknown>) => Promise<void> }>(Exceptions, {
+      panel: readOnly('exceptions'),
     });
     await until(() => expect(h.text()).toContain('app.errors.Boom'));
 
@@ -112,15 +117,93 @@ describe('Action policy in views', () => {
     expect(disabledButtons.length).toBe(3);
     for (const b of disabledButtons) {
       expect(b.disabled).toBe(true);
-      expect(b.title).toContain('SHARPIT_PANELS_EXCEPTIONS_ENABLED=false');
-      b.click();
+      expect(b.title).toContain('SHARPIT_READ_ONLY=true');
     }
-    expect(h.calls('POST')).toEqual([]);
+
+    // Call the handler directly to test the guard
+    await view.act(async () => fetch('api/exceptions', { method: 'DELETE' }));
     expect(h.calls('DELETE')).toEqual([]);
   });
 
-  it('Health disables Run checks when read-only or disabled and handles 403 denial', async () => {
-    const reason = 'Health is read-only via SHARPIT_READ_ONLY=true';
+  it('Traces handler guard halts execution when panel is read-only', async () => {
+    const summary = {
+      traceId: 'trace-1',
+      rootSpanName: 'GET /test',
+      httpPath: '/test',
+      services: ['api'],
+      startEpochNanos: 1_000,
+      endEpochNanos: 10_000,
+      durationNanos: 9_000,
+      spanCount: 1,
+      hasError: false,
+      hasAi: false,
+    };
+    h.route((url) =>
+      url === 'api/traces'
+        ? json(200, { enabled: true, unavailableReason: null, retained: 1, capacity: 100, traces: [summary] })
+        : undefined,
+    );
+
+    const view = h.mount<{ clear: () => Promise<void> }>(Traces, { panel: readOnly('traces') });
+    await until(() => expect(h.text()).toContain('GET /test'));
+
+    const clearBtn = [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'Clear')!;
+    expect(clearBtn.disabled).toBe(true);
+    expect(clearBtn.title).toContain('SHARPIT_READ_ONLY=true');
+
+    await view.clear();
+    expect(h.calls('DELETE')).toEqual([]);
+  });
+
+  it('HttpProbe handler guard halts execution when panel is read-only', async () => {
+    h.route((url) => (url.startsWith('api/mappings') ? json(200, { items: [], total: 0 }) : undefined));
+
+    const view = h.mount<{ send: () => Promise<void> }>(HttpProbe, {
+      panel: readOnly('http-probe'),
+      q: 'GET /test',
+    });
+
+    const sendBtn = [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'Send')!;
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.title).toContain('SHARPIT_READ_ONLY=true');
+
+    await view.send();
+    expect(h.calls('POST')).toEqual([]);
+  });
+
+  it('re-evaluates action policy when the panel prop changes', async () => {
+    const summary = {
+      traceId: 'trace-1',
+      rootSpanName: 'GET /test',
+      httpPath: '/test',
+      services: ['api'],
+      startEpochNanos: 1_000,
+      endEpochNanos: 10_000,
+      durationNanos: 9_000,
+      spanCount: 1,
+      hasError: false,
+      hasAi: false,
+    };
+    h.route((url) =>
+      url === 'api/traces'
+        ? json(200, { enabled: true, unavailableReason: null, retained: 1, capacity: 100, traces: [summary] })
+        : undefined,
+    );
+
+    const wrapper = h.mount<{ updatePanel: (p: unknown) => void }>(PolicyPropWrapper);
+    await until(() => expect(h.text()).toContain('GET /test'));
+
+    const clearBtn = [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'Clear')!;
+    expect(clearBtn.disabled).toBe(false);
+
+    wrapper.updatePanel(readOnly('traces'));
+    flushSync();
+
+    expect(clearBtn.disabled).toBe(true);
+    expect(clearBtn.title).toContain('SHARPIT_READ_ONLY=true');
+  });
+
+  it('Health disables Run checks when read-only', async () => {
     const healthTree = {
       name: 'sharpit',
       status: 'UP',
@@ -128,25 +211,17 @@ describe('Action policy in views', () => {
       components: [],
     };
 
-    h.route((url, init) => {
-      if (url === 'api/health') return json(200, healthTree);
-      if (url === 'api/health/check' && init?.method === 'POST') {
-        return json(403, { error: 'sharpit panel access denied', panel: 'health', reason });
-      }
-      return undefined;
-    });
+    h.route((url) => (url === 'api/health' ? json(200, healthTree) : undefined));
 
-    h.mount(Health, { panel: panel('health', { enabled: false, readOnly: false }) });
+    h.mount(Health, { panel: readOnly('health') });
     await until(() => expect(h.text()).toContain('Run checks'));
 
     const btn = [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'Run checks')!;
     expect(btn.disabled).toBe(true);
-    expect(btn.title).toContain('SHARPIT_PANELS_HEALTH_ENABLED=false');
-    btn.click();
-    expect(h.calls('POST')).toEqual([]);
+    expect(btn.title).toContain('SHARPIT_READ_ONLY=true');
   });
 
-  it('SqlTrace disables Pause/Resume and Clear when panel is read-only or disabled', async () => {
+  it('SqlTrace disables Pause/Resume and Clear when panel is read-only', async () => {
     const report = {
       available: true,
       unavailableReason: null,
@@ -159,20 +234,18 @@ describe('Action policy in views', () => {
     };
     h.route((url) => (url === 'api/sql-trace' ? json(200, report) : undefined));
 
-    h.mount(SqlTrace, { panel: panel('sql-trace', { enabled: false, readOnly: false }) });
+    h.mount(SqlTrace, { panel: readOnly('sql-trace') });
     await until(() => expect(h.text()).toContain('Pause'));
 
     const buttons = [...h.target.querySelectorAll('button')].filter((b) => ['Pause', 'Clear'].includes(b.textContent ?? ''));
     expect(buttons.length).toBe(2);
     for (const b of buttons) {
       expect(b.disabled).toBe(true);
-      expect(b.title).toContain('SHARPIT_PANELS_SQL_TRACE_ENABLED=false');
-      b.click();
+      expect(b.title).toContain('SHARPIT_READ_ONLY=true');
     }
-    expect(h.calls('POST')).toEqual([]);
   });
 
-  it('Alembic disables Read database version when panel is read-only or disabled', async () => {
+  it('Alembic disables Read database version when panel is read-only', async () => {
     const report = {
       alembicPresent: true,
       configPath: 'alembic.ini',
@@ -192,13 +265,88 @@ describe('Action policy in views', () => {
     };
     h.route((url) => (url === 'api/alembic/migrations' ? json(200, report) : undefined));
 
-    h.mount(Alembic, { panel: panel('alembic', { enabled: false, readOnly: false }) });
+    h.mount(Alembic, { panel: readOnly('alembic') });
     await until(() => expect(h.text()).toContain('Read database version'));
 
     const btn = [...h.target.querySelectorAll('button')].find((b) => b.textContent?.includes('Read database version'))!;
     expect(btn.disabled).toBe(true);
-    expect(btn.title).toContain('SHARPIT_PANELS_ALEMBIC_ENABLED=false');
-    btn.click();
-    expect(h.calls('POST')).toEqual([]);
+    expect(btn.title).toContain('SHARPIT_READ_ONLY=true');
+  });
+
+  it('Transactions disables Pause/Resume and Clear when panel is read-only', async () => {
+    const report = {
+      available: true,
+      unavailableReason: null,
+      capturing: true,
+      bufferSize: 100,
+      totalCaptured: 0,
+      entries: [],
+    };
+    h.route((url) => (url === 'api/transactions' ? json(200, report) : undefined));
+
+    h.mount(Transactions, { panel: readOnly('transactions') });
+    await until(() => expect(h.text()).toContain('Pause'));
+
+    const buttons = [...h.target.querySelectorAll('button')].filter((b) => ['Pause', 'Clear'].includes(b.textContent ?? ''));
+    expect(buttons.length).toBe(2);
+    for (const b of buttons) {
+      expect(b.disabled).toBe(true);
+      expect(b.title).toContain('SHARPIT_READ_ONLY=true');
+    }
+  });
+
+  it('MySql disables Read MySQL when panel is read-only', async () => {
+    const report = {
+      status: 'AVAILABLE',
+      dataSources: [],
+      readAt: Date.now(),
+      disclaimer: 'test',
+      message: null,
+      limitations: [],
+      diagnostics: [],
+    };
+    h.route((url) => (url === 'api/mysql' ? json(200, report) : undefined));
+
+    h.mount(MySql, { panel: readOnly('mysql') });
+    await until(() => expect(h.text()).toContain('Read MySQL'));
+
+    const btn = [...h.target.querySelectorAll('button')].find((b) => b.textContent?.includes('Read MySQL'))!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toContain('SHARPIT_READ_ONLY=true');
+  });
+
+  it('PostgreSql disables Read PostgreSQL when panel is read-only', async () => {
+    const report = {
+      status: 'AVAILABLE',
+      dataSources: [],
+      readAt: Date.now(),
+      disclaimer: 'test',
+      message: null,
+      limitations: [],
+      diagnostics: [],
+    };
+    h.route((url) => (url === 'api/postgresql' ? json(200, report) : undefined));
+
+    h.mount(PostgreSql, { panel: readOnly('postgresql') });
+    await until(() => expect(h.text()).toContain('Read PostgreSQL'));
+
+    const btn = [...h.target.querySelectorAll('button')].find((b) => b.textContent?.includes('Read PostgreSQL'))!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toContain('SHARPIT_READ_ONLY=true');
+  });
+
+  it('ServerTable displays canonical panel-access reason on 403 load error', async () => {
+    const reason = 'Config is read-only via SHARPIT_PANELS_CONFIG_READ_ONLY=true';
+    h.route((url) => {
+      if (url.startsWith('api/config')) {
+        return json(403, { error: 'sharpit panel access denied', panel: 'config', reason });
+      }
+      return undefined;
+    });
+
+    h.mount(Config);
+
+    await until(() => expect(h.text()).toContain(reason));
+    expect(h.text()).toContain('HTTP 403');
   });
 });

@@ -40,7 +40,7 @@
       if (request === detailRequest) failure = errorText(e, 'The trace could not be loaded.');
     }
   }
-  async function clear() {
+  export async function clear() {
     if (why) return;
     const request = ++detailRequest;
     failure = null;
@@ -63,11 +63,11 @@
 </script>
 
 <PanelShell
+  {panel}
   title={panel.title}
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={why}
   count={report.data?.enabled ? `${report.data.retained} traces (capacity ${report.data.capacity} spans)` : null}
 >
   {#snippet controls()}

@@ -1,7 +1,6 @@
 <script lang="ts">
   import AdvisorPanel from '../components/AdvisorPanel.svelte';
   import { del, errorText, get, post } from '../lib/api';
-  import { panelActionReason } from '../lib/panelState';
   import { scannedWhen } from '../lib/format';
   import type { AdvisorReport, Panel, ViolationsPage } from '../lib/types';
 
@@ -31,10 +30,10 @@
 
 <AdvisorPanel
   title={panel.title}
+  {panel}
   {report}
   {loadError}
   onretry={load}
-  readOnlyReason={panelActionReason(panel)}
   scanLabel={(phase) =>
     phase === 'scanning'
       ? 'Scanning…'

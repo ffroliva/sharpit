@@ -35,11 +35,11 @@
 </script>
 
 <PanelShell
+  {panel}
   title="Alembic"
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={actionReason}
   count={report.data?.alembicPresent ? `${report.data.total} revisions` : null}
 >
   {#snippet controls()}
