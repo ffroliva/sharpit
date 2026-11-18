@@ -48,19 +48,28 @@ def test_spike_f3_clean_suite_reaches_green(pytester: pytest.Pytester) -> None:
 
 
 def test_autodetect_single_prints_choice(pytester: pytest.Pytester) -> None:
+    # issue 65: the one app also mounts a sub-app with no inspectable routes, so the clean run is PARTIAL with a note
     pytester.makepyfile(
         appmod="""
         from fastapi import FastAPI
+        from starlette.applications import Starlette
+
         app = FastAPI()
+
         @app.get('/items')
         def items():
             return []
+
+        app.mount('/mcp/messages', Starlette())
         """,
         test_single="""
+        import sqlite3
+
         import appmod
 
         def test_uses_app():
             assert appmod.app is not None
+            sqlite3.connect(':memory:').execute('SELECT 1').fetchone()  # capture sees SQL, as in the clean-suite test
         """,
     )
 
@@ -69,8 +78,11 @@ def test_autodetect_single_prints_choice(pytester: pytest.Pytester) -> None:
     stdout = result.stdout.str()
     assert "sharpit: using app appmod:app (pass --sharpit-app to choose)" in stdout
     assert result.ret == 0
+    assert "not proof" in stdout
+    assert "Mounted application at /mcp/messages has no inspectable routes;" in stdout
     run = _rest_run(pytester)
-    assert run["status"] == "PASSED"
+    assert run["status"] == "PARTIAL"
+    assert json.loads((pytester.path / "report.json").read_text())["status"] == "pass"
     apps = run["apps"]
     assert isinstance(apps, list)
     assert apps[0]["app"] == "appmod:app"
@@ -316,41 +328,3 @@ def test_autodetect_names_app_by_shortest_module_across_workers(pytester: pytest
 
     assert "sharpit: using app short:app (pass --sharpit-app to choose)" in result.stdout.str()
     assert _rest_run(pytester)["status"] == "PASSED"
-
-
-def test_opaque_mount_passes_with_a_partial_note(pytester: pytest.Pytester) -> None:
-    # issue 65: a handler plus a mounted sub-app with no inspectable routes
-    pytester.makepyfile(
-        appmod="""
-        from fastapi import FastAPI
-        from starlette.applications import Starlette
-
-        app = FastAPI()
-
-        @app.get('/items')
-        def items():
-            return []
-
-        app.mount('/mcp/messages', Starlette())
-        """,
-        test_mounted="""
-        import sqlite3
-
-        import appmod
-
-        def test_uses_app():
-            assert appmod.app is not None
-            sqlite3.connect(':memory:').execute('SELECT 1').fetchone()  # capture sees SQL, as in the clean-suite test
-        """,
-    )
-
-    # a fresh interpreter, as the clean-suite test: an in-process run inherits other tests' import state
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
-
-    assert result.ret == 0
-    assert "not proof" in result.stdout.str()
-    assert "Mounted application at /mcp/messages has no inspectable routes;" in result.stdout.str()
-    run = _rest_run(pytester)
-    assert run["status"] == "PARTIAL"
-    data = json.loads((pytester.path / "report.json").read_text())
-    assert data["status"] == "pass"
