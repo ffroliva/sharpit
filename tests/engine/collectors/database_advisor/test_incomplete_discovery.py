@@ -117,3 +117,58 @@ def test_distinguishes_absent_jpa_from_a_zero_entity_discovery_failure() -> None
     assert failed.evidence["coverageComplete"] is False
     assert any(d["source"] == "SQLAlchemy metadata" and d["level"] == "WARNING" for d in failed.detail.diagnostics)
 
+
+def test_incomplete_postgres_relation_inventory_is_not_complete_evidence() -> None:
+    # ported: SchemaIntrospectorTests.incompletePostgresRelationInventoryIsNotCompleteEvidence
+    source = Source(
+        "ds",
+        "postgresql",
+        "psycopg2",
+        "AVAILABLE",
+        None,
+        {
+            "dialect": "postgresql",
+            "tables": [],
+            "tableCount": 0,
+            "truncated": False,
+            "complete": False,
+            "diagnostics": [],
+            "server": {},
+            "orm": {"tables": []},
+        },
+    )
+    evaluated = report.evaluate([source])
+    assert evaluated.status == "PARTIAL"
+    assert evaluated.evidence["coverageComplete"] is False
+    assert any(
+        d["level"] == "WARNING" and "PostgreSQL relation inventory is incomplete" in d["message"]
+        for d in evaluated.detail.diagnostics
+    )
+    assert any("Datasource ds was read only in part." in lim for lim in evaluated.evidence["limitations"])
+
+
+def test_complete_empty_relation_inventory_does_not_make_an_otherwise_complete_datasource_partial() -> None:
+    # ported: SchemaIntrospectorTests.completeEmptyRelationInventoryDoesNotMakeAnOtherwiseCompleteDatasourcePartial
+    source = Source(
+        "ds",
+        "postgresql",
+        "psycopg2",
+        "AVAILABLE",
+        None,
+        {
+            "dialect": "postgresql",
+            "tables": [],
+            "tableCount": 0,
+            "truncated": False,
+            "complete": True,
+            "diagnostics": [],
+            "server": {},
+            "orm": {"tables": []},
+        },
+    )
+    evaluated = report.evaluate([source])
+    assert evaluated.status == "SCANNED"
+    assert evaluated.evidence["coverageComplete"] is True
+    assert not any("PostgreSQL relation inventory is incomplete" in d["message"] for d in evaluated.detail.diagnostics)
+
+
