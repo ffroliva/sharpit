@@ -119,7 +119,8 @@ class Client:
                 body = _read_bounded(response, deadline, max_response_bytes)
         except ClientError:
             raise
-        except request.URLError as error:  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+        # urllib.request re-exports URLError at runtime, but its typeshed stub omits the alias.
+        except request.URLError as error:  # pyright: ignore
             raise self._transport_error(cast(Exception, error), base, configured_timeout, bounded) from None
         except (http_client.HTTPException, TimeoutError, OSError) as error:
             raise self._transport_error(error, base, configured_timeout, bounded) from None
