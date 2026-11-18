@@ -23,11 +23,12 @@ from sharpit.engine.collectors.restapi.error_contract import entries
 from sharpit.engine.collectors.restapi.rules import RETIRED_RULES, RULES, application_routes, evaluate
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
-from sharpit.engine.spi import ApiModel
+from sharpit.engine.spi import ApiModel, is_opaque_mount_limitation
 
 ADVISOR = "rest-api"
 OPERATION = f"{ADVISOR}-scan"
 DEFAULT_FAIL_ON: Severity = "HIGH"
+RULE_ERROR = "rule evaluation: required REST API evidence was unavailable."
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class _Evaluation:
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     skipped: tuple[str, ...] = ()  # ids counted as SKIPPED results
+    blocking: tuple[str, ...] = ()  # sharpit could not read the app or a rule threw: the gate cannot tell a clean run
 
 
 def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None) -> _Evaluation:
@@ -62,8 +64,10 @@ def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None)
                 Finding(rule.id, ADVISOR, rule.severity, mask(masker, v.target), mask(masker, v.message))
                 for v in raw.get(rule.id, ())
             )
+    blocking = [mask(masker, item) for item in model.limitations if not is_opaque_mount_limitation(item)]
     if errored:  # BootUI: a rule that throws is skipped and the report is PARTIAL
-        limitations.append("rule evaluation: required REST API evidence was unavailable.")
+        limitations.append(RULE_ERROR)
+        blocking.append(RULE_ERROR)
     return _Evaluation(
         "PARTIAL" if limitations else "SCANNED",
         len(routes),
@@ -73,6 +77,7 @@ def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None)
         tuple(findings),
         evidence(bool(routes), not limitations, limitations),  # no routes and no limitation: confirmed empty
         tuple(sorted(RETIRED_RULES)) if routes else (),
+        tuple(blocking),
     )
 
 
@@ -107,7 +112,11 @@ def _run(
             )
             for finding in findings
         )
-    return AdvisorRun.of(ADVISOR, findings, done.evidence, scan_status=done.status, fail_on=fail_on, app=app)
+    # only an opaque mount is the app's shape; an unread router or handler, or a rule that threw, is sharpit failing
+    # to assess (safety model 5): the report stays PARTIAL (BootUI), the gate stays UNKNOWN
+    status = "ERROR" if done.blocking else done.status
+    why = done.blocking[0] if done.blocking else None
+    return AdvisorRun.of(ADVISOR, findings, done.evidence, scan_status=status, fail_on=fail_on, app=app, reason=why)
 
 
 def assess(
