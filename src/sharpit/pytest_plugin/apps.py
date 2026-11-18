@@ -7,6 +7,7 @@ import os
 import sys
 import sysconfig
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from fnmatch import fnmatch
 from pathlib import Path
 from types import ModuleType
@@ -17,10 +18,13 @@ from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.testsession.outcome import AUTODETECT, NO_APPLICATION
 from sharpit.fastapi.introspector import FastApiIntrospector
 
 __all__ = [
     "AUTODETECT",
+    "DETECTED_BY",
+    "DETECTED_FROM",
     "TEST_FILES",
     "advisor_assessors",
     "autodetect_apps",
@@ -39,7 +43,13 @@ __all__ = [
 
 
 _HINT = "pass --sharpit-app module:attr"
-AUTODETECT = "autodetect"  # evidence key that marks the runs autodetect made (placeholders and bare apps)
+_NOT_FOUND = (
+    "no application found among the modules the tests imported "
+    "(conftest, test modules and installed packages are not searched)"
+)
+DETECTED_FROM = "detectedFrom"  # evidence key of an assessed run: its app was found in the imported modules
+DETECTED_BY = "detectedBy"  # evidence key under xdist: the workers whose imports held the app
+IMPORTS = "imports"
 TEST_FILES = ("test_*.py", "*_test.py")  # pytest's python_files default
 
 
@@ -48,8 +58,11 @@ def skip_reason(names: Sequence[str], bare: str | None = None) -> str:
     if bare is not None:
         return f"app {bare} has no application routes; rest-api skipped ({_HINT})"
     if names:
-        return f"several apps found ({', '.join(names)}); {_HINT}"
-    return f"no application found; rest-api skipped ({_HINT})"
+        return f"several apps found in the modules the tests imported ({', '.join(names)}); {_HINT}"
+    return (
+        f"{_NOT_FOUND}; rest-api skipped ({_HINT} to assess the same app on any selection; "
+        "--sharpit-require-app makes a missing app an error instead of a skip)"
+    )
 
 
 def _classes(module: str, *names: str) -> frozenset[type]:
@@ -124,13 +137,16 @@ def select_app(candidates: Sequence[tuple[str, object]]) -> tuple[str, object] |
 
 
 def _marked(names: Sequence[str], require_app: bool, app: str | None = None, bare: str | None = None) -> AdvisorRun:
+    if require_app and not names and bare is None:  # the contract text, with the basis appended
+        return AdvisorRun("rest-api", "UNKNOWN", (), {AUTODETECT: True}, f"{NO_APPLICATION}; {_NOT_FOUND}", None)
     status = "UNKNOWN" if require_app else "SKIPPED"
-    return AdvisorRun("rest-api", status, (), {AUTODETECT: True}, skip_reason(names, bare), app)
+    evidence = {AUTODETECT: True, **({DETECTED_FROM: IMPORTS} if app else {})}
+    return AdvisorRun("rest-api", status, (), evidence, skip_reason(names, bare), app)
 
 
 def no_app_run(names: Sequence[str], require_app: bool) -> AdvisorRun | None:
-    """The rest-api run when autodetect chose no app; None keeps the 0.3.0 no-application unknown."""
-    if len(names) == 1 or (not names and require_app):
+    """The rest-api run when autodetect chose no app; None when it chose one."""
+    if len(names) == 1:
         return None
     return _marked(names, require_app)
 
@@ -149,10 +165,24 @@ def reconcile_workers(parts: Sequence[Any], names: Sequence[str], require_app: b
     dropped = set(names) if snapshot or len(names) > 1 else set[str]()
     for part in parts:
         part.advisor_runs[:] = [r for r in part.advisor_runs if not _placeholder(r) and r.app not in dropped]
+    _name_detecting_workers(parts)
     if snapshot or any(r.advisor == "rest-api" for part in parts for r in part.advisor_runs):
         return
     if parts and (run := no_app_run(names, require_app)) is not None:
         parts[0].advisor_runs.append(run)
+
+
+def _name_detecting_workers(parts: Sequence[Any]) -> None:
+    """Every kept run of an autodetected app lists the workers that found it (any one of them may be the merged run)."""
+    seen = sorted(
+        {p.worker for p in parts for r in p.advisor_runs if r.evidence.get(DETECTED_FROM) == IMPORTS},
+        key=lambda worker: (len(worker), worker),  # gw2 before gw10
+    )
+    for part in parts:
+        part.advisor_runs[:] = [
+            replace(r, evidence={**r.evidence, DETECTED_BY: [*seen]}) if r.evidence.get(DETECTED_FROM) == IMPORTS else r
+            for r in part.advisor_runs
+        ]
 
 
 def load_app(spec: str) -> tuple[str, object]:
@@ -237,23 +267,34 @@ def run_advisors(
     models = _models_to_assess(state, load_app)
     if models is None:
         return
+    detected = getattr(state, "autodetected", None) or ()
     for name, model in models:
         if not application_routes(model.routes) and not state.options.app:
             state.sink.facts.advisor_runs.append(
                 AdvisorRun("rest-api", "UNKNOWN", (), {}, "no routes seen after install", name)
             )
         else:
-            for advisor, discovered in advisor_assessors():
-                state.sink.facts.advisor_runs.append(
-                    (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
-                        model,
-                        state.sink.masker,
-                        fail_on=cast("Severity", state.options.fail_on),
-                        app=name,
-                        dismissed=state.dismissed,
-                        **_assessment_options(state),
-                    )
-                )
+            state.sink.facts.advisor_runs.extend(_assess_model(state, name, model, assess_fn, name in detected))
+
+
+def _assess_model(
+    state: Any, name: str, model: Any, assess_fn: Callable[..., AdvisorRun] | None, autodetected: bool
+) -> list[AdvisorRun]:
+    """Every implemented advisor's run on one app; an app found through the tests' imports says so."""
+    runs: list[AdvisorRun] = []
+    for advisor, discovered in advisor_assessors():
+        run = (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
+            model,
+            state.sink.masker,
+            fail_on=cast("Severity", state.options.fail_on),
+            app=name,
+            dismissed=state.dismissed,
+            **_assessment_options(state),
+        )
+        if autodetected:  # found through the tests' imports, not named by --sharpit-app or install()
+            run = replace(run, evidence={**run.evidence, DETECTED_FROM: IMPORTS})
+        runs.append(run)
+    return runs
 
 
 def _assessment_options(state: Any) -> dict[str, Any]:

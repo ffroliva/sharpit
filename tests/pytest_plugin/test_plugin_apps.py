@@ -85,13 +85,15 @@ def test_sharpit_app_option(pytester: pytest.Pytester) -> None:
     )
     pytester.makepyfile("def test_empty(): pass")
 
-    pytester.runpytest(
+    result = pytester.runpytest(
         "--sharpit", "--sharpit-app=app:app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
     run = _rest_run(pytester)
     assert run["status"] != "UNKNOWN"
     assert run["apps"][0]["app"] == "app:app"
+    assert "detectedFrom" not in run["apps"][0]["evidence"]  # named by the option, not found through imports
+    assert "detected from" not in result.stdout.str()
 
 
 def test_single_process_assesses_routes_added_after_the_last_test(pytester: pytest.Pytester) -> None:

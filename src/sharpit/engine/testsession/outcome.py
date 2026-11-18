@@ -25,6 +25,7 @@ class SessionStatus(NamedTuple):
 
 SQL_SOURCES = ("sqlalchemy", "sqlite3")
 APP_ADVISORS = ("rest-api",)  # advisors that read an application: with no app seen they are UNKNOWN
+AUTODETECT = "autodetect"  # evidence key of a run autodetect made without an assessed app (a placeholder)
 NO_APPLICATION = "no application: pass --sharpit-app or call sharpit.install in the tests"
 NO_SQL_EXECUTED = "no SQL statement was executed"
 ADVISORS_DISABLED = "advisors disabled"
@@ -225,7 +226,7 @@ def _advisor_summary(advisor: str, runs: list[AdvisorRun], *, advisors_enabled: 
     apps = [
         {"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence}
         for r in runs
-        if r.app is not None or r.status != "SKIPPED"  # a skipped advisor assessed no app
+        if r.app is not None or (r.status != "SKIPPED" and r.evidence.get(AUTODETECT) is not True)  # no app assessed
     ]
     return {"advisor": advisor, "status": status, "reason": reason, "apps": apps, "findings": list(found.values())}
 
