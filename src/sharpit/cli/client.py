@@ -6,7 +6,7 @@ import http.client as http_client
 import json
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib import request
 from urllib.parse import urlsplit
 
@@ -102,12 +102,7 @@ class Client:
         bounded: bool,
     ) -> tuple[int, str]:
         endpoint = self._endpoint(path)
-        try:
-            parsed = urlsplit(endpoint)
-        except ValueError:
-            raise self._client_error(f"Not a valid URL: {endpoint}") from None
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            raise self._client_error(f"Not a valid URL: {endpoint}")
+        self._validate_url(endpoint)
         if max_response_bytes < 1:
             raise ValueError("max_response_bytes must be positive")
 
@@ -117,6 +112,29 @@ class Client:
         if request_timeout <= 0:
             raise self._client_error(f"Request to {base} exceeded its response deadline.")
         deadline = time.monotonic() + request_timeout
+        outgoing = self._request(endpoint, method, arguments)
+        try:
+            with self._open_response(outgoing, request_timeout) as response:
+                status = getattr(response, "status", getattr(response, "code", 0))
+                body = _read_bounded(response, deadline, max_response_bytes)
+        except ClientError:
+            raise
+        except request.URLError as error:  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+            raise self._transport_error(cast(Exception, error), base, configured_timeout, bounded) from None
+        except (http_client.HTTPException, TimeoutError, OSError) as error:
+            raise self._transport_error(error, base, configured_timeout, bounded) from None
+
+        return status, self._decode_body(body)
+
+    def _validate_url(self, endpoint: str) -> None:
+        try:
+            parsed = urlsplit(endpoint)
+        except ValueError:
+            raise self._client_error(f"Not a valid URL: {endpoint}") from None
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise self._client_error(f"Not a valid URL: {endpoint}")
+
+    def _request(self, endpoint: str, method: str, arguments: dict[str, Any] | None) -> Any:
         headers = {"Accept": "application/json", "User-Agent": f"sharpit/{__version__}"}
         data = None
         if method == "POST":
@@ -124,40 +142,29 @@ class Client:
             data = json.dumps(arguments or {}).encode("utf-8")
         if self.options.token:
             headers["Authorization"] = f"Bearer {self.options.token}"
+        return request.Request(endpoint, data=data, headers=headers, method=method)  # noqa: S310
 
+    def _open_response(self, outgoing: Any, timeout: float) -> Any:
         try:
-            outgoing = request.Request(endpoint, data=data, headers=headers, method=method)  # noqa: S310
-            try:
-                response = self._opener.open(outgoing, timeout=request_timeout)
-            except request.HTTPError as error:
-                if error.code in (301, 302, 303, 307, 308):
-                    raise self._client_error(f"Request was redirected (HTTP {error.code})") from None
-                response = error
-            with response:
-                status = getattr(response, "status", getattr(response, "code", 0))
-                body = _read_bounded(response, deadline, max_response_bytes)
-        except ClientError:
-            raise
-        except request.URLError as error:
-            reason = error.reason
-            if isinstance(reason, TimeoutError):
-                raise self._timeout_error(base, configured_timeout, bounded) from None
-            if isinstance(reason, ConnectionError):
-                raise self._client_error(
-                    f"Cannot reach sharpit at {base}. Is the application running, and is that the right --url?"
-                ) from None
-            raise self._client_error(f"Request to {base} failed: {reason}") from None
-        except TimeoutError:
-            raise self._timeout_error(base, configured_timeout, bounded) from None
-        except (http_client.HTTPException, OSError) as error:
-            if isinstance(error, ConnectionError):
-                raise self._client_error(
-                    f"Cannot reach sharpit at {base}. Is the application running, and is that the right --url?"
-                ) from None
-            raise self._client_error(f"Request to {base} failed: {error}") from None
+            return self._opener.open(outgoing, timeout=timeout)
+        except request.HTTPError as error:
+            if error.code in (301, 302, 303, 307, 308):
+                raise self._client_error(f"Request was redirected (HTTP {error.code})") from None
+            return error
 
+    def _transport_error(self, error: Exception, base: str, timeout: float, bounded: bool) -> ClientError:
+        reason = getattr(error, "reason", error)
+        if isinstance(reason, TimeoutError):
+            return self._timeout_error(base, timeout, bounded)
+        if isinstance(reason, ConnectionError):
+            return self._client_error(
+                f"Cannot reach sharpit at {base}. Is the application running, and is that the right --url?"
+            )
+        return self._client_error(f"Request to {base} failed: {reason}")
+
+    def _decode_body(self, body: bytes) -> str:
         try:
-            return status, body.decode("utf-8")
+            return body.decode("utf-8")
         except UnicodeDecodeError:
             raise self._client_error("Response is not valid UTF-8") from None
 
@@ -171,12 +178,13 @@ class Client:
     def _describe_failure(self, status: int, body: str) -> ClientError:
         error = reason = message = panel = None
         try:
-            parsed = json.loads(body, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+            parsed: Any = json.loads(body, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
             if isinstance(parsed, dict):
-                error = _nonblank(parsed.get("error"))
-                reason = _nonblank(parsed.get("reason"))
-                message = _nonblank(parsed.get("message"))
-                panel = _nonblank(parsed.get("panel"))
+                document = cast("dict[str, Any]", parsed)
+                error = _nonblank(document.get("error"))
+                reason = _nonblank(document.get("reason"))
+                message = _nonblank(document.get("message"))
+                panel = _nonblank(document.get("panel"))
         except (json.JSONDecodeError, ValueError):
             pass
 

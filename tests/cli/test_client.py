@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import json
+import contextlib
 import http.client
+import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -191,10 +192,8 @@ def test_invoke_returns_tool_name_status_and_json_for_every_http_status(endpoint
     base, routes, *_ = endpoint
     routes["/sharpit/api/cli/tools/example"] = (status, body, None)
     result = None
-    try:
+    with contextlib.suppress(ClientError):
         result = Client(options(base)).invoke("example", {})
-    except ClientError:
-        pass
 
     assert result is not None, "non-2xx tool answers must remain results"
     assert getattr(result, "tool_name", None) == "example"
@@ -425,9 +424,7 @@ def test_bounded_read_works_when_response_has_no_private_socket():
             return self.chunks.pop(0)
 
     body = None
-    try:
+    with contextlib.suppress(AttributeError):
         body = _read_bounded(ResponseWithoutSocket(), time.monotonic() + 1)
-    except AttributeError:
-        pass
 
     assert body == b'{"ok":true}', "bounded response reads must not require response.fp.raw._sock"
