@@ -104,8 +104,9 @@ def test_no_application_unknown_has_no_synthetic_app(pytester: pytest.Pytester) 
     data = json.loads((pytester.path / "report.json").read_text())
     assert (
         "advisor 'rest-api' could not assess: no application: pass --sharpit-app or call sharpit.install in the tests"
-        in data["statusReasons"]
-    )
+        "; no application found among the modules the tests imported (conftest, test modules and installed packages "
+        "are not searched)"
+    ) in data["statusReasons"]
     assert data["advisors"][0]["apps"] == []
 
 
