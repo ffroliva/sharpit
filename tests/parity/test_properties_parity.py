@@ -15,7 +15,7 @@ from sharpit.settings import load_settings
 from sharpit.settings_registry import SPECS, UNSET
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "properties.json"
-_STATUS = Path(__file__).with_name("properties_23_status.json")
+_STATUS = Path(__file__).with_name("properties_status.json")
 
 pytestmark = [
     pytest.mark.bootui("prop:bootui.activity.max-entries"),
