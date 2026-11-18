@@ -776,8 +776,10 @@ class _Holder:
             return 0
 
 
-def _nested_code(function: FunctionType) -> CodeType:
-    return next(c for c in function.__code__.co_consts if isinstance(c, CodeType))
+def _nested_code(function: FunctionType, name: str) -> CodeType:
+    """The code object of a function nested in ``function``, found by name: Python 3.14 also keeps a generated
+    ``__annotate__`` code object in ``co_consts``, which has no source scope and no handler."""
+    return next(c for c in function.__code__.co_consts if isinstance(c, CodeType) and c.co_name == name)
 
 
 def test_a_handler_seen_at_runtime_is_in_the_static_set_of_its_file() -> None:
@@ -785,8 +787,8 @@ def test_a_handler_seen_at_runtime_is_in_the_static_set_of_its_file() -> None:
         (_nested.__code__, KeyError),
         (_first_match.__code__, TypeError),
         (_Holder.get.__code__, KeyError),
-        (_nested_code(_corpus_inner), KeyError),
-        (_nested_code(_corpus_global), KeyError),
+        (_nested_code(_corpus_inner, "inner"), KeyError),
+        (_nested_code(_corpus_global, "_corpus_declared"), KeyError),
     ]
     static = set(swallowing_sites(Path(__file__).read_text("utf-8")))
 
