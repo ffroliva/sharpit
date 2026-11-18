@@ -548,6 +548,21 @@ def test_setup_failure_still_invokes_the_application_exactly_once(
     assert "secret-metadata-message" not in warnings[0]
 
 
+def test_a_setup_failure_leaves_no_trace_on_an_application_exception(monkeypatch: pytest.MonkeyPatch):
+    # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce (the failure stays unchanged)  # noqa: E501
+    handle = _handle()
+    monkeypatch.setattr(handle.context.masker, "mask_path", _explode("secret-metadata-message"))
+    failure = ValueError("application")
+
+    async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
+        raise failure
+
+    with pytest.raises(ValueError) as raised:
+        asyncio.run(_serve(CaptureMiddleware(app, handle.context), _scope("/api/fail"), []))
+    assert raised.value is failure
+    assert raised.value.__context__ is None  # the setup failure's message must not ride along in the traceback
+
+
 def test_an_exception_from_sharpits_own_route_reaches_the_host_after_one_invocation(caplog: pytest.LogCaptureFixture):
     # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce (one invocation)
     handle = _handle()
