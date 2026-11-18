@@ -289,8 +289,6 @@ def cli_dynamic_loading_violations(root: Path | None = None) -> list[str]:
                         "builtins.eval",
                         "builtins.compile",
                     )
-                    or call is not None
-                    and call.startswith("importlib.util.")
                 ):
                     found.append(f"{_rel(path)}:{node.lineno} calls {call}")
                 elif call == "importlib.resources.files" and (
@@ -299,6 +297,8 @@ def cli_dynamic_loading_violations(root: Path | None = None) -> list[str]:
                     or not isinstance(node.args[0].value, str)
                 ):
                     found.append(f"{_rel(path)}:{node.lineno} calls importlib.resources.files without a string literal")
+            elif isinstance(node, ast.Attribute) and _dotted(node, aliases) == "importlib.util":
+                found.append(f"{_rel(path)}:{node.lineno} uses importlib.util")
             elif isinstance(node, (ast.Attribute, ast.Subscript)) and _dotted(node.value, aliases) == "sys.modules":
                 found.append(f"{_rel(path)}:{node.lineno} accesses sys.modules")
     return found
@@ -689,6 +689,7 @@ def test_cli_client_reexports_and_private_members_are_not_accessible(
         ("import sys\nsys.modules.pop('x')", "accesses sys.modules"),
         ("import importlib\nimportlib.__import__('x')", "calls importlib.__import__"),
         ("import importlib.util", "uses importlib.util"),
+        ("from importlib.util import find_spec", "uses importlib.util"),
         ("import importlib\nx = importlib.util", "uses importlib.util"),
         ("exec('pass')", "calls exec"),
         ("eval('1')", "calls eval"),
