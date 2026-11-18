@@ -571,16 +571,6 @@
       "retiredExplanation": null
     },
     {
-      "id": "CRAC-READINESS",
-      "title": "",
-      "docSource": null,
-      "javaSource": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-      "inDocs": false,
-      "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
-    },
-    {
       "id": "CRAC-RES-001",
       "title": "Resource fields need observable checkpoint cleanup",
       "docSource": "CRAC-READINESS-CHECKS.md",
@@ -1391,16 +1381,6 @@
       "retiredExplanation": null
     },
     {
-      "id": "GRAALVM-READINESS",
-      "title": "",
-      "docSource": null,
-      "javaSource": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-      "inDocs": false,
-      "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
-    },
-    {
       "id": "HIB-CACHE-001",
       "title": "Cached entity association coverage should be reviewed",
       "docSource": "HIBERNATE-CHECKS.md",
@@ -2206,16 +2186,6 @@
       "docSource": "HIBERNATE-CHECKS.md",
       "javaSource": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/hibernate/HibernateRules.java",
       "inDocs": true,
-      "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
-    },
-    {
-      "id": "JVM-TUNING",
-      "title": "",
-      "docSource": null,
-      "javaSource": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-      "inDocs": false,
       "inJava": true,
       "retired": false,
       "retiredExplanation": null
@@ -4121,16 +4091,6 @@
       "retiredExplanation": null
     },
     {
-      "id": "QUARKUS-ADVISOR",
-      "title": "",
-      "docSource": null,
-      "javaSource": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-      "inDocs": false,
-      "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
-    },
-    {
       "id": "RAPI-DOC-001",
       "title": "Reframe as explicit enrichment; INFO retained",
       "docSource": "REST-API-CHECKS.md",
@@ -4726,16 +4686,6 @@
       "docSource": "REST-API-CHECKS.md",
       "javaSource": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/BodylessHandlersDoNotRequireContentTypeRule.java",
       "inDocs": true,
-      "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
-    },
-    {
-      "id": "REST-API",
-      "title": "",
-      "docSource": null,
-      "javaSource": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-      "inDocs": false,
       "inJava": true,
       "retired": false,
       "retiredExplanation": null
@@ -6091,10 +6041,10 @@
       "retiredExplanation": null
     }
   ],
-  "total": 609,
+  "total": 604,
   "reconciliation": {
     "independentUnionCount": 621,
-    "fixtureCount": 609,
+    "fixtureCount": 604,
     "independentIdsExcluded": [
       {
         "id": "CACHE-001",
@@ -6314,21 +6264,6 @@
     ],
     "fixtureIdsOutsideIndependentCounter": [
       {
-        "id": "CRAC-READINESS",
-        "source": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-        "reason": "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
-      },
-      {
-        "id": "GRAALVM-READINESS",
-        "source": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-        "reason": "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
-      },
-      {
-        "id": "JVM-TUNING",
-        "source": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-        "reason": "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
-      },
-      {
         "id": "MEM-CONTENT-004",
         "source": "docs/MEMORY-CHECKS.md",
         "reason": "Documented in a rule table; the independent counter scans headings and Java literals only."
@@ -6431,16 +6366,6 @@
       {
         "id": "QS-SESSION",
         "source": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/quarkussecurity/QuarkusSecurityChecks.java",
-        "reason": "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
-      },
-      {
-        "id": "QUARKUS-ADVISOR",
-        "source": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
-        "reason": "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
-      },
-      {
-        "id": "REST-API",
-        "source": "bootui-cli/src/main/java/io/github/jdubois/bootui/cli/DocsCommand.java",
         "reason": "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
       },
       {

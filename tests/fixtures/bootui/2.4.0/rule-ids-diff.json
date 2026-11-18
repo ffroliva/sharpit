@@ -37,9 +37,6 @@
     "SPRING-WEB-006"
   ],
   "inJavaOnly": [
-    "CRAC-READINESS",
-    "GRAALVM-READINESS",
-    "JVM-TUNING",
     "QS-ANALYSIS",
     "QS-AUTH-014",
     "QS-AUTHZ",
@@ -47,8 +44,6 @@
     "QS-HDR",
     "QS-MGMT",
     "QS-SESSION",
-    "QUARKUS-ADVISOR",
-    "REST-API",
     "SEC-STATIC-001"
   ],
   "explanations": {
@@ -85,9 +80,6 @@
     "SPRING-PROFILE-001": "Retired: Profiles are optional; configured default profiles and profile-free external configuration are valid.",
     "SPRING-REACTIVE-002": "Retired: A safe bounded default is not a defect, and `spring.codec.*` is stale in Boot 4. The new unlimited-aggregation check addresses a different condition.",
     "SPRING-WEB-006": "Retired: A profile name cannot establish a trusted proxy. Changing header trust needs deployment evidence.",
-    "CRAC-READINESS": "Internal rule constant in DocsCommand.java",
-    "GRAALVM-READINESS": "Internal rule constant in DocsCommand.java",
-    "JVM-TUNING": "Internal rule constant in DocsCommand.java",
     "QS-ANALYSIS": "Quarkus security check constant in QuarkusSecurityChecks.java",
     "QS-AUTH-014": "Quarkus security check constant in QuarkusSecurityChecks.java",
     "QS-AUTHZ": "Quarkus security check constant in QuarkusSecurityChecks.java",
@@ -95,8 +87,6 @@
     "QS-HDR": "Quarkus security check constant in QuarkusSecurityChecks.java",
     "QS-MGMT": "Quarkus security check constant in QuarkusSecurityChecks.java",
     "QS-SESSION": "Quarkus security check constant in QuarkusSecurityChecks.java",
-    "QUARKUS-ADVISOR": "Internal rule constant in DocsCommand.java",
-    "REST-API": "Internal rule constant in DocsCommand.java",
     "SEC-STATIC-001": "Internal rule constant in StaticSecurityAnalysisDetector.java"
   }
 }

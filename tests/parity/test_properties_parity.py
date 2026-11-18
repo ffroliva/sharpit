@@ -150,6 +150,13 @@ def test_bootui_marks_equal_the_matched_rows() -> None:
     assert marked == matched
 
 
+def test_status_records_current_fixture() -> None:
+    _, status = _fixture_and_status()
+    repo = Path(__file__).resolve().parents[2]
+    assert repo / status["fixture"] == _FIXTURE
+    assert status["fixture"] == _FIXTURE.relative_to(repo).as_posix()
+
+
 def _field(key: str) -> str:
     return re.sub(r"[.-]", "_", key.removeprefix("bootui."))
 

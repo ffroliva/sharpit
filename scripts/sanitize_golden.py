@@ -26,11 +26,19 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+KNOWN_VERSIONS: frozenset[str] = frozenset({"2.2.0", "2.3.0", "2.4.0"})
+
+
+def parse_version(name: str) -> tuple[int, int, int] | None:
+    """Parse a three-part version string like '2.3.0' into a tuple of ints."""
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", name)
+    return tuple(map(int, match.groups())) if match is not None else None  # type: ignore[return-value]
+
 
 def _nested_version(name: str) -> bool:
     """``2.2.0``, or a three-part version from ``2.3.0`` on (the nested layouts)."""
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", name)
-    return name == "2.2.0" or (match is not None and tuple(map(int, match.groups())) >= (2, 3, 0))
+    parsed = parse_version(name)
+    return parsed is not None and (parsed == (2, 2, 0) or parsed >= (2, 3, 0))
 
 
 SKIP = {"mcp.json", "beans_view_graph.json"}  # empty / duplicate of beans.json
@@ -307,8 +315,8 @@ def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = No
         and not re.fullmatch(r"\d+(?:\.\d+)+", target_version)
     ):
         target_version = "2.2.0"
-    if nested and not _nested_version(target_version):
-        raise ValueError("version must be '2.2.0' or 2.3.0 or later")
+    if nested and target_version not in KNOWN_VERSIONS:
+        raise ValueError(f"version must be one of {sorted(KNOWN_VERSIONS)}, got {target_version!r}")
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     enums_by_id: dict[str, dict[str, set[str]]] = {}

@@ -7,8 +7,8 @@ compares them with `tests/fixtures/bootui/2.3.0`, file by file, and lists every 
 the lane that closes it.
 
 The live per-panel goldens (every `<panel>/*.captured.json`, `ids.json`, the `enums.raw.json` files) are **not captured
-yet** for 2.4.0. `meta.json` records this as `"liveGoldens": "not captured yet"`. Tests that read live goldens stay on
-the 2.3.0 tree until that capture lands.
+yet** for 2.4.0. Tests that read live goldens stay on the 2.3.0 tree until that capture lands (decided by the presence
+of per-panel folders).
 
 ## Static files
 
@@ -19,8 +19,8 @@ the 2.3.0 tree until that capture lands.
 | `properties.json` | identical | `BootUiProperties.java` is unchanged between the tags; the `defaultValueSource` line citations still hold. |
 | `tools.json` | as expected | 116 tools in both; every `name`, `command`, `inputSchema`, `panel`, `action` and `stacks` is equal. Seven strings differ (below). |
 | `routes.json` | **unexpected** | The `reads` and `actions` catalogs are identical (82 reads, 78 actions), so the set of BootUI actions is unchanged. The starter mapping cross-check differs (below). |
-| `rule-ids.json` | partly unexpected | 603 to 609 ids: `SEC-STATIC-001` is expected; five other ids are capture-script artefacts (below). |
-| `rule-ids-diff.json` | follows `rule-ids.json` | `inJavaOnly` grows from 7 to 13 ids: the six added ids. |
+| `rule-ids.json` | as expected | 603 to 604 ids: `SEC-STATIC-001` is the single added rule; `DocsCommand` topic literals are excluded. |
+| `rule-ids-diff.json` | follows `rule-ids.json` | `inJavaOnly` grows from 7 to 8 ids: `SEC-STATIC-001` added. |
 | `bootui-tests.json` | as expected | Regenerated: 1128 test classes. |
 
 ### `tools.json`: the seven strings
@@ -46,27 +46,26 @@ The plan expected identical output. BootUI 2.4.0 adds
 starter mappings are the two paths of the static security tier. No route is added to or removed from the `reads` or
 `actions` catalogs, and no panel prefix changes. Lane A3 decides whether sharpit mirrors the second tier.
 
-### `rule-ids.json`: `SEC-STATIC-001` and five artefacts
+### `rule-ids.json`: `SEC-STATIC-001` and excluded artefacts
 
 - `SEC-STATIC-001` (expected): `bootui-engine/.../staticsecurity/StaticSecurityAnalysisDetector.java`. Lane A3. Not
   documented in `docs/*-CHECKS.md`.
-- `CRAC-READINESS`, `GRAALVM-READINESS`, `JVM-TUNING`, `QUARKUS-ADVISOR`, `REST-API` (unexpected): string literals in
-  the new `bootui-cli/.../DocsCommand.java` (documentation topic names, lines 169-178). They match the script's rule-id
-  pattern but are not rules. They are in the fixture because the script counts every quoted identifier under
-  `src/main/java`, and they carry a wrong reconciliation reason ("non-numeric Quarkus security identifier"). No sharpit
-  test reads them. A later change to `capture_bootui_24.py` should exclude `DocsCommand.java` literals.
+- `CRAC-READINESS`, `GRAALVM-READINESS`, `JVM-TUNING`, `QUARKUS-ADVISOR`, `REST-API`: string literals in
+  `bootui-cli/.../DocsCommand.java` (documentation topic names, lines 169-178). They match the script's rule-id
+  pattern but are not rules. The capture script excludes `DocsCommand.java` literals by source and classifies only
+  valid non-numeric `QS-*` identifiers.
 
 ## Change to the capture script beyond the pins
 
 `SHA-512` appears for the first time in `src/main/java` (`bootui-cli/.../ReleaseRepository.java:90`, a digest algorithm
-name). The 2.3.0 script classified only `SHA-256` as "an algorithm label, not a rule identifier" and aborted on
-`SHA-512` with `Unclassified independent rule id`. `capture_bootui_24.py` treats both as algorithm labels. This is the
-only change beyond the pins.
+name). The 2.3.0 script classified only `SHA-256` as "an algorithm label in Java test inputs, not a rule identifier" and
+aborted on `SHA-512` with `Unclassified independent rule id`. The unified capture script treats both as digest
+algorithm labels (updating the reason text for SHA-256 as well). This is the only change beyond the pins.
 
-## Hand edit
+## Metadata reproducibility
 
-`meta.json` was extended after the capture with `app`, `profile`, `liveGoldens` and an empty `uncaptured` map, so the
-metadata matches the 2.3.0 shape. The later live capture merges into these keys.
+The capture script writes `app`, `profile` and the capture date directly, so `command` reproduces `meta.json`;
+the hand-added `liveGoldens` key is dropped (existence of live goldens is decided by the presence of per-panel folders).
 
 ## Live files
 

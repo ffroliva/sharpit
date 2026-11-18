@@ -8,8 +8,8 @@ the first of, under ``fixtures/bootui/<fixture_version>/<sharpit_id>/``:
 Legacy default ``fixture_version='2.2.0'``. For 2.3.0 or later parity and matched rows, pass
 ``fixture_version='2.3.0'`` (or ``'2.4.0'``) and ``matched=True`` (spec §4.4).
 
-Every golden key (and catalog field under 2.3.0) must be present with a compatible JSON type;
-extra payload keys are allowed. Under 2.3.0, a non-empty golden list requires a non-empty payload list.
+Every golden key (and catalog field under 2.3.0 or later) must be present with a compatible JSON type;
+extra payload keys are allowed. Under 2.3.0 or later, a non-empty golden list requires a non-empty payload list.
 A golden list keeps one item per distinct shape: a payload item passes when it matches any of them.
 At a path (list items as ``items[].key``) a payload ``null`` passes when any golden item is ``null``
 there or ``nullable.json`` (``{"<path>": "<reason>"}``) lists it with a non-empty reason, and any type
@@ -25,14 +25,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from scripts.sanitize_golden import parse_version
+
 BOOTUI_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bootui"
 DEFAULT_FIXTURE_VERSION = "2.2.0"
 
 
 def _is_23_or_later(version: str) -> bool:
-    """The 2.3.0 rules (catalog fields, non-empty lists) apply from 2.3.0 on."""
-    parts = version.split(".")
-    return len(parts) == 3 and all(p.isdigit() for p in parts) and tuple(map(int, parts)) >= (2, 3, 0)
+    """The 2.3.0+ rules (catalog fields, non-empty lists) apply from 2.3.0 on."""
+    parsed = parse_version(version)
+    return parsed is not None and parsed >= (2, 3, 0)
 
 
 ROOT = BOOTUI_FIXTURES_DIR / DEFAULT_FIXTURE_VERSION
@@ -135,7 +137,7 @@ def _compare_list(expected: list[Any], actual: list[Any], path: str, check: _Che
         if actual and path not in check.shapeless:
             check.shapeless.append(path)
         return
-    # §4.4: a non-empty golden list of shapes requires a non-empty payload list (2.3.0 only)
+    # §4.4: a non-empty golden list of shapes requires a non-empty payload list (2.3.0 or later)
     if check.is_23 and shapes and not actual:
         label = path or "<root>"
         check.errors.append(f"{label}: non-empty golden list requires a non-empty payload list")
@@ -222,14 +224,14 @@ def _check_warnings_and_parity(
         if matched:
             raise AssertionError(
                 f"{sharpit_id}/{name}: golden list {path_ or '<root>'} has no shape information; "
-                "cannot satisfy 2.3.0 'matched' parity (spec §4.4)"
+                "cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4)"
             )
         warnings.warn(message, UnverifiedParityWarning, stacklevel=3)
 
     if not captured:
         if matched:
             raise AssertionError(
-                f"{sharpit_id}/{name}: provisional fixture cannot satisfy 2.3.0 'matched' parity (spec §4.4)"
+                f"{sharpit_id}/{name}: provisional fixture cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4)"
             )
         warnings.warn(f"{sharpit_id}/{name}: provisional fixture, unverified", UnverifiedParityWarning, stacklevel=3)
 
@@ -245,8 +247,8 @@ def assert_parity(
 ) -> None:
     """Check ``payload`` against BootUI golden fixture for ``sharpit_id``/``name``.
 
-    Legacy default ``fixture_version='2.2.0'``. For 2.3.0 parity and matched rows,
-    pass ``fixture_version='2.3.0'`` and ``matched=True`` (spec §4.4).
+    Legacy default ``fixture_version='2.2.0'``. For 2.3.0 or later parity and matched rows,
+    pass ``fixture_version='2.3.0'`` (or ``'2.4.0'``) and ``matched=True`` (spec §4.4).
     """
     is_23 = _is_23_or_later(fixture_version)
     if matched and not is_23:

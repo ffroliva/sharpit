@@ -266,8 +266,10 @@ def test_version_comes_from_source_and_rejects_unknown_versions(tmp_path: Path):
     assert meta["bootuiVersion"] == "2.2.0"
     assert json.loads((dst / "agent" / "captured.json").read_text(encoding="utf-8")) == {"status": "UP"}
     assert not (dst / "agent" / "enums.raw.json").exists()
-    with pytest.raises(ValueError, match="version must be '2.2.0' or 2.3.0 or later"):
+    with pytest.raises(ValueError, match=r"version must be one of \['2.2.0', '2.3.0', '2.4.0'\]"):
         module.main(src, dst, repo=tmp_path, version="scratch")
+    with pytest.raises(ValueError, match=r"version must be one of \['2.2.0', '2.3.0', '2.4.0'\]"):
+        module.main(src, dst, repo=tmp_path, version="2.4.O")
 
 
 def test_shaping_keeps_every_key_path():

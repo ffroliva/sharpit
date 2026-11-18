@@ -31,7 +31,5 @@
     "routeCountMethod": "catalog read/action helper calls and all starter src/main/java @*Mapping declarations",
     "testClasses": 1128,
     "testMethods": 10927
-  },
-  "liveGoldens": "not captured yet",
-  "uncaptured": {}
+  }
 }

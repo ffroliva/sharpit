@@ -255,7 +255,7 @@ def test_assert_parity_rejects_shapeless_list_when_matched(fixtures: Path) -> No
     err_matched = _parity_error("data", "data", payload, fixture_version="2.3.0", matched=True)
     assert err_matched is not None
     assert "has no shape information" in err_matched
-    assert "cannot satisfy 2.3.0 'matched' parity" in err_matched
+    assert "cannot satisfy 2.3.0 or later 'matched' parity" in err_matched
 
     # matched=False emits warning
     with warnings.catch_warnings(record=True) as recorded:
