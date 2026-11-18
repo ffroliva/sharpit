@@ -24,15 +24,18 @@ The design therefore fails closed: the key is derived from the clause's own cont
 - `<Type>` is the exception class name seen at runtime.
 - `<key>` is the first 8 hex digits of the SHA-256 of a canonical text of the clause's `try` body and handler, with no
   positions (the same text on every supported Python version). Byte-identical clauses of one scope are
-  indistinguishable by construction, so they get an occurrence suffix, `.1`, `.2`, in source order.
+  indistinguishable by construction, so they get `.<n>/<m>`, their place among the m twins, and adding or deleting a
+  twin changes every twin key.
 
-A line moving keeps the key. Swapping two `try` blocks, or moving a log call from one clause to another, cannot hand a
-dismissal over, because each key follows its clause. Editing the `try` body or the handler changes the key, so the
-finding comes back. Only `ast.Try` clauses count (`except*` stays out, as for the static advisors). The identity is
-computed once, in the worker, from the AST that already selected the clause, and travels in the fact JSON; the
-controller never recomputes it. The `FASTAPI-ERR-001` violation of the REST API advisor uses the same scope and key as
-its target. An identity over the dismissal store's 512 characters cannot be written as an entry: the message names the
-fingerprint to dismiss under `dismissedRules` instead.
+A line added above the `try` or elsewhere in the function keeps the key. Swapping two `try` blocks, or moving a log
+call from one clause to another, cannot hand a dismissal over, because each key follows its clause. An edit inside the
+`try` body or the handler changes the key, so the finding comes back. Only `ast.Try` clauses count (`except*` stays out,
+as for the static advisors). The identity is computed in the worker from the AST that already selected the clause, and
+only for the clause the runtime asks about; it travels in the fact JSON and the controller never recomputes it. The
+`FASTAPI-ERR-001` violation of the REST API advisor uses the same scope and key as its target. An identity the
+dismissal store would refuse (over 512 characters) cannot be written as an entry: the message names the fingerprint to
+list under `dismissedRules`, which covers one test only. The earlier line-keyed entries no longer dismiss; they only
+produce a report warning naming the key of the clause now on that line.
 
 ## Scenarios
 
@@ -49,14 +52,14 @@ fingerprint to dismiss under `dismissedRules` instead.
 | 9 | Handler in an `async def` | Scope is the function qualified name, as for `def`. |
 | 10 | Two `try` blocks swap places | Each key stays with its clause; no dismissal moves. |
 | 11 | One clause gains a log call while another loses its log call | The first key matches nothing; the second clause's key is unchanged; no dismissal moves. |
-| 12 | The `try` body or the handler of a dismissed clause is edited | The key changes; the finding is active. |
-| 13 | Two byte-identical clauses in one scope | Keys `<hash>.1` and `<hash>.2`; a single clause has no suffix. |
+| 12 | A line is added inside the `try` body, or the handler is edited | The key changes; the finding is active. A line added above the `try` keeps the key. |
+| 13 | Byte-identical clauses in one scope | Keys `<hash>.<n>/<m>`; adding or deleting a twin changes every twin key; a single clause has no suffix. |
 | 14 | `except*` | Not a swallowing clause; the static advisors are unchanged. |
 | 15 | A nested definition declared `global` | Its bare qualified name, as the code object has it. |
 | 16 | The working directory changes after the rootdir is fixed | The path stays relative to the rootdir. |
-| 17 | Legacy `<path>:<line>:<Type>` entry whose line still holds the clause | Matches; the report warns naming the clause key it matches, to be checked, and the key to replace it with. |
-| 18 | Legacy entry beside its new key | The report warns that the legacy entry is redundant. |
-| 19 | Legacy entry after the line moved | Does not match (unchanged); the finding prints the new key. |
+| 17 | Legacy `<path>:<line>:<Type>` entry whose line still holds the clause | Dismisses nothing; the report warns naming the key of the clause on that line. |
+| 18 | Legacy entry beside its new key | The report warns that the line-keyed entry is stale and to remove it. |
+| 19 | Legacy entry in the working-directory path form while pytest runs outside the rootdir | The warning still appears. |
 | 20 | Legacy and new keys of one finding | Cannot collide: a legacy key has a numeric second segment. |
 | 21 | The same run under `-n 0` and `-n 2` | The same identities and fingerprints. |
 | 22 | A baseline and a SARIF file written before a line move | The fingerprint is unchanged; the finding stays `existing`. |

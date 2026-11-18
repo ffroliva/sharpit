@@ -13,22 +13,25 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - A dismissed `sharpit.swallowed-exception` finding no longer comes back when a line above it moves (#66). The finding
   is keyed by `<path>:<scope qualified name>:<ExceptionType>#<key>` instead of the line of the `except` header. The key
-  is 8 hex digits of a hash of the clause itself (its `try` body and its handler, without positions), with `.1`, `.2`
-  after it for byte-identical clauses of one scope. Moving a line, swapping two `try` blocks, or moving a log call from
-  one clause to another cannot hand a dismissal to another clause, and editing the clause changes the key, so the
-  finding comes back. The path is relative to the pytest rootdir, and the message prints the key so it can be pasted
-  into `dismissedFindings` (copy it from the terminal or the JSON report: the SARIF message is masked like every
-  other output). A key over 512 characters cannot be pasted: the message then names the fingerprint to dismiss in
-  `dismissedRules`. The `FASTAPI-ERR-001` violation of the REST API advisor uses the same scope and key instead of the
-  line. Migration:
-  - a `dismissedFindings` entry in the earlier `<path>:<line>:<ExceptionType>` form still matches while its line holds;
-    the report warns with the clause it matches, to be checked, and with the key to replace it with, or says the
-    entry is redundant when the key is written too;
+  is 8 hex digits of a hash of the clause itself: its `try` body and its handler, without positions. A line added
+  above the `try` or elsewhere in the function keeps the key; an edit inside the `try` body or the handler changes it,
+  so the finding comes back. Swapping two `try` blocks, or moving a log call from one clause to another, cannot hand a
+  dismissal to another clause. Byte-identical clauses of one scope get `.<n>/<m>` after the hash (n is the place among
+  the m twins), so adding or deleting a twin changes every twin key instead of moving a dismissal. The path is
+  relative to the pytest rootdir, and the message prints the key so it can be pasted into `dismissedFindings` (copy it
+  from the terminal or the JSON report: the SARIF message is masked like every other output). A key that cannot be
+  stored as a `dismissedFindings` entry (over 512 characters, or with a control character) is reported as such, with
+  the fingerprint to list under `dismissedRules`, which covers one test only. Migration:
+  - a `dismissedFindings` entry in the earlier `<path>:<line>:<ExceptionType>` form no longer dismisses anything: the
+    finding comes back once, and the report warns naming the key of the clause now on that line, to replace the entry
+    with if that is the clause meant (the warning matches the path relative to the rootdir and to the working
+    directory);
   - the finding fingerprint follows the new key, so a baseline needs one `--sharpit-write-baseline` rewrite, a
     `dismissedRules` fingerprint for a swallowed exception is dismissed once more, and a code-scanning alert for a
     swallowed exception is reopened once (the SARIF `sharpitFingerprint/v1` key is unchanged);
-  - a `dismissedRules` fingerprint or a baseline entry for `FASTAPI-ERR-001` on a swallowed handler is likewise
-    renewed once.
+  - the `FASTAPI-ERR-001` violation of the REST API advisor uses the same scope and key as its target instead of
+    `module:line`: its `dismissedFindings` entries and `dismissedRules` fingerprints must be re-dismissed once with
+    the new target (no line-keyed matching is kept for it), and its baseline entries rewritten.
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
 
 ## [0.6.0] - 2026-11-13
