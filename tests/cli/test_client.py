@@ -9,6 +9,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 
@@ -26,6 +27,7 @@ def endpoint():
     routes: dict[str, tuple[int, bytes, str | None]] = {}
     delays: dict[str, float] = {}
     header_trickles: set[str] = set()
+    body_trickles: set[str] = set()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -59,8 +61,14 @@ def endpoint():
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            time.sleep(delays.get(self.path, 0))
-            self.wfile.write(payload)
+            if self.path in body_trickles:
+                for byte in payload:
+                    self.wfile.write(bytes((byte,)))
+                    self.wfile.flush()
+                    time.sleep(0.02)
+            else:
+                time.sleep(delays.get(self.path, 0))
+                self.wfile.write(payload)
 
         def log_message(self, *_args):
             return
@@ -70,7 +78,7 @@ def endpoint():
     thread.start()
     host, port = server.server_address
     try:
-        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles
+        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles, body_trickles
     finally:
         server.shutdown()
         server.server_close()
@@ -510,10 +518,48 @@ def test_deadline_bounds_headers_and_error_bodies(endpoint, path):
     if path == "/slow-header":
         endpoint[5].add(f"/sharpit/api{path}")
     else:
-        endpoint[4][f"/sharpit/api{path}"] = 2.0
+        endpoint[6].add(f"/sharpit/api{path}")
     started = time.monotonic()
     with pytest.raises(ClientError):
         Client(options(base, timeout=0.25)).get(path)
+    assert time.monotonic() - started < 0.75
+
+
+def test_deadline_bounds_trickled_http_error_body_without_raw_stream(endpoint):
+    base, routes, *_ = endpoint
+    path = "/sharpit/api/slow-error-body"
+    routes[path] = (500, b"ignored", None)
+    client = Client(options(base, timeout=0.25))
+    opener = client._opener
+    reads = []
+
+    class TrickledBody:
+        def read1(self, _size):
+            reads.append(True)
+            for _ in range(50):
+                time.sleep(0.02)
+            return b""
+
+        def close(self):
+            return None
+
+    class TestHTTPError(HTTPError):
+        def read1(self, size):
+            return self.fp.read1(size)
+
+    class HttpErrorOpener:
+        def open(self, request, *, timeout):
+            try:
+                return opener.open(request, timeout=timeout)
+            except HTTPError as error:
+                error.close()
+                raise TestHTTPError(request.full_url, 500, "HTTP 500", {}, TrickledBody()) from None
+
+    client._opener = HttpErrorOpener()
+    started = time.monotonic()
+    with pytest.raises(ClientError):
+        client.get("/slow-error-body")
+    assert reads == [True]
     assert time.monotonic() - started < 0.75
 
 
