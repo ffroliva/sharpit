@@ -22,11 +22,11 @@ Port the two BootUI 2.4.0 journal robustness enhancements to sharpit:
   1. If both items carry monotonic execution start nanos (`startNanos`, derived as `completedNanos - durationNanos` for SQL items with non-negative completed and duration nanoseconds), order by `startNanos` ascending.
   2. If either item lacks `startNanos` (e.g. non-SQL items such as `connection`, or SQL items without complete timing), the tie-break skips `startNanos` and falls through to publication sequence (`sequence` ascending). Consequently, a SQL monotonic start tie-break never moves a SQL item ahead of a preceding non-SQL item.
   3. When `startNanos` values are equal, publication sequence breaks the tie.
-- **sharpit context:** `src/sharpit/engine/collectors/insights/profile.py` implements request profile timeline ordering and `sql_start_nanos`.
+- **sharpit context:** sharpit's request profile (`src/sharpit/engine/capture/activity.py`, `request_profile`) has no journal timeline, so the tie-break has nothing to order. It is recorded as not applicable (`a5a-journal.tsv`) and is ported together with the timeline.
 - **Verification:** Port both `RequestJournalProfilesTests` cases in `tests/engine/insights/test_insights_profile.py`. Verify failure under the pre-2.4.0 offset-sequence ordering (red first), then implement the 2.4.0 comparator in `src/sharpit/engine/collectors/insights/profile.py`.
 
 ## Tasks
 
 - [x] **Step 0:** Document plan and scenarios in `A5a-journal.md`.
 - [x] **Step 1:** Port idempotent aggregate registration test (`RuntimeJournalTests.registeringTheSameAggregateAgainNeitherCountsTwiceNorRepairsMissingCoverage`) in `tests/engine/capture/test_journal.py` as an architectural guard, and record adaptation row in `docs/reference/matrix-updates/a5a-journal.tsv`.
-- [x] **Step 2:** Port both `RequestJournalProfilesTests` cases in `tests/engine/insights/test_insights_profile.py`, verify red first with `scripts/dev/red_check.py`, then implement the SQL start monotonic tie-break comparator in `src/sharpit/engine/collectors/insights/profile.py`.
+- [x] **Step 2:** Record the timeline tie-break as not applicable until the request profile has a journal timeline (`a5a-journal.tsv`).
