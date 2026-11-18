@@ -75,7 +75,7 @@ def test_run_medium_only_passes_with_high_gate():
 
 
 def test_run_unknown_when_coverage_incomplete():
-    run = AdvisorRun.of("rest-api", [], evidence(True, False, ["router x could not be read"]))
+    run = AdvisorRun.of("rest-api", [], evidence(False, False, ["router x could not be read"]))
     assert run.status == "UNKNOWN"
     assert run.reason == "router x could not be read"
 
@@ -91,11 +91,11 @@ def test_run_confirmed_empty_passes():
 
 @pytest.mark.parametrize("scan_status", ["PARTIAL", "ERROR"])
 def test_run_partial_and_error_are_unknown(scan_status: str):
-    assert AdvisorRun.of("rest-api", [], _complete(), scan_status=scan_status).status == "UNKNOWN"
+    assert AdvisorRun.of("rest-api", [], evidence(False, True, []), scan_status=scan_status).status == "UNKNOWN"
 
 
 def test_run_unknown_reason_fallback():
-    run = AdvisorRun.of("rest-api", [], _complete(), scan_status="PARTIAL")
+    run = AdvisorRun.of("rest-api", [], evidence(False, True, []), scan_status="PARTIAL")
     assert run.reason == "assessment evidence is incomplete"
 
 
@@ -128,9 +128,35 @@ def test_severity_counts_of_all_five_in_order():
 
 def test_failed_run_with_incomplete_scan_has_unknown_reason() -> None:
     finding = _finding()
-    run = AdvisorRun.of("rest-api", [finding], evidence(True, False, ["one rule errored"]))
+    run = AdvisorRun.of("rest-api", [finding], evidence(True, False, ["one rule errored"]), scan_status="ERROR")
     assert run.status == "FAILED"
     assert run.reason == "one rule errored"
+
+
+def test_partial_scan_with_a_finding_still_fails() -> None:
+    # ported: FailOnTests.aPartialScanWithAFindingStillFails
+    run = AdvisorRun.of("rest-api", [_finding("HIGH")], evidence(True, False, ["Mounted application has no routes."]))
+    assert run.status == "FAILED"
+    assert run.reason is None
+
+
+def test_partial_scan_without_a_finding_passes_but_says_it_is_not_proof() -> None:
+    # ported: FailOnTests.aPartialScanWithoutAFindingPassesButSaysItIsNotProof (the note: test_outcome)
+    run = AdvisorRun.of("rest-api", [_finding("MEDIUM")], evidence(True, False, ["Mounted application has no routes."]))
+    assert run.status == "PARTIAL"
+    assert run.reason == "Mounted application has no routes."
+
+
+def test_zero_findings_from_a_scan_with_no_usable_evidence_cannot_pass() -> None:
+    # ported: FailOnTests.zeroFindingsFromAScanWithNoUsableEvidenceCannotPass
+    # the shape the REST API advisor produces for an app with no routes and an opaque mount: no routes + a limitation
+    limitations = ["Mounted application at /legacy has no inspectable routes."]
+    assert AdvisorRun.of("rest-api", [], evidence(False, False, limitations)).status == "UNKNOWN"
+
+
+def test_partial_scan_status_without_a_limitation_is_partial_with_the_fallback_reason() -> None:
+    run = AdvisorRun.of("rest-api", [], _complete(), scan_status="PARTIAL")
+    assert (run.status, run.reason) == ("PARTIAL", "assessment evidence is incomplete")
 
 
 def test_existing_baseline_finding_does_not_fail_advisor_run() -> None:

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from sharpit.engine.advisors.findings import Finding
+from engine.testsession.tsfakes import part, render_parts
+from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.testsession import baseline
+from sharpit.pytest_plugin.report_io import _apply_baseline
 
 
 def _finding(rule_id: str = "sharpit.max-queries", target: str = "node", observed: int | None = None) -> Finding:
@@ -170,3 +173,30 @@ def test_write_excludes_vulnerability_advisor_whatever_its_case(tmp_path) -> Non
     path = tmp_path / "baseline.json"
     baseline.write(path, (Finding("OSV-1", "Vulnerability", "HIGH", "pkg 1", "m"),))
     assert baseline.read(path).entries == {}, "a 'Vulnerability' finding was written to the baseline"
+
+
+def _apply(tmp_path, run: AdvisorRun, entry: Finding) -> tuple[dict, tuple]:
+    old = _baseline_of(tmp_path, entry)
+    data = render_parts(part(advisor_runs=[run]))
+    state = SimpleNamespace(
+        baseline_data=old, partial=False, options=SimpleNamespace(baseline="old.json"), baseline_carried=()
+    )
+    _apply_baseline(state, data)
+    return data["baseline"], state.baseline_carried
+
+
+_GAP = {
+    "usable": True,
+    "coverageComplete": False,
+    "limitations": ["Mounted application at /m has no inspectable routes."],
+}
+
+
+@pytest.mark.parametrize("seen", [False, True], ids=["partial", "failed-with-gap"])
+def test_baseline_entry_in_an_unread_mount_is_neither_fixed_nor_dropped(tmp_path, seen: bool) -> None:
+    in_mount = Finding("RAPI-1", "rest-api", "HIGH", "GET /m/x", "m")
+    elsewhere = [Finding("RAPI-2", "rest-api", "HIGH", "GET /y", "m")] if seen else []
+    result, carried = _apply(tmp_path, AdvisorRun.of("rest-api", elsewhere, _GAP, app="A#1"), in_mount)
+    assert result["fixed"] is None
+    assert result["fixedReason"] == "advisor assessed part of the app: rest-api"
+    assert [entry.fingerprint for entry in carried] == [in_mount.fingerprint]
