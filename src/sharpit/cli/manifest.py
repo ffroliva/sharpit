@@ -3,7 +3,6 @@
 import json
 from dataclasses import dataclass
 from importlib.resources import files
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -24,7 +23,20 @@ class Manifest:
     @classmethod
     def bundled(cls) -> "Manifest":
         data = json.loads(files("sharpit.cli").joinpath("tools.json").read_text(encoding="utf-8"))
-        return cls(tuple(ManifestTool(**{**item, "flags": tuple(item["flags"])}) for item in data["tools"]))
+        return cls(
+            tuple(
+                ManifestTool(
+                    name=item["name"],
+                    command=item["command"],
+                    flags=tuple(item["flags"]),
+                    panel=item["panel"],
+                    action=item["action"],
+                    summary=item["summary"],
+                    description=item["description"],
+                )
+                for item in data["tools"]
+            )
+        )
 
     def by_name(self, name: str) -> ManifestTool:
         return next(tool for tool in self.tools if tool.name == name)

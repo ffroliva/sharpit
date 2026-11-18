@@ -10,18 +10,23 @@ from sharpit.engine.tools import COMMANDS, TOOLS
 def generate() -> str:
     tools = []
     for tool in sorted(TOOLS, key=lambda item: COMMANDS[item.name]):
-        flags = [re.sub(r"(?<!^)(?=[A-Z])", "-", name).replace("_", "-").lower() for name in tool.input_schema.get("properties", {})]
+        flags = [
+            re.sub(r"(?<!^)(?=[A-Z])", "-", name).replace("_", "-").lower()
+            for name in tool.input_schema.get("properties", {})
+        ]
         description = tool.description.strip()
         end = description.find(". ")
-        tools.append({
-            "name": tool.name,
-            "command": COMMANDS[tool.name],
-            "flags": flags,
-            "panel": tool.panel,
-            "action": tool.action,
-            "summary": description if end < 0 else description[:end + 1],
-            "description": description,
-        })
+        tools.append(
+            {
+                "name": tool.name,
+                "command": COMMANDS[tool.name],
+                "flags": flags,
+                "panel": tool.panel,
+                "action": tool.action,
+                "summary": description if end < 0 else description[: end + 1],
+                "description": description,
+            }
+        )
     return json.dumps({"tools": tools}, ensure_ascii=False, indent=2) + "\n"
 
 
