@@ -200,6 +200,31 @@ re-measures all of this against 2.4.0.
       pass (BootUI masks quoted text once, `FrameworkWarningsByRoute.java:240-244`); an invalid
       `SHARPIT_EMAIL_MASK_CONTENT` value falling back to `False`.
 
+### Track E: open bugs
+
+Each follows `/sharpit:issue-resolve`: a worktree from `origin/main`, the regression test seen red first, the
+smallest fix, a draft pull request. Port BootUI's behaviour where it has one.
+
+- [ ] **E0 — #207** (`--sharpit-app` naming an object with no route list passes as empty). A draft pull request
+      from a fork: it needs its CI workflows approved, `/sharpit:pr-council-review`, and the contributor's updates. It
+      changes `fastapi/introspector.py` and `pytest_plugin/apps.py`, so it merges before E3.
+- [ ] **E1 — #65** (a run with no findings exits 1 when one advisor assessed the app only in part; *predict*: it
+      changes what the gate counts as a pass). Port the severity-gate semantics of BootUI's `FailOn`
+      (`C/FailOn.java`): a `PARTIAL` assessment with no finding at or above the threshold passes and says it is not
+      proof; a finding still fails; a gate that cannot be evaluated exits 1. Lost capture stays `unknown` (#19).
+      Files: `engine/testsession/outcome.py`, `engine/testsession/gates.py` (the gate only), the advisors' statuses.
+      Shares its semantics with CLI Task 6; whichever lands second reuses the first's tests.
+- [ ] **E2 — #66** (a dismissed swallowed-exception finding comes back when a line above it moves). Key the
+      identity on something that survives unrelated edits (path, qualified function, exception type), and check the
+      baseline fingerprint for the same exposure. Existing `dismissedFindings` entries keep matching, or the
+      changelog states the migration. Files: `engine/testsession/gates.py` (identity), the swallowed-exception fact.
+- [ ] **E3 — #67** (the detected app depends on which tests imported it). After E0. The same flags must give the same
+      advisors on a subset and on the full suite, or the report says why they differ. Files: `pytest_plugin/apps.py`.
+
+#59 (a SQLite double-quoted run read as an identifier) is a documented limitation, not a regression. A change there
+touches masking and goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`; it is not part of this
+track.
+
 ### Release wave
 
 - [ ] **R** — `ROADMAP.md` and README columns recomputed against 2.4.0; `CHANGELOG.md`; `docs/reference/PARITY.md`
@@ -217,7 +242,7 @@ C (Tasks 2, 3, 5, 7): independent of W0; C/Task 4 switches fixture after W0
 D1 ── D2 ── D3 ; D4, D5 independent ; D6 after its council
 ```
 
-## Open decisions (recommended default in bold)
+## Decisions (2026-11-18; the chosen option in bold)
 
 1. **Python analyzer set for `SEC-STATIC-001`.** Build files: `pyproject.toml`, `setup.cfg`, `tox.ini`,
    `.pre-commit-config.yaml`, `requirements*.txt`. Analyzers: Bandit, Semgrep, SonarQube (`sonar-project.properties`),
