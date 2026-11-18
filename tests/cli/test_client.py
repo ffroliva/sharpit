@@ -113,7 +113,12 @@ def test_configured_proxy_is_ignored(monkeypatch, endpoint):
     monkeypatch.delenv("NO_PROXY", raising=False)
     monkeypatch.delenv("no_proxy", raising=False)
 
-    assert Client(options(base)).get("/probe") == {"direct": True}
+    result = None
+    try:
+        result = Client(options(base)).get("/probe")
+    except ClientError:
+        pass
+    assert result == {"direct": True}
     assert len(requests) == 1
 
 
