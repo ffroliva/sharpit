@@ -107,9 +107,15 @@ def sql_start_nanos(event: Mapping[str, Any]) -> int | None:
 
 
 def timeline_comparator(left: TimedItem, right: TimedItem) -> int:
-    """Comparator for request profile timeline items (BootUI 2.3.0: offsetMillis, then sequence)."""
+    """Comparator for request profile timeline items (BootUI ``RequestJournalProfiles.timed.sort``).
+
+    Items with equal offsetMillis are ordered by SQL start nanos (when both items carry one),
+    then by sequence. A SQL tie-break never moves SQL ahead of non-SQL items.
+    """
     if left.offset_millis != right.offset_millis:
         return -1 if left.offset_millis < right.offset_millis else 1
+    if left.start_nanos is not None and right.start_nanos is not None and left.start_nanos != right.start_nanos:
+        return -1 if left.start_nanos < right.start_nanos else 1
     if left.sequence != right.sequence:
         return -1 if left.sequence < right.sequence else 1
     return 0
