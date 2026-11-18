@@ -274,18 +274,27 @@ def run_advisors(
                 AdvisorRun("rest-api", "UNKNOWN", (), {}, "no routes seen after install", name)
             )
         else:
-            for advisor, discovered in advisor_assessors():
-                run = (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
-                    model,
-                    state.sink.masker,
-                    fail_on=cast("Severity", state.options.fail_on),
-                    app=name,
-                    dismissed=state.dismissed,
-                    **_assessment_options(state),
-                )
-                if name in detected:  # found through the tests' imports, not named by --sharpit-app or install()
-                    run = replace(run, evidence={**run.evidence, DETECTED_FROM: IMPORTS})
-                state.sink.facts.advisor_runs.append(run)
+            state.sink.facts.advisor_runs.extend(_assess_model(state, name, model, assess_fn, name in detected))
+
+
+def _assess_model(
+    state: Any, name: str, model: Any, assess_fn: Callable[..., AdvisorRun] | None, autodetected: bool
+) -> list[AdvisorRun]:
+    """Every implemented advisor's run on one app; an app found through the tests' imports says so."""
+    runs: list[AdvisorRun] = []
+    for advisor, discovered in advisor_assessors():
+        run = (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
+            model,
+            state.sink.masker,
+            fail_on=cast("Severity", state.options.fail_on),
+            app=name,
+            dismissed=state.dismissed,
+            **_assessment_options(state),
+        )
+        if autodetected:  # found through the tests' imports, not named by --sharpit-app or install()
+            run = replace(run, evidence={**run.evidence, DETECTED_FROM: IMPORTS})
+        runs.append(run)
+    return runs
 
 
 def _assessment_options(state: Any) -> dict[str, Any]:
