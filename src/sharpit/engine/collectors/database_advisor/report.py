@@ -117,6 +117,15 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
     elif isinstance(orm_facts, dict) and "skipped" in orm_facts:
         level = "INFO" if orm_facts.get("known_absent") else "WARNING"
         diagnostics.append(_diagnostic("SQLAlchemy metadata", level, orm_facts["skipped"]))
+    for s in readable:
+        if s.dialect == "postgresql" and (s.catalog.get("truncated") or not s.catalog.get("complete", True)):
+            diagnostics.append(
+                _diagnostic(
+                    s.name,
+                    "WARNING",
+                    "The PostgreSQL relation inventory is incomplete; some relations may be missing.",
+                )
+            )
     evaluated: list[str] = []
     findings: list[Finding] = []
     skipped = errored = 0
@@ -141,7 +150,16 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
     catalogs_complete = all(s.catalog.get("complete") for s in readable)
     evidence_failed = any(d["level"] in ("WARNING", "ERROR") for d in diagnostics)
     problems = [f"{d['source']}: {d['message']}" for d in diagnostics if d["level"] in ("WARNING", "ERROR")]
-    complete = not evidence_failed and catalogs_complete and not truncated and errored == 0
+    for s in sources:
+        if s.status == "FAILED":
+            lim = f"Datasource {s.name} could not be read."
+            if lim not in problems:
+                problems.append(lim)
+        elif s.catalog.get("truncated") or not s.catalog.get("complete", True):
+            lim = f"Datasource {s.name} was read only in part."
+            if lim not in problems:
+                problems.append(lim)
+    complete = not evidence_failed and catalogs_complete and not truncated and errored == 0 and len(readable) == len(sources)
     tables = sum(len(s.tables) for s in readable)
     message = _message(
         tables,
