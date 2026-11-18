@@ -43,8 +43,10 @@ and documentation. BootUI paths below are shortened: `E/` = `bootui-engine/src/m
   ordering, `HttpExchangesFilter` subclasses, Hibernate `JDBCException` classification, Logback thread-local holders,
   Quarkus wiring, and the VuePress docs site.
 
-BootUI 2.5.0 (tag `v2.5.0`, 2026-11-17) is out of scope; it is the next release's target. Every BootUI test this plan
-ports from 2.4.0 still exists at `v2.5.0`, so no lane ports behaviour that 2.5.0 removes.
+BootUI 2.5.0 (tag `v2.5.0`, 2026-11-17) is out of scope; it is the next release's target. Every BootUI test class and
+case this plan names for Track A still exists at `v2.5.0`. Track B's kinds and routes were not compared with 2.5.0;
+each Track B lane checks its BootUI sources at `v2.5.0` before porting, and a kind or route that 2.5.0 removes or
+retires is a question for the release scope, not a default port.
 
 ## Global Constraints
 
@@ -116,7 +118,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       Docs: `docs/security-advisor-checks.md`.
 - [ ] **A4 — Database advisor incomplete discovery** (after W0). Absent ORM metadata is a neutral INFO skip, and a
       failed model discovery is incomplete (WARNING), even with zero models
-      (`E/engine/databaseadvisor/EntityDiscovery.java:9,27`; `DatabaseAdvisorScanner.java:700`). Blank driver
+      (`E/engine/hibernate/EntityDiscovery.java:9,27`; `DatabaseAdvisorScanner.java:700`). Blank driver
       name, version or URL is a WARNING and incomplete evidence (`SchemaIntrospector.java:253-272`, read from
       `engine.dialect.driver`, the driver's `__version__` and `engine.url`). An incomplete PostgreSQL relation
       inventory is a WARNING, and an empty complete inventory is complete (`DatabaseAdvisorScanner.java:259-270`).
@@ -169,7 +171,8 @@ re-measures all of this against 2.4.0.
       - *scan results* (8): `{architecture,database-advisor,fastapi,memory,postgresql,rest-api,security,vulnerabilities}/scanned`;
       - *runtime insights* (3): `runtime-insights/comparison`, `runtime-insights/impact`, `runtime-insights/impact-symbols`;
       - *activity and traces* (4): `activity/service-map`, `traces/detail`, `rest-client-trace`, `threads/captures`;
-      - *memory* (3): `memory`, `live-memory`, `heap-dump` (an action: single-flight, as BootUI);
+      - *memory* (3): `memory`, `live-memory`, `heap-dump` (GET; BootUI's heap-dump capture actions follow the
+        action rule and single-flight);
       - *application structure* (6): `mappings`, `conditions`, `cache`, `http-sessions`, `dev-services`, `devtools`;
       - *classify first* (9): `fault-tolerance`, `pentesting`, `liquibase/changesets`, `kafka`, `crac`, `graalvm`,
         `graalvm/metadata`, `graalvm/scan-progress`, `jvm-tuning`.
@@ -178,8 +181,10 @@ re-measures all of this against 2.4.0.
 
 ### Track C: command-line client (#60)
 
-- [~] **C** — [2026-11-16-sharpit-cli.md](../2026-11-16-sharpit-cli.md). Task 1 is merged on the integration branch;
-      Tasks 2, 4 and 6 are next. Task 6 (`--fail-on`, including the insufficient-evidence gate) merges after A1.
+- [~] **C** — [2026-11-16-sharpit-cli.md](../2026-11-16-sharpit-cli.md), executed from its own plan. Task 6
+      (`--fail-on`, including the insufficient-evidence gate) merges after A1. Task 4's drift test reads BootUI's
+      command paths from `tests/fixtures/bootui/2.3.0/tools.json` until W0 lands and from `2.4.0/tools.json` after
+      it; 2.4.0 changes no command path, so the switch is a path change only.
 
 ### Track D: engineering deferred from 0.6.0
 
@@ -208,7 +213,7 @@ W0 ──┬─ A1 ── C/Task 6
      ├─ A2 ── B2 ── B3 (readonly-candidate-transaction)
      ├─ A3, A4, A5, A6, A7, B1, B4, B5, B6 (parallel, disjoint files)
      └─ R (after every lane)
-C (Tasks 2, 4, 5, 7): independent of W0
+C (Tasks 2, 3, 5, 7): independent of W0; C/Task 4 switches fixture after W0
 D1 ── D2 ── D3 ; D4, D5 independent ; D6 after its council
 ```
 
