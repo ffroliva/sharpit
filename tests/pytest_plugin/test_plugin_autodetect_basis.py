@@ -59,7 +59,9 @@ def test_several_imported_apps_name_the_candidates_and_their_source(pytester: py
 
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
-    expected = "several apps found in the modules the tests imported (first_app:app, second_app:app); pass --sharpit-app"
+    expected = (
+        "several apps found in the modules the tests imported (first_app:app, second_app:app); pass --sharpit-app"
+    )
     assert expected in str(_rest_run(pytester)["reason"])
     assert expected in result.stdout.str()
 

@@ -7,6 +7,7 @@ import os
 import sys
 import sysconfig
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from fnmatch import fnmatch
 from pathlib import Path
 from types import ModuleType
@@ -21,6 +22,8 @@ from sharpit.fastapi.introspector import FastApiIntrospector
 
 __all__ = [
     "AUTODETECT",
+    "DETECTED_BY",
+    "DETECTED_FROM",
     "TEST_FILES",
     "advisor_assessors",
     "autodetect_apps",
@@ -40,6 +43,9 @@ __all__ = [
 
 _HINT = "pass --sharpit-app module:attr"
 AUTODETECT = "autodetect"  # evidence key that marks the runs autodetect made (placeholders and bare apps)
+DETECTED_FROM = "detectedFrom"  # evidence key of an assessed run: its app was found in the imported modules
+DETECTED_BY = "detectedBy"  # evidence key under xdist: the workers whose imports held the app
+IMPORTS = "imports"
 TEST_FILES = ("test_*.py", "*_test.py")  # pytest's python_files default
 
 
@@ -48,8 +54,11 @@ def skip_reason(names: Sequence[str], bare: str | None = None) -> str:
     if bare is not None:
         return f"app {bare} has no application routes; rest-api skipped ({_HINT})"
     if names:
-        return f"several apps found ({', '.join(names)}); {_HINT}"
-    return f"no application found; rest-api skipped ({_HINT})"
+        return f"several apps found in the modules the tests imported ({', '.join(names)}); {_HINT}"
+    return (
+        "no application found: the selected tests imported none; rest-api skipped "
+        f"({_HINT} or --sharpit-require-app for the same result on any selection)"
+    )
 
 
 def _classes(module: str, *names: str) -> frozenset[type]:
@@ -149,10 +158,21 @@ def reconcile_workers(parts: Sequence[Any], names: Sequence[str], require_app: b
     dropped = set(names) if snapshot or len(names) > 1 else set[str]()
     for part in parts:
         part.advisor_runs[:] = [r for r in part.advisor_runs if not _placeholder(r) and r.app not in dropped]
+    _name_detecting_workers(parts)
     if snapshot or any(r.advisor == "rest-api" for part in parts for r in part.advisor_runs):
         return
     if parts and (run := no_app_run(names, require_app)) is not None:
         parts[0].advisor_runs.append(run)
+
+
+def _name_detecting_workers(parts: Sequence[Any]) -> None:
+    """Every kept run of an autodetected app lists the workers that found it (any one of them may be the merged run)."""
+    seen = sorted({p.worker for p in parts for r in p.advisor_runs if r.evidence.get(DETECTED_FROM) == IMPORTS})
+    for part in parts:
+        part.advisor_runs[:] = [
+            replace(r, evidence={**r.evidence, DETECTED_BY: seen}) if r.evidence.get(DETECTED_FROM) == IMPORTS else r
+            for r in part.advisor_runs
+        ]
 
 
 def load_app(spec: str) -> tuple[str, object]:
@@ -237,6 +257,7 @@ def run_advisors(
     models = _models_to_assess(state, load_app)
     if models is None:
         return
+    detected = getattr(state, "autodetected", None) or ()
     for name, model in models:
         if not application_routes(model.routes) and not state.options.app:
             state.sink.facts.advisor_runs.append(
@@ -244,16 +265,17 @@ def run_advisors(
             )
         else:
             for advisor, discovered in advisor_assessors():
-                state.sink.facts.advisor_runs.append(
-                    (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
-                        model,
-                        state.sink.masker,
-                        fail_on=cast("Severity", state.options.fail_on),
-                        app=name,
-                        dismissed=state.dismissed,
-                        **_assessment_options(state),
-                    )
+                run = (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
+                    model,
+                    state.sink.masker,
+                    fail_on=cast("Severity", state.options.fail_on),
+                    app=name,
+                    dismissed=state.dismissed,
+                    **_assessment_options(state),
                 )
+                if name in detected:  # found through the tests' imports, not named by --sharpit-app or install()
+                    run = replace(run, evidence={**run.evidence, DETECTED_FROM: IMPORTS})
+                state.sink.facts.advisor_runs.append(run)
 
 
 def _assessment_options(state: Any) -> dict[str, Any]:
