@@ -65,7 +65,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
   fail-safe and adds a warning. Env name = `SHARPIT_` + the BootUI property without `bootui.`, `.`/`-` → `_`, upper case.
 - Every contract DTO key is emitted (nulls included), camelCase, no envelope, epoch ms.
 - Error bodies and reason strings are verbatim from the contract §1/§10 with `BootUI`→`sharpit`.
-- **Reads have no side effects:** no GET route and no read MCP or CLI tool may open a socket, write a file, change a
+- **Reads have no side effects:** no GET route and no read MCP or CLI tool of the console installed in a host application may open a socket, write a file, change a
   logger level or change `os.environ`.
 - **Actions follow BootUI** (owner, 2026-11-09: "if BootUI presses the button we do it too"). An action is a POST or
   DELETE route, or an MCP or CLI tool marked `action`, exactly where BootUI 2.3.0 has the same action. It may have the
@@ -92,6 +92,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
 5. **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
 6. **Network** is used only by actions that call out in BootUI too (the OSV/EPSS scan, the GitHub refresh); their
    failures are reported in the action's status and release the lock.
+   The command-line client (`sharpit/cli/`) runs only when a user starts `sharpit <command>`; no module of the console installed in a host application imports it (`tests/engine/test_import_boundary.py`). It connects directly, without configured proxies and without following redirects, only to the API URL the user names, and sends only `GET {api}/cli`, `POST {api}/cli/tools/{tool}` and the MCP status and toggle requests of `sharpit mcp`; it makes no update check.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
