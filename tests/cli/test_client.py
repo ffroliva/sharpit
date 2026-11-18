@@ -333,9 +333,7 @@ def test_response_limit_message_uses_the_callers_byte_cap(endpoint):
     routes["/sharpit/api/cli/tools/large"] = (200, b'{"ok":true}', None)
     assert hasattr(Client, "invoke_bounded"), "bounded calls accept a per-call byte cap"
 
-    message = _client_error_message(
-        lambda: Client(options(base)).invoke_bounded("large", {}, max_response_bytes=4)
-    )
+    message = _client_error_message(lambda: Client(options(base)).invoke_bounded("large", {}, max_response_bytes=4))
 
     assert message == "Response exceeded the 4 byte limit"
 
@@ -372,6 +370,18 @@ def test_http_failure_message_uses_the_bootui_reason_without_the_token(endpoint)
     assert message == f"Request to {base} failed: [redacted]"
     assert "message-secret" not in message
     assert "Bearer message-secret" not in message
+
+
+def test_error_details_do_not_echo_the_authorization_header(endpoint):
+    base, routes, *_ = endpoint
+    secret = "message-secret"
+    routes["/sharpit/api/probe"] = (500, f'{{"error":"Authorization: Bearer {secret}"}}'.encode(), None)
+
+    message = _client_error_message(lambda: Client(options(base, token=secret)).get("/probe"))
+
+    assert message == "sharpit answered HTTP 500: [redacted]"
+    assert "Authorization" not in message
+    assert secret not in message
 
 
 def test_bounded_read_works_when_response_has_no_private_socket():
