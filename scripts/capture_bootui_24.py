@@ -560,8 +560,8 @@ reviewer_union = set(reviewer_docs) | set(reviewer_java)
 fixture_rule_ids = {rule["id"] for rule in rules_list}
 rule_exclusions = []
 for rid in sorted(reviewer_union - fixture_rule_ids):
-    if rid == "SHA-256":
-        reason = "SHA-256 is an algorithm label in Java test inputs, not a rule identifier."
+    if rid in {"SHA-256", "SHA-512"}:
+        reason = f"{rid} is a digest algorithm label in Java code, not a rule identifier."
         source = reviewer_java[rid]
     elif f"SPRING-{rid}" in fixture_rule_ids and any(
         path.endswith("SpringRules.java") for path in reviewer_java.values()
