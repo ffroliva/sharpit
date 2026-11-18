@@ -268,27 +268,28 @@ def cli_dynamic_loading_violations(root: Path | None = None) -> list[str]:
                 and any(alias.name == "importlib.util" for alias in node.names)
                 or (
                     isinstance(node, ast.ImportFrom)
-                    and node.module == "importlib"
-                    and any(alias.name == "util" for alias in node.names)
+                    and (
+                        node.module == "importlib"
+                        and any(alias.name == "util" for alias in node.names)
+                        or node.module is not None
+                        and node.module.startswith("importlib.util")
+                    )
                 )
             ):
                 found.append(f"{_rel(path)}:{node.lineno} uses importlib.util")
             if isinstance(node, ast.Call):
                 call = _dotted(node.func, aliases)
-                if (
-                    call
-                    in (
-                        "importlib.import_module",
-                        "builtins.__import__",
-                        "__import__",
-                        "importlib.__import__",
-                        "exec",
-                        "eval",
-                        "compile",
-                        "builtins.exec",
-                        "builtins.eval",
-                        "builtins.compile",
-                    )
+                if call in (
+                    "importlib.import_module",
+                    "builtins.__import__",
+                    "__import__",
+                    "importlib.__import__",
+                    "exec",
+                    "eval",
+                    "compile",
+                    "builtins.exec",
+                    "builtins.eval",
+                    "builtins.compile",
                 ):
                     found.append(f"{_rel(path)}:{node.lineno} calls {call}")
                 elif call == "importlib.resources.files" and (
