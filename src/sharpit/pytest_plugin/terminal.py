@@ -117,8 +117,8 @@ def app_notice(names: list[str] | None, require_app: bool, data: dict[str, Any])
     apps: list[dict[str, Any]] = [app for a in data["advisors"] if a["advisor"] == "rest-api" for app in a["apps"]]
     if any(app["evidence"].get(AUTODETECT) is True for app in apps):
         return f"sharpit: {skip_reason((), bare=names[0])}"
-    workers = sorted({w for app in apps for w in app["evidence"].get(DETECTED_BY) or ()})
-    seen = f" in {', '.join(workers)}" if workers else ""
+    workers = {w for app in apps for w in app["evidence"].get(DETECTED_BY) or ()}
+    seen = f" on {len(workers)} xdist worker{'s' if len(workers) != 1 else ''}" if workers else ""
     return (
         f"sharpit: using app {names[0]}, detected from the modules the tests imported{seen}"
         " (pass --sharpit-app to choose)"

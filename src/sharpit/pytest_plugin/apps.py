@@ -18,6 +18,7 @@ from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.testsession.outcome import AUTODETECT, NO_APPLICATION
 from sharpit.fastapi.introspector import FastApiIntrospector
 
 __all__ = [
@@ -42,7 +43,10 @@ __all__ = [
 
 
 _HINT = "pass --sharpit-app module:attr"
-AUTODETECT = "autodetect"  # evidence key that marks the runs autodetect made (placeholders and bare apps)
+_NOT_FOUND = (
+    "no application found among the modules the tests imported "
+    "(conftest, test modules and installed packages are not searched)"
+)
 DETECTED_FROM = "detectedFrom"  # evidence key of an assessed run: its app was found in the imported modules
 DETECTED_BY = "detectedBy"  # evidence key under xdist: the workers whose imports held the app
 IMPORTS = "imports"
@@ -56,8 +60,8 @@ def skip_reason(names: Sequence[str], bare: str | None = None) -> str:
     if names:
         return f"several apps found in the modules the tests imported ({', '.join(names)}); {_HINT}"
     return (
-        "no application found: the selected tests imported none; rest-api skipped "
-        f"({_HINT} or --sharpit-require-app for the same result on any selection)"
+        f"{_NOT_FOUND}; rest-api skipped ({_HINT} to assess the same app on any selection; "
+        "--sharpit-require-app makes a missing app an error instead of a skip)"
     )
 
 
@@ -133,13 +137,16 @@ def select_app(candidates: Sequence[tuple[str, object]]) -> tuple[str, object] |
 
 
 def _marked(names: Sequence[str], require_app: bool, app: str | None = None, bare: str | None = None) -> AdvisorRun:
+    if require_app and not names and bare is None:  # the contract text, with the basis appended
+        return AdvisorRun("rest-api", "UNKNOWN", (), {AUTODETECT: True}, f"{NO_APPLICATION}; {_NOT_FOUND}", None)
     status = "UNKNOWN" if require_app else "SKIPPED"
-    return AdvisorRun("rest-api", status, (), {AUTODETECT: True}, skip_reason(names, bare), app)
+    evidence = {AUTODETECT: True, **({DETECTED_FROM: IMPORTS} if app else {})}
+    return AdvisorRun("rest-api", status, (), evidence, skip_reason(names, bare), app)
 
 
 def no_app_run(names: Sequence[str], require_app: bool) -> AdvisorRun | None:
-    """The rest-api run when autodetect chose no app; None keeps the 0.3.0 no-application unknown."""
-    if len(names) == 1 or (not names and require_app):
+    """The rest-api run when autodetect chose no app; None when it chose one."""
+    if len(names) == 1:
         return None
     return _marked(names, require_app)
 
@@ -167,10 +174,13 @@ def reconcile_workers(parts: Sequence[Any], names: Sequence[str], require_app: b
 
 def _name_detecting_workers(parts: Sequence[Any]) -> None:
     """Every kept run of an autodetected app lists the workers that found it (any one of them may be the merged run)."""
-    seen = sorted({p.worker for p in parts for r in p.advisor_runs if r.evidence.get(DETECTED_FROM) == IMPORTS})
+    seen = sorted(
+        {p.worker for p in parts for r in p.advisor_runs if r.evidence.get(DETECTED_FROM) == IMPORTS},
+        key=lambda worker: (len(worker), worker),  # gw2 before gw10
+    )
     for part in parts:
         part.advisor_runs[:] = [
-            replace(r, evidence={**r.evidence, DETECTED_BY: seen}) if r.evidence.get(DETECTED_FROM) == IMPORTS else r
+            replace(r, evidence={**r.evidence, DETECTED_BY: [*seen]}) if r.evidence.get(DETECTED_FROM) == IMPORTS else r
             for r in part.advisor_runs
         ]
 
