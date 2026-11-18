@@ -24,7 +24,7 @@ class Manifest:
     @classmethod
     def bundled(cls) -> "Manifest":
         data = json.loads(files("sharpit.cli").joinpath("tools.json").read_text(encoding="utf-8"))
-        return cls(tuple(ManifestTool(**item) for item in data["tools"]))
+        return cls(tuple(ManifestTool(**{**item, "flags": tuple(item["flags"])}) for item in data["tools"]))
 
     def by_name(self, name: str) -> ManifestTool:
         return next(tool for tool in self.tools if tool.name == name)

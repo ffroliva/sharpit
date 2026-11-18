@@ -1,3 +1,5 @@
 area	BootUI behavior	sharpit adaptation	reason
 manifest stacks	Records stack-specific stack availability	Omit stacks metadata	Sharpit tools have no stack availability declarations
 sharpit-only tools	No corresponding BootUI command	Use command paths declared in sharpit.engine.tools.COMMANDS	Tools are sharpit-specific
+sharpit-only command paths	No BootUI tool	get_sqlalchemy_statistics is `sqlalchemy-statistics list`, enable_sqlalchemy_statistics stays `sqlalchemy-statistics enable`	Both tools are sharpit-only, so they follow BootUI's `<noun> list` / `<noun> <verb>` pattern; the bare noun was a prefix of the action path
+manifest flags	bootui-tools.json carries a schema name and the CLI derives the flags from it	The manifest stores the derived flags (camelCase properties become kebab-case) and an exact-name tool matches the flags BootUI derives	Sharpit tools declare JSON-schema properties, not a schema name

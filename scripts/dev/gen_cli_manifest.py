@@ -1,6 +1,7 @@
 """Generate the packaged CLI command manifest from sharpit's tool catalogue."""
 
 import json
+import re
 from pathlib import Path
 
 from sharpit.engine.tools import COMMANDS, TOOLS
@@ -9,7 +10,7 @@ from sharpit.engine.tools import COMMANDS, TOOLS
 def generate() -> str:
     tools = []
     for tool in sorted(TOOLS, key=lambda item: COMMANDS[item.name]):
-        flags = [name.replace("_", "-") for name in tool.input_schema.get("properties", {})]
+        flags = [re.sub(r"(?<!^)(?=[A-Z])", "-", name).replace("_", "-").lower() for name in tool.input_schema.get("properties", {})]
         description = tool.description.strip()
         end = description.find(". ")
         tools.append({

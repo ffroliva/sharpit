@@ -24,6 +24,6 @@ TOOLS = (
     ),
 )
 COMMANDS = {
-    "get_sqlalchemy_statistics": "sqlalchemy-statistics",
+    "get_sqlalchemy_statistics": "sqlalchemy-statistics list",
     "enable_sqlalchemy_statistics": "sqlalchemy-statistics enable",
 }

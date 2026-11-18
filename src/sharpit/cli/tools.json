@@ -13,17 +13,6 @@
       "description": "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, correlated by request id. Use first when diagnosing one request."
     },
     {
-      "name": "get_request_profile",
-      "command": "activity profile",
-      "flags": [
-        "id"
-      ],
-      "panel": "activity",
-      "action": false,
-      "summary": "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL.",
-      "description": "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. An id no longer in the buffer returns available false."
-    },
-    {
       "name": "disable_agent_sensor",
       "command": "agent sensor disable",
       "flags": [
@@ -88,7 +77,7 @@
       "command": "architecture violations",
       "flags": [
         "id",
-        "scanId",
+        "scan-id",
         "offset",
         "limit"
       ],
@@ -207,7 +196,7 @@
       "command": "db violations",
       "flags": [
         "id",
-        "scanId",
+        "scan-id",
         "offset",
         "limit"
       ],
@@ -268,7 +257,7 @@
       "command": "fastapi violations",
       "flags": [
         "id",
-        "scanId",
+        "scan-id",
         "offset",
         "limit"
       ],
@@ -452,6 +441,17 @@
       "description": "Return the current active-profile configuration comparison using masked local configuration data. Use it to identify profile-specific differences without changing profiles."
     },
     {
+      "name": "get_request_profile",
+      "command": "request-profile",
+      "flags": [
+        "id"
+      ],
+      "panel": "activity",
+      "action": false,
+      "summary": "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL.",
+      "description": "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. An id no longer in the buffer returns available false."
+    },
+    {
       "name": "get_rest_api_report",
       "command": "rest-api report",
       "flags": [],
@@ -474,7 +474,7 @@
       "command": "rest-api violations",
       "flags": [
         "id",
-        "scanId",
+        "scan-id",
         "offset",
         "limit"
       ],
@@ -491,6 +491,17 @@
       "action": false,
       "summary": "Return the current scheduled task inventory: in-memory APScheduler 3 jobs, configured Celery beat entries and arq cron jobs, by function name and trigger.",
       "description": "Return the current scheduled task inventory: in-memory APScheduler 3 jobs, configured Celery beat entries and arq cron jobs, by function name and trigger. Never reads a remote job store."
+    },
+    {
+      "name": "get_security_logs",
+      "command": "security logs",
+      "flags": [
+        "limit"
+      ],
+      "panel": "security-logs",
+      "action": false,
+      "summary": "Return a bounded, newest-first snapshot of authentication and authorization audit events.",
+      "description": "Return a bounded, newest-first snapshot of authentication and authorization audit events. Correlate timestamps and principals with live activity."
     },
     {
       "name": "get_security_report",
@@ -515,7 +526,7 @@
       "command": "security violations",
       "flags": [
         "id",
-        "scanId",
+        "scan-id",
         "offset",
         "limit"
       ],
@@ -523,17 +534,6 @@
       "action": false,
       "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId.",
       "description": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan."
-    },
-    {
-      "name": "get_security_logs",
-      "command": "security-logs",
-      "flags": [
-        "limit"
-      ],
-      "panel": "security-logs",
-      "action": false,
-      "summary": "Return a bounded, newest-first snapshot of authentication and authorization audit events.",
-      "description": "Return a bounded, newest-first snapshot of authentication and authorization audit events. Correlate timestamps and principals with live activity."
     },
     {
       "name": "get_claude_code_sessions",
@@ -608,15 +608,6 @@
       "description": "Rank the SQL statements retained in the SQL Trace buffer by total, max, average, p95 and p99 duration, executions and errors, and attribute them to the HTTP routes that issued them. Statements are normalized: no literal or bound value is shown. Figures describe the retained window, not lifetime totals."
     },
     {
-      "name": "get_sqlalchemy_statistics",
-      "command": "sqlalchemy-statistics",
-      "flags": [],
-      "panel": "sqlalchemy-statistics",
-      "action": false,
-      "summary": "Return SQLAlchemy statement statistics from the SQL Trace recorder: lifetime SELECT and statement counts, the slowest statement, and N+1 candidates per route.",
-      "description": "Return SQLAlchemy statement statistics from the SQL Trace recorder: lifetime SELECT and statement counts, the slowest statement, and N+1 candidates per route. ORM session and entity counters are null with a reason."
-    },
-    {
       "name": "enable_sqlalchemy_statistics",
       "command": "sqlalchemy-statistics enable",
       "flags": [],
@@ -624,6 +615,15 @@
       "action": true,
       "summary": "Acknowledge statistics collection and return the report.",
       "description": "Acknowledge statistics collection and return the report. Statistics are always on while SQL Trace records; nothing is changed."
+    },
+    {
+      "name": "get_sqlalchemy_statistics",
+      "command": "sqlalchemy-statistics list",
+      "flags": [],
+      "panel": "sqlalchemy-statistics",
+      "action": false,
+      "summary": "Return SQLAlchemy statement statistics from the SQL Trace recorder: lifetime SELECT and statement counts, the slowest statement, and N+1 candidates per route.",
+      "description": "Return SQLAlchemy statement statistics from the SQL Trace recorder: lifetime SELECT and statement counts, the slowest statement, and N+1 candidates per route. ORM session and entity counters are null with a reason."
     },
     {
       "name": "get_startup_timeline",
@@ -650,17 +650,6 @@
       "description": "Return this process's threads with inferred states (RUNNABLE or WAITING) and stacks, plus the event loop's asyncio tasks with their await chains and the request each one serves. `limit` caps both lists. Code names and line numbers only: no local variables or argument values."
     },
     {
-      "name": "get_traces",
-      "command": "traces",
-      "flags": [
-        "limit"
-      ],
-      "panel": "traces",
-      "action": false,
-      "summary": "Return a newest-first list of the OpenTelemetry traces this application recorded: root span, HTTP path, services, epoch-nanosecond timing, span count and error/AI flags.",
-      "description": "Return a newest-first list of the OpenTelemetry traces this application recorded: root span, HTTP path, services, epoch-nanosecond timing, span count and error/AI flags. Span attributes are masked. Requires the application's own OpenTelemetry SDK TracerProvider; sharpit never installs one."
-    },
-    {
       "name": "clear_traces",
       "command": "traces clear",
       "flags": [],
@@ -670,17 +659,19 @@
       "description": "Clear the bounded in-memory span buffer and return the resulting empty report. This does not change the application's tracer provider or exporters."
     },
     {
-      "name": "get_transactions",
-      "command": "transactions",
-      "flags": [],
-      "panel": "transactions",
+      "name": "get_traces",
+      "command": "traces list",
+      "flags": [
+        "limit"
+      ],
+      "panel": "traces",
       "action": false,
-      "summary": "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events.",
-      "description": "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events. This reads only local cached data."
+      "summary": "Return a newest-first list of the OpenTelemetry traces this application recorded: root span, HTTP path, services, epoch-nanosecond timing, span count and error/AI flags.",
+      "description": "Return a newest-first list of the OpenTelemetry traces this application recorded: root span, HTTP path, services, epoch-nanosecond timing, span count and error/AI flags. Span attributes are masked. Requires the application's own OpenTelemetry SDK TracerProvider; sharpit never installs one."
     },
     {
       "name": "clear_transactions",
-      "command": "transactions clear",
+      "command": "tx clear",
       "flags": [],
       "panel": "transactions",
       "action": true,
@@ -688,8 +679,17 @@
       "description": "Clear the retained local transaction entries without changing whether recording is enabled."
     },
     {
+      "name": "get_transactions",
+      "command": "tx list",
+      "flags": [],
+      "panel": "transactions",
+      "action": false,
+      "summary": "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events.",
+      "description": "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events. This reads only local cached data."
+    },
+    {
       "name": "pause_transaction_recording",
-      "command": "transactions pause",
+      "command": "tx pause",
       "flags": [],
       "panel": "transactions",
       "action": true,
@@ -698,7 +698,7 @@
     },
     {
       "name": "resume_transaction_recording",
-      "command": "transactions resume",
+      "command": "tx resume",
       "flags": [],
       "panel": "transactions",
       "action": true,
