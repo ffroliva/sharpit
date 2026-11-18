@@ -529,3 +529,24 @@ def test_count_dropped_takes_the_lock_the_other_writers_hold() -> None:
     worker.join(5)
     assert blocked
     assert done.is_set()
+
+
+# ported: RuntimeJournalTests.registeringTheSameAggregateAgainNeitherCountsTwiceNorRepairsMissingCoverage
+def test_registering_the_same_aggregate_again_neither_counts_twice_nor_repairs_missing_coverage() -> None:
+    """In BootUI 2.4.0 RuntimeJournal.addListener is idempotent for aggregates.
+
+    In sharpit, RuntimeJournal has no drain thread or listener dispatcher;
+    HookRegistry keys hooks by name and RuntimeJournal exposes no listener registration API,
+    making duplicate registration impossible by design.
+    """
+    from sharpit.engine.capture import HookRegistry
+    from sharpit.engine.capture.journal import RuntimeJournal
+
+    journal = RuntimeJournal(max_events=100, max_bytes=1_000_000)
+    assert not hasattr(journal, "add_listener")
+    assert not hasattr(journal, "register_listener")
+
+    registry = HookRegistry()
+    registry.register(journal)
+    registry.register(journal)
+    assert registry.hooks() == (journal,)
