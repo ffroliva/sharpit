@@ -34,7 +34,7 @@ Expected (`bootui-tools.json`, +7/-7). Sharpit has not adopted any of them.
 | `get_runtime_insight` | description | explicit observation status | A1 |
 | `get_transactions` | description | `propagation` values `NEW`, `REQUIRES_NEW`, `NESTED`, `UNKNOWN` | A2 |
 | `get_security_report` | description | static-only report | A3 |
-| `security_scan` | summary and description | static analyzer declarations (SpotBugs/FindSecBugs, Semgrep, SonarQube, CodeQL) | A3 |
+| `security_scan` | summary and description | static analyzer declarations (SpotBugs/FindSecBugs, Semgrep, a `sonar-project.properties` file, CodeQL) | A3 |
 
 `tests/parity/test_tools_parity.py` pins these six names as `DESCRIPTION_GAPS`, each with its lane.
 
