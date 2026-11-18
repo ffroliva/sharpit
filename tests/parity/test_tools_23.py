@@ -1,18 +1,15 @@
 import ast
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from bootui_tools import BOOTUI, BOOTUI_TOOLS
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.tools import COMMANDS, TOOLS
 
-ROOT = Path(__file__).parents[1]
-BOOTUI_TOOLS = json.loads((ROOT / "fixtures/bootui/2.3.0/tools.json").read_text("utf-8"))["tools"]
-BOOTUI = {tool["name"]: tool for tool in BOOTUI_TOOLS}
 SHARPIT = {tool.name: tool for tool in TOOLS}
 
 

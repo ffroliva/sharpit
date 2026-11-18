@@ -9,6 +9,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
 
+### Changed
+
+- The CLI command paths of eight tools now follow BootUI's, in `GET {api}/cli` and in the Runtime Insights next steps: `get_request_profile` `activity profile` to `request-profile`, `get_transactions` `transactions` to `tx list`, `clear_transactions` `transactions clear` to `tx clear`, `pause_transaction_recording` `transactions pause` to `tx pause`, `resume_transaction_recording` `transactions resume` to `tx resume`, `get_traces` `traces` to `traces list`, `get_security_logs` `security-logs` to `security logs`, and `get_sqlalchemy_statistics` `sqlalchemy-statistics` to `sqlalchemy-statistics list`. The tool names and the `POST {api}/cli/tools/{tool}` route are unchanged.
+
 ### Fixed
 
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.

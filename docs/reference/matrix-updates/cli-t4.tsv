@@ -1,5 +1,20 @@
-area	BootUI behavior	sharpit adaptation	reason
-manifest stacks	Records stack-specific stack availability	Omit stacks metadata	Sharpit tools have no stack availability declarations
-sharpit-only tools	No corresponding BootUI command	Use command paths declared in sharpit.engine.tools.COMMANDS	Tools are sharpit-specific
-sharpit-only command paths	No BootUI tool	get_sqlalchemy_statistics is `sqlalchemy-statistics list`, enable_sqlalchemy_statistics stays `sqlalchemy-statistics enable`	Both tools are sharpit-only, so they follow BootUI's `<noun> list` / `<noun> <verb>` pattern; the bare noun was a prefix of the action path
-manifest flags	bootui-tools.json carries a schema name and the CLI derives the flags from it	The manifest stores the derived flags (camelCase properties become kebab-case) and an exact-name tool matches the flags BootUI derives	Sharpit tools declare JSON-schema properties, not a schema name
+cli:request-profile	matched	get_request_profile moved from `activity profile` to BootUI's path; test_bootui_paths_are_preserved
+cli:tx list	matched	get_transactions moved from `transactions` to BootUI's path; test_bootui_paths_are_preserved
+cli:tx clear	matched	clear_transactions moved from `transactions clear` to BootUI's path; test_bootui_paths_are_preserved
+cli:tx pause	matched	pause_transaction_recording moved from `transactions pause` to BootUI's path; test_bootui_paths_are_preserved
+cli:tx resume	matched	resume_transaction_recording moved from `transactions resume` to BootUI's path; test_bootui_paths_are_preserved
+cli:traces list	matched	get_traces moved from `traces` to BootUI's path; test_bootui_paths_are_preserved
+cli:security logs	matched	get_security_logs moved from `security-logs` to BootUI's path; test_bootui_paths_are_preserved
+cli:data repositories	n-a	sharpit-only tool (get_data_repositories); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:db alembic	n-a	sharpit-only tool (get_alembic_migrations); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi report	n-a	sharpit-only tool (get_fastapi_report); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi scan	n-a	sharpit-only tool (fastapi_scan); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi violations	n-a	sharpit-only tool (get_fastapi_rule_violations); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi-security	n-a	sharpit-only tool (get_fastapi_security); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:sql-trace insights	n-a	sharpit-only tool (get_sql_trace_insights); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:sqlalchemy-statistics list	n-a	sharpit-only tool (get_sqlalchemy_statistics); no BootUI command, path chosen in sharpit.engine.tools COMMANDS; both tools are sharpit-only, so the read is `<noun> list` beside the action `<noun> <verb>`; the bare noun was a prefix of the action path
+cli:sqlalchemy-statistics enable	n-a	sharpit-only tool (enable_sqlalchemy_statistics); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+manifest:stacks	n-a	BootUI records the stacks that advertise each tool; sharpit has one stack, so the manifest has no stacks field and the stack-specific test is not ported
+manifest:idHelp-queryHelp	gap	BootUI's generator adds idHelp and queryHelp from McpToolGuide; sharpit has no such guide yet, so the fields are omitted (BootUI omits them when it has none)
+manifest:example	partial	BootUI writes a hand-made example per tool (McpToolGuide.example); sharpit generates `sharpit <command>` plus the id and --scan-id placeholders from the schema
+manifest:arguments-required	partial	sharpit adds `arguments` (the wire names, camelCase as the tool schema declares them) and `required` so the CLI sends exactly what is supplied and refuses a missing required argument; BootUI's CLI derives them from the schema name
