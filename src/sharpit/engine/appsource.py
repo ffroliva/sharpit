@@ -149,7 +149,22 @@ def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> 
     Spec §5.5, §14: nowhere else. The holding entry is the root's own parent directory; an ancestor entry does not
     hold the package, and nothing is read when the holding entry is not on ``sys_path`` or is under site-packages.
     """
-    return Path("/wrong/path/pyproject.toml")
+    try:
+        resolved = package_root.resolve()
+        if "site-packages" in resolved.parts:
+            return None
+        holder = resolved.parent
+        if "site-packages" in holder.parts:
+            return None
+        on_path = any(isinstance(e, str) and e and Path(e).resolve() == holder for e in sys_path)
+    except (OSError, ValueError):
+        return None
+    if not on_path:
+        return None
+    candidates = [holder / "pyproject.toml"]
+    if holder.name == "src":
+        candidates.append(holder.parent / "pyproject.toml")
+    return next((c for c in candidates if c.is_file()), None)
 
 
 # ---- the bounded index -----------------------------------------------------------------------------------------
