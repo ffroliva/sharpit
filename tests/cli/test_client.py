@@ -129,7 +129,7 @@ def test_duplicate_keys_and_oversized_bodies_are_rejected(endpoint, body):
 
 def test_timeout_bounds_the_whole_body_read(endpoint):
     # ported: BootUiClientTests.boundedResponseBodyReadHonorsTheRemainingRequestTimeout
-    base, routes, _, _, delays = endpoint
+    base, routes, _, _, delays, *_ = endpoint
     routes["/sharpit/api/probe"] = (200, b'{"value":true}', None)
     delays["/sharpit/api/probe"] = 2.0
     started = time.monotonic()
@@ -140,7 +140,7 @@ def test_timeout_bounds_the_whole_body_read(endpoint):
 
 def test_token_header_is_conditional_and_never_appears_in_client_errors(endpoint):
     # ported: BootUiClientTests.sendsTheBearerTokenOnlyWhenOneIsConfigured
-    base, routes, requests, headers, _ = endpoint
+    base, routes, requests, headers, *_ = endpoint
     routes["/sharpit/api/probe"] = (500, b"not json", None)
     routes["/sharpit/api/ok"] = (200, b'{"ok":true}', None)
     secret = "a-very-private-token"
@@ -158,7 +158,7 @@ def test_token_header_is_conditional_and_never_appears_in_client_errors(endpoint
 
 
 def test_user_agent_names_sharpit_version(endpoint):
-    base, routes, requests, headers, _ = endpoint
+    base, routes, requests, headers, *_ = endpoint
     routes["/sharpit/api/ok"] = (200, b"{}", None)
 
     Client(options(base)).get("/ok")
@@ -285,7 +285,7 @@ def test_invoke_rejects_non_json_with_the_endpoint_and_http_status(endpoint):
 
 
 def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
-    base, routes, _, _, delays = endpoint
+    base, routes, _, _, delays, *_ = endpoint
     secret = "message-secret"
     routes["/sharpit/api/probe"] = (200, b'{"ok":true}', None)
     delays["/sharpit/api/probe"] = 2.0
@@ -313,6 +313,22 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
         assert secret not in message
         assert f"Bearer {secret}" not in message
         assert "Authorization" not in message
+
+
+def test_connect_phase_is_capped_at_ten_seconds():
+    client = Client(options("http://127.0.0.1:1", timeout=20))
+    observed = []
+
+    class RefusedOpener:
+        def open(self, *_args, timeout, **_kwargs):
+            observed.append(timeout)
+            raise ConnectionRefusedError("refused")
+
+    client._opener = RefusedOpener()
+    message = _client_error_message(lambda: client.get("/probe"))
+
+    assert observed == [10]
+    assert message == "Cannot reach sharpit at http://127.0.0.1:1. Is the application running, and is that the right --url?"
 
 
 def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoint):
