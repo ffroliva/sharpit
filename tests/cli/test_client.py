@@ -204,6 +204,7 @@ def test_invoke_returns_tool_name_status_and_json_for_every_http_status(endpoint
 
 def test_get_uses_bootui_failure_description_with_panel_refusal_wording(endpoint):
     base, routes, *_ = endpoint
+    secret = "panel-secret"
     routes["/sharpit/api/probe"] = (
         403,
         b'{"error":"BootUI panel access denied","panel":"config","reason":"Panel is read-only"}',
@@ -212,11 +213,13 @@ def test_get_uses_bootui_failure_description_with_panel_refusal_wording(endpoint
 
     error = None
     try:
-        Client(options(base)).get("/probe")
+        Client(options(base, token=secret)).get("/probe")
     except ClientError as caught:
         error = str(caught)
 
     assert error == "sharpit answered HTTP 403: sharpit panel access denied: Panel is read-only"
+    assert secret not in repr(ClientError(error))
+    assert "Authorization" not in repr(ClientError(error))
 
 
 @pytest.mark.parametrize(
@@ -229,24 +232,28 @@ def test_get_uses_bootui_failure_description_with_panel_refusal_wording(endpoint
 )
 def test_get_describes_non_success_responses_without_exposing_raw_body(endpoint, status, body, detail):
     base, routes, *_ = endpoint
+    secret = "get-secret"
     routes["/sharpit/api/probe"] = (status, body, None)
 
     error = None
     try:
-        Client(options(base)).get("/probe")
+        Client(options(base, token=secret)).get("/probe")
     except ClientError as caught:
         error = str(caught)
 
     assert error == f"sharpit answered HTTP {status}{detail}"
+    assert secret not in repr(ClientError(error))
+    assert "Authorization" not in repr(ClientError(error))
 
 
 def test_catalog_404_names_the_missing_sharpit_endpoint_and_api_path(endpoint):
     base, routes, *_ = endpoint
+    secret = "catalog-secret"
     routes["/sharpit/api/cli"] = (404, b"{}", None)
 
     error = None
     try:
-        Client(options(base)).catalog()
+        Client(options(base, token=secret)).catalog()
     except ClientError as caught:
         error = str(caught)
 
@@ -254,19 +261,24 @@ def test_catalog_404_names_the_missing_sharpit_endpoint_and_api_path(endpoint):
         f"No sharpit command-line endpoint at {base}/sharpit/api/cli. The application may predate it, "
         "be running sharpit at a different --api-path, or not be a sharpit application."
     )
+    assert secret not in repr(ClientError(error))
+    assert "Authorization" not in repr(ClientError(error))
 
 
 def test_invoke_rejects_non_json_with_the_endpoint_and_http_status(endpoint):
     base, routes, *_ = endpoint
+    secret = "json-secret"
     routes["/sharpit/api/cli/tools/example"] = (500, b"not JSON", None)
 
     error = None
     try:
-        Client(options(base)).invoke("example", {})
+        Client(options(base, token=secret)).invoke("example", {})
     except ClientError as caught:
         error = str(caught)
 
     assert error == f"Response from {base}/sharpit/api/cli/tools/example does not contain JSON (HTTP 500)"
+    assert secret not in repr(ClientError(error))
+    assert "Authorization" not in repr(ClientError(error))
 
 
 def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
@@ -275,10 +287,12 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
     routes["/sharpit/api/probe"] = (200, b'{"ok":true}', None)
     delays["/sharpit/api/probe"] = 2.0
     messages = []
+    representations = []
 
     with pytest.raises(ClientError) as timeout:
         Client(options(base, token=secret, timeout=1)).get("/probe")
     messages.append(str(timeout.value))
+    representations.append(repr(timeout.value))
 
     class RefusedOpener:
         def open(self, *_args, **_kwargs):
@@ -286,15 +300,16 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
 
     refused = Client(options(base, token=secret))
     refused._opener = RefusedOpener()
-    messages.append(_client_error_message(lambda: refused.get("/probe")))
+    messages.append(_client_error_message(lambda: refused.get("/probe"), secret))
 
     assert messages == [
         f"No response from {base} within 1s. Raise --timeout if the tool is expected to be slow.",
         f"Cannot reach sharpit at {base}. Is the application running, and is that the right --url?",
     ]
-    for message in messages:
+    for message in (*messages, *representations):
         assert secret not in message
         assert f"Bearer {secret}" not in message
+        assert "Authorization" not in message
 
 
 def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoint):
@@ -307,10 +322,15 @@ def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoin
     assert result.payload == {"value": True}
 
 
-def _client_error_message(call):
+def _client_error_message(call, token=None):
     try:
         call()
     except ClientError as error:
+        if token:
+            for rendered in (str(error), repr(error)):
+                assert token not in rendered
+                assert f"Bearer {token}" not in rendered
+                assert "Authorization" not in rendered
         return str(error)
     return None
 
@@ -322,7 +342,10 @@ def test_bounded_timeout_uses_the_bootui_deadline_message(endpoint):
     assert hasattr(Client, "invoke_bounded"), "bounded calls accept a remaining deadline"
 
     message = _client_error_message(
-        lambda: Client(options(base)).invoke_bounded("slow", {}, max_response_bytes=64, timeout=0.25)
+        lambda: Client(options(base, token="bounded-secret")).invoke_bounded(
+            "slow", {}, max_response_bytes=64, timeout=0.25
+        ),
+        "bounded-secret",
     )
 
     assert message == f"Request to {base} exceeded its response deadline."
@@ -333,7 +356,10 @@ def test_response_limit_message_uses_the_callers_byte_cap(endpoint):
     routes["/sharpit/api/cli/tools/large"] = (200, b'{"ok":true}', None)
     assert hasattr(Client, "invoke_bounded"), "bounded calls accept a per-call byte cap"
 
-    message = _client_error_message(lambda: Client(options(base)).invoke_bounded("large", {}, max_response_bytes=4))
+    message = _client_error_message(
+        lambda: Client(options(base, token="limit-secret")).invoke_bounded("large", {}, max_response_bytes=4),
+        "limit-secret",
+    )
 
     assert message == "Response exceeded the 4 byte limit"
 
@@ -342,7 +368,7 @@ def test_invalid_utf8_has_the_bootui_message(endpoint):
     base, routes, *_ = endpoint
     routes["/sharpit/api/probe"] = (200, b"\xff", None)
 
-    message = _client_error_message(lambda: Client(options(base, token="utf8-secret")).get("/probe"))
+    message = _client_error_message(lambda: Client(options(base, token="utf8-secret")).get("/probe"), "utf8-secret")
 
     assert message == "Response is not valid UTF-8"
     assert "utf8-secret" not in message
@@ -350,7 +376,9 @@ def test_invalid_utf8_has_the_bootui_message(endpoint):
 
 
 def test_invalid_url_has_the_bootui_message(endpoint):
-    message = _client_error_message(lambda: Client(options("not a url")).get("/probe"))
+    message = _client_error_message(
+        lambda: Client(options("not a url", token="url-secret")).get("/probe"), "url-secret"
+    )
 
     assert message == "Not a valid URL: not a url/sharpit/api/probe"
 
@@ -365,7 +393,7 @@ def test_http_failure_message_uses_the_bootui_reason_without_the_token(endpoint)
     client = Client(options(base, token="message-secret"))
     client._opener = FailedOpener()
 
-    message = _client_error_message(lambda: client.get("/probe"))
+    message = _client_error_message(lambda: client.get("/probe"), "message-secret")
 
     assert message == f"Request to {base} failed: [redacted]"
     assert "message-secret" not in message
@@ -377,7 +405,7 @@ def test_error_details_do_not_echo_the_authorization_header(endpoint):
     secret = "message-secret"
     routes["/sharpit/api/probe"] = (500, f'{{"error":"Authorization: Bearer {secret}"}}'.encode(), None)
 
-    message = _client_error_message(lambda: Client(options(base, token=secret)).get("/probe"))
+    message = _client_error_message(lambda: Client(options(base, token=secret)).get("/probe"), secret)
 
     assert message == "sharpit answered HTTP 500: [redacted]"
     assert "Authorization" not in message
