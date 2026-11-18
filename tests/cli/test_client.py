@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -279,13 +280,16 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
         Client(options(base, token=secret, timeout=1)).get("/probe")
     messages.append(str(timeout.value))
 
+    closed = Server(("127.0.0.1", 0), BaseHTTPRequestHandler)
+    port = closed.server_address[1]
+    closed.server_close()
     with pytest.raises(ClientError) as unreachable:
-        Client(options("http://127.0.0.1:1", token=secret)).get("/probe")
+        Client(options(f"http://127.0.0.1:{port}", token=secret)).get("/probe")
     messages.append(str(unreachable.value))
 
     assert messages == [
         f"No response from {base} within 1s. Raise --timeout if the tool is expected to be slow.",
-        "Cannot reach sharpit at http://127.0.0.1:1. Is the application running, and is that the right --url?",
+        f"Cannot reach sharpit at http://127.0.0.1:{port}. Is the application running, and is that the right --url?",
     ]
     for message in messages:
         assert secret not in message
@@ -300,3 +304,91 @@ def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoin
     result = Client(options(base)).invoke_bounded("example", {}, max_response_bytes=64, timeout=0.5)
 
     assert result.payload == {"value": True}
+
+
+def _client_error_message(call):
+    try:
+        call()
+    except ClientError as error:
+        return str(error)
+    return None
+
+
+def test_bounded_timeout_uses_the_bootui_deadline_message(endpoint):
+    base, routes, *_ = endpoint
+    routes["/sharpit/api/cli/tools/slow"] = (200, b'{"ok":true}', None)
+    endpoint[4]["/sharpit/api/cli/tools/slow"] = 2.0
+    assert hasattr(Client, "invoke_bounded"), "bounded calls accept a remaining deadline"
+
+    message = _client_error_message(
+        lambda: Client(options(base)).invoke_bounded("slow", {}, max_response_bytes=64, timeout=0.25)
+    )
+
+    assert message == f"Request to {base} exceeded its response deadline."
+
+
+def test_response_limit_message_uses_the_callers_byte_cap(endpoint):
+    base, routes, *_ = endpoint
+    routes["/sharpit/api/cli/tools/large"] = (200, b'{"ok":true}', None)
+    assert hasattr(Client, "invoke_bounded"), "bounded calls accept a per-call byte cap"
+
+    message = _client_error_message(
+        lambda: Client(options(base)).invoke_bounded("large", {}, max_response_bytes=4)
+    )
+
+    assert message == "Response exceeded the 4 byte limit"
+
+
+def test_invalid_utf8_has_the_bootui_message(endpoint):
+    base, routes, *_ = endpoint
+    routes["/sharpit/api/probe"] = (200, b"\xff", None)
+
+    message = _client_error_message(lambda: Client(options(base, token="utf8-secret")).get("/probe"))
+
+    assert message == "Response is not valid UTF-8"
+    assert "utf8-secret" not in message
+    assert "Bearer utf8-secret" not in message
+
+
+def test_invalid_url_has_the_bootui_message(endpoint):
+    message = _client_error_message(lambda: Client(options("not a url")).get("/probe"))
+
+    assert message == "Not a valid URL: not a url/sharpit/api/probe"
+
+
+def test_http_failure_message_uses_the_bootui_reason_without_the_token(endpoint):
+    base, *_ = endpoint
+
+    class FailedOpener:
+        def open(self, *_args, **_kwargs):
+            raise http.client.HTTPException("message-secret")
+
+    client = Client(options(base, token="message-secret"))
+    client._opener = FailedOpener()
+
+    message = _client_error_message(lambda: client.get("/probe"))
+
+    assert message == f"Request to {base} failed: [redacted]"
+    assert "message-secret" not in message
+    assert "Bearer message-secret" not in message
+
+
+def test_bounded_read_works_when_response_has_no_private_socket():
+    from sharpit.cli.client import _read_bounded
+
+    class ResponseWithoutSocket:
+        fp = SimpleNamespace(raw=SimpleNamespace())
+
+        def __init__(self):
+            self.chunks = [b'{"ok":true}', b""]
+
+        def read1(self, _size):
+            return self.chunks.pop(0)
+
+    body = None
+    try:
+        body = _read_bounded(ResponseWithoutSocket(), time.monotonic() + 1)
+    except AttributeError:
+        pass
+
+    assert body == b'{"ok":true}', "bounded response reads must not require response.fp.raw._sock"
