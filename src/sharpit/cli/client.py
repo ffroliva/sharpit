@@ -70,7 +70,7 @@ class Client:
         status, body = self._send(endpoint, "GET", None, max_response_bytes, timeout)
         if not 200 <= status < 300:
             raise self._describe_failure(status, body)
-        return _parse_json(body)
+        return _parse_json(body, endpoint, status)
 
     def _invoke(
         self,
@@ -84,7 +84,7 @@ class Client:
         status, body = self._send(endpoint, "POST", arguments, max_response_bytes, timeout)
         if not 200 <= status < 300:
             return ToolResult(tool, status, body, _optional_json(body))
-        payload = _parse_json(body)
+        payload = _parse_json(body, endpoint, status)
         return ToolResult(tool, status, body, payload)
 
     def _catalog(self, max_response_bytes: int, timeout: float | None) -> Any:
@@ -98,7 +98,7 @@ class Client:
             )
         if not 200 <= status < 300:
             raise self._describe_failure(status, body)
-        return _parse_json(body)
+        return _parse_json(body, endpoint, status)
 
     def _send(
         self,
@@ -233,7 +233,7 @@ class Client:
                 reason = _nonblank(document.get("reason"))
                 message = _nonblank(document.get("message"))
                 panel = _nonblank(document.get("panel"))
-        except (json.JSONDecodeError, ValueError, RecursionError):
+        except (json.JSONDecodeError, ValueError, ClientError):
             pass
 
         specific = reason or message
@@ -284,21 +284,24 @@ def _read_bounded(response: Any, deadline: float, max_response_bytes: int = _MAX
         chunks.append(chunk)
 
 
-def _parse_json(body: str) -> Any:
+def _parse_json(body: str, endpoint: str, status: int) -> Any:
     try:
         return _strict_json(body)
-    except (json.JSONDecodeError, ValueError, RecursionError):
-        raise ClientError("Response was not valid strict JSON") from None
+    except (json.JSONDecodeError, ValueError):
+        raise ClientError(f"Response from {endpoint} does not contain JSON (HTTP {status})") from None
 
 
 def _strict_json(body: str) -> Any:
-    return json.loads(body, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    try:
+        return json.loads(body, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    except RecursionError:
+        raise ClientError("Response was not valid strict JSON") from None
 
 
 def _optional_json(body: str) -> Any:
     try:
         return _strict_json(body)
-    except (json.JSONDecodeError, ValueError, RecursionError):
+    except (json.JSONDecodeError, ValueError, ClientError):
         return None
 
 
