@@ -45,6 +45,10 @@ continue to use `SHARPIT_*` environment variables.
 | `--sharpit-baseline=PATH` | `sharpit_baseline` | none | Compare findings with a baseline: existing findings do not fail, new ones do |
 | `--sharpit-write-baseline=PATH` | none | none | Write a baseline after a complete run; refused for a partial or `unknown` run |
 
+### Which application the REST API advisor assesses
+
+Without `--sharpit-app`, the plugin looks for FastAPI or Starlette applications in the project modules that the selected tests imported. The result therefore depends on the selection: a run that imports the application assesses it, and a subset run that imports none skips the REST API advisor. The report (`advisors[].apps[].evidence.detectedFrom` is `imports`) and the terminal line state when an application was found this way, with its `module:attr`; under pytest-xdist the evidence also lists the workers that saw it (`detectedBy`). When no application is found, or several are, the reason says the selected tests imported none or names the candidates. `--sharpit-app module:attr` (or `--sharpit-require-app`) gives the same result on any selection. Exit codes do not change.
+
 ## Count gates and the marker
 
 During the test `call` phase, the plugin evaluates three count gates defined by the `test-runtime` advisor:

@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The pytest plugin's report and terminal line say when the REST API advisor's application was found through the modules the selected tests imported (`evidence.detectedFrom`, with `detectedBy` workers under xdist), and the skip reasons say the selected tests imported no application or name the candidates, with `--sharpit-app` or `--sharpit-require-app` as the selection-independent options. Exit codes are unchanged (#67).
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
 
 ## [0.6.0] - 2026-11-13
