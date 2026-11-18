@@ -25,7 +25,7 @@ def endpoint():
     headers: list[dict[str, str]] = []
     routes: dict[str, tuple[int, bytes, str | None]] = {}
     delays: dict[str, float] = {}
-    header_delays: dict[str, float] = {}
+    header_trickles: set[str] = set()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -33,6 +33,16 @@ def endpoint():
 
         def do_POST(self):
             self.respond()
+
+        def end_headers(self):
+            if self.path in header_trickles:
+                data = b"".join(self._headers_buffer) + b"\r\n"
+                self._headers_buffer.clear()
+                for byte in data:
+                    self.connection.sendall(bytes((byte,)))
+                    time.sleep(0.02)
+            else:
+                super().end_headers()
 
         def respond(self):
             size = int(self.headers.get("Content-Length", "0"))
@@ -48,7 +58,6 @@ def endpoint():
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
-            time.sleep(header_delays.get(self.path, 0))
             self.end_headers()
             time.sleep(delays.get(self.path, 0))
             self.wfile.write(payload)
@@ -61,7 +70,7 @@ def endpoint():
     thread.start()
     host, port = server.server_address
     try:
-        yield f"http://{host}:{port}", routes, requests, headers, delays, header_delays
+        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles
     finally:
         server.shutdown()
         server.server_close()
@@ -114,10 +123,8 @@ def test_configured_proxy_is_ignored(monkeypatch, endpoint):
     monkeypatch.delenv("no_proxy", raising=False)
 
     result = None
-    try:
+    with contextlib.suppress(ClientError):
         result = Client(options(base)).get("/probe")
-    except ClientError:
-        pass
     assert result == {"direct": True}
     assert len(requests) == 1
 
@@ -333,7 +340,10 @@ def test_connect_phase_is_capped_at_ten_seconds():
     message = _client_error_message(lambda: client.get("/probe"))
 
     assert observed == [10]
-    assert message == "Cannot reach sharpit at http://127.0.0.1:1. Is the application running, and is that the right --url?"
+    assert (
+        message
+        == "Cannot reach sharpit at http://127.0.0.1:1. Is the application running, and is that the right --url?"
+    )
 
 
 def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoint):
@@ -486,10 +496,8 @@ def test_non_json_error_status_returns_outcome_with_missing_payload(endpoint, st
     base, routes, *_ = endpoint
     routes["/sharpit/api/cli/tools/error"] = (status, body, None)
     result = None
-    try:
+    with contextlib.suppress(ClientError):
         result = Client(options(base)).invoke("error", {})
-    except ClientError:
-        pass
     assert result is not None, "non-2xx responses must return a status outcome"
     assert result.status == status
     assert result.payload is None
@@ -500,7 +508,7 @@ def test_deadline_bounds_headers_and_error_bodies(endpoint, path):
     base, routes, *_ = endpoint
     routes[f"/sharpit/api{path}"] = (500, b"{" + b"x" * 100 + b"}", None)
     if path == "/slow-header":
-        endpoint[5][f"/sharpit/api{path}"] = 2.0
+        endpoint[5].add(f"/sharpit/api{path}")
     else:
         endpoint[4][f"/sharpit/api{path}"] = 2.0
     started = time.monotonic()
@@ -523,9 +531,8 @@ def test_nested_json_recursion_is_a_client_error(endpoint):
 
 
 def test_panel_error_constant_matches_the_server_contract():
-    from sharpit.engine.guard import PANEL_ACCESS_DENIED
-
     import sharpit.cli.client as client_module
+    from sharpit.engine.guard import PANEL_ACCESS_DENIED
 
     assert getattr(client_module, "_PANEL_ACCESS_DENIED", None) == PANEL_ACCESS_DENIED
 
