@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import functools
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
@@ -613,12 +614,36 @@ def test_cli_network_calls_are_confined_to_client(
     assert cli_network_call_violations() == [f"sharpit/cli/rogue.py:2 uses {expected}"]
 
 
+@pytest.mark.parametrize("source", [
+    "from sharpit.cli import client\nclient.request.urlopen('x')",
+    "from sharpit.cli.client import _request\n_request.urlopen('x')",
+    "from sharpit.cli import client\nclient._opener.open('x')",
+])
+def test_cli_client_reexports_and_private_members_are_not_accessible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    root = tmp_path / "src" / "sharpit"
+    cli = root / "cli"
+    cli.mkdir(parents=True)
+    (cli / "client.py").write_text('__all__ = ["Client"]\n', encoding="utf-8")
+    (cli / "rogue.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert cli_network_call_violations()
+
+
 @pytest.mark.parametrize(
     "source, expected",
     [
         ("import importlib\nimportlib.import_module('x')", "calls importlib.import_module"),
         ("__import__('x')", "calls __import__"),
         ("import sys\nsys.modules['x']", "accesses sys.modules"),
+        ("import sys\nsys.modules.pop('x')", "accesses sys.modules"),
+        ("import importlib\nimportlib.__import__('x')", "calls importlib.__import__"),
+        ("import importlib.util\nimportlib.util.find_spec('x')", "calls importlib.util.find_spec"),
+        ("exec('pass')", "calls exec"),
+        ("eval('1')", "calls eval"),
+        ("compile('1', '<x>', 'eval')", "calls compile"),
         (
             "from importlib.resources import files\nfiles(name)",
             "calls importlib.resources.files without a string literal",

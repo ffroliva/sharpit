@@ -25,6 +25,7 @@ def endpoint():
     headers: list[dict[str, str]] = []
     routes: dict[str, tuple[int, bytes, str | None]] = {}
     delays: dict[str, float] = {}
+    header_delays: dict[str, float] = {}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -47,6 +48,7 @@ def endpoint():
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
+            time.sleep(header_delays.get(self.path, 0))
             self.end_headers()
             time.sleep(delays.get(self.path, 0))
             self.wfile.write(payload)
@@ -55,11 +57,11 @@ def endpoint():
             return
 
     server = Server(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.01), daemon=True)
     thread.start()
     host, port = server.server_address
     try:
-        yield f"http://{host}:{port}", routes, requests, headers, delays
+        yield f"http://{host}:{port}", routes, requests, headers, delays, header_delays
     finally:
         server.shutdown()
         server.server_close()
@@ -108,6 +110,8 @@ def test_configured_proxy_is_ignored(monkeypatch, endpoint):
     routes["/sharpit/api/probe"] = (200, b'{"direct":true}', None)
     monkeypatch.setenv("http_proxy", "http://127.0.0.1:1")
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
 
     assert Client(options(base)).get("/probe") == {"direct": True}
     assert len(requests) == 1
@@ -206,7 +210,7 @@ def test_get_uses_bootui_failure_description_with_panel_refusal_wording(endpoint
     secret = "panel-secret"
     routes["/sharpit/api/probe"] = (
         403,
-        b'{"error":"BootUI panel access denied","panel":"config","reason":"Panel is read-only"}',
+        b'{"error":"sharpit panel access denied","panel":"config","reason":"Panel is read-only"}',
         None,
     )
 
@@ -267,7 +271,7 @@ def test_catalog_404_names_the_missing_sharpit_endpoint_and_api_path(endpoint):
 def test_invoke_rejects_non_json_with_the_endpoint_and_http_status(endpoint):
     base, routes, *_ = endpoint
     secret = "json-secret"
-    routes["/sharpit/api/cli/tools/example"] = (500, b"not JSON", None)
+    routes["/sharpit/api/cli/tools/example"] = (200, b"not JSON", None)
 
     error = None
     try:
@@ -275,7 +279,7 @@ def test_invoke_rejects_non_json_with_the_endpoint_and_http_status(endpoint):
     except ClientError as caught:
         error = str(caught)
 
-    assert error == f"Response from {base}/sharpit/api/cli/tools/example does not contain JSON (HTTP 500)"
+    assert error == "Response was not valid strict JSON"
     assert secret not in repr(ClientError(error))
     assert "Authorization" not in repr(ClientError(error))
 
@@ -428,3 +432,87 @@ def test_bounded_read_works_when_response_has_no_private_socket():
         body = _read_bounded(ResponseWithoutSocket(), time.monotonic() + 1)
 
     assert body == b'{"ok":true}', "bounded response reads must not require response.fp.raw._sock"
+
+
+@pytest.mark.parametrize("secret", ["a\rb", "a\nb", "a\x00b", "café-漢"])
+def test_invalid_header_tokens_fail_safely_before_a_request(secret, endpoint):
+    with pytest.raises(ClientError) as caught:
+        Client(options(endpoint[0], token=secret))
+    assert str(caught.value) == "The token contains characters an HTTP header cannot carry"
+    assert secret not in str(caught.value)
+    assert secret not in repr(caught.value)
+
+
+@pytest.mark.parametrize("tool", ["a#b", "x?y", "../mcp-server/toggle"])
+def test_tool_names_are_quoted_as_a_single_path_segment(tool, endpoint):
+    base, routes, requests, *_ = endpoint
+    from urllib.parse import quote
+
+    path = f"/sharpit/api/cli/tools/{quote(tool, safe='')}"
+    routes[path] = (200, b"{}", None)
+    Client(options(base)).invoke(tool, {})
+    assert requests[0][1] == path
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), -float("inf")])
+def test_invalid_timeout_uses_sixty_second_default(value):
+    client = Client(options("http://127.0.0.1:1", timeout=value))
+    assert client.options.timeout == 60
+
+
+@pytest.mark.parametrize("status,body", [(500, b""), (502, b"not json")])
+def test_non_json_error_status_returns_outcome_with_missing_payload(endpoint, status, body):
+    base, routes, *_ = endpoint
+    routes["/sharpit/api/cli/tools/error"] = (status, body, None)
+    result = None
+    try:
+        result = Client(options(base)).invoke("error", {})
+    except ClientError:
+        pass
+    assert result is not None, "non-2xx responses must return a status outcome"
+    assert result.status == status
+    assert result.payload is None
+
+
+@pytest.mark.parametrize("path", ["/slow-body", "/slow-header"])
+def test_deadline_bounds_headers_and_error_bodies(endpoint, path):
+    base, routes, *_ = endpoint
+    routes[f"/sharpit/api{path}"] = (500, b"{" + b"x" * 100 + b"}", None)
+    if path == "/slow-header":
+        endpoint[5][f"/sharpit/api{path}"] = 2.0
+    else:
+        endpoint[4][f"/sharpit/api{path}"] = 2.0
+    started = time.monotonic()
+    with pytest.raises(ClientError):
+        Client(options(base, timeout=0.25)).get(path)
+    assert time.monotonic() - started < 0.75
+
+
+def test_nested_json_recursion_is_a_client_error(endpoint):
+    base, routes, *_ = endpoint
+    routes["/sharpit/api/probe"] = (200, b"[" * 200_000, None)
+    message = None
+    try:
+        Client(options(base)).get("/probe")
+    except ClientError as error:
+        message = str(error)
+    except RecursionError:
+        message = "RecursionError"
+    assert message == "Response was not valid strict JSON"
+
+
+def test_panel_error_constant_matches_the_server_contract():
+    from sharpit.engine.guard import PANEL_ACCESS_DENIED
+
+    import sharpit.cli.client as client_module
+
+    assert getattr(client_module, "_PANEL_ACCESS_DENIED", None) == PANEL_ACCESS_DENIED
+
+
+def test_token_is_redacted_before_bootui_text_translation(endpoint):
+    base, routes, *_ = endpoint
+    secret = "BootUI-secret"
+    routes["/sharpit/api/probe"] = (500, f'{{"error":"{secret}"}}'.encode(), None)
+    message = _client_error_message(lambda: Client(options(base, token=secret)).get("/probe"), secret)
+    assert "BootUI-secret" not in message
+    assert "[redacted]" in message
