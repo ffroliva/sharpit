@@ -5,8 +5,8 @@ the first of, under ``fixtures/bootui/<fixture_version>/<sharpit_id>/``:
 ``<name>.captured.json``, ``<name>.provisional.json``, ``captured.json``, ``provisional.json``
 (a provisional one emits :class:`UnverifiedParityWarning`: merges, counted unverified).
 
-Legacy default ``fixture_version='2.2.0'``. For 2.3.0 parity and matched rows, pass
-``fixture_version='2.3.0'`` and ``matched=True`` (spec §4.4).
+Legacy default ``fixture_version='2.2.0'``. For 2.3.0 or later parity and matched rows, pass
+``fixture_version='2.3.0'`` (or ``'2.4.0'``) and ``matched=True`` (spec §4.4).
 
 Every golden key (and catalog field under 2.3.0) must be present with a compatible JSON type;
 extra payload keys are allowed. Under 2.3.0, a non-empty golden list requires a non-empty payload list.
@@ -27,6 +27,14 @@ from typing import Any, cast
 
 BOOTUI_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bootui"
 DEFAULT_FIXTURE_VERSION = "2.2.0"
+
+
+def _is_23_or_later(version: str) -> bool:
+    """The 2.3.0 rules (catalog fields, non-empty lists) apply from 2.3.0 on."""
+    parts = version.split(".")
+    return len(parts) == 3 and all(p.isdigit() for p in parts) and tuple(map(int, parts)) >= (2, 3, 0)
+
+
 ROOT = BOOTUI_FIXTURES_DIR / DEFAULT_FIXTURE_VERSION
 _INITIAL_ROOT = ROOT
 
@@ -240,11 +248,11 @@ def assert_parity(
     Legacy default ``fixture_version='2.2.0'``. For 2.3.0 parity and matched rows,
     pass ``fixture_version='2.3.0'`` and ``matched=True`` (spec §4.4).
     """
-    is_23 = fixture_version == "2.3.0"
+    is_23 = _is_23_or_later(fixture_version)
     if matched and not is_23:
         raise AssertionError(
             f"{sharpit_id}/{name}: 2.2.0 fixture cannot satisfy 'matched' parity; "
-            "version 2.3.0 golden required (spec §4.4)"
+            "a 2.3.0 or later golden required (spec §4.4)"
         )
 
     folder = _folder(sharpit_id, fixture_version)

@@ -266,7 +266,7 @@ def test_version_comes_from_source_and_rejects_unknown_versions(tmp_path: Path):
     assert meta["bootuiVersion"] == "2.2.0"
     assert json.loads((dst / "agent" / "captured.json").read_text(encoding="utf-8")) == {"status": "UP"}
     assert not (dst / "agent" / "enums.raw.json").exists()
-    with pytest.raises(ValueError, match="version must be '2.2.0' or '2.3.0'"):
+    with pytest.raises(ValueError, match="version must be '2.2.0' or 2.3.0 or later"):
         module.main(src, dst, repo=tmp_path, version="scratch")
 
 
@@ -311,3 +311,11 @@ def test_numbers_under_other_sensitive_keys_stay_refused() -> None:
 
 def test_strings_under_token_count_keys_stay_refused() -> None:
     assert module.find_secrets({"totalInputTokens": "abc123"}) == ["$.totalInputTokens"]
+
+
+def test_nested_layout_and_version_for_a_2_4_0_source(tmp_path: Path) -> None:
+    error, dst = _tree(tmp_path, {"overview/captured.json": {"name": "x"}}, name="2.4.0")
+    assert error is None
+    assert (dst / "overview" / "captured.json").is_file()
+    assert (dst / "overview" / "enums.raw.json").is_file()
+    assert json.loads((dst / "meta.json").read_text(encoding="utf-8"))["bootuiVersion"] == "2.4.0"

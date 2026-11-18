@@ -304,3 +304,16 @@ def test_patched_root_still_selects_the_fixture_version(tmp_path: Path, monkeypa
 
     assert golden._folder("x", "2.3.0") == tmp_path / "2.3.0" / "x"
     assert_parity("x", "captured", {"version": "2.3.0"}, fixture_version="2.3.0")
+
+
+def test_golden_loader_applies_the_2_3_0_rules_to_2_4_0(fixtures: Path) -> None:
+    _write(fixtures / "2.4.0" / "overview" / "captured.json", {"applicationName": "test"})
+    _write(fixtures / "2.4.0" / "overview" / "catalog.json", ["applicationName", "frameworkName"])
+    error = _parity_error("overview", "overview", {"applicationName": "test"}, fixture_version="2.4.0")
+    assert error is not None
+    assert "frameworkName" in error
+
+    _write(fixtures / "2.4.0" / "data" / "captured.json", {"items": [{"id": 1}]})
+    empty = _parity_error("data", "data", {"items": []}, fixture_version="2.4.0")
+    assert empty is not None
+    assert "non-empty golden list requires a non-empty payload list" in empty
