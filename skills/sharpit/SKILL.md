@@ -325,6 +325,12 @@ writable. Notes are stored Base64URL-encoded and returned only by `GET` (no MCP 
 `SHARPIT_READ_ONLY=true` refuses the mutations with 403; listing still works. At most 1000 dismissed findings (409
 beyond).
 
+A `sharpit.swallowed-exception` finding prints its identity at the end of its message,
+`<path>:<scope>:<ExceptionType>#<n>/<m>` (the n-th of the m broad, silent `except` clauses of that scope); paste it as
+the dismissal's identity. It holds no line number, so an edit above the handler keeps the dismissal, and a clause added,
+removed or given a log call in that scope brings the finding back. The earlier `<path>:<line>:<ExceptionType>` form
+still matches while its line holds, and the report then warns with the identity to replace it with.
+
 ## Common mistakes
 
 | Mistake | Fix |

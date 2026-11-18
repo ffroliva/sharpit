@@ -187,9 +187,25 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI
 ```
 
 Findings in the baseline are reported as `existing` and do not fail; new findings are `new` and do. Baseline
-fingerprints hold no file path or timestamp, so reformatting code does not turn an existing finding into a new one.
+fingerprints hold no line number or timestamp, so reformatting code does not turn an existing finding into a new one.
 Writing a baseline is refused for a partial or `unknown` run. Review changes to the baseline file like code: a change
 that adds its own findings to it accepts them.
+
+### Dismissing a swallowed exception
+
+A `sharpit.swallowed-exception` finding ends its message with its identity,
+`<path>:<scope>:<ExceptionType>#<n>/<m>`: for example `src/app/weeks.py:Week.count:AttributeError#2/3` is the second of
+the three broad, silent `except` clauses of `Week.count`. Paste it after the rule id in `.sharpit/sharpit.yml`:
+
+```yaml
+dismissedFindings:
+  - sharpit.swallowed-exception src/app/weeks.py:Week.count:AttributeError#2/3
+```
+
+The identity holds no line number, so a line added above the handler does not bring the finding back. It stops matching
+when the set of swallowing clauses in that scope changes (one added, removed or given a log call), and the finding comes
+back instead of moving to a neighbouring clause. The earlier `<path>:<line>:<ExceptionType>` form still matches while
+the line holds, and the report then warns with the identity to replace it with.
 
 ## Parallel runs with pytest-xdist
 

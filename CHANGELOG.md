@@ -11,6 +11,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A dismissed `sharpit.swallowed-exception` finding no longer comes back when a line above it moves (#66). The finding
+  is keyed by `<path>:<scope qualified name>:<ExceptionType>#<n>/<m>` (the n-th of the m broad, silent `except` clauses
+  of that scope) instead of the line of the `except` header, and its message prints the key so it can be pasted into
+  `dismissedFindings`. Adding, removing or logging a swallowing clause in a scope changes `m`, so the dismissals of that
+  scope come back instead of moving to a neighbouring clause. Migration:
+  - a `dismissedFindings` entry in the earlier `<path>:<line>:<ExceptionType>` form still matches while its line holds,
+    and the report warns with the key to replace it with;
+  - the finding fingerprint follows the new key, so a baseline needs one `--sharpit-write-baseline` rewrite, a
+    `dismissedRules` fingerprint for a swallowed exception is dismissed once more, and a code-scanning alert for a
+    swallowed exception is reopened once (the SARIF `sharpitFingerprint/v1` key is unchanged).
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
 
 ## [0.6.0] - 2026-11-13
