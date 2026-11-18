@@ -291,7 +291,7 @@ def test_invoke_rejects_non_json_with_the_endpoint_and_http_status(endpoint):
     except ClientError as caught:
         error = str(caught)
 
-    assert error == "Response was not valid strict JSON"
+    assert error == f"Response from {base}/sharpit/api/cli/tools/example does not contain JSON (HTTP 200)"
     assert secret not in repr(ClientError(error))
     assert "Authorization" not in repr(ClientError(error))
 
