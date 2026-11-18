@@ -280,16 +280,17 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
         Client(options(base, token=secret, timeout=1)).get("/probe")
     messages.append(str(timeout.value))
 
-    closed = Server(("127.0.0.1", 0), BaseHTTPRequestHandler)
-    port = closed.server_address[1]
-    closed.server_close()
-    with pytest.raises(ClientError) as unreachable:
-        Client(options(f"http://127.0.0.1:{port}", token=secret)).get("/probe")
-    messages.append(str(unreachable.value))
+    class RefusedOpener:
+        def open(self, *_args, **_kwargs):
+            raise ConnectionRefusedError("connection refused")
+
+    refused = Client(options(base, token=secret))
+    refused._opener = RefusedOpener()
+    messages.append(_client_error_message(lambda: refused.get("/probe")))
 
     assert messages == [
         f"No response from {base} within 1s. Raise --timeout if the tool is expected to be slow.",
-        f"Cannot reach sharpit at http://127.0.0.1:{port}. Is the application running, and is that the right --url?",
+        f"Cannot reach sharpit at {base}. Is the application running, and is that the right --url?",
     ]
     for message in messages:
         assert secret not in message
