@@ -27,6 +27,6 @@ Port the two BootUI 2.4.0 journal robustness enhancements to sharpit:
 
 ## Tasks
 
-- [ ] **Step 0:** Document plan and scenarios in `A5a-journal.md`.
-- [ ] **Step 1:** Port idempotent aggregate registration test (`RuntimeJournalTests.registeringTheSameAggregateAgainNeitherCountsTwiceNorRepairsMissingCoverage`) in `tests/engine/capture/test_journal.py` as an architectural guard, and record adaptation row in `docs/reference/matrix-updates/a5a-journal.tsv`.
-- [ ] **Step 2:** Port both `RequestJournalProfilesTests` cases in `tests/engine/insights/test_insights_profile.py`, verify red first with `scripts/dev/red_check.py`, then implement the SQL start monotonic tie-break comparator in `src/sharpit/engine/collectors/insights/profile.py`.
+- [x] **Step 0:** Document plan and scenarios in `A5a-journal.md`.
+- [x] **Step 1:** Port idempotent aggregate registration test (`RuntimeJournalTests.registeringTheSameAggregateAgainNeitherCountsTwiceNorRepairsMissingCoverage`) in `tests/engine/capture/test_journal.py` as an architectural guard, and record adaptation row in `docs/reference/matrix-updates/a5a-journal.tsv`.
+- [x] **Step 2:** Port both `RequestJournalProfilesTests` cases in `tests/engine/insights/test_insights_profile.py`, verify red first with `scripts/dev/red_check.py`, then implement the SQL start monotonic tie-break comparator in `src/sharpit/engine/collectors/insights/profile.py`.
