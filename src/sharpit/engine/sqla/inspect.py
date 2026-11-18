@@ -58,6 +58,36 @@ def catalog(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     inspector = _sqla.sqlalchemy_module().inspect(conn)  # type: ignore[union-attr]  # callers hold a SQLAlchemy conn
     names: list[str] = inspector.get_table_names()
     truncated, complete = len(names) > bounds.tables, True
+    driver = getattr(getattr(conn, "dialect", None), "driver", None)
+    if not driver or not str(driver).strip():
+        complete = False
+        diagnostics.append(_warning("The JDBC driver name was unavailable; driver settings are not evaluated."))
+    dbapi = getattr(getattr(conn, "dialect", None), "dbapi", None)
+    try:
+        version = getattr(dbapi, "__version__", None) if dbapi is not None else None
+    except Exception:  # noqa: BLE001
+        version = None
+    if not version or not str(version).strip():
+        complete = False
+        diagnostics.append(_warning("The JDBC driver version was unavailable."))
+    url_failed = False
+    url_val = None
+    try:
+        engine = getattr(conn, "engine", None)
+        sync = getattr(engine, "sync_engine", engine)
+        url_val = getattr(sync, "url", None)
+    except Exception:  # noqa: BLE001
+        url_failed = True
+    if url_failed:
+        complete = False
+        diagnostics.append(
+            _warning("The JDBC URL could not be read; driver settings configured in it are not evaluated.")
+        )
+    elif url_val is None or not str(url_val).strip():
+        complete = False
+        diagnostics.append(
+            _warning("The driver reported no JDBC URL; driver settings configured in it are not evaluated.")
+        )
     tables: list[dict[str, Any]] = []
     for name in names[: bounds.tables]:
         if _clock() - start > bounds.budget:
