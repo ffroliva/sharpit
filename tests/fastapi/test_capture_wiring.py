@@ -499,11 +499,13 @@ def test_application_and_send_failures_propagate_unchanged(monkeypatch: pytest.M
     async def answers(_scope: Scope, _receive: Receive, send: Send) -> None:
         await send(_start(200))
 
+    raising_call = _serve(CaptureMiddleware(raises_at_once, handle.context), _scope("/api/fail"), [])
     with pytest.raises(RuntimeError) as application:
-        asyncio.run(_serve(CaptureMiddleware(raises_at_once, handle.context), _scope("/api/fail"), []))
+        asyncio.run(raising_call)
     assert application.value is application_failure
+    failing_send = _serve(CaptureMiddleware(answers, handle.context), _scope("/api/fail"), [], send_failure)
     with pytest.raises(OSError, match="commit") as commit:
-        asyncio.run(_serve(CaptureMiddleware(answers, handle.context), _scope("/api/fail"), [], send_failure))
+        asyncio.run(failing_send)
     assert commit.value is send_failure
 
 
@@ -557,8 +559,9 @@ def test_a_setup_failure_leaves_no_trace_on_an_application_exception(monkeypatch
     async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
         raise failure
 
+    call = _serve(CaptureMiddleware(app, handle.context), _scope("/api/fail"), [])
     with pytest.raises(ValueError) as raised:
-        asyncio.run(_serve(CaptureMiddleware(app, handle.context), _scope("/api/fail"), []))
+        asyncio.run(call)
     assert raised.value is failure
     assert raised.value.__context__ is None  # the setup failure's message must not ride along in the traceback
 
@@ -576,8 +579,9 @@ def test_an_exception_from_sharpits_own_route_reaches_the_host_after_one_invocat
         raise failure
 
     sent: list[Message] = []
+    call = _serve(CaptureMiddleware(own_route, handle.context), _scope("/sharpit/api/boom"), sent)
     with caplog.at_level(logging.WARNING, logger="sharpit"), pytest.raises(ValueError) as raised:
-        asyncio.run(_serve(CaptureMiddleware(own_route, handle.context), _scope("/sharpit/api/boom"), sent))
+        asyncio.run(call)
     assert raised.value is failure
     assert calls == 1
     assert len(_starts(sent)) == 1
