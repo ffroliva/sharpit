@@ -61,14 +61,20 @@ class SwallowedFact:
     location: str  # ``path:line`` of the except clause, relative to the working directory when under it
     type_name: str
     programming_error: bool
+    # ``path:scope:Type#n/m``, built by the worker from the parsed source; None from a worker of an earlier form
     identity: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"location": self.location, "type": self.type_name, "programmingError": self.programming_error}
+        return {
+            "location": self.location,
+            "type": self.type_name,
+            "programmingError": self.programming_error,
+            "identity": self.identity,
+        }
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
-        return cls(data["location"], data["type"], data["programmingError"])
+        return cls(data["location"], data["type"], data["programmingError"], data.get("identity"))
 
 
 @dataclass

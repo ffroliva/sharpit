@@ -37,6 +37,18 @@ _TRACKERS = frozenset({"rollbar.report_exc_info", "bugsnag.notify"})
 _SELF = frozenset({"self", "cls"})
 
 
+class SwallowingSite(NamedTuple):
+    """Where a swallowing clause sits: its header line, its scope (the qualified name of the function or class body
+    that holds it, ``<module>`` at module level), its 1-based position among the swallowing clauses of that exact scope
+    and how many there are. Definitions that share a qualified name (``if``/``else`` redefinitions, a property's getter
+    and setter) are one scope; nested definitions are their own."""
+
+    line: int
+    scope: str
+    position: int
+    total: int
+
+
 class _Module(NamedTuple):
     loggers: frozenset[str]  # module-level names bound to a logger
     defined: frozenset[str]  # every function and method name defined in the module
@@ -44,8 +56,9 @@ class _Module(NamedTuple):
     imported: frozenset[str]  # names bound by an import
 
 
-# a try's clauses, the clause at the given line and the facts about its module
-type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, _Module]
+type _Sites = dict[int, SwallowingSite]
+# a try's clauses, the clause at the given line, the facts about its module and its module's swallowing sites
+type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, _Module, _Sites]
 
 
 def is_programming_error(exc: BaseException) -> bool:
@@ -56,14 +69,41 @@ def _index(tree: ast.AST) -> dict[int, _Entry]:
     """Every line of every ``except`` clause header -> (that try's clauses, the clause's position)."""
     index: dict[int, _Entry] = {}
     module = _module(tree)
+    sites = _sites(tree, module)
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
             handlers = tuple(node.handlers)
             for position, handler in enumerate(handlers):
                 last = handler.type.end_lineno if handler.type is not None else None
                 for line in range(handler.lineno, (last or handler.lineno) + 1):
-                    index.setdefault(line, (handlers, position, module))
+                    index.setdefault(line, (handlers, position, module, sites))
     return index
+
+
+def _sites(tree: ast.AST, module: _Module) -> _Sites:
+    """Every swallowing clause by header line, with its scope and its place among that scope's swallowing clauses.
+    The scope is the qualified name CPython gives the code object that holds the clause."""
+    scoped: dict[str, list[ast.ExceptHandler]] = {}
+    pending: list[tuple[ast.AST, str, bool]] = [(tree, "<module>", False)]  # node, its scope, scope is a function
+    while pending:
+        node, scope, in_function = pending.pop()
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                if in_function:
+                    name = f"{scope}.<locals>.{child.name}"
+                else:
+                    name = child.name if scope == "<module>" else f"{scope}.{child.name}"
+                pending.append((child, name, not isinstance(child, ast.ClassDef)))
+                continue
+            if isinstance(child, ast.ExceptHandler) and _broad(child) and _silent(child, module):
+                scoped.setdefault(scope, []).append(child)
+            pending.append((child, scope, in_function))
+    sites: _Sites = {}
+    for scope, handlers in scoped.items():
+        handlers.sort(key=lambda handler: (handler.lineno, handler.col_offset))
+        for position, handler in enumerate(handlers, 1):
+            sites[handler.lineno] = SwallowingSite(handler.lineno, scope, position, len(handlers))
+    return sites
 
 
 def _module_loggers(tree: ast.AST) -> frozenset[str]:
@@ -223,7 +263,7 @@ def _catches(handler: ast.ExceptHandler, exc_type: type[BaseException]) -> bool 
 
 def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.ExceptHandler | None:
     """The clause that handled ``exc_type`` (the one at the entry's line without it) when it swallows, else None."""
-    handlers, position, module = entry
+    handlers, position, module, _ = entry
     handler = handlers[position]
     if exc_type is not None:  # CPython tries the clauses in order: find the one that handled it
         for candidate in handlers:
@@ -266,55 +306,37 @@ def _entry(code: CodeType, offset: int) -> _Entry | None:
 
 
 @functools.lru_cache(maxsize=4096)
-def swallowing_clause_line(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> int | None:
-    """The header line of the clause that swallowed an ``EXCEPTION_HANDLED`` event's exception, None when none did."""
-    entry = _entry(code, offset)
-    handler = None if entry is None else _swallowing(entry, exc_type)
-    return None if handler is None else handler.lineno
-
-
-class SwallowingSite(NamedTuple):
-    """Where a swallowing clause sits: its header line, its scope, its 1-based position among the swallowing clauses of
-    that scope and how many there are."""
-
-    line: int
-    scope: str
-    position: int
-    total: int
-
-
-def swallowing_sites(source: str) -> list[SwallowingSite]:
-    return [SwallowingSite(line, "", 1, 1) for line in swallowing_lines(source)]  # stub: line-keyed
-
-
 def swallowing_site(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> SwallowingSite | None:
-    line = swallowing_clause_line(code, offset, exc_type)
-    return None if line is None else SwallowingSite(line, "", 1, 1)  # stub: line-keyed
+    """The site of the clause that swallowed an ``EXCEPTION_HANDLED`` event's exception, None when none did."""
+    entry = _entry(code, offset)
+    if entry is None:
+        return None
+    handler = _swallowing(entry, exc_type)
+    return None if handler is None else entry[3][handler.lineno]
 
 
 def site_identity(path: str, site: SwallowingSite, type_name: str) -> str:
-    return f"{path}:{site.line}:{type_name}"  # stub: line-keyed
+    """``<path>:<scope>:<Type>#<n>/<m>``: no line number, so an edit elsewhere in the file keeps it; ``m`` changes when
+    a swallowing clause is added, removed or logged in the scope, so a dismissal then comes back instead of moving."""
+    return f"{path}:{site.scope}:{type_name}#{site.position}/{site.total}"
 
 
 def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None = None) -> bool:
     """``handler_swallows`` for an ``EXCEPTION_HANDLED`` event's code object and instruction offset (cached)."""
-    return swallowing_clause_line(code, offset, None if exc is None else type(exc)) is not None
+    return swallowing_site(code, offset, None if exc is None else type(exc)) is not None
+
+
+def swallowing_sites(source: str) -> list[SwallowingSite]:
+    """Every broad, silent ``except`` clause in a module's source (the static check), in source order."""
+    tree = ast.parse(source)
+    return sorted(_sites(tree, _module(tree)).values())
 
 
 def swallowing_lines(source: str) -> list[int]:
     """The header lines of every broad, silent ``except`` clause in a module's source (the static check)."""
-    tree = ast.parse(source)
-    module = _module(tree)
-    found = {
-        handler.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Try)
-        for handler in node.handlers
-        if _broad(handler) and _silent(handler, module)
-    }
-    return sorted(found)
+    return [site.line for site in swallowing_sites(source)]
 
 
 def clear_cache() -> None:
-    for cached in (_file_index, _entry, swallowing_clause_line):
+    for cached in (_file_index, _entry, swallowing_site):
         cached.cache_clear()

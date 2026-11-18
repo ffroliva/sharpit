@@ -11,7 +11,7 @@ from sharpit.engine.advisors.findings import fails as fails  # the one predicate
 from sharpit.engine.advisors.rules import Severity
 
 if TYPE_CHECKING:
-    from sharpit.engine.testsession.facts import PhaseFacts, TestFacts
+    from sharpit.engine.testsession.facts import PhaseFacts, SwallowedFact, TestFacts
 
 ADVISOR = "test-runtime"
 MAX_QUERIES = "sharpit.max-queries"
@@ -60,9 +60,14 @@ def _finding(
     observed: int | None = None,
     *,
     severity: Severity = "HIGH",
+    legacy_identity: str | None = None,
 ) -> Finding:
     fingerprint = Finding(rule_id, ADVISOR, severity, target, message, node_id, identity=identity).fingerprint
-    is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
+    is_dismissed = (
+        fingerprint in dismissed
+        or (rule_id, identity or target) in dismissed_pairs
+        or (legacy_identity is not None and (rule_id, legacy_identity) in dismissed_pairs)
+    )
     return Finding(rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed)
 
 
@@ -79,20 +84,52 @@ def _swallowed_findings(
     for fact in call.swallowed:
         gating = fact.programming_error or fact.type_name in DATABASE_ERRORS
         severity: Severity = "HIGH" if gating and not budget.allow_swallowed else "INFO"
+        legacy = _legacy_identity(fact)
+        identity = fact.identity or legacy
         message = (
-            f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged)"
+            f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged); "
+            f"identity {identity}"
         )
-        identity = f"{fact.location}:{fact.type_name}"
         found.append(
             _finding(
-                SWALLOWED, fact.location, message, node, dismissed, identity, dismissed_pairs, 1, severity=severity
+                SWALLOWED,
+                fact.location,
+                message,
+                node,
+                dismissed,
+                identity,
+                dismissed_pairs,
+                1,
+                severity=severity,
+                legacy_identity=legacy,
             )
         )
     return found
 
 
+def _legacy_identity(fact: SwallowedFact) -> str:
+    """The identity of 0.4.0 to 0.6.0, ``<path>:<line>:<Type>``: it moves with the line, so it is only still matched."""
+    return f"{fact.location}:{fact.type_name}"
+
+
 def legacy_dismissal_warnings(facts: TestFacts, dismissed_pairs: Collection[tuple[str, str]]) -> list[str]:
-    return []  # stub
+    """One warning per line-keyed ``dismissedFindings`` entry that still dismisses a swallowed exception of this test
+    (and is not also written in the new form), naming the entry and the identity to replace it with."""
+    call = facts.phases.get("call")
+    warnings: list[str] = []
+    for fact in () if call is None else call.swallowed:
+        legacy = _legacy_identity(fact)
+        if (
+            fact.identity is None
+            or (SWALLOWED, legacy) not in dismissed_pairs
+            or (SWALLOWED, fact.identity) in dismissed_pairs
+        ):
+            continue
+        warnings.append(
+            f"dismissedFindings entry '{SWALLOWED} {legacy}' still matches by line number; replace it with "
+            f"'{SWALLOWED} {fact.identity}', which survives edits above the handler"
+        )
+    return warnings
 
 
 def _unbounded_read_findings(
