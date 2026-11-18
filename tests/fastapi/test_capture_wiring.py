@@ -334,6 +334,252 @@ def test_hook_failure_leaves_response(monkeypatch: pytest.MonkeyPatch, caplog: p
     assert "secret-bearing" not in warnings[0]
 
 
+# --- BootUI 2.4.0 #1615: HTTP exchange recording never disrupts a response -------------------------------------------
+
+
+def test_metadata_failure_does_not_alter_a_committed_response(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: BootUiHttpExchangesFilterTests.metadataFailureDoesNotAlterACommittedResponse
+    from starlette.responses import Response
+
+    import sharpit.fastapi.capture as capture_mod
+
+    app = FastAPI()
+
+    @app.get("/download")
+    def download():
+        return Response(content="complete", status_code=206, media_type="text/plain")
+
+    handle = install(app, enabled="ON", show_banner=False)
+
+    def explode_metadata(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("secret-header-message")
+
+    monkeypatch.setattr(capture_mod, "exchange_row", explode_metadata)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/download?token=secret-query")
+        assert resp.status_code == 206
+        assert resp.text == "complete"
+
+    assert _buffer(handle).rows() == []
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "request end" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-header-message" not in warnings[0]
+    assert "secret-query" not in warnings[0]
+
+
+def test_repository_failure_does_not_alter_the_served_response(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: BootUiHttpExchangesFilterTests.repositoryFailureDoesNotAlterTheServedResponse
+    from starlette.responses import Response
+
+    app = FastAPI()
+
+    @app.get("/download")
+    def download():
+        return Response(content="complete", status_code=201, media_type="text/plain")
+
+    handle = install(app, enabled="ON", show_banner=False)
+
+    def failing_add(_row: Any) -> None:
+        raise RuntimeError("secret-repository-message")
+
+    monkeypatch.setattr(_buffer(handle), "add", failing_add)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/download")
+        assert resp.status_code == 201
+        assert resp.text == "complete"
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "request end" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-repository-message" not in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "failure_factory",
+    [
+        lambda: RuntimeError("app-runtime-error"),
+        lambda: ValueError("app-value-error"),
+        lambda: KeyError("app-key-error"),
+    ],
+    ids=["runtime", "value", "key"],
+)
+@pytest.mark.parametrize("failing_buffer", [False, True], ids=["healthy-buffer", "failing-buffer"])
+def test_preserves_every_application_exception_even_when_recording_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure_factory: Callable[[], Exception],
+    failing_buffer: bool,
+):
+    # ported: BootUiHttpExchangesFilterTests.preservesEveryApplicationExceptionEvenWhenRecordingAlsoFails
+    app = FastAPI()
+
+    failure = failure_factory()
+
+    @app.get("/api/fail")
+    def fail():
+        raise failure
+
+    handle = install(app, enabled="ON", show_banner=False)
+
+    if failing_buffer:
+
+        def failing_add(_row: Any) -> None:
+            raise RuntimeError("secret-repository-message")
+
+        monkeypatch.setattr(_buffer(handle), "add", failing_add)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        with pytest.raises(type(failure)) as exc_info:
+            client.get("/api/fail")
+        assert exc_info.value is failure
+
+    if not failing_buffer:
+        rows = _buffer(handle).rows()
+        assert len(rows) == 1
+        assert rows[0]["status"] == 500
+        assert rows[0]["error"] is True
+    else:
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "request end" in warnings[0]
+        assert "RuntimeError" in warnings[0]
+        assert "secret-repository-message" not in warnings[0]
+
+
+def test_setup_failure_still_invokes_the_application_exactly_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/api/orders")
+    def orders():
+        nonlocal calls
+        calls += 1
+        return {"orders": []}
+
+    handle = install(app, enabled="ON", show_banner=False)
+
+    def explode_mask_path(_path: str) -> str:
+        raise RuntimeError("secret-metadata-message")
+
+    monkeypatch.setattr(handle.context.masker, "mask_path", explode_mask_path)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/api/orders")
+        assert resp.status_code == 200
+        assert resp.json() == {"orders": []}
+
+    assert calls == 1
+    assert _buffer(handle).rows() == []
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "request start" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-metadata-message" not in warnings[0]
+
+
+def test_callback_registration_failure_still_serves_the_response(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: BootUiHttpExchangesWebFilterTests.callbackRegistrationFailureStillServesTheResponse
+    from starlette.responses import Response
+
+    import sharpit.fastapi.capture as capture_mod
+
+    app = FastAPI()
+
+    @app.get("/download")
+    def download():
+        def failing_perf_counter() -> int:
+            raise RuntimeError("secret-send-message")
+
+        monkeypatch.setattr(capture_mod.time, "perf_counter_ns", failing_perf_counter)
+        return Response(content="complete", status_code=200, media_type="text/plain")
+
+    install(app, enabled="ON", show_banner=False)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/download")
+        assert resp.status_code == 200
+        assert resp.text == "complete"
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("response" in w and "RuntimeError" in w for w in warnings)
+    assert not any("secret-send-message" in w for w in warnings)
+
+
+def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: SpringHttpExchangeStreamingTest.streamsTheFullPdfDespiteMalformedMetadataAndRepositoryFailures
+    import sharpit.fastapi.capture as capture_mod
+
+    app = FastAPI()
+    body = b"%PDF-1.4\n" + b"x" * 200_000
+
+    @app.get("/api/recording-stream/{anomaly}")
+    def stream_pdf(anomaly: str):
+        def generate():
+            chunk_size = 16384
+            for i in range(0, len(body), chunk_size):
+                yield body[i : i + chunk_size]
+
+        return StreamingResponse(generate(), media_type="application/pdf")
+
+    handle = install(app, enabled="ON", show_banner=False)
+    client = TestClient(app)
+
+    # 1. Normal streaming without anomaly
+    resp = client.get("/api/recording-stream/normal")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content == body
+
+    # 2. Metadata failure during exchange_row assembly
+    def explode_metadata(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("secret-capture-message")
+
+    monkeypatch.setattr(capture_mod, "exchange_row", explode_metadata)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/api/recording-stream/metadata")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content == body
+
+    # 3. Repository add failure
+    monkeypatch.undo()
+
+    def failing_add(_row: Any) -> None:
+        raise RuntimeError("secret-capture-message")
+
+    monkeypatch.setattr(_buffer(handle), "add", failing_add)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/api/recording-stream/repository")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content == body
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert not any("secret-capture-message" in w for w in warnings)
+    assert not any("Cannot render error page" in w for w in warnings)
+
+
 # --- wiring ---------------------------------------------------------------------------------------------------------
 
 
