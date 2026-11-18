@@ -38,45 +38,45 @@ SQLAlchemy models remain a neutral `INFO` skip that does not degrade an otherwis
 **Files:** `src/sharpit/engine/sqla/inspect.py`, `src/sharpit/engine/collectors/database_advisor/catalog.py`,
 `tests/engine/collectors/database_advisor/test_incomplete_discovery.py`.
 
-- [ ] **Step 1:** Write the failing tests in `tests/engine/collectors/database_advisor/test_incomplete_discovery.py`:
+- [x] **Step 1:** Write the failing tests in `tests/engine/collectors/database_advisor/test_incomplete_discovery.py`:
   - `test_missing_driver_metadata_is_reported_as_incomplete_evidence` (`# ported: SchemaIntrospectorTests.missingDriverMetadataIsReportedAsIncompleteEvidence`)
   - `test_null_driver_name_is_reported_as_incomplete_evidence` (`# ported: SchemaIntrospectorTests.nullDriverNameIsReportedAsIncompleteEvidence`)
   - `test_null_driver_version_is_reported_as_incomplete_evidence` (`# ported: SchemaIntrospectorTests.nullDriverVersionIsReportedAsIncompleteEvidence`)
   - `test_a_null_url_is_a_warning_and_makes_evidence_incomplete` (`# ported: SchemaIntrospectorDriverEvidenceTests.aNullUrlIsAWarningAndMakesEvidenceIncomplete`)
-- [ ] **Step 2:** Verify the reds with `uv run python scripts/dev/red_check.py`.
-- [ ] **Step 3:** Implement driver metadata evaluation in `src/sharpit/engine/sqla/inspect.py` and `catalog.py`.
-- [ ] **Step 4:** Run tests and commit `feat: report missing driver metadata as incomplete evidence`.
+- [x] **Step 2:** Verify the reds with `uv run python scripts/dev/red_check.py`.
+- [x] **Step 3:** Implement driver metadata evaluation in `src/sharpit/engine/sqla/inspect.py` and `catalog.py`.
+- [x] **Step 4:** Run tests and commit `feat: report missing driver metadata as incomplete evidence`.
 
 ### Task 2: ORM / SQLAlchemy Model Discovery (Absent vs Failed)
 
 **Files:** `src/sharpit/engine/collectors/database_advisor/rules_orm.py`, `src/sharpit/engine/collectors/database_advisor/report.py`,
 `tests/engine/collectors/database_advisor/test_incomplete_discovery.py`.
 
-- [ ] **Step 1:** Write the failing test:
+- [x] **Step 1:** Write the failing test:
   - `test_distinguishes_absent_jpa_from_a_zero_entity_discovery_failure` (`# ported: DatabaseAdvisorScannerTests.distinguishesAbsentJpaFromAZeroEntityDiscoveryFailure`)
-- [ ] **Step 2:** Verify the red with `uv run python scripts/dev/red_check.py`.
-- [ ] **Step 3:** Implement confirmed absent (`INFO`) vs failed (`WARNING`) in `rules_orm.facts` and `report.evaluate`.
-- [ ] **Step 4:** Run tests and commit `feat: distinguish absent ORM metadata from failed model discovery`.
+- [x] **Step 2:** Verify the red with `uv run python scripts/dev/red_check.py`.
+- [x] **Step 3:** Implement confirmed absent (`INFO`) vs failed (`WARNING`) in `rules_orm.facts` and `report.evaluate`.
+- [x] **Step 4:** Run tests and commit `feat: distinguish absent ORM metadata from failed model discovery`.
 
 ### Task 3: PostgreSQL relation inventory and empty inventory handling
 
 **Files:** `src/sharpit/engine/collectors/database_advisor/catalog.py`, `src/sharpit/engine/collectors/database_advisor/report.py`,
 `tests/engine/collectors/database_advisor/test_incomplete_discovery.py`.
 
-- [ ] **Step 1:** Write the failing tests:
+- [x] **Step 1:** Write the failing tests:
   - `test_incomplete_postgres_relation_inventory_is_not_complete_evidence` (`# ported: SchemaIntrospectorTests.incompletePostgresRelationInventoryIsNotCompleteEvidence`)
   - `test_complete_empty_relation_inventory_does_not_make_an_otherwise_complete_datasource_partial` (`# ported: SchemaIntrospectorTests.completeEmptyRelationInventoryDoesNotMakeAnOtherwiseCompleteDatasourcePartial`)
-- [ ] **Step 2:** Verify the reds with `uv run python scripts/dev/red_check.py`.
-- [ ] **Step 3:** Implement PostgreSQL relation inventory check and message diagnostics in `report.py` / `catalog.py`.
-- [ ] **Step 4:** Run tests and commit `feat: report incomplete PostgreSQL relation inventory`.
+- [x] **Step 2:** Verify the reds with `uv run python scripts/dev/red_check.py`.
+- [x] **Step 3:** Implement PostgreSQL relation inventory check and message diagnostics in `report.py` / `catalog.py`.
+- [x] **Step 4:** Run tests and commit `feat: report incomplete PostgreSQL relation inventory`.
 
 ### Task 4: Masking, Parity matrix update, CHANGELOG, and gate verification
 
 **Files:** `docs/reference/matrix-updates/a4-db-advisor.tsv`, `CHANGELOG.md`, `tests/masking/test_a_database_advisor_masking.py`,
 `tests/engine/collectors/database_advisor/test_incomplete_discovery.py`.
 
-- [ ] **Step 1:** Add a masking test asserting no unmasked URLs or credentials in any new diagnostic.
-- [ ] **Step 2:** Create `docs/reference/matrix-updates/a4-db-advisor.tsv` with Python adaptations and partitioned tables deviation.
-- [ ] **Step 3:** Update `CHANGELOG.md` under `[Unreleased]`.
-- [ ] **Step 4:** Run full lane gates, lint (`ruff check`), format (`ruff format --check`), and type check (`pyright`).
-- [ ] **Step 5:** Commit docs and matrix updates.
+- [x] **Step 1:** Add a masking test asserting no unmasked URLs or credentials in any new diagnostic.
+- [x] **Step 2:** Create `docs/reference/matrix-updates/a4-db-advisor.tsv` with Python adaptations and partitioned tables deviation.
+- [x] **Step 3:** Update `CHANGELOG.md` under `[Unreleased]`.
+- [x] **Step 4:** Run full lane gates, lint (`ruff check`), format (`ruff format --check`), and type check (`pyright`).
+- [x] **Step 5:** Commit docs and matrix updates.

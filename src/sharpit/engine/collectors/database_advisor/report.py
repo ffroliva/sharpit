@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.advisors.findings import Finding
@@ -68,6 +68,73 @@ def _source_diagnostics(sources: Sequence[Source]) -> list[dict[str, Any]]:
     return out
 
 
+def _orm_diagnostics(readable: Sequence[Source]) -> list[dict[str, Any]]:
+    if not readable:
+        return []
+    raw_orm = readable[0].catalog.get("orm")
+    if not isinstance(raw_orm, dict):
+        return []
+    orm_dict = cast("dict[str, Any]", raw_orm)
+    level = "INFO" if orm_dict.get("known_absent") else "WARNING"
+    raw_errors = orm_dict.get("errors")
+    if isinstance(raw_errors, (list, tuple)):
+        return [_diagnostic("SQLAlchemy metadata", level, str(err)) for err in cast("Sequence[Any]", raw_errors)]
+    if "skipped" in orm_dict:
+        return [_diagnostic("SQLAlchemy metadata", level, str(orm_dict["skipped"]))]
+    return []
+
+
+def _postgres_diagnostics(readable: Sequence[Source]) -> list[dict[str, Any]]:
+    return [
+        _diagnostic(
+            s.name,
+            "WARNING",
+            "The PostgreSQL relation inventory is incomplete; some relations may be missing.",
+        )
+        for s in readable
+        if s.dialect == "postgresql" and (s.catalog.get("truncated") or not s.catalog.get("complete", True))
+    ]
+
+
+def _collect_limitations(sources: Sequence[Source], diagnostics: Sequence[dict[str, Any]]) -> list[str]:
+    problems = [f"{d['source']}: {d['message']}" for d in diagnostics if d["level"] in ("WARNING", "ERROR")]
+    for s in sources:
+        if s.status == "FAILED":
+            lim = f"Datasource {s.name} could not be read."
+            if lim not in problems:
+                problems.append(lim)
+        elif s.catalog.get("truncated") or not s.catalog.get("complete", True):
+            lim = f"Datasource {s.name} was read only in part."
+            if lim not in problems:
+                problems.append(lim)
+    return problems
+
+
+def _run_rules(readable: Sequence[Source]) -> tuple[list[str], list[Finding], int, int, list[dict[str, Any]]]:
+    evaluated: list[str] = []
+    findings: list[Finding] = []
+    skipped = errored = 0
+    diagnostics: list[dict[str, Any]] = []
+    for rule in RULES:
+        rule_id = rule.definition.id
+        try:
+            outcomes = [rule.check(s) for s in readable]
+        except Exception as exc:  # noqa: BLE001 - one failing rule is an analysis error; never a failed scan
+            errored += 1
+            diagnostics.append(_diagnostic(rule_id, "ERROR", f"The rule failed to evaluate ({type(exc).__name__})."))
+            continue
+        reasons = [o for o in outcomes if isinstance(o, str)]
+        if len(reasons) == len(outcomes):
+            skipped += 1
+            diagnostics.append(_diagnostic(rule_id, "INFO", f"Skipped: {reasons[0]}"))
+            continue
+        evaluated.append(rule_id)
+        severity = rule.definition.severity
+        hits = (hit for o in outcomes if not isinstance(o, str) for hit in o)
+        findings += [Finding(rule_id, ADVISOR, severity, target, text, identity=key) for target, text, key in hits]
+    return evaluated, findings, skipped, errored, diagnostics
+
+
 def _message(
     tables: int,
     readable: int,
@@ -109,57 +176,17 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         unverified = ["No physical schema could be read, so no rule could run."]
         detail = Detail(sources, 0, 0, tuple(diagnostics))
         return Evaluation("ERROR", NO_SCHEMA, (), (), evidence(False, False, unverified), detail)
-    orm_facts = readable[0].catalog.get("orm") if readable else None
-    if isinstance(orm_facts, dict) and "errors" in orm_facts:
-        level = "INFO" if orm_facts.get("known_absent") else "WARNING"
-        for error in orm_facts["errors"]:
-            diagnostics.append(_diagnostic("SQLAlchemy metadata", level, error))
-    elif isinstance(orm_facts, dict) and "skipped" in orm_facts:
-        level = "INFO" if orm_facts.get("known_absent") else "WARNING"
-        diagnostics.append(_diagnostic("SQLAlchemy metadata", level, orm_facts["skipped"]))
-    for s in readable:
-        if s.dialect == "postgresql" and (s.catalog.get("truncated") or not s.catalog.get("complete", True)):
-            diagnostics.append(
-                _diagnostic(
-                    s.name,
-                    "WARNING",
-                    "The PostgreSQL relation inventory is incomplete; some relations may be missing.",
-                )
-            )
-    evaluated: list[str] = []
-    findings: list[Finding] = []
-    skipped = errored = 0
-    for rule in RULES:
-        rule_id = rule.definition.id
-        try:
-            outcomes = [rule.check(s) for s in readable]
-        except Exception as exc:  # noqa: BLE001 - one failing rule is an analysis error; never a failed scan
-            errored += 1
-            diagnostics.append(_diagnostic(rule_id, "ERROR", f"The rule failed to evaluate ({type(exc).__name__})."))
-            continue
-        reasons = [o for o in outcomes if isinstance(o, str)]
-        if len(reasons) == len(outcomes):
-            skipped += 1
-            diagnostics.append(_diagnostic(rule_id, "INFO", f"Skipped: {reasons[0]}"))
-            continue
-        evaluated.append(rule_id)
-        severity = rule.definition.severity
-        hits = (hit for o in outcomes if not isinstance(o, str) for hit in o)
-        findings += [Finding(rule_id, ADVISOR, severity, target, text, identity=key) for target, text, key in hits]
+    diagnostics.extend(_orm_diagnostics(readable))
+    diagnostics.extend(_postgres_diagnostics(readable))
+    evaluated, findings, skipped, errored, rule_diags = _run_rules(readable)
+    diagnostics.extend(rule_diags)
     truncated = any(s.catalog.get("truncated") for s in readable)
     catalogs_complete = all(s.catalog.get("complete") for s in readable)
     evidence_failed = any(d["level"] in ("WARNING", "ERROR") for d in diagnostics)
-    problems = [f"{d['source']}: {d['message']}" for d in diagnostics if d["level"] in ("WARNING", "ERROR")]
-    for s in sources:
-        if s.status == "FAILED":
-            lim = f"Datasource {s.name} could not be read."
-            if lim not in problems:
-                problems.append(lim)
-        elif s.catalog.get("truncated") or not s.catalog.get("complete", True):
-            lim = f"Datasource {s.name} was read only in part."
-            if lim not in problems:
-                problems.append(lim)
-    complete = not evidence_failed and catalogs_complete and not truncated and errored == 0 and len(readable) == len(sources)
+    problems = _collect_limitations(sources, diagnostics)
+    complete = (
+        not evidence_failed and catalogs_complete and not truncated and errored == 0 and len(readable) == len(sources)
+    )
     tables = sum(len(s.tables) for s in readable)
     message = _message(
         tables,
@@ -175,7 +202,7 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         message,
         tuple(evaluated),
         tuple(findings),
-        evidence(True, complete, problems),
+        evidence(len(findings) == 0, complete, problems),
         Detail(sources, skipped, errored, tuple(diagnostics)),
     )
 

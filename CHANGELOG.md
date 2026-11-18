@@ -9,6 +9,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
 
+### Changed
+
+- Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL), failed ORM model discovery, or incomplete PostgreSQL relation inventories as WARNING diagnostics with incomplete evidence coverage (`PARTIAL` scan status, never clean `SCANNED`), while unconfigured/absent ORM models remain a neutral INFO skip and complete empty relation inventories remain clean (BootUI 2.4.0 #1600).
+
 ### Fixed
 
 - The pytest plugin's report and terminal line say when the REST API advisor's application was found through the modules the selected tests imported (`evidence.detectedFrom`, with `detectedBy` workers under xdist), and the skip and `--sharpit-require-app` reasons say that no application was found among the modules the tests imported, or name the candidates. Only `--sharpit-app` makes the assessed application independent of the selection; `--sharpit-require-app` turns a missing one into `unknown`. Exit codes are unchanged (#67).

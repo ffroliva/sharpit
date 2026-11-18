@@ -7,10 +7,12 @@ keeping the report status PARTIAL. Absent SQLAlchemy ORM models remain a neutral
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
+from sharpit.engine.advisors.scan import _mask_tree
 from sharpit.engine.collectors.database_advisor import report, rules_orm
 from sharpit.engine.collectors.database_advisor.catalog import Source
 from sharpit.engine.masking import Masker
@@ -88,30 +90,53 @@ def test_a_null_url_is_a_warning_and_makes_evidence_incomplete(monkeypatch: pyte
 
 def test_distinguishes_absent_jpa_from_a_zero_entity_discovery_failure() -> None:
     # ported: DatabaseAdvisorScannerTests.distinguishesAbsentJpaFromAZeroEntityDiscoveryFailure
-    source_clean = Source("primary", "sqlite", "pysqlite", "AVAILABLE", None, {
-        "dialect": "sqlite",
-        "tables": [{"name": "users", "schema": None, "truncated": False, "columns": [], "primaryKey": ["id"], "foreignKeys": [], "indexes": []}],
-        "tableCount": 1,
+    table = {
+        "name": "users",
+        "schema": None,
         "truncated": False,
-        "complete": True,
-        "diagnostics": [],
-        "server": {},
-        "orm": rules_orm.facts(()),
-    })
+        "columns": [],
+        "primaryKey": ["id"],
+        "foreignKeys": [],
+        "indexes": [],
+    }
+    source_clean = Source(
+        "primary",
+        "sqlite",
+        "pysqlite",
+        "AVAILABLE",
+        None,
+        {
+            "dialect": "sqlite",
+            "tables": [table],
+            "tableCount": 1,
+            "truncated": False,
+            "complete": True,
+            "diagnostics": [],
+            "server": {},
+            "orm": rules_orm.facts(()),
+        },
+    )
     absent = report.evaluate([source_clean])
     assert any(d["source"] == "SQLAlchemy metadata" and d["level"] == "INFO" for d in absent.detail.diagnostics)
     assert absent.status == "SCANNED"
 
-    source_failed = Source("primary", "sqlite", "pysqlite", "AVAILABLE", None, {
-        "dialect": "sqlite",
-        "tables": [{"name": "users", "schema": None, "truncated": False, "columns": [], "primaryKey": ["id"], "foreignKeys": [], "indexes": []}],
-        "tableCount": 1,
-        "truncated": False,
-        "complete": True,
-        "diagnostics": [],
-        "server": {},
-        "orm": {"skipped": "metamodel unavailable", "known_absent": False, "errors": ["metamodel unavailable"]},
-    })
+    source_failed = Source(
+        "primary",
+        "sqlite",
+        "pysqlite",
+        "AVAILABLE",
+        None,
+        {
+            "dialect": "sqlite",
+            "tables": [table],
+            "tableCount": 1,
+            "truncated": False,
+            "complete": True,
+            "diagnostics": [],
+            "server": {},
+            "orm": {"skipped": "metamodel unavailable", "known_absent": False, "errors": ["metamodel unavailable"]},
+        },
+    )
     failed = report.evaluate([source_failed])
     assert failed.status == "PARTIAL"
     assert failed.evidence["coverageComplete"] is False
@@ -172,3 +197,33 @@ def test_complete_empty_relation_inventory_does_not_make_an_otherwise_complete_d
     assert not any("PostgreSQL relation inventory is incomplete" in d["message"] for d in evaluated.detail.diagnostics)
 
 
+def test_incomplete_discovery_diagnostics_never_leak_url_or_credentials() -> None:
+    masker = Masker("MASKED", True, None)
+    secret_pw = "super_secret_password_123"
+    leak = f"Driver error connecting to postgresql://user:{secret_pw}@localhost/db"
+    source = Source(
+        f"db://user:{secret_pw}@localhost/db",
+        "postgresql",
+        "",
+        "AVAILABLE",
+        None,
+        {
+            "dialect": "postgresql",
+            "tables": [],
+            "tableCount": 0,
+            "truncated": False,
+            "complete": False,
+            "diagnostics": [{"level": "WARNING", "message": leak}],
+            "server": {},
+            "orm": {
+                "skipped": leak,
+                "known_absent": False,
+                "errors": [leak],
+            },
+        },
+    )
+    evaluated = report.evaluate([source])
+    masked_diagnostics = _mask_tree(masker, list(evaluated.detail.diagnostics))
+    masked_evidence = _mask_tree(masker, evaluated.evidence)
+    text = json.dumps({"diagnostics": masked_diagnostics, "evidence": masked_evidence})
+    assert secret_pw not in text
