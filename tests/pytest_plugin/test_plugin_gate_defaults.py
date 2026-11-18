@@ -57,19 +57,28 @@ def test_spike_f3_clean_suite_reaches_green(pytester: pytest.Pytester) -> None:
 
 
 def test_autodetect_single_prints_choice(pytester: pytest.Pytester) -> None:
+    # issue 65: the one app also mounts a sub-app with no inspectable routes, so the clean run is PARTIAL with a note
     pytester.makepyfile(
         appmod="""
         from fastapi import FastAPI
+        from starlette.applications import Starlette
+
         app = FastAPI()
+
         @app.get('/items')
         def items():
             return []
+
+        app.mount('/mcp/messages', Starlette())
         """,
         test_single="""
+        import sqlite3
+
         import appmod
 
         def test_uses_app():
             assert appmod.app is not None
+            sqlite3.connect(':memory:').execute('SELECT 1').fetchone()  # capture sees SQL, as in the clean-suite test
         """,
     )
 
@@ -81,8 +90,11 @@ def test_autodetect_single_prints_choice(pytester: pytest.Pytester) -> None:
         in stdout
     )
     assert result.ret == 0
+    assert "not proof" in stdout
+    assert "Mounted application at /mcp/messages has no inspectable routes;" in stdout
     run = _rest_run(pytester)
-    assert run["status"] == "PASSED"
+    assert run["status"] == "PARTIAL"
+    assert json.loads((pytester.path / "report.json").read_text())["status"] == "pass"
     apps = run["apps"]
     assert isinstance(apps, list)
     assert apps[0]["app"] == "appmod:app"

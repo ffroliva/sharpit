@@ -33,6 +33,7 @@ from sharpit.engine.spi import (
     SecurityFacts,
     SecurityModel,
     SecurityScheme,
+    opaque_mount_limitation,
 )
 from sharpit.fastapi.capture import WrappingHandlers
 from sharpit.fastapi.introspection_common import (
@@ -451,7 +452,7 @@ class FastApiIntrospector:
                     limitations.append(f"Included router at {info.path} could not be expanded.")
                 elif not self._opaque_rows.get(id(info), ((), None, False))[2]:  # StaticFiles serves no API
                     base = info.path.removesuffix(_MOUNT_SUFFIX) or "/"
-                    limitations.append(f"Mounted application at {base} has no inspectable routes.")
+                    limitations.append(opaque_mount_limitation(base))
             elif not issubclass(type(route), WebSocketRoute) and _attrs(route).get("endpoint") is not None:
                 routes.append(_api_route(info, route))
         handlers: Any = _attrs(self.app).get("exception_handlers")
@@ -753,7 +754,7 @@ class FastApiIntrospector:
         if served:  # StaticFiles and other framework apps: served as is, no security of their own
             return SecuredRoute((), info.path, info.handler, path_regex=_path_regex(info.path, True), chain=chain)
         base = info.path.removesuffix(_MOUNT_SUFFIX) or "/"
-        limitations.append(f"Mounted application at {base} has no inspectable routes.")
+        limitations.append(opaque_mount_limitation(base))
         return SecuredRoute(
             (), info.path, info.handler, opaque=True, path_regex=_path_regex(info.path, True), chain=chain
         )

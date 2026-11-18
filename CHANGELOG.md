@@ -10,8 +10,19 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only during security scan (`POST /security/scan`), never on GET reads or MCP/CLI tools.
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
 
+### Changed
+
+- The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
+  assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.
+
 ### Fixed
 
+- `pytest --sharpit` no longer exits 1 on a run with no finding when an advisor read part of an application and met
+  an opaque mounted sub-app (#65). The advisor is `PARTIAL`: the run passes with a warning that names what was not
+  read and says that having no finding at or above `--sharpit-fail-on` is not proof there is none, and a finding at
+  or above it still fails. An unread router or exception handler, an errored scan, a rule that threw and an advisor
+  with no usable routes and a limitation stay `UNKNOWN`; lost capture stays `unknown`. A partly assessed advisor does
+  not count as having run for baselines: its baselined entries are neither reported fixed nor dropped.
 - The pytest plugin's report and terminal line say when the REST API advisor's application was found through the modules the selected tests imported (`evidence.detectedFrom`, with `detectedBy` workers under xdist), and the skip and `--sharpit-require-app` reasons say that no application was found among the modules the tests imported, or name the candidates. Only `--sharpit-app` makes the assessed application independent of the selection; `--sharpit-require-app` turns a missing one into `unknown`. Exit codes are unchanged (#67).
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
 
