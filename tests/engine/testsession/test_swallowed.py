@@ -6,17 +6,17 @@ import dis
 import re
 import textwrap
 from pathlib import Path
-from types import CodeType
+from types import CodeType, FunctionType
 
 import pytest
 
 from sharpit.engine.testsession import swallowed
 from sharpit.engine.testsession.swallowed import (
-    SwallowingSite,
     handler_swallows,
     handler_swallows_code,
     is_programming_error,
     site_identity,
+    swallowing_lines,
     swallowing_site,
     swallowing_sites,
 )
@@ -522,7 +522,7 @@ def test_imported_function_is_not_reported() -> None:
     assert handler_swallows(*_handler("report(e)", "from app.errors import report\n")) is False
 
 
-# --- #66: a swallowing clause is identified by its scope and position, never by its line ---------------------------
+# --- #66: a swallowing clause is identified by its scope and its content, never by its line or its place -----------
 
 TWO_FUNCTIONS = _src(
     """
@@ -541,18 +541,33 @@ TWO_FUNCTIONS = _src(
 )
 
 
+def _replaced(source: str, old: str, new: str) -> str:
+    changed = source.replace(old, new, 1)
+    assert changed != source, f"{old!r} is not in the source"
+    return changed
+
+
 def _keys(source: str, type_name: str = "KeyError") -> list[str]:
     return [site_identity("app.py", site, type_name) for site in swallowing_sites(source)]
 
 
-def _shape(source: str) -> list[tuple[str, int, int]]:
-    return [(site.scope, site.position, site.total) for site in swallowing_sites(source)]
+def _scopes(source: str) -> list[str]:
+    return [site.scope for site in swallowing_sites(source)]
+
+
+def _clause(call: str, result: int, *, log: bool = False) -> str:
+    logging = f"        logger.error('{call}')\n" if log else ""
+    return f"    try:\n        {call}()\n    except Exception:\n{logging}        return {result}\n"
+
+
+def _scope(*clauses: str) -> str:
+    return "def f():\n" + "".join(clauses)
 
 
 def test_identity_survives_a_line_added_above_the_function_and_above_the_handler() -> None:
     above = "import os\n\n" + TWO_FUNCTIONS
     first = "    try:\n        pass\n    except Exception:\n        return 0"
-    inside = TWO_FUNCTIONS.replace(first, "    x = 1\n    y = 2\n" + first, 1)
+    inside = _replaced(TWO_FUNCTIONS, first, "    x = 1\n    y = 2\n" + first)
 
     assert [s.line for s in swallowing_sites(above)] != [s.line for s in swallowing_sites(TWO_FUNCTIONS)]
     assert _keys(above) == _keys(TWO_FUNCTIONS)
@@ -563,7 +578,48 @@ def test_the_same_type_in_another_function_has_another_identity() -> None:
     keys = _keys(TWO_FUNCTIONS)
 
     assert keys[0] != keys[1]
-    assert [site.scope for site in swallowing_sites(TWO_FUNCTIONS)] == ["first", "second"]
+    assert _scopes(TWO_FUNCTIONS) == ["first", "second"]
+
+
+def test_swapping_two_try_blocks_keeps_each_identity_with_its_own_clause() -> None:
+    a, b = _clause("a", 0), _clause("b", 1)
+
+    before = _keys(_scope(a, b))
+    after = _keys(_scope(b, a))
+
+    assert after == [before[1], before[0]]
+
+
+def test_a_log_added_to_one_clause_and_removed_from_another_moves_no_dismissal() -> None:
+    a, b, c = _clause("a", 0), _clause("b", 1), _clause("c", 2, log=True)
+
+    before = _keys(_scope(a, b, c))  # a and b swallow; c logs
+    after = _keys(_scope(_clause("a", 0, log=True), b, _clause("c", 2)))  # now b and c swallow
+
+    assert len(before) == len(after) == 2
+    assert before[0] not in after  # the dismissed clause a no longer swallows: its key matches nothing
+    assert before[1] in after  # clause b keeps its own key
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [pytest.param("a()", "a(1)", id="try-body"), pytest.param("return 0", "return 5", id="handler")],
+)
+def test_editing_the_try_body_or_the_handler_changes_the_identity(old: str, new: str) -> None:
+    base = _scope(_clause("a", 0))
+
+    assert _keys(_replaced(base, old, new)) != _keys(base)
+
+
+def test_byte_identical_clauses_of_one_scope_get_an_occurrence_suffix() -> None:
+    same = _clause("a", 0)
+    [single] = _keys(_scope(same))
+
+    first, second = _keys(_scope(same, same))
+
+    digest = single.rpartition("#")[2]
+    assert re.fullmatch(r"[0-9a-f]{8}", digest)
+    assert (first.rpartition("#")[2], second.rpartition("#")[2]) == (f"{digest}.1", f"{digest}.2")
 
 
 _PROPERTY = _src(
@@ -614,6 +670,17 @@ _NESTED = _src(
             return 2
     """
 )
+_GLOBAL = _src(
+    """
+    def outer():
+        global inner
+        def inner():
+            try:
+                pass
+            except Exception:
+                return 1
+    """
+)
 _MODULE = _src(
     """
     try:
@@ -646,53 +713,37 @@ _ASYNC = _src(
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param(_PROPERTY, [("Box.value", 1, 2), ("Box.value", 2, 2)], id="property-getter-and-setter"),
-        pytest.param(_REDEFINED, [("f", 1, 2), ("f", 2, 2)], id="if-else-redefinition"),
-        pytest.param(_NESTED, [("outer.<locals>.inner", 1, 1), ("outer", 1, 1)], id="nested-function"),
-        pytest.param(_MODULE, [("<module>", 1, 1)], id="module-level"),
-        pytest.param(_CLASS_BODY, [("C", 1, 1)], id="class-body"),
-        pytest.param(_ASYNC, [("Client.fetch", 1, 1)], id="async-method"),
+        pytest.param(_PROPERTY, ["Box.value", "Box.value"], id="property-getter-and-setter"),
+        pytest.param(_REDEFINED, ["f", "f"], id="if-else-redefinition"),
+        pytest.param(_NESTED, ["outer.<locals>.inner", "outer"], id="nested-function"),
+        pytest.param(_GLOBAL, ["inner"], id="nested-function-declared-global"),
+        pytest.param(_MODULE, ["<module>"], id="module-level"),
+        pytest.param(_CLASS_BODY, ["C"], id="class-body"),
+        pytest.param(_ASYNC, ["Client.fetch"], id="async-method"),
     ],
 )
-def test_a_scope_is_its_qualified_name_and_counts_its_own_clauses(
-    source: str, expected: list[tuple[str, int, int]]
-) -> None:
-    assert _shape(source) == expected
+def test_a_scope_is_the_qualified_name_of_the_code_that_holds_the_clause(source: str, expected: list[str]) -> None:
+    assert _scopes(source) == expected
 
 
-_TWO_CLAUSES = _src(
-    """
-    def f():
-        try:
-            pass
-        except Exception:
-            return 0
-        try:
-            pass
-        except Exception:
-            return 1
-    """
-)
-_NEW_CLAUSE = "    try:\n        pass\n    except Exception:\n        return 9\n"
-_FIRST_CLAUSE = "    try:\n        pass\n    except Exception:\n        return 0\n"
+def test_the_two_clauses_of_a_property_have_two_identities() -> None:
+    getter, setter = _keys(_PROPERTY)
+
+    assert getter != setter
 
 
-@pytest.mark.parametrize(
-    "changed",
-    [
-        pytest.param(_TWO_CLAUSES.replace("def f():\n", "def f():\n" + _NEW_CLAUSE, 1), id="a-clause-inserted-above"),
-        pytest.param(_TWO_CLAUSES + _NEW_CLAUSE, id="a-clause-inserted-below"),
-        pytest.param(_TWO_CLAUSES.replace(_FIRST_CLAUSE, "", 1), id="the-dismissed-clause-deleted"),
-        pytest.param(
-            _TWO_CLAUSES.replace("        return 0", "        logger.error('x')\n        return 0", 1),
-            id="the-dismissed-clause-gains-a-log-call",
-        ),
-    ],
-)
-def test_changing_the_swallowing_clauses_of_a_scope_never_moves_a_dismissal(changed: str) -> None:
-    dismissed = _keys(_TWO_CLAUSES)[0]  # the first clause was dismissed
+def test_except_star_is_not_a_swallowing_clause() -> None:
+    source = _src(
+        """
+        def f():
+            try:
+                pass
+            except* Exception:
+                pass
+        """
+    )
 
-    assert dismissed not in _keys(changed)
+    assert swallowing_lines(source) == []
 
 
 def _corpus_inner() -> int:
@@ -705,6 +756,18 @@ def _corpus_inner() -> int:
     return inner()
 
 
+def _corpus_global() -> int:
+    global _corpus_declared
+
+    def _corpus_declared() -> int:
+        try:
+            return {}["missing"]
+        except Exception:
+            return 2
+
+    return _corpus_declared()
+
+
 class _Holder:
     def get(self) -> int:
         try:
@@ -713,13 +776,17 @@ class _Holder:
             return 0
 
 
+def _nested_code(function: FunctionType) -> CodeType:
+    return next(c for c in function.__code__.co_consts if isinstance(c, CodeType))
+
+
 def test_a_handler_seen_at_runtime_is_in_the_static_set_of_its_file() -> None:
-    inner = next(c for c in _corpus_inner.__code__.co_consts if isinstance(c, CodeType))
     corpus = [
         (_nested.__code__, KeyError),
         (_first_match.__code__, TypeError),
         (_Holder.get.__code__, KeyError),
-        (inner, KeyError),
+        (_nested_code(_corpus_inner), KeyError),
+        (_nested_code(_corpus_global), KeyError),
     ]
     static = set(swallowing_sites(Path(__file__).read_text("utf-8")))
 
@@ -731,13 +798,25 @@ def test_a_handler_seen_at_runtime_is_in_the_static_set_of_its_file() -> None:
         assert seen[0].scope == code.co_qualname
 
 
-def test_the_identity_names_the_path_the_scope_the_type_and_the_position() -> None:
-    site = SwallowingSite(21, "Week.count", 2, 3)
+def test_the_identity_names_the_path_the_scope_the_type_and_a_content_hash() -> None:
+    source = _src(
+        """
+        class Week:
+            def count(self):
+                try:
+                    return self.week_id
+                except Exception:
+                    return 0
+        """
+    )
+    [site] = swallowing_sites(source)
 
-    assert site_identity("src/app/weeks.py", site, "AttributeError") == "src/app/weeks.py:Week.count:AttributeError#2/3"
+    identity = site_identity("src/app/weeks.py", site, "AttributeError")
+
+    assert re.fullmatch(r"src/app/weeks\.py:Week\.count:AttributeError#[0-9a-f]{8}", identity)
 
 
 def test_a_new_identity_is_never_a_legacy_line_key() -> None:
-    identity = site_identity("app.py", SwallowingSite(5, "f", 1, 1), "KeyError")
+    [identity] = _keys(_scope(_clause("a", 0)))
 
     assert re.fullmatch(r".+:\d+:\w+", identity) is None

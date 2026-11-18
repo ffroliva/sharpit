@@ -511,9 +511,10 @@ def test_statement_sites_survive_json_round_trip() -> None:
     assert restored.statement_sites == facts.statement_sites
 
 
-# --- #66: the swallowed-exception identity is a scope and a position, not a line -------------------------------------
+# --- #66: the swallowed-exception identity is a scope and a content hash, not a line ---------------------------------
 
-IDENTITY = "app/weeks.py:Week.count:AttributeError#1/1"
+IDENTITY = "app/weeks.py:Week.count:AttributeError#1a2b3c4d"
+OTHER = "app/weeks.py:Week.count:AttributeError#5e6f7a8b"
 LEGACY = "app/weeks.py:21:AttributeError"
 
 
@@ -538,13 +539,13 @@ def test_the_message_prints_an_identity_that_pasted_into_sharpit_yml_dismisses_t
     assert again.dismissed is True
 
 
-def test_a_dismissal_by_identity_survives_a_moved_line_and_not_a_changed_scope() -> None:
+def test_a_dismissal_by_identity_survives_a_moved_line_and_not_a_changed_clause() -> None:
     pairs = {(SWALLOWED_RULE, IDENTITY)}
 
     assert _only(_located(21), pairs).dismissed is True
     assert _only(_located(35), pairs).dismissed is True
-    assert _only(_located(21, "app/weeks.py:Week.total:AttributeError#1/1"), pairs).dismissed is False
-    assert _only(_located(21, "app/weeks.py:Week.count:AttributeError#1/2"), pairs).dismissed is False
+    assert _only(_located(21, "app/weeks.py:Week.total:AttributeError#1a2b3c4d"), pairs).dismissed is False
+    assert _only(_located(21, OTHER), pairs).dismissed is False
 
 
 def test_a_legacy_line_keyed_entry_still_dismisses_while_its_line_holds() -> None:
@@ -554,18 +555,46 @@ def test_a_legacy_line_keyed_entry_still_dismisses_while_its_line_holds() -> Non
     assert _only(_located(35), pairs).dismissed is False
 
 
-def test_a_legacy_entry_that_matches_warns_naming_the_entry_and_its_new_key() -> None:
+def test_a_legacy_entry_that_matches_names_the_clause_it_matches_and_asks_to_check_it() -> None:
     pairs = {(SWALLOWED_RULE, LEGACY)}
 
     assert legacy_dismissal_warnings(_located(21), pairs) == [
-        f"dismissedFindings entry '{SWALLOWED_RULE} {LEGACY}' still matches by line number; replace it with "
-        f"'{SWALLOWED_RULE} {IDENTITY}', which survives edits above the handler"
+        f"dismissedFindings entry '{SWALLOWED_RULE} {LEGACY}' still matches by line number the clause "
+        f"'{SWALLOWED_RULE} {IDENTITY}'; check that this is the clause the entry was meant for, then replace the "
+        "entry with that key so it survives edits above the handler"
+    ]
+
+
+def test_a_legacy_entry_beside_its_new_key_is_reported_as_redundant() -> None:
+    pairs = {(SWALLOWED_RULE, LEGACY), (SWALLOWED_RULE, IDENTITY)}
+
+    assert legacy_dismissal_warnings(_located(21), pairs) == [
+        f"dismissedFindings entry '{SWALLOWED_RULE} {LEGACY}' is redundant: '{SWALLOWED_RULE} {IDENTITY}' already "
+        "dismisses the same clause; remove the line-keyed entry"
     ]
 
 
 def test_a_new_key_entry_or_a_moved_legacy_entry_warns_nothing() -> None:
     assert legacy_dismissal_warnings(_located(21), {(SWALLOWED_RULE, IDENTITY)}) == []
     assert legacy_dismissal_warnings(_located(35), {(SWALLOWED_RULE, LEGACY)}) == []
+
+
+def test_an_identity_over_the_dismissal_limit_names_the_fingerprint_route() -> None:
+    long_identity = "d/" * 300 + "weeks.py:Week.count:AttributeError#1a2b3c4d"
+    finding = _only(_located(21, long_identity))
+
+    assert "cannot be dismissed by key" in finding.message
+    assert finding.fingerprint in finding.message
+    assert long_identity not in finding.message
+    [by_fingerprint] = evaluate_test(_located(21, long_identity), NONE, 5, (finding.fingerprint,))
+    assert by_fingerprint.dismissed is True
+
+
+def test_an_identity_of_exactly_the_dismissal_limit_is_still_printed() -> None:
+    identity = "d/" * 240 + "e" * (512 - 480)
+
+    assert len(identity) == 512
+    assert _only(_located(21, identity)).message.endswith(f"identity {identity}")
 
 
 def test_the_fingerprint_follows_the_identity_not_the_line() -> None:

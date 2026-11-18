@@ -57,7 +57,8 @@ def _fact(code: CodeType, offset: int, exc_type: type[BaseException]) -> Swallow
 
 
 class MonitoringCapture:
-    def __init__(self, on_error: Callable[[BaseException], None] | None = None) -> None:
+    def __init__(self, on_error: Callable[[BaseException], None] | None = None, root: Path | None = None) -> None:
+        del root  # stub: the working directory still decides
         self.tool_id: int | None = None
         self._tool: MonitoringTool | None = None
         self._sink: SwallowedSink | None = None

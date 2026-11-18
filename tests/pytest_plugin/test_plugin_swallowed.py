@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.testsession.facts import SwallowedFact
+from sharpit.engine.testsession.swallowed import site_identity, swallowing_sites
 from sharpit.pytest_plugin.swallowed import TOOL_IDS, MonitoringCapture, TestTag
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "apps" / "swallowed_exception"
@@ -99,7 +101,8 @@ def test_library_raise_app_handler_is_seen(
     _app_swallow()
 
     path = Path(os.path.relpath(__file__)).as_posix()
-    identity = f"{path}:_app_swallow:JSONDecodeError#1/1"
+    [site] = [s for s in swallowing_sites(Path(__file__).read_text("utf-8")) if s.scope == "_app_swallow"]
+    identity = site_identity(path, site, "JSONDecodeError")
     assert seen == [(in_test, SwallowedFact(f"{path}:{_app_swallow_line()}", "JSONDecodeError", False, identity))]
 
 
@@ -281,11 +284,18 @@ def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) 
     assert [f["baselineState"] for f in baselined["findings"] if f["ruleId"] == RULE] == ["existing"]
 
 
-# --- #66: a dismissal keys on the clause's scope and position, not its line --------------------------------------
+# --- #66: a dismissal keys on the clause's scope and content, not its line ---------------------------------------
 
-WEEK_IDENTITY = "weekapp.py:get_week_count:AttributeError#1/1"
+
+def _week_identity() -> str:
+    [site] = swallowing_sites((FIXTURE / "weekapp.py").read_text("utf-8"))
+    return site_identity("weekapp.py", site, "AttributeError")
+
+
+WEEK_IDENTITY = _week_identity()
 WEEK_LEGACY = "weekapp.py:21:AttributeError"  # the ``except Exception:`` line of the fixture
 WEEK_ARGS = ("--sharpit", "--sharpit-app=weekapp:app", "--sharpit-report=report.json", "-q")
+BASELINE_ARGS = ("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
 
 
 def _planted(data: dict[str, Any]) -> dict[str, Any]:
@@ -299,18 +309,28 @@ def _dismiss(pytester: pytest.Pytester, *entries: str) -> None:
     (state_dir / "sharpit.yml").write_text(f"dismissedFindings:\n{lines}", encoding="utf-8")
 
 
-def test_xdist_workers_send_the_identity_and_the_controller_prints_it(pytester: pytest.Pytester) -> None:
+def _add_line_above(pytester: pytest.Pytester) -> None:
+    weekapp = pytester.path / "weekapp.py"
+    weekapp.write_text("# a line added above every handler\n" + weekapp.read_text("utf-8"), encoding="utf-8")
+
+
+def test_the_identity_is_the_same_serially_and_under_xdist(pytester: pytest.Pytester) -> None:
     _week_project(pytester)
 
+    pytester.runpytest(*WEEK_ARGS)
+    serial = _planted(_report(pytester))
     pytester.runpytest("-n", "2", *WEEK_ARGS)
+    parallel = _planted(_report(pytester))
 
-    assert _planted(_report(pytester))["message"].endswith(f"; identity {WEEK_IDENTITY}")
+    assert re.fullmatch(r"weekapp\.py:get_week_count:AttributeError#[0-9a-f]{8}", WEEK_IDENTITY)
+    assert serial["message"].endswith(f"; identity {WEEK_IDENTITY}")
+    assert parallel["message"] == serial["message"]
+    assert parallel["fingerprint"] == serial["fingerprint"]
 
 
 def test_a_dismissal_survives_a_line_added_above_the_handler(pytester: pytest.Pytester) -> None:
     _week_project(pytester)
-    weekapp = pytester.path / "weekapp.py"
-    weekapp.write_text("# a line added above every handler\n" + weekapp.read_text("utf-8"), encoding="utf-8")
+    _add_line_above(pytester)
     _dismiss(pytester, WEEK_IDENTITY)
 
     result = pytester.runpytest("-n", "2", *WEEK_ARGS)
@@ -331,3 +351,53 @@ def test_a_legacy_line_keyed_entry_still_dismisses_and_the_report_names_its_new_
     assert _planted(data)["dismissed"] is True
     assert result.ret == 0, result.stdout.str()
     assert [w for w in data["warnings"] if WEEK_LEGACY in w and WEEK_IDENTITY in w]
+
+
+def _sarif_fingerprints(path: Path) -> list[str]:
+    results = json.loads(path.read_text("utf-8"))["runs"][0]["results"]
+    return sorted(r["partialFingerprints"]["sharpitFingerprint/v1"] for r in results if r["ruleId"] == RULE)
+
+
+def test_the_baseline_and_the_sarif_fingerprint_survive_a_moved_line(pytester: pytest.Pytester) -> None:
+    _week_project(pytester)
+    pytester.runpytest(
+        *BASELINE_ARGS,
+        "--sharpit-report-only",
+        "--sharpit-write-baseline=baseline.json",
+        "--sharpit-sarif=before.sarif",
+    )
+    _add_line_above(pytester)
+
+    result = pytester.runpytest(*BASELINE_ARGS, "--sharpit-baseline=baseline.json", "--sharpit-sarif=after.sarif")
+
+    assert result.ret == 0, result.stdout.str()
+    assert _planted(_report(pytester))["baselineState"] == "existing"
+    before = _sarif_fingerprints(pytester.path / "before.sarif")
+    assert before
+    assert _sarif_fingerprints(pytester.path / "after.sarif") == before
+
+
+def test_the_path_is_relative_to_the_rootdir_not_to_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, in_test: TestTag
+) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    module = root / "rooted_app.py"
+    module.write_text(LIBRARY.replace("library_swallow", "rooted_swallow"), "utf-8")
+    namespace: dict[str, Any] = {}
+    exec(compile(module.read_text("utf-8"), str(module), "exec"), namespace)  # noqa: S102 - a planted app module
+    seen: list[tuple[TestTag, SwallowedFact]] = []
+    monitor = MonitoringCapture(root=root)
+    if not monitor.attach(lambda tag, fact: seen.append((tag, fact))).attached:
+        pytest.skip("sys.monitoring tool ids taken by the outer session")
+    monkeypatch.chdir(elsewhere)  # before the first swallow, after the rootdir was fixed
+    try:
+        namespace["rooted_swallow"]()
+    finally:
+        monitor.detach()
+
+    [(_, fact)] = seen
+    assert fact.location == "rooted_app.py:5"
+    assert (fact.identity or "").startswith("rooted_app.py:rooted_swallow:KeyError#")
