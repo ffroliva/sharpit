@@ -13,8 +13,9 @@ pytest.importorskip("sqlalchemy")
 
 TWINS = Path(__file__).parents[1] / "fixtures" / "apps" / "bench_twins"
 NO_APP_LINE = (
-    "sharpit: no application found: the selected tests imported none; rest-api skipped "
-    "(pass --sharpit-app module:attr or --sharpit-require-app for the same result on any selection)"
+    "sharpit: no application found among the modules the tests imported (conftest, test modules and installed "
+    "packages are not searched); rest-api skipped (pass --sharpit-app module:attr to assess the same app on any "
+    "selection; --sharpit-require-app makes a missing app an error instead of a skip)"
 )
 
 
