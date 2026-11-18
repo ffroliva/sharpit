@@ -72,7 +72,12 @@ def read(path: Path) -> Baseline:
 
 
 def compare(
-    findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool, ran: Collection[str] | None = None
+    findings: Sequence[Finding],
+    baseline: Baseline | None,
+    *,
+    partial: bool,
+    ran: Collection[str] | None = None,
+    in_part: Collection[str] = (),
 ) -> Comparison:
     """Annotate current findings and report baseline entries no longer seen."""
     from dataclasses import replace
@@ -96,9 +101,17 @@ def compare(
     carried = tuple(e for e in unseen if ran is not None and e.fingerprint.split(":", 1)[0] not in ran)
     if partial:
         return Comparison(tuple(compared), None, "partial run", carried)
-    if carried:  # an advisor that did not run completely saw nothing: its entries are neither fixed nor dropped
-        names = ", ".join(sorted({e.fingerprint.split(":", 1)[0] for e in carried}))
-        return Comparison(tuple(compared), None, f"advisor did not run: {names}", carried)
+    if carried:  # an advisor that did not read the whole app cannot say an entry is gone: neither fixed nor dropped
+        names = {e.fingerprint.split(":", 1)[0] for e in carried}
+        reasons = [
+            f"{text}: {', '.join(sorted(group))}"
+            for text, group in (
+                ("advisor did not run", names - set(in_part)),
+                ("advisor assessed part of the app", names & set(in_part)),
+            )
+            if group
+        ]
+        return Comparison(tuple(compared), None, "; ".join(reasons), carried)
     return Comparison(tuple(compared), tuple(e for e in unseen if not e.rule_id.startswith("VULN-")), None)
 
 

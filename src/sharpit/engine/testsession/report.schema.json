@@ -196,7 +196,7 @@
       "required": ["advisor", "status", "reason", "apps", "findings"],
       "properties": {
         "advisor": {"type": "string"},
-        "status": {"enum": ["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]},
+        "status": {"enum": ["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]},
         "reason": {"type": ["string", "null"]},
         "apps": {
           "type": "array",
@@ -206,7 +206,7 @@
             "required": ["app", "status", "reason", "evidence"],
             "properties": {
               "app": {"type": ["string", "null"], "description": "<title>#<8 hex>: the app's content identity."},
-              "status": {"enum": ["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]},
+              "status": {"enum": ["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]},
               "reason": {"type": ["string", "null"]},
               "evidence": {"$ref": "#/$defs/evidence"}
             }
