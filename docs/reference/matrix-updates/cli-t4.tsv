@@ -1,0 +1,3 @@
+area	BootUI behavior	sharpit adaptation	reason
+manifest stacks	Records stack-specific stack availability	Omit stacks metadata	Sharpit tools have no stack availability declarations
+sharpit-only tools	No corresponding BootUI command	Use command paths declared in sharpit.engine.tools.COMMANDS	Tools are sharpit-specific
