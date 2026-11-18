@@ -42,6 +42,7 @@ class _Evaluation:
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     skipped: tuple[str, ...] = ()  # ids counted as SKIPPED results
+    rule_error: bool = False  # a rule threw: the gate cannot tell a clean run from the rule that would have found it
 
 
 def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None) -> _Evaluation:
@@ -73,6 +74,7 @@ def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None)
         tuple(findings),
         evidence(bool(routes), not limitations, limitations),  # no routes and no limitation: confirmed empty
         tuple(sorted(RETIRED_RULES)) if routes else (),
+        bool(errored),
     )
 
 
@@ -107,7 +109,8 @@ def _run(
             )
             for finding in findings
         )
-    return AdvisorRun.of(ADVISOR, findings, done.evidence, scan_status=done.status, fail_on=fail_on, app=app)
+    status = "ERROR" if done.rule_error else done.status  # the report stays PARTIAL (BootUI); the gate stays UNKNOWN
+    return AdvisorRun.of(ADVISOR, findings, done.evidence, scan_status=status, fail_on=fail_on, app=app)
 
 
 def assess(

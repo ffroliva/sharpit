@@ -47,6 +47,18 @@ def _order(finding: Mapping[str, object]) -> tuple[bool, int, str]:
     return not failing, severity_rank(str(finding.get("severity"))), str(finding.get("fingerprint"))
 
 
+def _partial_notes(report: Mapping[str, object]) -> list[str]:
+    """One line per app an advisor assessed in part: a clean partial assessment passes, but it is not proof."""
+    gate = _esc(_mapping(report.get("gates")).get("failOnSeverity") or "the gate severity")
+    return [
+        f"advisor '{_esc(advisor.get('advisor'))}' assessed part of {_esc(app.get('app') or 'the application')}: "
+        f"{_esc(app.get('reason'))}; having no finding at or above {gate} is not proof there is none"
+        for advisor in map(_mapping, _items(report.get("advisors")))
+        for app in map(_mapping, _items(advisor.get("apps")))
+        if app.get("status") == "PARTIAL"
+    ]
+
+
 def render_summary(report: Mapping[str, object]) -> str:
     totals = _mapping(report.get("totals"))
     every = (_mapping(f) for f in _items(report.get("findings")))
@@ -69,6 +81,9 @@ def render_summary(report: Mapping[str, object]) -> str:
     reasons += [f"unknown: {_esc(r)}" for r in _items(report.get("unknownReasons")) if r not in status_reasons]
     if reasons:
         lines += ["", "### Reasons", "", *(f"- {r}" for r in reasons)]
+    partial = _partial_notes(report)
+    if partial:
+        lines += ["", "### Partial assessments", "", *(f"- {n}" for n in partial)]
     shown = findings[:TOP]
     lines += ["", f"### Findings (showing {len(shown)} of {len(findings)})", ""]
     if shown:

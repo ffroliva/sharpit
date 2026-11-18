@@ -31,7 +31,7 @@ def finish(
     warnings: Sequence[str],
 ) -> tuple[dict[str, Any], str, list[str]]:
     """Merge run facts and render the report without depending on pytest or adapter state."""
-    merged = outcome.merge(parts, missing)
+    merged = outcome.merge(parts, missing, options.fail_on)
     for warning in warnings:
         if warning not in merged.warnings:
             merged.warnings.append(warning)

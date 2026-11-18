@@ -114,14 +114,21 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
     return list(by_name.values())
 
 
-def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]:
-    """FAILED over UNKNOWN over SKIPPED over PASSED (R14); no status at all is PASSED."""
+_WORST_FIRST: tuple[Literal["FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"], ...] = (
+    "FAILED",
+    "UNKNOWN",
+    "SKIPPED",
+    "PARTIAL",
+)
+
+
+def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]:
+    """FAILED over UNKNOWN over SKIPPED over PARTIAL over PASSED (R14); no status at all is PASSED."""
     present = set(statuses)
-    if "FAILED" in present:
-        return "FAILED"
-    if "UNKNOWN" in present:
-        return "UNKNOWN"
-    return "SKIPPED" if "SKIPPED" in present else "PASSED"
+    for status in _WORST_FIRST:
+        if status in present:
+            return status
+    return "PASSED"
 
 
 def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> AdvisorRun:
@@ -137,7 +144,7 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
 
 
 def _merge_runs(parts: Sequence[SessionFacts]) -> list[AdvisorRun]:
-    """One run per (advisor, app): findings de-duplicated by fingerprint, FAILED over UNKNOWN over PASSED."""
+    """One run per (advisor, app): findings de-duplicated by fingerprint, worst status first (``_worst``)."""
     groups: dict[tuple[str, str | None], list[AdvisorRun]] = {}
     for run in (r for part in parts for r in part.advisor_runs):
         groups.setdefault((run.advisor, run.app), []).append(run)
@@ -165,7 +172,17 @@ def _flat_findings(tests: Sequence[TestFacts], runs: Sequence[AdvisorRun]) -> di
     return findings
 
 
-def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> MergedFacts:
+def _partial_notes(runs: Iterable[AdvisorRun], fail_on: str) -> list[str]:
+    """One warning per partial app: a clean partial assessment passes, but it is not proof (BootUI ``FailOn``)."""
+    return [
+        f"advisor '{run.advisor}' assessed part of {run.app or 'the application'}: {run.reason or FALLBACK_REASON}; "
+        f"having no finding at or above {fail_on} is not proof there is none"
+        for run in runs
+        if run.status == "PARTIAL"
+    ]
+
+
+def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str], fail_on: str = "HIGH") -> MergedFacts:
     tests = [t for p in parts for t in p.tests]
     untraced = {d for p in parts for d in p.untraced_drivers}
     engines = {d for p in parts for d in p.engine_drivers}
@@ -184,7 +201,8 @@ def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> Merg
     attributed = attributed_queries(tests)
     unattributed = sum(p.unattributed for p in parts)
     warnings: list[str] = []
-    for line in [*(w for p in parts for w in p.warnings), *(x for s in sources for x in s["limitations"])]:
+    notes = _partial_notes(runs, fail_on)
+    for line in [*(w for p in parts for w in p.warnings), *(x for s in sources for x in s["limitations"]), *notes]:
         if line not in warnings:
             warnings.append(line)
     if attributed + unattributed == 0:

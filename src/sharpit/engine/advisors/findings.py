@@ -56,7 +56,7 @@ def fails(dto: Mapping[str, object]) -> bool:
 @dataclass(frozen=True)
 class AdvisorRun:
     advisor: str
-    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]
+    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     reason: str | None
@@ -73,22 +73,28 @@ class AdvisorRun:
         fail_on: Severity = "HIGH",
         app: str | None = None,
     ) -> AdvisorRun:
-        """Derive the status (spec §5.3); it is never set by hand."""
+        """Derive the status (spec §5.3); it is never set by hand.
+
+        An advisor that could not assess (not usable, or the scan errored) is ``UNKNOWN``; one that assessed part of
+        the app and listed what it could not read is ``PARTIAL`` (BootUI ``FailOn``: a partial scan with no finding
+        passes, with a note). A finding at or above ``fail_on`` is ``FAILED`` either way.
+        """
         found = tuple(findings)
         gate = severity_rank(fail_on)
         limitations: list[str] = evidence.get("limitations") or []
-        incomplete = (
+        gap = (
             not evidence.get("coverageComplete")
             or (not evidence.get("usable") and bool(limitations))
             or scan_status in ("PARTIAL", "ERROR")
         )
+        unusable = gap and (not evidence.get("usable") or scan_status == "ERROR")
+        reason = limitations[0] if limitations else _FALLBACK_REASON
         if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
-            reason = None
-            if incomplete:
-                reason = limitations[0] if limitations else _FALLBACK_REASON
-            return cls(advisor, "FAILED", found, evidence, reason, app)
-        if incomplete:
-            return cls(advisor, "UNKNOWN", found, evidence, limitations[0] if limitations else _FALLBACK_REASON, app)
+            return cls(advisor, "FAILED", found, evidence, reason if unusable else None, app)
+        if unusable:
+            return cls(advisor, "UNKNOWN", found, evidence, reason, app)
+        if gap:
+            return cls(advisor, "PARTIAL", found, evidence, reason, app)
         return cls(advisor, "PASSED", found, evidence, None, app)
 
     def to_dto(self) -> dict[str, Any]:
