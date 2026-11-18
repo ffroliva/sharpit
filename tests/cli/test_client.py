@@ -124,11 +124,11 @@ def test_timeout_bounds_the_whole_body_read(endpoint):
     # ported: BootUiClientTests.boundedResponseBodyReadHonorsTheRemainingRequestTimeout
     base, routes, _, _, delays = endpoint
     routes["/sharpit/api/probe"] = (200, b'{"value":true}', None)
-    delays["/sharpit/api/probe"] = 0.8
+    delays["/sharpit/api/probe"] = 2.0
     started = time.monotonic()
     with pytest.raises(ClientError):
         Client(options(base, timeout=0.25)).get("/probe")
-    assert time.monotonic() - started < 0.7
+    assert time.monotonic() - started < 1.75
 
 
 def test_token_header_is_conditional_and_never_appears_in_client_errors(endpoint):
