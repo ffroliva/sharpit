@@ -248,6 +248,10 @@ sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)
 
 A skipped advisor does not make the session `unknown`; a database driver sharpit cannot trace still does.
 
+An advisor that read part of the app and listed what it could not (an opaque `app.mount(...)`) is `PARTIAL`: the run
+passes with a warning that no finding is not proof there is none, and a finding at or above `--sharpit-fail-on` still
+fails. An advisor that assessed nothing, or whose rule errored, stays `UNKNOWN`; lost capture stays `unknown`.
+
 ### Report-only mode and baselines
 
 For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
@@ -266,7 +270,8 @@ For complete gate behavior, exit statuses and the adoption workflow, see [The sa
 ### Reading the report and statuses
 
 The JSON report (`sharpit-report.json`) yields one of three statuses in `.status`:
-- `pass`: All gates passed and advisors completed with full coverage.
+- `pass`: All gates passed and no advisor was `UNKNOWN`. An advisor with `status: PARTIAL` assessed part of the app; its
+  limitation is in `.warnings`.
 - `fail`: One or more tests violated a count gate (budget, N+1, swallowed exception), or an advisor failed.
 - `unknown`: Capture was incomplete or compromised. By default, this fails the session (exit code 1).
 

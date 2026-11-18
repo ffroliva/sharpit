@@ -9,6 +9,12 @@ Sharpit fails closed on unknown results. An incomplete capture, unreadable or ma
 reason exits non-zero by default. `--sharpit-allow-unknown` permits unknown results, but does not permit findings that
 meet the gate.
 
+An advisor that assessed part of an application and listed what it could not read (for example a mounted sub-app with no
+inspectable routes) is reported as `PARTIAL`. It does not make the run `unknown`: the gate passes with a warning that
+having no finding at or above `--sharpit-fail-on` is not proof there is none, and a finding at or above the threshold
+still fails. An advisor that assessed nothing (no usable routes, an errored scan or a rule that threw) stays `UNKNOWN`,
+and lost capture (no SQL source, lost events, a missing worker) stays `unknown` whatever the advisors report.
+
 Pytest's exit status is preserved when pytest already returns non-zero. Sharpit changes a successful pytest exit (`0`)
 to `1` when the gate fails; it does not replace pytest's status for failing tests, interruption, an internal error, a
 usage error or no collected tests. Report-only mode (`--sharpit-report-only`) still writes the report and displays
