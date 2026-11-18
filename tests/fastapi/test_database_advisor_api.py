@@ -35,7 +35,6 @@ def _sqlite(*ddl: str) -> Any:
     engine = sa.create_engine(
         "sqlite://", poolclass=QueuePool, pool_size=1, max_overflow=0, connect_args={"check_same_thread": False}
     )
-    engine.dialect.dbapi.__version__ = "3.45.0"
     with engine.begin() as conn:
         for statement in ddl:
             conn.exec_driver_sql(statement)
