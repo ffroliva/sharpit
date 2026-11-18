@@ -525,23 +525,21 @@ def test_deadline_bounds_headers_and_error_bodies(endpoint, path):
     assert time.monotonic() - started < 0.75
 
 
-def test_deadline_bounds_trickled_http_error_body_without_raw_stream(endpoint):
-    base, routes, *_ = endpoint
-    path = "/sharpit/api/slow-error-body"
-    routes[path] = (500, b"ignored", None)
-    client = Client(options(base, timeout=0.25))
-    opener = client._opener
+def test_deadline_bounds_trickled_http_error_body_without_raw_stream():
+    client = Client(options("http://127.0.0.1:1", timeout=0.5))
     reads = []
 
     class TrickledBody:
+        closed = False
+
         def read1(self, _size):
             reads.append(True)
-            for _ in range(50):
+            for _ in range(100):
                 time.sleep(0.02)
             return b""
 
         def close(self):
-            return None
+            self.closed = True
 
     class TestHTTPError(HTTPError):
         def read1(self, size):
@@ -549,18 +547,14 @@ def test_deadline_bounds_trickled_http_error_body_without_raw_stream(endpoint):
 
     class HttpErrorOpener:
         def open(self, request, *, timeout):
-            try:
-                return opener.open(request, timeout=timeout)
-            except HTTPError as error:
-                error.close()
-                raise TestHTTPError(request.full_url, 500, "HTTP 500", {}, TrickledBody()) from None
+            raise TestHTTPError(request.full_url, 500, "HTTP 500", {}, TrickledBody())
 
     client._opener = HttpErrorOpener()
     started = time.monotonic()
-    with pytest.raises(ClientError):
-        client.get("/slow-error-body")
-    assert reads == [True]
-    assert time.monotonic() - started < 0.75
+    with pytest.raises(ClientError) as caught:
+        client.get("/error")
+    assert reads == [True], str(caught.value)
+    assert time.monotonic() - started < 1.0
 
 
 def test_nested_json_recursion_is_a_client_error(endpoint):
