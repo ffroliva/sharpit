@@ -194,18 +194,23 @@ that adds its own findings to it accepts them.
 ### Dismissing a swallowed exception
 
 A `sharpit.swallowed-exception` finding ends its message with its identity,
-`<path>:<scope>:<ExceptionType>#<n>/<m>`: for example `src/app/weeks.py:Week.count:AttributeError#2/3` is the second of
-the three broad, silent `except` clauses of `Week.count`. Paste it after the rule id in `.sharpit/sharpit.yml`:
+`<path>:<scope>:<ExceptionType>#<key>`: for example `src/app/weeks.py:Week.count:AttributeError#1a2b3c4d`. The path is
+relative to the pytest rootdir, the scope is the qualified name of the function or class body that holds the clause, and
+the key is a hash of the clause itself (its `try` body and its handler, without positions); byte-identical clauses of
+one scope end `.1`, `.2`. Copy it from the terminal or the JSON report (the SARIF message is masked like every other
+output) and paste it after the rule id in `.sharpit/sharpit.yml`:
 
 ```yaml
 dismissedFindings:
-  - sharpit.swallowed-exception src/app/weeks.py:Week.count:AttributeError#2/3
+  - sharpit.swallowed-exception src/app/weeks.py:Week.count:AttributeError#1a2b3c4d
 ```
 
-The identity holds no line number, so a line added above the handler does not bring the finding back. It stops matching
-when the set of swallowing clauses in that scope changes (one added, removed or given a log call), and the finding comes
-back instead of moving to a neighbouring clause. The earlier `<path>:<line>:<ExceptionType>` form still matches while
-the line holds, and the report then warns with the identity to replace it with.
+The identity holds no line number, so a line added above the handler does not bring the finding back, and swapping two
+`try` blocks or moving a log call from one clause to another cannot hand the dismissal to another clause. Editing the
+clause's `try` body or handler changes the key, and the finding comes back. An identity over 512 characters cannot be
+written as an entry: the message then names the fingerprint to list under `dismissedRules`. The earlier
+`<path>:<line>:<ExceptionType>` form still matches while the line holds, and the report then warns with the clause it
+matches, to be checked, and the key to replace it with.
 
 ## Parallel runs with pytest-xdist
 

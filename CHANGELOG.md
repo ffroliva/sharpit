@@ -12,15 +12,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A dismissed `sharpit.swallowed-exception` finding no longer comes back when a line above it moves (#66). The finding
-  is keyed by `<path>:<scope qualified name>:<ExceptionType>#<n>/<m>` (the n-th of the m broad, silent `except` clauses
-  of that scope) instead of the line of the `except` header, and its message prints the key so it can be pasted into
-  `dismissedFindings`. Adding, removing or logging a swallowing clause in a scope changes `m`, so the dismissals of that
-  scope come back instead of moving to a neighbouring clause. Migration:
-  - a `dismissedFindings` entry in the earlier `<path>:<line>:<ExceptionType>` form still matches while its line holds,
-    and the report warns with the key to replace it with;
+  is keyed by `<path>:<scope qualified name>:<ExceptionType>#<key>` instead of the line of the `except` header. The key
+  is 8 hex digits of a hash of the clause itself (its `try` body and its handler, without positions), with `.1`, `.2`
+  after it for byte-identical clauses of one scope. Moving a line, swapping two `try` blocks, or moving a log call from
+  one clause to another cannot hand a dismissal to another clause, and editing the clause changes the key, so the
+  finding comes back. The path is relative to the pytest rootdir, and the message prints the key so it can be pasted
+  into `dismissedFindings` (copy it from the terminal or the JSON report: the SARIF message is masked like every
+  other output). A key over 512 characters cannot be pasted: the message then names the fingerprint to dismiss in
+  `dismissedRules`. The `FASTAPI-ERR-001` violation of the REST API advisor uses the same scope and key instead of the
+  line. Migration:
+  - a `dismissedFindings` entry in the earlier `<path>:<line>:<ExceptionType>` form still matches while its line holds;
+    the report warns with the clause it matches, to be checked, and with the key to replace it with, or says the
+    entry is redundant when the key is written too;
   - the finding fingerprint follows the new key, so a baseline needs one `--sharpit-write-baseline` rewrite, a
     `dismissedRules` fingerprint for a swallowed exception is dismissed once more, and a code-scanning alert for a
-    swallowed exception is reopened once (the SARIF `sharpitFingerprint/v1` key is unchanged).
+    swallowed exception is reopened once (the SARIF `sharpitFingerprint/v1` key is unchanged);
+  - a `dismissedRules` fingerprint or a baseline entry for `FASTAPI-ERR-001` on a swallowed handler is likewise
+    renewed once.
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
 
 ## [0.6.0] - 2026-11-13

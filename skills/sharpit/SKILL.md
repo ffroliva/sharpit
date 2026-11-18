@@ -326,10 +326,12 @@ writable. Notes are stored Base64URL-encoded and returned only by `GET` (no MCP 
 beyond).
 
 A `sharpit.swallowed-exception` finding prints its identity at the end of its message,
-`<path>:<scope>:<ExceptionType>#<n>/<m>` (the n-th of the m broad, silent `except` clauses of that scope); paste it as
-the dismissal's identity. It holds no line number, so an edit above the handler keeps the dismissal, and a clause added,
-removed or given a log call in that scope brings the finding back. The earlier `<path>:<line>:<ExceptionType>` form
-still matches while its line holds, and the report then warns with the identity to replace it with.
+`<path>:<scope>:<ExceptionType>#<key>` (the key hashes the clause's `try` body and handler; byte-identical clauses of
+one scope end `.1`, `.2`); paste it as the dismissal's identity. Copy it from the terminal or the JSON report: SARIF
+output is masked. It holds no line number, so an edit above the handler keeps the dismissal; swapping clauses or moving a
+log call between them cannot hand it to another clause, and editing the clause itself brings the finding back. The
+earlier `<path>:<line>:<ExceptionType>` form still matches while its line holds, and the report then warns with the
+clause it matches and the key to replace it with.
 
 ## Common mistakes
 
