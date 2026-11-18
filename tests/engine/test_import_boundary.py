@@ -263,17 +263,35 @@ def cli_dynamic_loading_violations(root: Path | None = None) -> list[str]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         aliases = _aliases(tree)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import) and any(alias.name == "importlib.util" for alias in node.names):
-                found.append(f"{_rel(path)}:{node.lineno} uses importlib.util")
-            elif isinstance(node, ast.ImportFrom) and node.module == "importlib" and any(alias.name == "util" for alias in node.names):
+            if (
+                isinstance(node, ast.Import)
+                and any(alias.name == "importlib.util" for alias in node.names)
+                or (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == "importlib"
+                    and any(alias.name == "util" for alias in node.names)
+                )
+            ):
                 found.append(f"{_rel(path)}:{node.lineno} uses importlib.util")
             if isinstance(node, ast.Call):
                 call = _dotted(node.func, aliases)
-                if call in ("importlib.import_module", "builtins.__import__", "__import__", "importlib.__import__") or call in (
-                    "exec", "eval", "compile", "builtins.exec", "builtins.eval", "builtins.compile"
+                if (
+                    call
+                    in (
+                        "importlib.import_module",
+                        "builtins.__import__",
+                        "__import__",
+                        "importlib.__import__",
+                        "exec",
+                        "eval",
+                        "compile",
+                        "builtins.exec",
+                        "builtins.eval",
+                        "builtins.compile",
+                    )
+                    or call is not None
+                    and call.startswith("importlib.util.")
                 ):
-                    found.append(f"{_rel(path)}:{node.lineno} calls {call}")
-                elif call and call.startswith("importlib.util."):
                     found.append(f"{_rel(path)}:{node.lineno} calls {call}")
                 elif call == "importlib.resources.files" and (
                     not node.args
@@ -281,9 +299,7 @@ def cli_dynamic_loading_violations(root: Path | None = None) -> list[str]:
                     or not isinstance(node.args[0].value, str)
                 ):
                     found.append(f"{_rel(path)}:{node.lineno} calls importlib.resources.files without a string literal")
-            elif isinstance(node, ast.Attribute) and _dotted(node.value, aliases) == "sys.modules":
-                found.append(f"{_rel(path)}:{node.lineno} accesses sys.modules")
-            elif isinstance(node, ast.Subscript) and _dotted(node.value, aliases) == "sys.modules":
+            elif isinstance(node, (ast.Attribute, ast.Subscript)) and _dotted(node.value, aliases) == "sys.modules":
                 found.append(f"{_rel(path)}:{node.lineno} accesses sys.modules")
     return found
 
@@ -314,9 +330,11 @@ def cli_network_call_violations(root: Path | None = None) -> list[str]:
                 source = (path.parent / "client.py").read_text(encoding="utf-8")
                 match = re.search(r"__all__\s*=\s*\[([^\]]*)\]", source)
                 public = set(ast.literal_eval("[" + match.group(1) + "]")) if match else set()
-                for alias in node.names:
-                    if alias.name not in public:
-                        found.append(f"{_rel(path)}:{node.lineno} imports non-public sharpit.cli.client.{alias.name}")
+                found.extend(
+                    f"{_rel(path)}:{node.lineno} imports non-public sharpit.cli.client.{alias.name}"
+                    for alias in node.names
+                    if alias.name not in public
+                )
     return found
 
 
@@ -641,11 +659,14 @@ def test_cli_network_calls_are_confined_to_client(
     assert cli_network_call_violations() == [f"sharpit/cli/rogue.py:2 uses {expected}"]
 
 
-@pytest.mark.parametrize("source", [
-    "from sharpit.cli import client\nclient.request.urlopen('x')",
-    "from sharpit.cli.client import _request\n_request.urlopen('x')",
-    "from sharpit.cli import client\nclient._opener.open('x')",
-])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from sharpit.cli import client\nclient.request.urlopen('x')",
+        "from sharpit.cli.client import _request\n_request.urlopen('x')",
+        "from sharpit.cli import client\nclient._opener.open('x')",
+    ],
+)
 def test_cli_client_reexports_and_private_members_are_not_accessible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
 ) -> None:
@@ -668,6 +689,7 @@ def test_cli_client_reexports_and_private_members_are_not_accessible(
         ("import sys\nsys.modules.pop('x')", "accesses sys.modules"),
         ("import importlib\nimportlib.__import__('x')", "calls importlib.__import__"),
         ("import importlib.util", "uses importlib.util"),
+        ("import importlib\nx = importlib.util", "uses importlib.util"),
         ("exec('pass')", "calls exec"),
         ("eval('1')", "calls eval"),
         ("compile('1', '<x>', 'eval')", "calls compile"),
