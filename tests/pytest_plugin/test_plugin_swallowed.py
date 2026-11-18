@@ -103,7 +103,8 @@ def test_library_raise_app_handler_is_seen(
     path = Path(os.path.relpath(__file__)).as_posix()
     [site] = [s for s in swallowing_sites(Path(__file__).read_text("utf-8")) if s.scope == "_app_swallow"]
     identity = site_identity(path, site, "JSONDecodeError")
-    assert seen == [(in_test, SwallowedFact(f"{path}:{_app_swallow_line()}", "JSONDecodeError", False, identity))]
+    location = f"{path}:{_app_swallow_line()}"
+    assert seen == [(in_test, SwallowedFact(location, "JSONDecodeError", False, identity, location))]
 
 
 def test_library_handler_is_ignored(
