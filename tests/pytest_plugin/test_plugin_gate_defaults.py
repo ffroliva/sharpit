@@ -334,14 +334,18 @@ def test_opaque_mount_passes_with_a_partial_note(pytester: pytest.Pytester) -> N
         app.mount('/mcp/messages', Starlette())
         """,
         test_mounted="""
+        import sqlite3
+
         import appmod
 
         def test_uses_app():
             assert appmod.app is not None
+            sqlite3.connect(':memory:').execute('SELECT 1').fetchone()  # capture sees SQL, as in the clean-suite test
         """,
     )
 
-    result = pytester.runpytest("--sharpit", "--sharpit-report=report.json", "-q")
+    # a fresh interpreter, as the clean-suite test: an in-process run inherits other tests' import state
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 0
     assert "not proof" in result.stdout.str()

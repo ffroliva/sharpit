@@ -6,7 +6,7 @@ from pathlib import Path
 _BUDGETS = {
     "test_plugin_bad_baseline.py": 0,
     "test_plugin_baseline.py": 9,
-    "test_plugin_gate_defaults.py": 9,
+    "test_plugin_gate_defaults.py": 10,
     "test_plugin_gates.py": 11,
     "test_plugin_identity.py": 6,
     "test_plugin_inert.py": 3,
