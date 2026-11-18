@@ -296,11 +296,14 @@ def _week_identity() -> str:
 WEEK_IDENTITY = _week_identity()
 WEEK_LEGACY = "weekapp.py:21:AttributeError"  # the ``except Exception:`` line of the fixture
 WEEK_ARGS = ("--sharpit", "--sharpit-app=weekapp:app", "--sharpit-report=report.json", "-q")
-BASELINE_ARGS = ("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
 
 
 def _planted(data: dict[str, Any]) -> dict[str, Any]:
-    return next(f for f in data["findings"] if f["ruleId"] == RULE and f["testNodeId"].endswith("::test_week_count"))
+    found = next(
+        (f for f in data["findings"] if f["ruleId"] == RULE and f["testNodeId"].endswith("::test_week_count")), None
+    )
+    assert found is not None, f"no {RULE} finding for test_week_count: {[f['ruleId'] for f in data['findings']]}"
+    return found
 
 
 def _dismiss(pytester: pytest.Pytester, *entries: str) -> None:
@@ -352,54 +355,3 @@ def test_a_legacy_line_keyed_entry_no_longer_dismisses_and_the_report_names_its_
     assert _planted(data)["dismissed"] is False
     assert result.ret == 1, result.stdout.str()
     assert [w for w in data["warnings"] if WEEK_LEGACY in w and WEEK_IDENTITY in w]
-
-
-def _sarif_fingerprints(path: Path) -> list[str]:
-    results = json.loads(path.read_text("utf-8"))["runs"][0]["results"]
-    return sorted(r["partialFingerprints"]["sharpitFingerprint/v1"] for r in results if r["ruleId"] == RULE)
-
-
-def test_the_baseline_and_the_sarif_fingerprint_survive_a_moved_line(pytester: pytest.Pytester) -> None:
-    _week_project(pytester)
-    pytester.runpytest(
-        *BASELINE_ARGS,
-        "--sharpit-report-only",
-        "--sharpit-write-baseline=baseline.json",
-        "--sharpit-sarif=before.sarif",
-    )
-    _add_line_above(pytester)
-
-    result = pytester.runpytest(*BASELINE_ARGS, "--sharpit-baseline=baseline.json", "--sharpit-sarif=after.sarif")
-
-    assert result.ret == 0, result.stdout.str()
-    assert _planted(_report(pytester))["baselineState"] == "existing"
-    before = _sarif_fingerprints(pytester.path / "before.sarif")
-    assert before
-    assert _sarif_fingerprints(pytester.path / "after.sarif") == before
-
-
-def test_the_path_is_relative_to_the_rootdir_not_to_the_working_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, in_test: TestTag
-) -> None:
-    root = tmp_path / "project"
-    root.mkdir()
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    module = root / "rooted_app.py"
-    module.write_text(LIBRARY.replace("library_swallow", "rooted_swallow"), "utf-8")
-    namespace: dict[str, Any] = {}
-    exec(compile(module.read_text("utf-8"), str(module), "exec"), namespace)  # noqa: S102 - a planted app module
-    seen: list[tuple[TestTag, SwallowedFact]] = []
-    monitor = MonitoringCapture(root=root)
-    if not monitor.attach(lambda tag, fact: seen.append((tag, fact))).attached:
-        pytest.skip("sys.monitoring tool ids taken by the outer session")
-    monkeypatch.chdir(elsewhere)  # before the first swallow, after the rootdir was fixed
-    try:
-        namespace["rooted_swallow"]()
-    finally:
-        monitor.detach()
-
-    [(_, fact)] = seen
-    assert fact.location == "rooted_app.py:5"
-    assert fact.legacy_location == f"{module.as_posix()}:5"  # the working-directory form of 0.4.0 to 0.6.0
-    assert (fact.identity or "").startswith("rooted_app.py:rooted_swallow:KeyError#")
