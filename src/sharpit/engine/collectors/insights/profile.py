@@ -6,6 +6,9 @@ stop all answer BootUI's ``UNAVAILABLE`` shape with the reason: no journal, no `
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from functools import cmp_to_key
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine.collectors.insights.service import DISABLED
@@ -53,3 +56,113 @@ def resource_profile(ctx: SharpitContext) -> ResourceProfile:
         "runtime-insights.profile",
         lambda: ResourceProfile(ctx.capture.journal, ctx.settings.resources_jfr_max_duration),
     )
+
+
+@dataclass(frozen=True)
+class RequestTimelineItem:
+    """One recorded piece of a request's work on its timeline (BootUI ``RequestTimelineItemDto``)."""
+
+    label: str
+    offset_millis: int = 0
+    duration_micros: int | None = None
+    detail: str | None = None
+    source: str = "sql"
+    severity: str = "OK"
+    thread: str | None = None
+    thread_kind: str | None = None
+
+
+@dataclass(frozen=True)
+class TimedItem:
+    """A timeline item with its publication sequence and optional SQL start nanos (BootUI ``Timed``)."""
+
+    item: RequestTimelineItem
+    sequence: int
+    start_nanos: int | None = None
+
+    @property
+    def offset_millis(self) -> int:
+        return self.item.offset_millis
+
+
+def sql_start_nanos(event: Mapping[str, Any]) -> int | None:
+    """Monotonic execution start nanos of a SQL item (BootUI ``RequestJournalProfiles.startNanos``).
+
+    Derived as ``completedNanos - durationNanos`` when non-negative, else None.
+    """
+    if event.get("source") != "sql":
+        return None
+    completed = event.get("completedNanos")
+    duration = event.get("durationNanos")
+    if (
+        isinstance(completed, int)
+        and not isinstance(completed, bool)
+        and completed >= 0
+        and isinstance(duration, int)
+        and not isinstance(duration, bool)
+        and duration >= 0
+    ):
+        return completed - duration
+    return None
+
+
+def timeline_comparator(left: TimedItem, right: TimedItem) -> int:
+    """Comparator for request profile timeline items (BootUI 2.3.0: offsetMillis, then sequence)."""
+    if left.offset_millis != right.offset_millis:
+        return -1 if left.offset_millis < right.offset_millis else 1
+    if left.sequence != right.sequence:
+        return -1 if left.sequence < right.sequence else 1
+    return 0
+
+
+def order_timeline(items: Iterable[TimedItem]) -> list[RequestTimelineItem]:
+    """Order request profile timeline items by offsetMillis, SQL start nanos, and sequence."""
+    timed = list(items)
+    timed.sort(key=cmp_to_key(timeline_comparator))
+    return [t.item for t in timed]
+
+
+@dataclass(frozen=True)
+class RequestJournalProfile:
+    timeline: list[RequestTimelineItem]
+
+
+class RequestJournalProfiles:
+    """Request-profile timeline ordering (BootUI ``RequestJournalProfiles``)."""
+
+    def __init__(self, journal: Any = None) -> None:
+        self.journal = journal
+
+    def profile(self, request_id: str) -> RequestJournalProfile:
+        if self.journal is None:
+            return RequestJournalProfile(timeline=[])
+        start = 0
+        with self.journal._lock:
+            for event, _, _, _ in self.journal._events:
+                if event.get("requestId") == request_id and event.get("source") == "http":
+                    start = int(event.get("epochMillis") or event.get("startedAt") or 0)
+                    break
+            timed: list[TimedItem] = []
+            for seq, (event, _, _, _) in enumerate(self.journal._events):
+                if event.get("requestId") != request_id or event.get("source") == "http":
+                    continue
+                source = str(event.get("source") or "")
+                offset_millis = max(0, int(event.get("epochMillis") or event.get("startedAt") or 0) - start)
+                duration_nanos = event.get("durationNanos")
+                duration_micros = (
+                    duration_nanos // 1000 if isinstance(duration_nanos, int) and duration_nanos >= 0 else None
+                )
+                if source == "connection":
+                    ds = event.get("dataSource")
+                    label = f"Connection held from {ds}" if ds else "Connection held"
+                else:
+                    label = str(event.get("sql") or event.get("label") or event.get("summary") or "")
+                item = RequestTimelineItem(
+                    source=source,
+                    label=label,
+                    offset_millis=offset_millis,
+                    duration_micros=duration_micros,
+                )
+                start_n = sql_start_nanos(event)
+                timed.append(TimedItem(item=item, sequence=seq, start_nanos=start_n))
+        return RequestJournalProfile(timeline=order_timeline(timed))
