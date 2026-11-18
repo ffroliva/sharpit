@@ -119,4 +119,7 @@ def app_notice(names: list[str] | None, require_app: bool, data: dict[str, Any])
         return f"sharpit: {skip_reason((), bare=names[0])}"
     workers = sorted({w for app in apps for w in app["evidence"].get(DETECTED_BY) or ()})
     seen = f" in {', '.join(workers)}" if workers else ""
-    return f"sharpit: using app {names[0]}, detected from the modules the tests imported{seen} (pass --sharpit-app to choose)"
+    return (
+        f"sharpit: using app {names[0]}, detected from the modules the tests imported{seen}"
+        " (pass --sharpit-app to choose)"
+    )

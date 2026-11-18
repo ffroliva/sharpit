@@ -4,6 +4,15 @@ import json
 
 import pytest
 
+NO_APP = (
+    "sharpit: no application found: the selected tests imported none; rest-api skipped "
+    "(pass --sharpit-app module:attr or --sharpit-require-app for the same result on any selection)"
+)
+SEVERAL = (
+    "sharpit: several apps found in the modules the tests imported (first_app:app, second_app:app); "
+    "pass --sharpit-app module:attr"
+)
+
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
     data = json.loads((pytester.path / "report.json").read_text())
@@ -25,10 +34,7 @@ def test_spike_f3_clean_suite_reaches_green(pytester: pytest.Pytester) -> None:
 
     assert result.ret == 0
     stdout = result.stdout.str()
-    assert (
-        "sharpit: no application found: the selected tests imported none; rest-api skipped (pass --sharpit-app module:attr or --sharpit-require-app for the same result on any selection)"
-        in stdout
-    )
+    assert NO_APP in stdout
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["status"] == "pass"
     run = _rest_run(pytester)
@@ -110,10 +116,7 @@ def test_autodetect_ambiguous_uses_none(pytester: pytest.Pytester) -> None:
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     stdout = result.stdout.str()
-    assert (
-        "sharpit: several apps found in the modules the tests imported (first_app:app, second_app:app); pass --sharpit-app module:attr"
-        in stdout
-    )
+    assert SEVERAL in stdout
     assert result.ret == 0
     run = _rest_run(pytester)
     assert run["status"] == "SKIPPED"
@@ -150,10 +153,7 @@ def test_autodetect_ambiguous_across_workers_uses_none(pytester: pytest.Pytester
     result = pytester.runpytest_subprocess("-n", "2", "--dist=each", "--sharpit", "--sharpit-report=report.json", "-q")
 
     stdout = result.stdout.str()
-    assert (
-        "sharpit: several apps found in the modules the tests imported (first_app:app, second_app:app); pass --sharpit-app module:attr"
-        in stdout
-    )
+    assert SEVERAL in stdout
     assert result.ret == 0
     run = _rest_run(pytester)
     assert run["status"] == "SKIPPED"
@@ -299,10 +299,7 @@ def test_autodetect_ignores_test_module_apps(pytester: pytest.Pytester) -> None:
 
     result = pytester.runpytest_inprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
-    assert (
-        "sharpit: using app realpkg.main:app, detected from the modules the tests imported (pass --sharpit-app to choose)"
-        in result.stdout.str()
-    )
+    assert "using app realpkg.main:app, detected from the modules the tests imported (pass" in result.stdout.str()
 
 
 def test_autodetect_names_app_by_shortest_module_across_workers(pytester: pytest.Pytester) -> None:
