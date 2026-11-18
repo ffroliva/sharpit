@@ -822,3 +822,24 @@ def test_a_new_identity_is_never_a_legacy_line_key() -> None:
     [identity] = _keys(_scope(_clause("a", 0)))
 
     assert re.fullmatch(r".+:\d+:\w+", identity) is None
+
+
+GOLDEN_KEY_SOURCE = textwrap.dedent(
+    """
+    class Week:
+        def count(self, rows: list[dict[str, int]]) -> int:
+            total = 0
+            try:
+                total = sum(r["n"] for r in rows if r)
+            except Exception:
+                pass
+            return total
+    """
+)
+
+
+def test_the_content_key_is_the_same_on_every_supported_python() -> None:
+    # A key computed on one interpreter must match on every CI leg (3.12-3.14): a dismissal outlives an upgrade.
+    [site] = swallowing_sites(GOLDEN_KEY_SOURCE)
+
+    assert site_identity("app/weeks.py", site, "KeyError") == "app/weeks.py:Week.count:KeyError#81897921"
