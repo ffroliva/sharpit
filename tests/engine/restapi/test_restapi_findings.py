@@ -392,3 +392,29 @@ def test_duplicate_route_violations_have_distinct_fingerprints():
     found = [f.fingerprint for f in assess(_model(routes), _masker()).findings if f.rule_id == "RAPI-NAME-001"]
     assert len(found) == 2
     assert len(set(found)) == 2
+
+
+@pytest.mark.parametrize(
+    "limitation",
+    [
+        "Included router at /v1 could not be expanded.",
+        "An exception handler at /v1 could not be inspected.",
+        "Route /v1/pets could not be inspected (TypeError).",
+        "Mounted routes at /v1 could not be inspected.",
+    ],
+)
+def test_introspection_failure_stays_unknown(limitation: str):
+    # safety model 5: sharpit failing to read the app is not the app's shape, so the gate cannot pass on it
+    run = assess(_model([route()], limitations=[limitation]), _masker())
+    assert (run.status, run.reason) == ("UNKNOWN", limitation)
+
+
+def test_introspection_failure_beside_an_opaque_mount_names_the_failure():
+    failure = "Included router at /v1 could not be expanded."
+    run = assess(_model([route()], limitations=[LIMITATION, failure]), _masker())
+    assert (run.status, run.reason) == ("UNKNOWN", failure)
+
+
+def test_rule_error_reason_names_the_rule_error_not_the_first_limitation():
+    run = assess(_model([route(response_model=_Lazy)], limitations=[LIMITATION]), _masker())
+    assert (run.status, run.reason) == ("UNKNOWN", "rule evaluation: required REST API evidence was unavailable.")

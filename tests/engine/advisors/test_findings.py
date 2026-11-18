@@ -147,9 +147,10 @@ def test_partial_scan_without_a_finding_passes_but_says_it_is_not_proof() -> Non
     assert run.reason == "Mounted application has no routes."
 
 
-@pytest.mark.parametrize("limitations", [[], ["Mounted application has no routes."]])
-def test_zero_findings_from_a_scan_with_no_usable_evidence_cannot_pass(limitations: list[str]) -> None:
+def test_zero_findings_from_a_scan_with_no_usable_evidence_cannot_pass() -> None:
     # ported: FailOnTests.zeroFindingsFromAScanWithNoUsableEvidenceCannotPass
+    # the shape the REST API advisor produces for an app with no routes and an opaque mount: no routes + a limitation
+    limitations = ["Mounted application at /legacy has no inspectable routes."]
     assert AdvisorRun.of("rest-api", [], evidence(False, False, limitations)).status == "UNKNOWN"
 
 

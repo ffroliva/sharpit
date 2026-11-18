@@ -232,15 +232,28 @@ def test_summary_neutralises_bare_urls() -> None:
 
 
 def test_summary_lists_a_partial_assessment_and_says_it_is_not_proof() -> None:
-    app = {"app": "main:app", "status": "PARTIAL", "reason": "Mounted application at /mcp/messages has no routes."}
+    evidence = {"limitations": ["Mounted application at /a has no routes.", "Mounted application at /b has no routes."]}
+    app = {"app": "main:app", "status": "PARTIAL", "reason": "x", "evidence": evidence}
     report = _report(
         gates={"failOnSeverity": "HIGH"},
-        advisors=[{"advisor": "rest-api", "status": "PARTIAL", "reason": app["reason"], "apps": [app]}],
+        advisors=[{"advisor": "rest-api", "status": "PARTIAL", "reason": "x", "apps": [app]}],
     )
     text = render_summary(report)
     assert "### Partial assessments" in text
-    assert "advisor 'rest-api' assessed part of main:app: Mounted application at /mcp/messages has no routes." in text
-    assert "having no finding at or above HIGH is not proof there is none" in text
+    assert (
+        "advisor 'rest-api' assessed part of main:app: Mounted application at /a has no routes; "
+        "Mounted application at /b has no routes; having no finding at or above HIGH is not proof there is none"
+    ) in text
+
+
+def test_summary_lists_a_failed_advisor_that_also_had_a_gap() -> None:
+    evidence = {"coverageComplete": False, "limitations": ["Mounted application at /a has no routes."]}
+    app = {"app": "main:app", "status": "FAILED", "reason": None, "evidence": evidence}
+    report = _report(
+        gates={"failOnSeverity": "HIGH"},
+        advisors=[{"advisor": "rest-api", "status": "FAILED", "reason": None, "apps": [app]}],
+    )
+    assert "assessed part of main:app: Mounted application at /a has no routes;" in render_summary(report)
 
 
 def test_summary_without_a_partial_assessment_has_no_partial_section() -> None:
