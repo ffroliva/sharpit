@@ -4,6 +4,16 @@ import json
 
 import pytest
 
+NO_APP = (
+    "sharpit: no application found among the modules the tests imported (conftest, test modules and installed "
+    "packages are not searched); rest-api skipped (pass --sharpit-app module:attr to assess the same app on any "
+    "selection; --sharpit-require-app makes a missing app an error instead of a skip)"
+)
+SEVERAL = (
+    "sharpit: several apps found in the modules the tests imported (first_app:app, second_app:app); "
+    "pass --sharpit-app module:attr"
+)
+
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
     data = json.loads((pytester.path / "report.json").read_text())
@@ -25,13 +35,12 @@ def test_spike_f3_clean_suite_reaches_green(pytester: pytest.Pytester) -> None:
 
     assert result.ret == 0
     stdout = result.stdout.str()
-    assert "sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)" in stdout
+    assert NO_APP in stdout
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["status"] == "pass"
     run = _rest_run(pytester)
     assert run["status"] == "SKIPPED"
-    reason = str(run["reason"] or "")
-    assert "--sharpit-app module:attr" in reason
+    assert run["reason"] == NO_APP.removeprefix("sharpit: ")
 
     pytester.makepyfile(
         test_blind="""
@@ -67,13 +76,17 @@ def test_autodetect_single_prints_choice(pytester: pytest.Pytester) -> None:
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     stdout = result.stdout.str()
-    assert "sharpit: using app appmod:app (pass --sharpit-app to choose)" in stdout
+    assert (
+        "sharpit: using app appmod:app, detected from the modules the tests imported (pass --sharpit-app to choose)"
+        in stdout
+    )
     assert result.ret == 0
     run = _rest_run(pytester)
     assert run["status"] == "PASSED"
     apps = run["apps"]
     assert isinstance(apps, list)
     assert apps[0]["app"] == "appmod:app"
+    assert apps[0]["evidence"].get("detectedFrom") == "imports"
 
 
 def test_autodetect_ambiguous_uses_none(pytester: pytest.Pytester) -> None:
@@ -104,10 +117,11 @@ def test_autodetect_ambiguous_uses_none(pytester: pytest.Pytester) -> None:
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     stdout = result.stdout.str()
-    assert "sharpit: several apps found (first_app:app, second_app:app); pass --sharpit-app module:attr" in stdout
+    assert SEVERAL in stdout
     assert result.ret == 0
     run = _rest_run(pytester)
     assert run["status"] == "SKIPPED"
+    assert run["reason"] == SEVERAL.removeprefix("sharpit: ")
     assert run["apps"] == []
 
 
@@ -141,7 +155,7 @@ def test_autodetect_ambiguous_across_workers_uses_none(pytester: pytest.Pytester
     result = pytester.runpytest_subprocess("-n", "2", "--dist=each", "--sharpit", "--sharpit-report=report.json", "-q")
 
     stdout = result.stdout.str()
-    assert "sharpit: several apps found (first_app:app, second_app:app); pass --sharpit-app module:attr" in stdout
+    assert SEVERAL in stdout
     assert result.ret == 0
     run = _rest_run(pytester)
     assert run["status"] == "SKIPPED"
@@ -188,7 +202,10 @@ def test_autodetect_never_imports(pytester: pytest.Pytester) -> None:
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q", "test_no_import.py")
 
     stdout = result.stdout.str()
-    assert "sharpit: using app loaded_app:app (pass --sharpit-app to choose)" in stdout
+    assert (
+        "sharpit: using app loaded_app:app, detected from the modules the tests imported (pass --sharpit-app to choose)"
+        in stdout
+    )
     assert result.ret == 0
     assert not (pytester.path / "imported_boom.txt").exists()
 
@@ -209,7 +226,10 @@ def test_require_app_no_app_is_unknown(pytester: pytest.Pytester) -> None:
     assert result.ret == 1
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["status"] == "unknown"
-    assert _rest_run(pytester)["status"] == "UNKNOWN"
+    run = _rest_run(pytester)
+    assert run["status"] == "UNKNOWN"
+    assert str(run["reason"]).startswith("no application: pass --sharpit-app or call sharpit.install in the tests; ")
+    assert "among the modules the tests imported" in str(run["reason"])
     assert "rest-api skipped" not in result.stdout.str()
 
 
@@ -284,7 +304,7 @@ def test_autodetect_ignores_test_module_apps(pytester: pytest.Pytester) -> None:
 
     result = pytester.runpytest_inprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
-    assert "sharpit: using app realpkg.main:app (pass --sharpit-app to choose)" in result.stdout.str()
+    assert "using app realpkg.main:app, detected from the modules the tests imported (pass" in result.stdout.str()
 
 
 def test_autodetect_names_app_by_shortest_module_across_workers(pytester: pytest.Pytester) -> None:
@@ -314,5 +334,8 @@ def test_autodetect_names_app_by_shortest_module_across_workers(pytester: pytest
 
     result = pytester.runpytest_subprocess("-n", "2", "--dist=each", "--sharpit", "--sharpit-report=report.json", "-q")
 
-    assert "sharpit: using app short:app (pass --sharpit-app to choose)" in result.stdout.str()
+    assert (
+        "sharpit: using app short:app, detected from the modules the tests imported on 2 xdist workers ("
+        in result.stdout.str()
+    )
     assert _rest_run(pytester)["status"] == "PASSED"

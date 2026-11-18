@@ -12,7 +12,11 @@ pytestmark = pytest.mark.needs_sqlalchemy  # the twins are SQLAlchemy apps
 pytest.importorskip("sqlalchemy")
 
 TWINS = Path(__file__).parents[1] / "fixtures" / "apps" / "bench_twins"
-NO_APP_LINE = "sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)"
+NO_APP_LINE = (
+    "sharpit: no application found among the modules the tests imported (conftest, test modules and installed "
+    "packages are not searched); rest-api skipped (pass --sharpit-app module:attr to assess the same app on any "
+    "selection; --sharpit-require-app makes a missing app an error instead of a skip)"
+)
 
 
 def _twin(pytester: pytest.Pytester, name: str, **tests: str) -> None:
