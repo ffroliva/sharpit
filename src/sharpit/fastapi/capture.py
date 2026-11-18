@@ -628,34 +628,37 @@ class CaptureMiddleware:
             await self.app(scope, receive, send)
             return
         buffer = self.ctx.capture.exchanges
-        try:
+        extensions: dict[str, Any] = scope.get("extensions") or {}
+        # only sharpit's probe may carry the header (spec §7.11); removed before any fallible step, so no failure path
+        # passes a client's copy on to the host
+        if not extensions.get(PROBE_EXTENSION) and any(k == PROBE_HEADER for k, _ in scope.get("headers", ())):
+            scope = {**scope, "headers": [h for h in scope["headers"] if h[0] != PROBE_HEADER]}
+        info: RequestInfo | None = None
+        started_epoch_ns, root_path = 0, ""  # set in the setup below; read only once ``info`` exists
+        try:  # setup only: the application is called outside it, once, whatever happens here
             if not wiring.started:
                 wiring.on_first_request(self.ctx)
+            started_epoch_ns = time.time_ns()
+            root_path = scope.get("root_path", "")
             if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
                 if buffer is not None:
                     buffer.count_hidden_self()
-                await self.app(scope, receive, send)
-                return
-            ensure_mail_wrapped()  # the host's traffic only: a read of sharpit's own routes patches nothing
-            extensions: dict[str, Any] = scope.get("extensions") or {}
-            if not extensions.get(PROBE_EXTENSION) and any(
-                k == PROBE_HEADER for k, _ in scope["headers"]
-            ):  # only sharpit's probe may carry the header (spec §7.11)
-                scope = {**scope, "headers": [h for h in scope["headers"] if h[0] != PROBE_HEADER]}
-            started_epoch_ns = time.time_ns()
-            root_path = scope.get("root_path", "")
-            info = RequestInfo(
-                new_request_id(),
-                self.ctx.context_id,
-                scope["method"],
-                self.ctx.masker.mask_path(scope["path"]),
-                None,
-                time.perf_counter_ns(),
-                None,
-                scope=scope,
-            )
+            else:
+                ensure_mail_wrapped()  # the host's traffic only: a read of sharpit's own routes patches nothing
+                info = RequestInfo(
+                    new_request_id(),
+                    self.ctx.context_id,
+                    scope["method"],
+                    self.ctx.masker.mask_path(scope["path"]),
+                    None,
+                    time.perf_counter_ns(),
+                    None,
+                    scope=scope,
+                )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
             wiring.hook_failed("request start", exc)
+            info = None  # the application runs below, outside the handler: its exceptions are not chained to this one
+        if info is None:  # sharpit's own traffic, or a setup failure
             await self.app(scope, receive, send)
             return
         sqla.note_request_captured()
