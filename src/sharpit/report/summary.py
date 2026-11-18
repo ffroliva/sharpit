@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
-from sharpit.engine.advisors.findings import fails
+from sharpit.engine.advisors.findings import assessed_in_part, fails, partial_note
 from sharpit.engine.advisors.rules import severity_rank
 
 TOP = 20
@@ -49,14 +49,18 @@ def _order(finding: Mapping[str, object]) -> tuple[bool, int, str]:
 
 def _partial_notes(report: Mapping[str, object]) -> list[str]:
     """One line per app an advisor assessed in part: a clean partial assessment passes, but it is not proof."""
-    gate = _esc(_mapping(report.get("gates")).get("failOnSeverity") or "the gate severity")
-    return [
-        f"advisor '{_esc(advisor.get('advisor'))}' assessed part of {_esc(app.get('app') or 'the application')}: "
-        f"{_esc(app.get('reason'))}; having no finding at or above {gate} is not proof there is none"
-        for advisor in map(_mapping, _items(report.get("advisors")))
-        for app in map(_mapping, _items(advisor.get("apps")))
-        if app.get("status") == "PARTIAL"
-    ]
+    gate = str(_mapping(report.get("gates")).get("failOnSeverity") or "the gate severity")
+    notes: list[str] = []
+    for advisor in map(_mapping, _items(report.get("advisors"))):
+        for app in map(_mapping, _items(advisor.get("apps"))):
+            evidence = _mapping(app.get("evidence"))
+            reason = app.get("reason")
+            if assessed_in_part(str(app.get("status")), None if reason is None else str(reason), evidence):
+                limitations = [str(x) for x in _items(evidence.get("limitations"))]
+                name = app.get("app")
+                note = partial_note(str(advisor.get("advisor")), None if name is None else str(name), limitations, gate)
+                notes.append(_esc(note))
+    return notes
 
 
 def render_summary(report: Mapping[str, object]) -> str:

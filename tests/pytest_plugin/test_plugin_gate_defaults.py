@@ -345,7 +345,7 @@ def test_opaque_mount_passes_with_a_partial_note(pytester: pytest.Pytester) -> N
 
     assert result.ret == 0
     assert "not proof" in result.stdout.str()
-    assert "Mounted application at /mcp/messages has no inspectable routes." in result.stdout.str()
+    assert "Mounted application at /mcp/messages has no inspectable routes;" in result.stdout.str()
     run = _rest_run(pytester)
     assert run["status"] == "PARTIAL"
     data = json.loads((pytester.path / "report.json").read_text())

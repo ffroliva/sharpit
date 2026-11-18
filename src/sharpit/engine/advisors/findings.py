@@ -72,12 +72,14 @@ class AdvisorRun:
         scan_status: str | None = None,
         fail_on: Severity = "HIGH",
         app: str | None = None,
+        reason: str | None = None,
     ) -> AdvisorRun:
         """Derive the status (spec §5.3); it is never set by hand.
 
         An advisor that could not assess (not usable, or the scan errored) is ``UNKNOWN``; one that assessed part of
         the app and listed what it could not read is ``PARTIAL`` (BootUI ``FailOn``: a partial scan with no finding
-        passes, with a note). A finding at or above ``fail_on`` is ``FAILED`` either way.
+        passes, with a note). A finding at or above ``fail_on`` is ``FAILED`` either way. ``reason`` names the
+        failure when the caller knows a better one than the first limitation (an unusable run only).
         """
         found = tuple(findings)
         gate = severity_rank(fail_on)
@@ -88,13 +90,13 @@ class AdvisorRun:
             or scan_status in ("PARTIAL", "ERROR")
         )
         unusable = gap and (not evidence.get("usable") or scan_status == "ERROR")
-        reason = limitations[0] if limitations else _FALLBACK_REASON
+        why = reason or (limitations[0] if limitations else _FALLBACK_REASON)
         if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
-            return cls(advisor, "FAILED", found, evidence, reason if unusable else None, app)
+            return cls(advisor, "FAILED", found, evidence, why if unusable else None, app)
         if unusable:
-            return cls(advisor, "UNKNOWN", found, evidence, reason, app)
+            return cls(advisor, "UNKNOWN", found, evidence, why, app)
         if gap:
-            return cls(advisor, "PARTIAL", found, evidence, reason, app)
+            return cls(advisor, "PARTIAL", found, evidence, why, app)
         return cls(advisor, "PASSED", found, evidence, None, app)
 
     def to_dto(self) -> dict[str, Any]:
@@ -106,6 +108,20 @@ class AdvisorRun:
             "evidence": self.evidence,
             "findings": [f.to_dto() for f in self.findings],
         }
+
+
+def assessed_in_part(status: str, reason: str | None, evidence: Mapping[str, Any]) -> bool:
+    """An advisor that read part of the app: ``PARTIAL``, or ``FAILED`` with a coverage gap and no unknown reason."""
+    return status == "PARTIAL" or (status == "FAILED" and reason is None and evidence.get("coverageComplete") is False)
+
+
+def partial_note(advisor: str, app: str | None, limitations: Iterable[str], fail_on: str) -> str:
+    """The one wording of what a partial assessment leaves open (BootUI ``FailOn``: no finding is not proof)."""
+    named = "; ".join(dict.fromkeys(x.rstrip(".") for x in limitations)) or _FALLBACK_REASON
+    return (
+        f"advisor '{advisor}' assessed part of {app or 'the application'}: {named}; "
+        f"having no finding at or above {fail_on} is not proof there is none"
+    )
 
 
 def severity_counts_of(findings: Iterable[Finding]) -> list[dict[str, Any]]:

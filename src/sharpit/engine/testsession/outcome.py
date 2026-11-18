@@ -10,7 +10,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
-from sharpit.engine.advisors.findings import AdvisorRun, Finding
+from sharpit.engine.advisors.findings import AdvisorRun, Finding, assessed_in_part, partial_note
 from sharpit.engine.advisors.rules import severity_rank
 from sharpit.engine.testsession.facts import SessionFacts, TestFacts
 
@@ -131,6 +131,18 @@ def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "S
     return "PASSED"
 
 
+def _merged_evidence(runs: list[AdvisorRun], chosen: AdvisorRun) -> dict[str, Any]:
+    """The chosen run's evidence; a gap in any run makes the merged evidence incomplete and lists every limitation."""
+    gapped = [r for r in runs if r.evidence.get("coverageComplete") is False]
+    if not gapped:
+        return chosen.evidence
+    limitations: list[str] = []
+    for run in runs:
+        found: list[str] = run.evidence.get("limitations") or []
+        limitations += found
+    return {**chosen.evidence, "coverageComplete": False, "limitations": list(dict.fromkeys(limitations))}
+
+
 def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> AdvisorRun:
     findings: dict[str, Finding] = {}
     for finding in (f for run in runs for f in run.findings):
@@ -140,7 +152,7 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
     reason = next((run.reason for run in runs if run.status == status and run.reason is not None), chosen.reason)
     if status == "FAILED" and reason is None:  # an UNKNOWN worker beside a complete FAILED one stays visible
         reason = next((run.reason for run in runs if run.status == "UNKNOWN" and run.reason is not None), None)
-    return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
+    return AdvisorRun(advisor, status, tuple(findings.values()), _merged_evidence(runs, chosen), reason, app)
 
 
 def _merge_runs(parts: Sequence[SessionFacts]) -> list[AdvisorRun]:
@@ -173,16 +185,15 @@ def _flat_findings(tests: Sequence[TestFacts], runs: Sequence[AdvisorRun]) -> di
 
 
 def _partial_notes(runs: Iterable[AdvisorRun], fail_on: str) -> list[str]:
-    """One warning per partial app: a clean partial assessment passes, but it is not proof (BootUI ``FailOn``)."""
+    """One warning per app an advisor assessed in part: a clean partial assessment passes, but it is not proof."""
     return [
-        f"advisor '{run.advisor}' assessed part of {run.app or 'the application'}: {run.reason or FALLBACK_REASON}; "
-        f"having no finding at or above {fail_on} is not proof there is none"
+        partial_note(run.advisor, run.app, run.evidence.get("limitations") or [], fail_on)
         for run in runs
-        if run.status == "PARTIAL"
+        if assessed_in_part(run.status, run.reason, run.evidence)
     ]
 
 
-def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str], fail_on: str = "HIGH") -> MergedFacts:
+def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str], *, fail_on: str) -> MergedFacts:
     tests = [t for p in parts for t in p.tests]
     untraced = {d for p in parts for d in p.untraced_drivers}
     engines = {d for p in parts for d in p.engine_drivers}
