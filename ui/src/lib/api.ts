@@ -5,13 +5,43 @@ export const authRequired = writable(false);
 
 export type Params = Record<string, string | number | boolean | null | undefined>;
 
+export const PANEL_ACCESS_DENIED = 'sharpit panel access denied';
+
+export interface PanelAccessDeniedBody {
+  error: typeof PANEL_ACCESS_DENIED;
+  panel?: string;
+  reason: string;
+}
+
+export interface PanelAccessError extends ApiError {
+  body: PanelAccessDeniedBody;
+}
+
+export function isPanelAccessDenied(status: number, body: unknown): body is PanelAccessDeniedBody {
+  return (
+    status === 403 &&
+    typeof body === 'object' &&
+    body !== null &&
+    (body as Record<string, unknown>).error === PANEL_ACCESS_DENIED &&
+    typeof (body as Record<string, unknown>).reason === 'string' &&
+    ((body as Record<string, unknown>).reason as string).trim().length > 0
+  );
+}
+
+export function isPanelAccessError(error: unknown): error is PanelAccessError {
+  return error instanceof ApiError && isPanelAccessDenied(error.status, error.body);
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: unknown,
-    message = `HTTP ${status}`,
+    message?: string,
   ) {
-    super(message);
+    const defaultMsg = isPanelAccessDenied(status, body)
+      ? `${(body as { reason: string }).reason.trim()} (HTTP ${status})`
+      : `HTTP ${status}`;
+    super(message ?? defaultMsg);
     this.name = 'ApiError';
   }
 }
@@ -80,5 +110,6 @@ export function field(data: unknown, key: string): string | undefined {
 /** The server's `error` text for a failed request, else `fallback`, else the status line or "not responding". */
 export function errorText(e: unknown, fallback?: string): string {
   if (!(e instanceof ApiError)) return fallback ?? 'The application is not responding.';
+  if (isPanelAccessError(e)) return e.message;
   return field(e.body, 'error') ?? fallback ?? e.message;
 }

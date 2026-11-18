@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The web UI enforces canonical read-only panel policies (BootUI 2.4.0 #1602): `ApiError` displays `"<reason> (HTTP 403)"` for panel access refusals, `describeLoadError` does not classify panel-access denial as server unreachable, action buttons fail closed using `panelActionReason(panel)` in BootUI order (disabled, unavailable, read-only, unresolved), and mutating views guard all actions with the canonical reason.
+
 ### Added
 
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.

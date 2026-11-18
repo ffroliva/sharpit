@@ -2,6 +2,7 @@
   // The FastAPI advisor (BootUI Spring.vue, WAVE-B §7): the shared AdvisorPanel over api/fastapi.
   import AdvisorPanel from '../components/AdvisorPanel.svelte';
   import { del, errorText, get, post } from '../lib/api';
+  import { panelActionReason } from '../lib/panelState';
   import { scannedWhen } from '../lib/format';
   import type { AdvisorReport, Panel, ViolationsPage } from '../lib/types';
 
@@ -31,7 +32,7 @@
   {report}
   {loadError}
   onretry={load}
-  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
+  readOnlyReason={panelActionReason(panel)}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Run FastAPI checks')}
   onScan={async () => void (report = await post<FastapiReport>('fastapi/scan'))}
   onDismiss={async (id) => { await post(rule(id)); await reload(); }}

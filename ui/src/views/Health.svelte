@@ -3,12 +3,14 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import { clock } from '../lib/status';
   import type { HealthNode, Panel } from '../lib/types';
 
   let { panel }: { panel: Panel } = $props();
 
   const tree = loader(() => get<HealthNode>('health'));
+  const actionReason = $derived(panelActionReason(panel));
   let failure = $state<string | null>(null);
   let running = $state(false);
 
@@ -16,7 +18,7 @@
   async function refresh() {
     if (running) return; // single-flight: never start a second check while one is running
     failure = null;
-    if (!panel.readOnly) {
+    if (!actionReason) {
       running = true;
       try {
         await post('health/check');
@@ -57,11 +59,11 @@
   loading={tree.loading}
   error={tree.error}
   onretry={tree.reload}
-  notice={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
+  notice={actionReason}
   count={Number.isFinite(checkedAt) ? `last run ${clock(checkedAt)}` : 'never run'}
 >
   {#snippet controls()}
-    <button class="primary" onclick={refresh} disabled={panel.readOnly || running} title={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined}>Run checks</button>
+    <button class="primary" onclick={refresh} disabled={!!actionReason || running} title={actionReason ?? undefined}>Run checks</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if tree.data}

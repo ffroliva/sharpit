@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { del, errorText, get } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import type { Panel } from '../lib/types';
 
   let { panel }: { panel: Panel } = $props();
@@ -27,7 +28,7 @@
 
   // nanoseconds (the contract's unit) shown as milliseconds
   const ms = (nanos: number) => `${(nanos / 1e6).toFixed(nanos < 1e7 ? 2 : 1)} ms`;
-  const why = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined);
+  const why = $derived(panelActionReason(panel));
 
   async function open(t: Summary) {
     const request = ++detailRequest;
@@ -40,6 +41,7 @@
     }
   }
   async function clear() {
+    if (why) return;
     const request = ++detailRequest;
     failure = null;
     try {
@@ -65,11 +67,11 @@
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={panel.readOnly ? why : null}
+  notice={why}
   count={report.data?.enabled ? `${report.data.retained} traces (capacity ${report.data.capacity} spans)` : null}
 >
   {#snippet controls()}
-    <button onclick={clear} disabled={panel.readOnly} title={why}>Clear</button>
+    <button onclick={clear} disabled={!!why} title={why ?? undefined}>Clear</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if report.data}

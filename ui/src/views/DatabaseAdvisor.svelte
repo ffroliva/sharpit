@@ -1,6 +1,7 @@
 <script lang="ts">
   import AdvisorPanel from '../components/AdvisorPanel.svelte';
   import { del, errorText, get, post } from '../lib/api';
+  import { panelActionReason } from '../lib/panelState';
   import { scannedWhen } from '../lib/format';
   import type { AdvisorReport, Panel, ViolationsPage } from '../lib/types';
 
@@ -34,7 +35,7 @@
   {report}
   {loadError}
   onretry={load}
-  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
+  readOnlyReason={panelActionReason(panel)}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Run Database checks')}
   onScan={async () => void (report = await post<DatabaseAdvisorReport>('database-advisor/scan'))}
   onDismiss={async (id) => { await post(rule(id)); await reload(); }}

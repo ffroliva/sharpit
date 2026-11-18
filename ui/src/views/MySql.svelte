@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import { scannedWhen } from '../lib/format';
   import type { Panel } from '../lib/types';
 
@@ -29,7 +30,7 @@
   const report = loader(() => get<Report>('mysql'));
   $effect(() => void report.reload());
 
-  const readOnly = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null);
+  const actionReason = $derived(panelActionReason(panel));
   let reading = $state(false);
   let latest = $state<Report | null>(null); // the POST answers the report it read: no second GET
   const shown = $derived(latest ?? report.data);
@@ -37,7 +38,7 @@
 
   /** The only call that connects to MySQL; GET serves the last read. */
   async function read() {
-    if (reading || readOnly) return;
+    if (reading || actionReason) return;
     reading = true;
     failure = null;
     try {
@@ -59,9 +60,9 @@
   const statusClass = (s: string) => (s === 'FAILED' || s === 'ERROR' ? 'danger' : s === 'SKIPPED' || s === 'PARTIAL' ? 'warn' : s === 'AVAILABLE' || s === 'READ' ? 'ok' : 'muted');
 </script>
 
-<PanelShell title={panel.title} loading={report.loading} error={report.error} onretry={report.reload} notice={readOnly}>
+<PanelShell title={panel.title} loading={report.loading} error={report.error} onretry={report.reload} notice={actionReason}>
   {#snippet controls()}
-    {#if !readOnly}
+    {#if !actionReason}
       <button class="primary" onclick={read} disabled={reading} aria-busy={reading}>
         {reading ? 'Reading…' : 'Read MySQL'}
       </button>

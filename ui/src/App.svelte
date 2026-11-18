@@ -4,6 +4,7 @@
   import TokenPrompt from './components/TokenPrompt.svelte';
   import { ApiError, authRequired, get } from './lib/api';
   import { groupPanels, notBuilt } from './lib/nav';
+  import { panelActionReason } from './lib/panelState';
   import { href, route } from './lib/route';
   import { applyTheme, loadTheme, nextTheme, type Theme } from './lib/theme';
   import type { Panel } from './lib/types';
@@ -63,12 +64,7 @@
   loadPanels();
 
   // the server's own reasons where it gives one; a disabled panel's reason mirrors engine/panels.py
-  function reason(p: Panel): string | null {
-    if (!p.available) return p.unavailableReason ?? 'Not available in this application';
-    if (!p.enabled) return `Panel is disabled via SHARPIT_PANELS_${p.id.toUpperCase().replace(/-/g, '_')}_ENABLED=false`;
-    if (p.readOnly) return p.readOnlyReason ?? 'Read-only';
-    return null;
-  }
+  const reason = (p: Panel) => panelActionReason(p);
   const usable = (p: Panel) => p.available && p.enabled;
   const current = $derived(panels?.find((p) => p.id === $route.panel) ?? null);
 

@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import { openStream } from '../lib/sse';
   import { clock } from '../lib/status';
   import type { Panel } from '../lib/types';
@@ -40,7 +41,7 @@
   let failure = $state<string | null>(null);
   let acting = $state(false);
   const report = loader(() => get<TransactionsReport>('transactions'));
-  const readOnly = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null);
+  const actionReason = $derived(panelActionReason(panel));
 
   $effect(() => {
     void report.reload();
@@ -49,7 +50,7 @@
   });
 
   async function act(path: string, body?: unknown) {
-    if (acting || readOnly) return;
+    if (acting || actionReason) return;
     acting = true;
     failure = null;
     try {
@@ -68,11 +69,11 @@
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={readOnly}
+  notice={actionReason}
   count={report.data?.available ? `${report.data.entries.length} of ${report.data.bufferSize} kept · ${report.data.totalCaptured} captured` : null}
 >
   {#snippet controls()}
-    {#if report.data?.available && !readOnly}
+    {#if report.data?.available && !actionReason}
       <button onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })} disabled={acting}>
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>

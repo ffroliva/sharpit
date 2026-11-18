@@ -35,39 +35,39 @@ The UI layers error formatting in `ui/src/lib/api.ts` and `ui/src/lib/loadError.
 
 **Files:** `ui/src/lib/api.ts`, `ui/src/lib/loadError.ts` (new), `ui/tests/unit/api.test.ts`, `ui/tests/unit/loadError.test.ts` (new).
 
-- [ ] **Step 1:** Write failing tests for `ApiError` formatting and `isPanelAccessError` in `ui/tests/unit/api.test.ts`, and `describeLoadError`/`formatLoadError` in `ui/tests/unit/loadError.test.ts`.
-- [ ] **Step 2:** Implement `isPanelAccessDenied`, `isPanelAccessError`, and update `ApiError` constructor in `ui/src/lib/api.ts`.
-- [ ] **Step 3:** Implement `toErrorMessage`, `isAbortError`, `isServerUnreachableError`, `describeLoadError`, `formatLoadErrorDescription`, and `formatLoadError` in `ui/src/lib/loadError.ts`.
-- [ ] **Step 4:** Verify unit tests pass and commit.
+- [x] **Step 1:** Write failing tests for `ApiError` formatting and `isPanelAccessError` in `ui/tests/unit/api.test.ts`, and `describeLoadError`/`formatLoadError` in `ui/tests/unit/loadError.test.ts`.
+- [x] **Step 2:** Implement `isPanelAccessDenied`, `isPanelAccessError`, and update `ApiError` constructor in `ui/src/lib/api.ts`.
+- [x] **Step 3:** Implement `toErrorMessage`, `isAbortError`, `isServerUnreachableError`, `describeLoadError`, `formatLoadErrorDescription`, and `formatLoadError` in `ui/src/lib/loadError.ts`.
+- [x] **Step 4:** Verify unit tests pass and commit.
 
 ### Task 2: Canonical `panelActionReason` helper
 
 **Files:** `ui/src/lib/panelState.ts` (new), `ui/tests/unit/panelState.test.ts` (new).
 
-- [ ] **Step 1:** Write failing tests in `ui/tests/unit/panelState.test.ts` checking BootUI's evaluation order: null/unresolved -> disabled -> unavailable -> readOnly -> non-boolean readOnly -> writable (null).
-- [ ] **Step 2:** Implement `panelDisabledReason` and `panelActionReason` in `ui/src/lib/panelState.ts`.
-- [ ] **Step 3:** Verify unit tests pass and commit.
+- [x] **Step 1:** Write failing tests in `ui/tests/unit/panelState.test.ts` checking BootUI's evaluation order: null/unresolved -> disabled -> unavailable -> readOnly -> non-boolean readOnly -> writable (null).
+- [x] **Step 2:** Implement `panelDisabledReason` and `panelActionReason` in `ui/src/lib/panelState.ts`.
+- [x] **Step 3:** Verify unit tests pass and commit.
 
 ### Task 3: Unify action buttons across views to use `panelActionReason`
 
 **Files:** `ui/src/views/*.svelte`, `ui/src/components/AdvisorPanel.svelte`, `ui/tests/component/actionPolicy.test.ts` (new).
 
-- [ ] **Step 1:** Write component tests in `ui/tests/component/actionPolicy.test.ts` testing policy changes, disabled button states, and late 403 refusal messages.
-- [ ] **Step 2:** Update views (`Alembic.svelte`, `Exceptions.svelte`, `Health.svelte`, `HttpProbe.svelte`, `Loggers.svelte`, `MySql.svelte`, `PostgreSql.svelte`, `ServerStatus.svelte`, `SqlTrace.svelte`, `Traces.svelte`, `Transactions.svelte`, `Vulnerabilities.svelte`, and advisors `Architecture.svelte`, `DatabaseAdvisor.svelte`, `Fastapi.svelte`, `RestApi.svelte`, `Security.svelte`) to derive `actionReason = $derived(panelActionReason(panel))` and remove ad-hoc read-only checks.
-- [ ] **Step 3:** Run vitest suite to verify all existing and new tests pass and commit.
+- [x] **Step 1:** Write component tests in `ui/tests/component/actionPolicy.test.ts` testing policy changes, disabled button states, and late 403 refusal messages.
+- [x] **Step 2:** Update views (`Alembic.svelte`, `Exceptions.svelte`, `Health.svelte`, `HttpProbe.svelte`, `Loggers.svelte`, `MySql.svelte`, `PostgreSql.svelte`, `ServerStatus.svelte`, `SqlTrace.svelte`, `Traces.svelte`, `Transactions.svelte`, `Vulnerabilities.svelte`, and advisors `Architecture.svelte`, `DatabaseAdvisor.svelte`, `Fastapi.svelte`, `RestApi.svelte`, `Security.svelte`) to derive `actionReason = $derived(panelActionReason(panel))` and remove ad-hoc read-only checks.
+- [x] **Step 3:** Run vitest suite to verify all existing and new tests pass and commit.
 
 ### Task 4: Overview deviation fragment
 
 **Files:** `docs/reference/matrix-updates/a6-ui-readonly.tsv` (new).
 
-- [ ] **Step 1:** Create `docs/reference/matrix-updates/a6-ui-readonly.tsv` recording that sharpit Overview displays facts only and has no scanner cards or run-all.
-- [ ] **Step 2:** Commit `docs:` update.
+- [x] **Step 1:** Create `docs/reference/matrix-updates/a6-ui-readonly.tsv` recording that sharpit Overview displays facts only and has no scanner cards or run-all.
+- [x] **Step 2:** Commit `docs:` update.
 
 ### Task 5: Build static UI and execute test gates
 
 **Files:** `src/sharpit/ui/static/**`.
 
-- [ ] **Step 1:** Rebuild UI with `npm run build` in `ui/` (updating `src/sharpit/ui/static/`).
-- [ ] **Step 2:** Run Python tests (`test_ui_no_html.py`, `test_ui_rules.py`, `test_code_shape.py`, `test_install.py`, etc.).
-- [ ] **Step 3:** Run `ruff check`, `ruff format --check`, `pyright`, and vitest test suite.
-- [ ] **Step 4:** Commit built static assets and finalize report.
+- [x] **Step 1:** Rebuild UI with `npm run build` in `ui/` (updating `src/sharpit/ui/static/`).
+- [x] **Step 2:** Run Python tests (`test_ui_no_html.py`, `test_ui_rules.py`, `test_code_shape.py`, `test_install.py`, etc.).
+- [x] **Step 3:** Run `ruff check`, `ruff format --check`, `pyright`, and vitest test suite.
+- [x] **Step 4:** Commit built static assets and finalize report.

@@ -1,0 +1,1 @@
+ui:overview-run-all	n-a	BootUI 2.4.0 #1602 adds run-all scanner execution honoring panel action policy in Overview.vue; sharpit Overview displays application and sharpit status facts only without technology scanner scorecards or run-all button, so run-all panel policy filtering is not applicable
