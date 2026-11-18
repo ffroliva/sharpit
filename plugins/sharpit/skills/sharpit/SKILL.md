@@ -241,9 +241,9 @@ Starlette app defined in the project modules the tests already imported. It neve
 to do this, and ignores installed packages, the standard library, `conftest` and test modules. The summary says which:
 
 ```
-sharpit: using app myproject.main:app (pass --sharpit-app to choose)
-sharpit: several apps found (myproject.admin:app, myproject.main:app); pass --sharpit-app module:attr
-sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)
+sharpit: using app myproject.main:app, detected from the modules the tests imported (pass --sharpit-app to choose)
+sharpit: several apps found in the modules the tests imported (myproject.admin:app, myproject.main:app); pass --sharpit-app module:attr
+sharpit: no application found among the modules the tests imported (conftest, test modules and installed packages are not searched); rest-api skipped (pass --sharpit-app module:attr to assess the same app on any selection; --sharpit-require-app makes a missing app an error instead of a skip)
 ```
 
 A skipped advisor does not make the session `unknown`; a database driver sharpit cannot trace still does.

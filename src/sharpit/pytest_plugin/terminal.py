@@ -8,7 +8,7 @@ from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME_GATES
 from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE
 from sharpit.engine.testsession.report import TEST_RUNTIME, finding_fails
-from sharpit.pytest_plugin.apps import AUTODETECT, advisor_assessors, skip_reason
+from sharpit.pytest_plugin.apps import AUTODETECT, DETECTED_BY, advisor_assessors, skip_reason
 
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
@@ -118,4 +118,10 @@ def app_notice(names: list[str] | None, require_app: bool, data: dict[str, Any])
     apps: list[dict[str, Any]] = [app for a in data["advisors"] if a["advisor"] == "rest-api" for app in a["apps"]]
     if any(app["evidence"].get(AUTODETECT) is True for app in apps):
         return f"sharpit: {skip_reason((), bare=names[0])}"
-    return f"sharpit: using app {names[0]} (pass --sharpit-app to choose)"
+    workers = {w for app in apps for w in app["evidence"].get(DETECTED_BY) or ()}
+    plural = "" if len(workers) == 1 else "s"
+    seen = f" on {len(workers)} xdist worker{plural}" if workers else ""
+    return (
+        f"sharpit: using app {names[0]}, detected from the modules the tests imported{seen}"
+        " (pass --sharpit-app to choose)"
+    )
