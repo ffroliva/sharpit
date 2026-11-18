@@ -61,6 +61,7 @@ class SwallowedFact:
     location: str  # ``path:line`` of the except clause, relative to the working directory when under it
     type_name: str
     programming_error: bool
+    identity: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {"location": self.location, "type": self.type_name, "programmingError": self.programming_error}

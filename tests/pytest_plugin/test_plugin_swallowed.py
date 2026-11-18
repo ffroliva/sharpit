@@ -98,8 +98,9 @@ def test_library_raise_app_handler_is_seen(
 
     _app_swallow()
 
-    location = f"{Path(os.path.relpath(__file__)).as_posix()}:{_app_swallow_line()}"
-    assert seen == [(in_test, SwallowedFact(location, "JSONDecodeError", False))]
+    path = Path(os.path.relpath(__file__)).as_posix()
+    identity = f"{path}:_app_swallow:JSONDecodeError#1/1"
+    assert seen == [(in_test, SwallowedFact(f"{path}:{_app_swallow_line()}", "JSONDecodeError", False, identity))]
 
 
 def test_library_handler_is_ignored(
@@ -278,3 +279,55 @@ def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) 
     assert [f["ruleId"] for f in reported["findings"] if f["ruleId"] == RULE] == [RULE]
     assert _test_entry(baselined, "test_lookup")["outcome"] == "passed"
     assert [f["baselineState"] for f in baselined["findings"] if f["ruleId"] == RULE] == ["existing"]
+
+
+# --- #66: a dismissal keys on the clause's scope and position, not its line --------------------------------------
+
+WEEK_IDENTITY = "weekapp.py:get_week_count:AttributeError#1/1"
+WEEK_LEGACY = "weekapp.py:21:AttributeError"  # the ``except Exception:`` line of the fixture
+WEEK_ARGS = ("--sharpit", "--sharpit-app=weekapp:app", "--sharpit-report=report.json", "-q")
+
+
+def _planted(data: dict[str, Any]) -> dict[str, Any]:
+    return next(f for f in data["findings"] if f["ruleId"] == RULE and f["testNodeId"].endswith("::test_week_count"))
+
+
+def _dismiss(pytester: pytest.Pytester, *entries: str) -> None:
+    state_dir = pytester.path / ".sharpit"
+    state_dir.mkdir(exist_ok=True)
+    lines = "".join(f"  - {RULE} {entry}\n" for entry in entries)
+    (state_dir / "sharpit.yml").write_text(f"dismissedFindings:\n{lines}", encoding="utf-8")
+
+
+def test_xdist_workers_send_the_identity_and_the_controller_prints_it(pytester: pytest.Pytester) -> None:
+    _week_project(pytester)
+
+    pytester.runpytest("-n", "2", *WEEK_ARGS)
+
+    assert _planted(_report(pytester))["message"].endswith(f"; identity {WEEK_IDENTITY}")
+
+
+def test_a_dismissal_survives_a_line_added_above_the_handler(pytester: pytest.Pytester) -> None:
+    _week_project(pytester)
+    weekapp = pytester.path / "weekapp.py"
+    weekapp.write_text("# a line added above every handler\n" + weekapp.read_text("utf-8"), encoding="utf-8")
+    _dismiss(pytester, WEEK_IDENTITY)
+
+    result = pytester.runpytest("-n", "2", *WEEK_ARGS)
+
+    assert _planted(_report(pytester))["dismissed"] is True
+    assert result.ret == 0, result.stdout.str()
+
+
+def test_a_legacy_line_keyed_entry_still_dismisses_and_the_report_names_its_new_key(
+    pytester: pytest.Pytester,
+) -> None:
+    _week_project(pytester)
+    _dismiss(pytester, WEEK_LEGACY)
+
+    result = pytester.runpytest("-n", "2", *WEEK_ARGS)
+
+    data = _report(pytester)
+    assert _planted(data)["dismissed"] is True
+    assert result.ret == 0, result.stdout.str()
+    assert [w for w in data["warnings"] if WEEK_LEGACY in w and WEEK_IDENTITY in w]

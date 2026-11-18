@@ -91,6 +91,10 @@ def _swallowed_findings(
     return found
 
 
+def legacy_dismissal_warnings(facts: TestFacts, dismissed_pairs: Collection[tuple[str, str]]) -> list[str]:
+    return []  # stub
+
+
 def _unbounded_read_findings(
     call: PhaseFacts,
     budget: Budget,

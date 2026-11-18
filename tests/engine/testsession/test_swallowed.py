@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import dis
+import re
 import textwrap
+from pathlib import Path
 from types import CodeType
 
 import pytest
 
 from sharpit.engine.testsession import swallowed
-from sharpit.engine.testsession.swallowed import handler_swallows, handler_swallows_code, is_programming_error
+from sharpit.engine.testsession.swallowed import (
+    SwallowingSite,
+    handler_swallows,
+    handler_swallows_code,
+    is_programming_error,
+    site_identity,
+    swallowing_site,
+    swallowing_sites,
+)
 
 
 def _src(text: str) -> str:
@@ -510,3 +520,224 @@ def test_dynamic_target_is_not_reported() -> None:
 
 def test_imported_function_is_not_reported() -> None:
     assert handler_swallows(*_handler("report(e)", "from app.errors import report\n")) is False
+
+
+# --- #66: a swallowing clause is identified by its scope and position, never by its line ---------------------------
+
+TWO_FUNCTIONS = _src(
+    """
+    def first():
+        try:
+            pass
+        except Exception:
+            return 0
+
+    def second():
+        try:
+            pass
+        except Exception:
+            return 1
+    """
+)
+
+
+def _keys(source: str, type_name: str = "KeyError") -> list[str]:
+    return [site_identity("app.py", site, type_name) for site in swallowing_sites(source)]
+
+
+def _shape(source: str) -> list[tuple[str, int, int]]:
+    return [(site.scope, site.position, site.total) for site in swallowing_sites(source)]
+
+
+def test_identity_survives_a_line_added_above_the_function_and_above_the_handler() -> None:
+    above = "import os\n\n" + TWO_FUNCTIONS
+    first = "    try:\n        pass\n    except Exception:\n        return 0"
+    inside = TWO_FUNCTIONS.replace(first, "    x = 1\n    y = 2\n" + first, 1)
+
+    assert [s.line for s in swallowing_sites(above)] != [s.line for s in swallowing_sites(TWO_FUNCTIONS)]
+    assert _keys(above) == _keys(TWO_FUNCTIONS)
+    assert _keys(inside) == _keys(TWO_FUNCTIONS)
+
+
+def test_the_same_type_in_another_function_has_another_identity() -> None:
+    keys = _keys(TWO_FUNCTIONS)
+
+    assert keys[0] != keys[1]
+    assert [site.scope for site in swallowing_sites(TWO_FUNCTIONS)] == ["first", "second"]
+
+
+_PROPERTY = _src(
+    """
+    class Box:
+        @property
+        def value(self):
+            try:
+                pass
+            except Exception:
+                return 0
+
+        @value.setter
+        def value(self, item):
+            try:
+                pass
+            except Exception:
+                return
+    """
+)
+_REDEFINED = _src(
+    """
+    if FLAG:
+        def f():
+            try:
+                pass
+            except Exception:
+                return 1
+    else:
+        def f():
+            try:
+                pass
+            except Exception:
+                return 2
+    """
+)
+_NESTED = _src(
+    """
+    def outer():
+        def inner():
+            try:
+                pass
+            except Exception:
+                return 1
+        try:
+            pass
+        except Exception:
+            return 2
+    """
+)
+_MODULE = _src(
+    """
+    try:
+        pass
+    except Exception:
+        pass
+    """
+)
+_CLASS_BODY = _src(
+    """
+    class C:
+        try:
+            pass
+        except Exception:
+            pass
+    """
+)
+_ASYNC = _src(
+    """
+    class Client:
+        async def fetch(self):
+            try:
+                pass
+            except Exception:
+                return None
+    """
+)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(_PROPERTY, [("Box.value", 1, 2), ("Box.value", 2, 2)], id="property-getter-and-setter"),
+        pytest.param(_REDEFINED, [("f", 1, 2), ("f", 2, 2)], id="if-else-redefinition"),
+        pytest.param(_NESTED, [("outer.<locals>.inner", 1, 1), ("outer", 1, 1)], id="nested-function"),
+        pytest.param(_MODULE, [("<module>", 1, 1)], id="module-level"),
+        pytest.param(_CLASS_BODY, [("C", 1, 1)], id="class-body"),
+        pytest.param(_ASYNC, [("Client.fetch", 1, 1)], id="async-method"),
+    ],
+)
+def test_a_scope_is_its_qualified_name_and_counts_its_own_clauses(
+    source: str, expected: list[tuple[str, int, int]]
+) -> None:
+    assert _shape(source) == expected
+
+
+_TWO_CLAUSES = _src(
+    """
+    def f():
+        try:
+            pass
+        except Exception:
+            return 0
+        try:
+            pass
+        except Exception:
+            return 1
+    """
+)
+_NEW_CLAUSE = "    try:\n        pass\n    except Exception:\n        return 9\n"
+_FIRST_CLAUSE = "    try:\n        pass\n    except Exception:\n        return 0\n"
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        pytest.param(_TWO_CLAUSES.replace("def f():\n", "def f():\n" + _NEW_CLAUSE, 1), id="a-clause-inserted-above"),
+        pytest.param(_TWO_CLAUSES + _NEW_CLAUSE, id="a-clause-inserted-below"),
+        pytest.param(_TWO_CLAUSES.replace(_FIRST_CLAUSE, "", 1), id="the-dismissed-clause-deleted"),
+        pytest.param(
+            _TWO_CLAUSES.replace("        return 0", "        logger.error('x')\n        return 0", 1),
+            id="the-dismissed-clause-gains-a-log-call",
+        ),
+    ],
+)
+def test_changing_the_swallowing_clauses_of_a_scope_never_moves_a_dismissal(changed: str) -> None:
+    dismissed = _keys(_TWO_CLAUSES)[0]  # the first clause was dismissed
+
+    assert dismissed not in _keys(changed)
+
+
+def _corpus_inner() -> int:
+    def inner() -> int:
+        try:
+            return {}["missing"]
+        except Exception:
+            return 1
+
+    return inner()
+
+
+class _Holder:
+    def get(self) -> int:
+        try:
+            return {}["missing"]
+        except Exception:
+            return 0
+
+
+def test_a_handler_seen_at_runtime_is_in_the_static_set_of_its_file() -> None:
+    inner = next(c for c in _corpus_inner.__code__.co_consts if isinstance(c, CodeType))
+    corpus = [
+        (_nested.__code__, KeyError),
+        (_first_match.__code__, TypeError),
+        (_Holder.get.__code__, KeyError),
+        (inner, KeyError),
+    ]
+    static = set(swallowing_sites(Path(__file__).read_text("utf-8")))
+
+    for code, exc_type in corpus:
+        seen = [site for offset in _handler_offsets(code) if (site := swallowing_site(code, offset, exc_type))]
+
+        assert len(seen) == 1, code.co_qualname
+        assert seen[0] in static, code.co_qualname
+        assert seen[0].scope == code.co_qualname
+
+
+def test_the_identity_names_the_path_the_scope_the_type_and_the_position() -> None:
+    site = SwallowingSite(21, "Week.count", 2, 3)
+
+    assert site_identity("src/app/weeks.py", site, "AttributeError") == "src/app/weeks.py:Week.count:AttributeError#2/3"
+
+
+def test_a_new_identity_is_never_a_legacy_line_key() -> None:
+    identity = site_identity("app.py", SwallowingSite(5, "f", 1, 1), "KeyError")
+
+    assert re.fullmatch(r".+:\d+:\w+", identity) is None

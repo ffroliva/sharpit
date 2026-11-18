@@ -273,6 +273,29 @@ def swallowing_clause_line(code: CodeType, offset: int, exc_type: type[BaseExcep
     return None if handler is None else handler.lineno
 
 
+class SwallowingSite(NamedTuple):
+    """Where a swallowing clause sits: its header line, its scope, its 1-based position among the swallowing clauses of
+    that scope and how many there are."""
+
+    line: int
+    scope: str
+    position: int
+    total: int
+
+
+def swallowing_sites(source: str) -> list[SwallowingSite]:
+    return [SwallowingSite(line, "", 1, 1) for line in swallowing_lines(source)]  # stub: line-keyed
+
+
+def swallowing_site(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> SwallowingSite | None:
+    line = swallowing_clause_line(code, offset, exc_type)
+    return None if line is None else SwallowingSite(line, "", 1, 1)  # stub: line-keyed
+
+
+def site_identity(path: str, site: SwallowingSite, type_name: str) -> str:
+    return f"{path}:{site.line}:{type_name}"  # stub: line-keyed
+
+
 def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None = None) -> bool:
     """``handler_swallows`` for an ``EXCEPTION_HANDLED`` event's code object and instruction offset (cached)."""
     return swallowing_clause_line(code, offset, None if exc is None else type(exc)) is not None
