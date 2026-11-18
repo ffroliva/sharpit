@@ -41,8 +41,10 @@ _NOTE_PREFIX = "n="
 NO_PANEL_MESSAGE = "Findings of advisor '{advisor}' are dismissed in sharpit.yml"
 _RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
 # no edge whitespace; inside, no C0/C1 control, line separator or lone surrogate (UTF-8 could not write it)
-MAX_IDENTITY_LENGTH = 512  # the quantifier of ``_IDENTITY``
-_IDENTITY = re.compile(r"(?!\s)[^\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff]{1,512}(?<!\s)")
+MAX_IDENTITY_LENGTH = 512
+_IDENTITY = re.compile(
+    r"(?!\s)[^\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff]{1," + str(MAX_IDENTITY_LENGTH) + r"}(?<!\s)"
+)
 _INVALID_RULE = "Dismissed finding rule id is not a valid advisor rule id."
 
 MAX_FINDINGS: Final[int] = 1000
@@ -274,7 +276,7 @@ def _valid_finding(rule_id: str, identity: str, *, owned: bool = True) -> str | 
     fingerprint = any(rule_id.startswith(f"{spec.id}:") for spec in ADVISORS)
     if fingerprint or not _RULE_ID.fullmatch(rule_id) or (owned and advisor_for(rule_id) is None):
         return _INVALID_RULE
-    if not _IDENTITY.fullmatch(identity) or _looks_like_a_note(identity):
+    if not is_dismissable_identity(identity):
         return "Dismissed finding identity is not a valid finding identity."
     return None
 

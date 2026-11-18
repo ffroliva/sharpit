@@ -47,18 +47,22 @@ def _relative(filename: str, root: str) -> str:
 
 
 @functools.lru_cache(maxsize=4096)
-def _fact(code: CodeType, offset: int, exc_type: type[BaseException], root: str) -> SwallowedFact | None:
+def _fact(code: CodeType, offset: int, exc_type: type[BaseException], root: str, cwd: str) -> SwallowedFact | None:
     site = swallowing_site(code, offset, exc_type)
     if site is None:
         return None
     path = _relative(code.co_filename, root)
     identity = site_identity(path, site, exc_type.__name__)
-    return SwallowedFact(f"{path}:{site.line}", exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS), identity)
+    legacy = f"{_relative(code.co_filename, cwd)}:{site.line}"
+    return SwallowedFact(
+        f"{path}:{site.line}", exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS), identity, legacy
+    )
 
 
 class MonitoringCapture:
     def __init__(self, on_error: Callable[[BaseException], None] | None = None, root: Path | None = None) -> None:
-        self._root = str(root) if root is not None else os.getcwd()  # paths read the same whatever the cwd becomes
+        self._cwd = os.getcwd()  # the form the earlier versions wrote, to name a stale entry
+        self._root = str(root) if root is not None else self._cwd  # paths read the same whatever the cwd becomes
         self.tool_id: int | None = None
         self._tool: MonitoringTool | None = None
         self._sink: SwallowedSink | None = None
@@ -91,7 +95,7 @@ class MonitoringCapture:
         if test is None or not is_application_frame(code.co_filename):
             return
         try:
-            fact = _fact(code, offset, type(exc), self._root)
+            fact = _fact(code, offset, type(exc), self._root, self._cwd)
             if fact is not None and self._sink is not None:
                 self._sink(test, fact)
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code

@@ -58,12 +58,13 @@ class TestKey:
 class SwallowedFact:
     """A broad handler in application code that swallowed an exception: never the message or a local value."""
 
-    location: str  # ``path:line`` of the except clause, relative to the working directory when under it
+    location: str  # ``path:line`` of the except clause, relative to the pytest rootdir when under it
     type_name: str
     programming_error: bool
-    # ``path:scope:Type#n/m``, built by the worker from the parsed source; None from a worker of an earlier form
+    # ``path:scope:Type#<8 hex>[.n/m]``, built by the worker from the parsed source; None from an earlier worker
     identity: str | None = None
-    legacy_location: str | None = None  # stub: not carried yet
+    # ``path:line`` relative to the working directory, as 0.4.0 to 0.6.0 wrote it: only to name a stale legacy entry
+    legacy_location: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -71,11 +72,14 @@ class SwallowedFact:
             "type": self.type_name,
             "programmingError": self.programming_error,
             "identity": self.identity,
+            "legacyLocation": self.legacy_location,
         }
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
-        return cls(data["location"], data["type"], data["programmingError"], data.get("identity"))
+        return cls(
+            data["location"], data["type"], data["programmingError"], data.get("identity"), data.get("legacyLocation")
+        )
 
 
 @dataclass
