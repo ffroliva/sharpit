@@ -245,7 +245,7 @@ D1 ── D2 ── D3 ; D4, D5 independent ; D6 after its council
 ## Decisions (2026-11-18; the chosen option in bold)
 
 1. **Python analyzer set for `SEC-STATIC-001`.** Build files: `pyproject.toml`, `setup.cfg`, `tox.ini`,
-   `.pre-commit-config.yaml`, `requirements*.txt`. Analyzers: Bandit, Semgrep, SonarQube (`sonar-project.properties`),
+   `.pre-commit-config.yaml`, `requirements*.txt`. Analyzers: Bandit, Semgrep, a `sonar-project.properties` file,
    CodeQL workflow actions, and **ruff with the `S` rules selected counts as a declaration**. Blocks A3.
 2. **Static-only security golden.** Both BootUI capture apps include Spring Security. **Default: capture the
    with-security variant only, and pin the static-only report by a ported unit test, not a golden.** Blocks nothing
