@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import importlib.metadata
 import threading
 import time
 import weakref
@@ -45,6 +46,61 @@ def error_text(exc: BaseException, masker: Masker, dialect: Dialect | None = Non
     return lines[0] if lines else type(exc).__name__
 
 
+def _driver_candidates(dialect: Any, dbapi: Any) -> list[Any]:
+    candidates: list[Any] = [dbapi]
+    driver_attr = getattr(dbapi, "driver", None)
+    if driver_attr is not None:
+        candidates.append(driver_attr)
+    dbapi_mod = getattr(dbapi, "dbapi_module", None)
+    if dbapi_mod is not None:
+        candidates.append(dbapi_mod)
+    driver_name = getattr(dialect, "driver", None)
+    if driver_name and hasattr(dbapi, driver_name):
+        candidates.append(getattr(dbapi, driver_name))
+    return candidates
+
+
+def _pkg_version(packages: list[str]) -> str | None:
+    for pkg in packages:
+        try:
+            ver = importlib.metadata.version(pkg)
+            if ver and str(ver).strip():
+                return str(ver).strip()
+        except Exception:  # noqa: BLE001, S110
+            pass
+    return None
+
+
+def _driver_version(dialect: Any) -> str | None:
+    dbapi = getattr(dialect, "dbapi", None)
+    if dbapi is None:
+        return None
+
+    candidates = _driver_candidates(dialect, dbapi)
+
+    # 1. The DBAPI module's __version__
+    for cand in candidates:
+        ver = getattr(cand, "__version__", None)
+        if ver and str(ver).strip():
+            return str(ver).strip()
+
+    # 2. Installed distribution version via importlib.metadata for the driver's top-level package
+    packages = [cand.__name__.split(".")[0] for cand in candidates if getattr(cand, "__name__", None)]
+    driver_name = getattr(dialect, "driver", None)
+    if driver_name and isinstance(driver_name, str):
+        packages.append(driver_name)
+    if (pkg_ver := _pkg_version(packages)) is not None:
+        return pkg_ver
+
+    # 3. For the stdlib sqlite3, sqlite3.sqlite_version
+    for cand in candidates:
+        ver = getattr(cand, "sqlite_version", None)
+        if ver and str(ver).strip():
+            return str(ver).strip()
+
+    return None
+
+
 def catalog(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     """The physical schema behind ``conn`` as plain dicts, read within ``bounds`` (run it inside the read-only read).
 
@@ -58,6 +114,30 @@ def catalog(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     inspector = _sqla.sqlalchemy_module().inspect(conn)  # type: ignore[union-attr]  # callers hold a SQLAlchemy conn
     names: list[str] = inspector.get_table_names()
     truncated, complete = len(names) > bounds.tables, True
+    dialect_obj = getattr(conn, "dialect", None)
+    driver = getattr(dialect_obj, "driver", None)
+    if not driver or not str(driver).strip():
+        complete = False
+        diagnostics.append(_warning("The database driver name was unavailable; driver settings are not evaluated."))
+    version = _driver_version(dialect_obj)
+    if not version or not str(version).strip():
+        complete = False
+        diagnostics.append(_warning("The database driver version was unavailable."))
+    try:
+        engine = getattr(conn, "engine", None)
+        sync = getattr(engine, "sync_engine", engine)
+        url_val = getattr(sync, "url", None)
+    except Exception:  # noqa: BLE001
+        complete = False
+        diagnostics.append(
+            _warning("The database URL could not be read; driver settings configured in it are not evaluated.")
+        )
+    else:
+        if url_val is None or not str(url_val).strip():
+            complete = False
+            diagnostics.append(
+                _warning("The driver reported no database URL; driver settings configured in it are not evaluated.")
+            )
     tables: list[dict[str, Any]] = []
     for name in names[: bounds.tables]:
         if _clock() - start > bounds.budget:
