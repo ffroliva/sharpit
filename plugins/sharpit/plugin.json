@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "sharpit",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Ask a running FastAPI app about itself: routes, configuration, SQL, exceptions, health and advisors, over sharpit's read-only local MCP server.",
   "author": {
     "name": "Flavio Oliva",
