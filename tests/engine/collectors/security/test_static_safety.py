@@ -15,6 +15,7 @@ import pytest
 from conftest import SideEffectGuard
 from sharpit.engine.collectors.security.report import SecurityService, build_inputs
 from sharpit.engine.collectors.security.static_analysis import (
+    DESCRIPTION,
     LIMITATION_TEXT,
     RULE_ID,
     State,
@@ -385,9 +386,8 @@ def test_static_only_report_analyzer_and_disclaimer(tmp_path: Path) -> None:
 
 def test_rule_description_python_limits() -> None:
     """Rule SEC-STATIC-001 description describes Python limits, not Maven/Gradle."""
-    from sharpit.engine.collectors.security.static_analysis import StaticSecurityAnalysisRule
 
-    desc = StaticSecurityAnalysisRule.DESCRIPTION
+    desc = DESCRIPTION
     assert "Maven" not in desc
     assert "Gradle" not in desc
     assert "ruff.toml" in desc

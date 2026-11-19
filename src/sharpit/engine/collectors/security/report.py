@@ -33,6 +33,7 @@ from sharpit.engine.collectors.security import (
 )
 from sharpit.engine.collectors.security.static_analysis import (
     LIMITATION_TEXT,
+    RULE_ID,
     Inspection,
     State,
     StaticSecurityAnalysisDetector,
@@ -123,12 +124,12 @@ _STATIC_ONLY: dict[State, tuple[str | None, tuple[str, ...], tuple[Finding, ...]
     State.CONFIGURED: (
         "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
         " sharpit does not verify analyzer execution.",
-        (StaticSecurityAnalysisRule.RULE_ID,),
+        (RULE_ID,),
         (),
     ),
     State.NOT_CONFIGURED: (
         "No FastAPI application was found to inspect. No local static analyzer declaration was found.",
-        (StaticSecurityAnalysisRule.RULE_ID,),
+        (RULE_ID,),
         (StaticSecurityAnalysisRule.finding(),),
     ),
     State.INDETERMINATE: (
@@ -201,7 +202,7 @@ def scan_evaluation(inputs: Inputs) -> Evaluation:
         )
 
     if inspection.evaluated:
-        evaluated.append(StaticSecurityAnalysisRule.RULE_ID)
+        evaluated.append(RULE_ID)
     if inspection.state == State.NOT_CONFIGURED:
         findings.append(StaticSecurityAnalysisRule.finding())
     elif inspection.state == State.INDETERMINATE:

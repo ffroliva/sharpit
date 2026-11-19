@@ -15,7 +15,6 @@ from sharpit.engine.collectors.security.static_analysis import (
     RULE_ID,
     State,
     StaticSecurityAnalysisDetector,
-    StaticSecurityAnalysisRule,
     _repository_root,
     _split_shell_commands,
     strip_yaml_comments,

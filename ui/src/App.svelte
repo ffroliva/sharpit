@@ -58,7 +58,7 @@
       shellError = null;
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
-        shellError = describeLoadError(e).message;
+        shellError = describeLoadError(e);
       }
     }
   }
