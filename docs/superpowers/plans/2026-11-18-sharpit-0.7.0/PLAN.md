@@ -86,12 +86,12 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 
 ### Wave 0: pin BootUI 2.4.0 (no behaviour change)
 
-- [~] **W0** — [W0-pin.md](W0-pin.md). Capture `tests/fixtures/bootui/2.4.0/`, add the 2.4.0 parity tests and status
+- [x] **W0** — [W0-pin.md](W0-pin.md). Capture `tests/fixtures/bootui/2.4.0/`, add the 2.4.0 parity tests and status
       files, record the fixture delta, and move the version pin in the docs. Blocks every Track A and B lane.
 
 ### Track A: what 2.4.0 changed in existing features
 
-- [~] **A1 — evidence counters and text** (after W0). Add `insufficient` and `partial` to the caught-exceptions
+- [x] **A1 — evidence counters and text** (after W0). Add `insufficient` and `partial` to the caught-exceptions
       report and summary (zeros: sharpit has no caught-exception sensor) and to the agent runtime-insights report,
       counted over every matching observation including rows cut by `limit`
       (`E/engine/insights/RuntimeInsightsAgentView.java:185-190`; `E/core/dto/CaughtExceptionsReport.java:27-28,46`;
@@ -109,7 +109,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       with a spike on which SQLAlchemy shapes are `NESTED` (`begin_nested`, SAVEPOINT) and which, if any, are
       `REQUIRES_NEW` without false positives. Tests: `TransactionRecorderTests`,
       `JournalActivityFeedTests.failedBeginsRemainVisibleWhenFilteringTransactionErrors`.
-- [~] **A3 — `SEC-STATIC-001`** (after W0; *predict*: it reads project files). Port
+- [x] **A3 — `SEC-STATIC-001`** (after W0; *predict*: it reads project files). Port
       `E/engine/staticsecurity/StaticSecurityAnalysisDetector.java` and `StaticSecurityAnalysisRule.java`: the rule
       ID, INFO severity, title, bounds, silence when no build file is readable, and the rule that it never runs an
       analyzer and adds no runtime evidence or score. Adapt the declaration set to Python (open decision 1). The
@@ -147,7 +147,7 @@ The 2.3.0 status at release: 33 of 66 applicable routes served (5 matched, 28 pa
 kinds implemented; 7 journal sources produced (`ai`, `connection`, `exception`, `http`, `log`, `mail`, `sql`). W0
 re-measures all of this against 2.4.0.
 
-- [~] **B1 — SQL-only insight kinds** (after W0). `repeated-selects` (with 2.4.0's monotonic-start ordering and new
+- [x] **B1 — SQL-only insight kinds** (after W0). `repeated-selects` (with 2.4.0's monotonic-start ordering and new
       limitation text, `E/engine/insights/RepeatedSelects.java:77,152-186`), `paged-without-order`,
       `unbatched-write-loop`, `event-loop-blocking`, `proxy-bypass`. Each reads only `sql` (transaction optional), so
       each can be built today; one kind module per lane step, `IMPLEMENTED = True` flipped by its own commit.
@@ -185,6 +185,16 @@ re-measures all of this against 2.4.0.
       (`--fail-on`, including the insufficient-evidence gate) merges after A1. Task 4's drift test reads BootUI's
       command paths from `tests/fixtures/bootui/2.3.0/tools.json` until W0 lands and from `2.4.0/tools.json` after
       it; 2.4.0 changes no command path, so the switch is a path change only.
+
+### Track G: agent and human usage guidance (added 2026-11-19)
+
+- [ ] **G1 — agent playbooks and the AI-agents guide.** Port BootUI 2.4.0's
+      `skills/bootui/references/playbooks/` (the shared contract and the application checkup, database efficiency, slow
+      endpoint, errors and hidden failures, and verify-my-changes playbooks; a Python performance playbook from the
+      evidence sharpit has in place of the JVM one) and `docs/AI-AGENTS.md` as `website/docs/ai-agents.md`; the skill and
+      the agent plugin point to them, and a test checks every tool and command they cite.
+- [ ] **G2 — MCP prompt arguments and `verify_after_change`.** Port `McpPrompt` arguments and the fourth prompt from
+      `McpGuidance.java`, with `McpDispatcherTests`' prompt cases.
 
 ### Track D: engineering deferred from 0.6.0
 

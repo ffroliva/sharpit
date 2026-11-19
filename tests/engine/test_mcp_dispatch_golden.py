@@ -118,7 +118,7 @@ def test_only_the_server_info_version_is_normalised() -> None:
     assert out["result"]["instructions"] == f"v{__version__}"
 
 
-def test_mcp_dispatch_replies_are_byte_identical() -> None:
+def test_mcp_dispatch_replies_are_byte_identical(no_side_effects) -> None:
     golden: dict[str, str] = json.loads(FIXTURE.read_text(encoding="utf-8"))
     current = replies()
     assert sorted(current) == sorted(golden)
