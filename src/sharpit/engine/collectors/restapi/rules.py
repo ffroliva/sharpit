@@ -20,7 +20,7 @@ from sharpit.engine.collectors.restapi import (
 from sharpit.engine.collectors.restapi.error_contract import ErrorContractEntry
 from sharpit.engine.collectors.restapi.rules_common import Violation, shared_is_framework
 from sharpit.engine.spi import ApiRouteInfo
-from sharpit.engine.testsession.swallowed import swallowing_lines
+from sharpit.engine.testsession.swallowed import swallowing_sites
 
 ROUTING = "Routing & HTTP method mapping"
 NAMING = "Naming & resource design"
@@ -449,11 +449,13 @@ def swallowed_handler_violations(routes: Sequence[ApiRouteInfo]) -> list[Violati
         if not isinstance(filename, str) or not filename.endswith(".py"):
             continue
         try:
-            lines = swallowing_lines(Path(filename).read_text("utf-8"))
+            sites = swallowing_sites(Path(filename).read_text("utf-8"))
         except (OSError, SyntaxError, ValueError):  # unreadable or not parseable: nothing to say about it
             continue
-        found.extend(
-            Violation(f"{name}:{line}", f"{name}:{line} catches broadly and neither re-raises nor logs")
-            for line in lines
+        found.extend(  # the target is the clause's scope and key, not its line, so a fingerprint survives an edit above
+            Violation(
+                f"{name}:{site.scope}#{site.key}", f"{name}:{site.line} catches broadly and neither re-raises nor logs"
+            )
+            for site in sites
         )
     return found

@@ -1,6 +1,7 @@
 <script lang="ts" generics="T">
   import { tick, untrack, type Snippet } from 'svelte';
   import { ApiError, type Params } from '../lib/api';
+  import { describeLoadError } from '../lib/loadError';
   import { PAGE_SIZE, ServerPage } from '../lib/paging';
   import { href, parse } from '../lib/route';
   import { scrollable } from '../lib/scrollable';
@@ -62,7 +63,7 @@
           error = null;
         }
       } catch (e) {
-        if (mine === seq) error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.';
+        if (mine === seq) error = describeLoadError(e).message;
       } finally {
         if (mine === seq) loading = false;
       }

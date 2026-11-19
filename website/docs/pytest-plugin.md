@@ -191,9 +191,30 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI
 ```
 
 Findings in the baseline are reported as `existing` and do not fail; new findings are `new` and do. Baseline
-fingerprints hold no file path or timestamp, so reformatting code does not turn an existing finding into a new one.
+fingerprints hold no line number or timestamp, so reformatting code does not turn an existing finding into a new one.
 Writing a baseline is refused for a partial or `unknown` run. Review changes to the baseline file like code: a change
 that adds its own findings to it accepts them.
+
+### Dismissing a swallowed exception
+
+A `sharpit.swallowed-exception` finding ends its message with its identity,
+`<path>:<scope>:<ExceptionType>#<key>`: for example `src/app/weeks.py:Week.count:AttributeError#1a2b3c4d`. The path is
+relative to the pytest rootdir, the scope is the qualified name of the function or class body that holds the clause, and
+the key is a hash of the clause itself (its `try` body and its handler, without positions); byte-identical clauses of
+one scope end `.<n>/<m>`. Copy it from the terminal or the JSON report (the SARIF message is masked like every other
+output) and paste it after the rule id in `.sharpit/sharpit.yml`:
+
+```yaml
+dismissedFindings:
+  - sharpit.swallowed-exception src/app/weeks.py:Week.count:AttributeError#1a2b3c4d
+```
+
+The identity holds no line number, so a line added above the `try` or elsewhere in the function does not bring the
+finding back, and swapping two `try` blocks or moving a log call from one clause to another cannot hand the dismissal to
+another clause. An edit inside the `try` body or the handler changes the key, and the finding comes back. An identity
+that cannot be stored as an entry (over 512 characters) is reported with a fingerprint to list under `dismissedRules`,
+which covers one test only. The earlier `<path>:<line>:<ExceptionType>` form no longer dismisses: the finding comes
+back, and the report warns with the key of the clause now on that line.
 
 ## Parallel runs with pytest-xdist
 

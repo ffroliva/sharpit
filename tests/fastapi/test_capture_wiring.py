@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
@@ -18,8 +19,10 @@ from examples.fastapi_sample.app import create_app
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
+import sharpit.fastapi.capture as capture_mod
 from fastapi import FastAPI, Request, WebSocket
 from sharpit import install
 from sharpit.engine import sqla
@@ -75,20 +78,33 @@ def _scope(path: str = "/x", **extra: Any) -> Scope:
     }
 
 
-async def _run(ctx: SharpitContext, app: FakeApp, inbox: list[Message] | None = None, scope: Scope | None = None):
+async def _run(
+    ctx: SharpitContext | None,
+    app: FakeApp,
+    inbox: list[Message] | None = None,
+    scope: Scope | None = None,
+    *,
+    fail_start: Exception | None = None,
+    wrap: bool = True,
+    sent: list[Message] | None = None,
+) -> list[Message]:
     pending = list(inbox or [{"type": "http.request", "body": b"", "more_body": False}])
-    sent: list[Message] = []
+    if sent is None:
+        sent = []
 
     async def receive() -> Message:
         if pending:
             return pending.pop(0)
-        await asyncio.Event().wait()  # like a server with nothing more to say
+        await asyncio.Event().wait()  # like a server with nothing more to say: a streaming response listens for it
         raise AssertionError  # pragma: no cover
 
     async def send(message: Message) -> None:
+        if fail_start is not None and message["type"] == "http.response.start":
+            raise fail_start
         sent.append(message)
 
-    await CaptureMiddleware(app, ctx)(scope or _scope(), receive, send)
+    target = CaptureMiddleware(app, ctx) if wrap and ctx is not None else app
+    await target(scope or _scope(), receive, send)
     return sent
 
 
@@ -314,24 +330,525 @@ def test_probe_header_stripped_from_real_request():
     assert any(h["name"] == "x-sharpit-probe" for h in _rows(handle)[0]["requestHeaders"])
 
 
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def _explode(message: str) -> Callable[..., Any]:
+    def explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(message)
+
+    return explode
+
+
+def _starts(sent: list[Message]) -> list[Message]:
+    return [m for m in sent if m["type"] == "http.response.start"]
+
+
 def test_hook_failure_leaves_response(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
+    # ported: BootUiHttpExchangesFilterTests.repositoryFailureDoesNotAlterTheServedResponse
+    # ported: BootUiHttpExchangesWebFilterTests.repositoryFailureDoesNotPreventResponseCommitment
     app = FastAPI()
-    app.get("/ok")(lambda: {"ok": True})
+    app.get("/ok")(lambda: Response(content="complete", status_code=201, media_type="text/plain"))
     handle = install(app, enabled="ON", show_banner=False)
-
-    def explode(_row: object) -> None:
-        raise RuntimeError("secret-bearing message")
-
-    monkeypatch.setattr(_buffer(handle), "add", explode)
+    monkeypatch.setattr(_buffer(handle), "add", _explode("secret-bearing message"))
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
         for _ in range(3):
             resp = client.get("/ok")
-            assert (resp.status_code, resp.json()) == (200, {"ok": True})
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+            assert (resp.status_code, resp.text) == (201, "complete")
+    warnings = _warnings(caplog)
     assert len(warnings) == 1, warnings
     assert "request end" in warnings[0]
+    assert "RuntimeError" in warnings[0]
     assert "secret-bearing" not in warnings[0]
+
+
+# --- BootUI 2.4.0 #1615: HTTP exchange recording never disrupts a response -------------------------------------------
+
+
+def test_metadata_failure_does_not_alter_a_committed_response(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: BootUiHttpExchangesFilterTests.metadataFailureDoesNotAlterACommittedResponse
+    # ported: BootUiHttpExchangesWebFilterTests.metadataFailureDoesNotPreventResponseCommitment
+    app = FastAPI()
+
+    @app.get("/download")
+    def download():
+        return Response(content="complete", status_code=206, media_type="text/plain")
+
+    handle = install(app, enabled="ON", show_banner=False)
+    monkeypatch.setattr(capture_mod, "exchange_row", _explode("secret-header-message"))
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/download?token=secret-query")
+        assert resp.status_code == 206
+        assert resp.text == "complete"
+
+    assert _buffer(handle).rows() == []
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "request end" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-header-message" not in warnings[0]
+    assert "secret-query" not in warnings[0]
+    assert "/download" not in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "failure_factory",
+    [
+        lambda: RuntimeError("app-runtime-error"),
+        lambda: ValueError("app-value-error"),
+        lambda: KeyError("app-key-error"),
+    ],
+    ids=["runtime", "value", "key"],
+)
+@pytest.mark.parametrize("recording", ["healthy", "failing-add", "failing-metadata"])
+def test_preserves_every_application_exception_even_when_recording_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure_factory: Callable[[], Exception],
+    recording: str,
+):
+    # ported: BootUiHttpExchangesFilterTests.preservesEveryApplicationExceptionEvenWhenRecordingAlsoFails
+    # ported: BootUiHttpExchangesWebFilterTests.preservesApplicationErrorsAndLetsTheErrorHandlerCommitDespiteARecordingFailure  # noqa: E501
+    app = FastAPI()
+
+    failure = failure_factory()
+
+    @app.get("/api/fail")
+    def fail():
+        raise failure
+
+    handle = install(app, enabled="ON", show_banner=False)
+
+    if recording == "failing-add":
+        monkeypatch.setattr(_buffer(handle), "add", _explode("secret-repository-message"))
+    if recording == "failing-metadata":
+        monkeypatch.setattr(capture_mod, "exchange_row", _explode("secret-repository-message"))
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        with pytest.raises(type(failure)) as exc_info:
+            client.get("/api/fail")
+        assert exc_info.value is failure
+
+    store = handle.context.capture.exceptions
+    assert store is not None
+    assert type(failure).__name__ in [g["exceptionClassName"] for g in store.report()["groups"]]
+    if recording == "healthy":
+        rows = _buffer(handle).rows()
+        assert len(rows) == 1
+        assert rows[0]["status"] == 500
+        assert rows[0]["error"] is True
+    else:
+        warnings = _warnings(caplog)
+        assert len(warnings) == 1
+        assert "request end" in warnings[0]
+        assert "RuntimeError" in warnings[0]
+        assert "secret-repository-message" not in warnings[0]
+
+
+class _Teapot(Exception):
+    pass
+
+
+@pytest.mark.parametrize("failing_buffer", [False, True], ids=["healthy-buffer", "failing-buffer"])
+def test_the_error_handler_commits_despite_a_recording_failure(monkeypatch: pytest.MonkeyPatch, failing_buffer: bool):
+    # ported: BootUiHttpExchangesWebFilterTests.preservesApplicationErrorsAndLetsTheErrorHandlerCommitDespiteARecordingFailure  # noqa: E501
+    app = FastAPI()
+
+    @app.exception_handler(_Teapot)
+    def handler(_request: Request, _exc: _Teapot):  # pyright: ignore[reportUnusedFunction]
+        return Response(content="complete", status_code=418, media_type="text/plain")
+
+    @app.get("/api/fail")
+    def fail():  # pyright: ignore[reportUnusedFunction]
+        raise _Teapot
+
+    handle = install(app, enabled="ON", show_banner=False)
+    if failing_buffer:
+        monkeypatch.setattr(_buffer(handle), "add", _explode("secret-repository-message"))
+
+    resp = TestClient(app).get("/api/fail")
+    assert (resp.status_code, resp.text) == (418, "complete")
+
+
+@pytest.mark.parametrize("failing_buffer", [False, True], ids=["healthy-buffer", "failing-buffer"])
+def test_application_and_send_failures_propagate_unchanged(monkeypatch: pytest.MonkeyPatch, failing_buffer: bool):
+    # ported: BootUiHttpExchangesWebFilterTests.doesNotSwallowSynchronousApplicationOrApplicationCommitFailures
+    handle = _handle()
+    if failing_buffer:
+        monkeypatch.setattr(_buffer(handle), "add", _explode("secret-repository-message"))
+    application_failure = RuntimeError("application")
+    send_failure = OSError("commit")
+
+    async def raises_at_once(_scope: Scope, _receive: Receive, _send: Send) -> None:
+        raise application_failure
+
+    async def answers(_scope: Scope, _receive: Receive, send: Send) -> None:
+        await send(_start(200))
+
+    raising_call = _run(handle.context, raises_at_once, scope=_scope("/api/fail"))
+    with pytest.raises(RuntimeError) as application:
+        asyncio.run(raising_call)
+    assert application.value is application_failure
+    failing_send = _run(handle.context, answers, scope=_scope("/api/fail"), fail_start=send_failure)
+    with pytest.raises(OSError, match="commit") as commit:
+        asyncio.run(failing_send)
+    assert commit.value is send_failure
+
+
+@pytest.mark.parametrize("failing_step", ["mask_path", "request_id", "mail_wrapper", "first_request_hook"])
+def test_setup_failure_still_invokes_the_application_exactly_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failing_step: str
+):
+    # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce
+    # ported: BootUiHttpExchangesWebFilterTests.preparationFailuresStillInvokeTheApplicationExactlyOnce
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/api/orders")
+    def orders():
+        nonlocal calls
+        calls += 1
+        return {"orders": []}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    owner, name = {
+        "mask_path": (handle.context.masker, "mask_path"),
+        "request_id": (capture_mod, "new_request_id"),
+        "mail_wrapper": (capture_mod, "ensure_mail_wrapped"),
+        "first_request_hook": (wiring, "on_first_request"),
+    }[failing_step]
+    monkeypatch.setattr(owner, name, _explode("secret-metadata-message"))
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/api/orders")
+        assert resp.status_code == 200
+        assert resp.json() == {"orders": []}
+
+    assert calls == 1
+    assert _buffer(handle).rows() == []
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "request start" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-metadata-message" not in warnings[0]
+
+
+def test_a_setup_failure_leaves_no_trace_on_an_application_exception(monkeypatch: pytest.MonkeyPatch):
+    # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce (the failure stays unchanged)  # noqa: E501
+    handle = _handle()
+    monkeypatch.setattr(handle.context.masker, "mask_path", _explode("secret-metadata-message"))
+    failure = ValueError("application")
+
+    async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
+        raise failure
+
+    call = _run(handle.context, app, scope=_scope("/api/fail"))
+    with pytest.raises(ValueError) as raised:
+        asyncio.run(call)
+    assert raised.value is failure
+    assert raised.value.__context__ is None  # the setup failure's message must not ride along in the traceback
+
+
+def test_an_exception_from_sharpits_own_route_reaches_the_host_after_one_invocation(caplog: pytest.LogCaptureFixture):
+    # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce (one invocation)
+    handle = _handle()
+    failure = ValueError("own-route-failure")
+    calls = 0
+
+    async def own_route(_scope: Scope, _receive: Receive, send: Send) -> None:
+        nonlocal calls
+        calls += 1
+        await send(_start(200))
+        raise failure
+
+    sent: list[Message] = []
+    call = _run(handle.context, own_route, scope=_scope("/sharpit/api/boom"), sent=sent)
+    with caplog.at_level(logging.WARNING, logger="sharpit"), pytest.raises(ValueError) as raised:
+        asyncio.run(call)
+    assert raised.value is failure
+    assert calls == 1
+    assert len(_starts(sent)) == 1
+    assert not any("request start" in w for w in _warnings(caplog))
+
+
+@pytest.mark.parametrize("failing_step", ["first_request_hook", "mail_wrapper"])
+def test_a_setup_failure_never_passes_a_forged_probe_header_to_the_host(
+    monkeypatch: pytest.MonkeyPatch, failing_step: str
+):
+    app = FastAPI()
+
+    @app.get("/echo")
+    def echo(request: Request) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+        return {"probe": request.headers.get("x-sharpit-probe")}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    owner, name = (
+        (wiring, "on_first_request") if failing_step == "first_request_hook" else (capture_mod, "ensure_mail_wrapped")
+    )
+    monkeypatch.setattr(owner, name, _explode("setup"))
+
+    resp = TestClient(app).get("/echo", headers={"X-Sharpit-Probe": "1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"probe": None}
+
+
+@pytest.mark.parametrize(
+    ("extensions", "headers"),
+    [
+        ("invalid-extensions", [(b"host", b"localhost"), (b"x-sharpit-probe", b"1")]),
+        ({}, [(b"host", b"localhost"), (b"x-sharpit-probe", b"1", b"extra")]),
+    ],
+    ids=["non-dict-extensions", "3-tuple-header"],
+)
+def test_malformed_scope_probe_strip_fails_open_calling_app_once(
+    caplog: pytest.LogCaptureFixture, extensions: Any, headers: list[Any]
+):
+    handle = _handle()
+    calls = 0
+    passed_scope: Scope | None = None
+
+    async def app(scope: Scope, _receive: Receive, send: Send) -> None:
+        nonlocal calls, passed_scope
+        calls += 1
+        passed_scope = scope
+        await send(_start(200))
+
+    scope = _scope("/api/orders", headers=headers, extensions=extensions)
+    raised: Exception | None = None
+    sent: list[Message] = []
+    try:
+        sent = asyncio.run(_run(handle.context, app, scope=scope))
+    except Exception as exc:
+        raised = exc
+
+    assert raised is None
+    assert calls == 1
+    assert len(_starts(sent)) == 1
+    assert passed_scope is not None
+    assert not any(
+        isinstance(h, (tuple, list)) and len(h) >= 1 and h[0] == capture_mod.PROBE_HEADER
+        for h in passed_scope.get("headers", ())
+    )
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "request start" in warnings[0]
+
+
+def test_forged_probe_header_stripped_when_capture_hook_suspended():
+    app = FastAPI()
+
+    @app.get("/probe-check")
+    def probe_check(request: Request) -> dict[str, Any]:
+        return {"probe": request.headers.get("x-sharpit-probe")}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    wiring.suspended_hooks.add(capture_mod.HOOK_CAPTURE_MIDDLEWARE)
+
+    client = TestClient(app)
+    resp = client.get("/probe-check", headers={"X-Sharpit-Probe": "forged-client-value"})
+    assert resp.status_code == 200
+    assert resp.json() == {"probe": None}
+
+
+def test_route_template_non_attribute_error_still_records_exchange_and_journal(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    app = FastAPI()
+
+    @app.get("/items/{item_id}")
+    def get_item(item_id: int):
+        return {"item_id": item_id}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    monkeypatch.setattr(capture_mod, "_route_template", _explode("route template lookup failed"))
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/items/42")
+        assert resp.status_code == 200
+        assert resp.json() == {"item_id": 42}
+
+    buffer = _buffer(handle)
+    rows = buffer.rows()
+    assert len(rows) == 1
+    assert rows[0]["status"] == 200
+
+    journal = handle.context.capture.journal
+    assert journal is not None
+    events = [e for e in journal.records("http") if e.get("type") == "http" or "status" in e]
+    assert len(events) == 1
+    assert events[0]["status"] == 200
+
+    warnings = _warnings(caplog)
+    assert any("request end" in w and "RuntimeError" in w for w in warnings)
+
+
+def test_exception_store_record_failure_still_records_exchange_and_journal_and_cleans_up(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    app = FastAPI()
+
+    @app.get("/api/crash")
+    def crash():
+        raise ValueError("endpoint blew up")
+
+    handle = install(app, enabled="ON", show_banner=False)
+    store = handle.context.capture.exceptions
+    assert store is not None
+
+    forgotten_ids: list[str] = []
+    real_forget = store.forget_request
+
+    def track_forget(request_id: str) -> None:
+        forgotten_ids.append(request_id)
+        real_forget(request_id)
+
+    monkeypatch.setattr(store, "record", _explode("exception store record failed"))
+    monkeypatch.setattr(store, "forget_request", track_forget)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"), pytest.raises(ValueError, match="endpoint blew up"):
+        client.get("/api/crash")
+
+    buffer = _buffer(handle)
+    rows = buffer.rows()
+    assert len(rows) == 1
+    assert rows[0]["status"] == 500
+
+    journal = handle.context.capture.journal
+    assert journal is not None
+    events = [e for e in journal.records("http") if e.get("type") == "http" or "status" in e]
+    assert len(events) == 1
+    assert events[0]["status"] == 500
+
+    assert len(forgotten_ids) == 1
+    warnings = _warnings(caplog)
+    assert any("request end" in w and "RuntimeError" in w for w in warnings)
+
+
+def test_a_capture_clock_failure_on_the_last_chunk_still_serves_the_response(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: BootUiHttpExchangesWebFilterTests.callbackRegistrationFailureStillServesTheResponse
+    # adapted: only the capture clock of the response stamp fails (once); the row is still recorded at request end
+    app = FastAPI()
+    fired: list[bool] = []
+
+    def failing_once() -> int:
+        if not fired:
+            fired.append(True)
+            raise RuntimeError("secret-send-message")
+        return time.perf_counter_ns()
+
+    class _TimeProxy:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(time, name)
+
+    @app.get("/download")
+    def download():
+        proxy = _TimeProxy()
+        proxy.perf_counter_ns = failing_once  # type: ignore[method-assign]
+        monkeypatch.setattr(capture_mod, "time", proxy)
+        return Response(content="complete", status_code=200, media_type="text/plain")
+
+    handle = install(app, enabled="ON", show_banner=False)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/download")
+        assert resp.status_code == 200
+        assert resp.text == "complete"
+
+    assert fired == [True]
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "hook response failed" in warnings[0]
+    assert "RuntimeError" in warnings[0]
+    assert "secret-send-message" not in warnings[0]
+    assert [row["status"] for row in _buffer(handle).rows()] == [200]
+
+
+def _fail_recording_of(
+    monkeypatch: pytest.MonkeyPatch, buffer: HttpExchangeBuffer, *, metadata: str, repository: str
+) -> dict[str, int]:
+    """Make the row assembly fail for a request path ending ``metadata`` and ``buffer.add`` for one ending
+    ``repository``; every other exchange is recorded as usual. The counts say that each failure really ran."""
+    failures = {"metadata": 0, "repository": 0}
+    real_exchange_row, real_add = capture_mod.exchange_row, buffer.add
+
+    def exchange_row(*args: Any, path: str, **kwargs: Any) -> dict[str, Any]:
+        if path.endswith(metadata):
+            failures["metadata"] += 1
+            raise RuntimeError("secret-capture-message")
+        return real_exchange_row(*args, path=path, **kwargs)
+
+    def add(row: dict[str, Any]) -> None:
+        if row["path"].endswith(repository):
+            failures["repository"] += 1
+            raise RuntimeError("secret-capture-message")
+        real_add(row)
+
+    monkeypatch.setattr(capture_mod, "exchange_row", exchange_row)
+    monkeypatch.setattr(buffer, "add", add)
+    return failures
+
+
+def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # ported: SpringHttpExchangeStreamingTest.streamsTheFullPdfDespiteMalformedMetadataAndRepositoryFailures
+    # ported: WebFluxHttpExchangeStreamingTest.streamsTheFullPdfDespiteARepositoryFailureDuringCommit  # noqa: E501
+    app = FastAPI()
+    body = b"%PDF-1.4\n" + b"x" * 200_000
+
+    @app.get("/api/recording-stream/{anomaly}")
+    def stream_pdf(anomaly: str):  # pyright: ignore[reportUnusedFunction]
+        def generate():
+            chunk_size = 16384
+            for i in range(0, len(body), chunk_size):
+                yield body[i : i + chunk_size]
+
+        return StreamingResponse(generate(), media_type="application/pdf")
+
+    handle = install(app, enabled="ON", show_banner=False)
+    buffer = _buffer(handle)
+    failures = _fail_recording_of(monkeypatch, buffer, metadata="/metadata", repository="/repository")
+
+    async def stream_all() -> dict[str, list[Message]]:
+        answers: dict[str, list[Message]] = {}
+        for anomaly in ("normal", "metadata", "repository"):
+            answers[anomaly] = await _run(None, app, scope=_scope(f"/api/recording-stream/{anomaly}"), wrap=False)
+        return answers
+
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        answers = asyncio.run(stream_all())
+
+    for anomaly, sent in answers.items():
+        (start,) = _starts(sent)
+        assert start["status"] == 200, anomaly
+        assert (b"content-type", b"application/pdf") in start["headers"], anomaly
+        assert b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body") == body, anomaly
+    assert failures == {"metadata": 1, "repository": 1}
+    assert [(row["path"], row["status"], row["responseSizeBytes"]) for row in buffer.rows()] == [
+        ("/api/recording-stream/normal", 200, len(body))
+    ]
+    warnings = _warnings(caplog)
+    assert not any("secret-capture-message" in w for w in warnings)
+    assert [("request end" in w, "RuntimeError" in w) for w in warnings] == [(True, True)]
 
 
 # --- wiring ---------------------------------------------------------------------------------------------------------
