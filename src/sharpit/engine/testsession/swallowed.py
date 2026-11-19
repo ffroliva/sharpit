@@ -171,6 +171,15 @@ def _shape(node: ast.AST) -> str:
     return "".join(out)
 
 
+def _child_scope(name: str, scope: str, in_function: bool, declared: frozenset[str]) -> str:
+    """The qualified name CPython gives a def or class named ``name`` inside ``scope``."""
+    if name in declared:  # a nested def declared ``global`` is a module-level name
+        return name
+    if in_function:
+        return f"{scope}.<locals>.{name}"
+    return name if scope == "<module>" else f"{scope}.{name}"
+
+
 def _sites(tree: ast.AST, module: _Module) -> _Sites:
     """The module's broad clauses with the scope that holds each: the qualified name CPython gives its code object. Only
     ``ast.Try`` clauses count (not ``except*``), as for the static advisors."""
@@ -180,12 +189,7 @@ def _sites(tree: ast.AST, module: _Module) -> _Sites:
         node, scope, in_function, declared = pending.pop()
         for child in ast.iter_child_nodes(node):
             if isinstance(child, _SCOPES):
-                if child.name in declared:
-                    name = child.name
-                elif in_function:
-                    name = f"{scope}.<locals>.{child.name}"
-                else:
-                    name = child.name if scope == "<module>" else f"{scope}.{child.name}"
+                name = _child_scope(child.name, scope, in_function, declared)
                 pending.append((child, name, not isinstance(child, ast.ClassDef), _declared_global(child)))
                 continue
             if isinstance(child, ast.Try):
