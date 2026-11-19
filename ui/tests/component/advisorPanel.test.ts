@@ -30,7 +30,7 @@ let component: ReturnType<typeof mount> | null = null;
 let props: Record<string, any> = {};
 function render(over: Record<string, unknown>) {
   props = {
-    title: 'REST API', report: scanned(), loadError: null, readOnlyReason: null,
+    title: 'REST API', report: scanned(), loadError: null,
     onScan: vi.fn(async () => {}), onDismiss: vi.fn(async () => {}), onRestore: vi.fn(async () => {}),
     loadViolations: vi.fn(async () => ({ violations: [], page: { hasMore: false, offset: 0, returned: 0 } })),
     ...over,
@@ -107,7 +107,7 @@ it('a failed dismiss reports the action error and keeps the report', async () =>
 });
 
 it('read-only: Scan and Dismiss are disabled and the reason is shown', () => {
-  render({ readOnlyReason: 'Read-only: SHARPIT_READ_ONLY=true' });
+  render({ panel: { id: 'rest-api', readOnly: true, readOnlyReason: 'Read-only: SHARPIT_READ_ONLY=true' } });
   expect(text()).toContain('Read-only: SHARPIT_READ_ONLY=true');
   expect(button(/^Scan/).disabled).toBe(true);
   expect(button(/^Dismiss RAPI-NAME-001/).disabled).toBe(true);

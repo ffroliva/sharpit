@@ -1,15 +1,22 @@
 import ast
+import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from bootui_tools import BOOTUI, BOOTUI_TOOLS
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.tools import COMMANDS, TOOLS
 
+ROOT = Path(__file__).parents[1]
+FIXTURE_CURRENT = ROOT / "fixtures" / "bootui" / "2.4.0" / "tools.json"
+FIXTURE_PREVIOUS = ROOT / "fixtures" / "bootui" / "2.3.0" / "tools.json"
+BOOTUI_TOOLS = json.loads(FIXTURE_CURRENT.read_text("utf-8"))["tools"]
+BOOTUI_TOOLS_PREVIOUS = json.loads(FIXTURE_PREVIOUS.read_text("utf-8"))["tools"]
+BOOTUI = {tool["name"]: tool for tool in BOOTUI_TOOLS}
 SHARPIT = {tool.name: tool for tool in TOOLS}
 
 
@@ -69,6 +76,8 @@ MATCHED_TOOLS = (
     "get_copilot_sessions",
     "get_claude_code_sessions",
     "get_github_dashboard",
+    "get_runtime_insights",
+    "get_runtime_insight",
 )
 PARTIAL_TOOLS = (
     "get_live_activity",
@@ -111,8 +120,6 @@ MISSING_TOOLS = (
     "get_http_sessions",
     "get_runtime_run_comparison",
     "get_runtime_impact",
-    "get_runtime_insights",
-    "get_runtime_insight",
     "get_jms_activity",
     "get_jvm_tuning",
     "get_kafka_activity",
@@ -182,8 +189,10 @@ pytestmark = [
     pytest.mark.bootui("cli:exceptions list"),
     pytest.mark.bootui("cli:exceptions show"),
     pytest.mark.bootui("cli:github"),
-    pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:health"),
+    pytest.mark.bootui("cli:insights list"),
+    pytest.mark.bootui("cli:insights show"),
+    pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:overview"),
     pytest.mark.bootui("cli:profile diff"),
     pytest.mark.bootui("cli:request-profile"),
@@ -227,6 +236,8 @@ pytestmark = [
     pytest.mark.bootui("tool:get_profile_diff"),
     pytest.mark.bootui("tool:get_request_profile"),
     pytest.mark.bootui("tool:get_rest_api_report"),
+    pytest.mark.bootui("tool:get_runtime_insight"),
+    pytest.mark.bootui("tool:get_runtime_insights"),
     pytest.mark.bootui("tool:get_security_report"),
     pytest.mark.bootui("tool:get_startup_timeline"),
     pytest.mark.bootui("tool:get_scheduled_tasks"),
@@ -273,7 +284,7 @@ def test_bootui_marks_equal_the_matched_rows() -> None:
 
 
 @pytest.mark.parametrize("name", MATCHED_TOOLS, ids=lambda name: f"tool:{name}")
-def test_tool_catalogue_matches_bootui_23(name: str) -> None:
+def test_tool_catalogue_matches_bootui(name: str) -> None:
     local, oracle = SHARPIT[name], BOOTUI[name]
     assert local.name == oracle["name"]
     assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
@@ -283,7 +294,7 @@ def test_tool_catalogue_matches_bootui_23(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", FLOOR_TOOLS, ids=lambda name: f"tool:{name}")
-def test_floor_tool_catalogue_matches_bootui_23(name: str) -> None:
+def test_floor_tool_catalogue_matches_bootui(name: str) -> None:
     local, oracle = SHARPIT[name], BOOTUI[name]
     assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
     assert local.default_limit == oracle.get("defaultLimit")
@@ -334,6 +345,99 @@ def test_cli_path_maps_to_bootui_tool(command: str, name: str) -> None:
     assert local["panel"] == oracle["panel"]
 
 
-def test_cli_default_limit_matches_bootui_23() -> None:
+def test_cli_default_limit_matches_bootui() -> None:
     # CliServerStatus exposes the effective CLI result limit, not each tool's input defaultLimit.
     assert _client().get("/sharpit/api/cli").json()["maxResults"] == 200
+
+
+# Tool descriptions: sharpit words most descriptions for Python, so only these tools carry BootUI's text byte for byte.
+DESCRIPTION_MATCHED = (
+    "disable_low_footprint",
+    "get_github_dashboard",
+    "get_loggers",
+    "get_low_footprint",
+    "get_mappings",
+    "get_metrics",
+    "get_postgresql_report",
+    "get_profile_diff",
+)
+# Tools whose description or summary BootUI changed from 2.3.0 to 2.4.0 and that sharpit has not adopted yet.
+# Each value is the lane that closes the gap by moving the tool into DESCRIPTION_ADOPTED.
+DESCRIPTION_GAPS = {
+    "get_security_report": "A3",
+    "get_transactions": "A2",
+    "security_scan": "A3",
+}
+# Tools whose 2.4.0 description or summary a lane has adopted.
+DESCRIPTION_ADOPTED: tuple[str, ...] = (
+    "get_exceptions",
+    "get_runtime_insight",
+    "get_runtime_insights",
+)
+MATCHED_TOOLS_PIN = 38  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
+
+
+@pytest.mark.parametrize("name", DESCRIPTION_MATCHED)
+def test_description_equals_bootui(name: str) -> None:
+    assert SHARPIT[name].description == BOOTUI[name]["description"]
+
+
+def test_description_matched_is_complete() -> None:
+    byte_equal = {
+        name for name, tool in SHARPIT.items() if name in BOOTUI and tool.description == BOOTUI[name]["description"]
+    }
+    assert set(DESCRIPTION_MATCHED) == byte_equal
+
+
+def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
+    previous = {tool["name"]: tool for tool in BOOTUI_TOOLS_PREVIOUS}
+    changed = {
+        name
+        for name, tool in BOOTUI.items()
+        if name not in previous
+        or (tool["description"], tool.get("summary")) != (previous[name]["description"], previous[name].get("summary"))
+    }
+    assert set(DESCRIPTION_GAPS) | set(DESCRIPTION_ADOPTED) == changed
+    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_ADOPTED))
+    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_MATCHED))
+
+
+def test_matched_tools_ratchet() -> None:
+    """Pinned count a lane raises when it closes a row; lowering a pin needs its reason in the PR body."""
+    assert len(MATCHED_TOOLS) == MATCHED_TOOLS_PIN
+
+
+def _added_sentences(name: str) -> list[str]:
+    previous = next(t for t in BOOTUI_TOOLS_PREVIOUS if t["name"] == name)["description"]
+    current = BOOTUI[name]["description"]
+
+    def sentences(text: str) -> list[str]:
+        return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+
+    prev_set = set(sentences(previous))
+    return [s for s in sentences(current) if s not in prev_set]
+
+
+# Pinned sentence checks for adopted tools where exact BootUI wording cannot be taken verbatim
+# (e.g. tool relies on Java agent sensors or CLI-only semantics that sharpit adapts).
+ADOPTED_PINNED_CHECKS: dict[str, tuple[str, ...]] = {
+    "get_exceptions": (
+        "Without a caught-exceptions sensor, caughtInCode is null; "
+        "insufficient and partial are evidence states, not findings.",
+        "totalExceptions counts the occurrences in the retained groups, "
+        "reset via CLI exceptions clear (clear_exceptions is refused over MCP).",
+    ),
+}
+
+
+# ported: McpToolDescriptionsTests.runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates (BootUI 2.4.0)
+@pytest.mark.parametrize("name", DESCRIPTION_ADOPTED)
+def test_adopted_tool_descriptions_contain_2_4_0_changes(name: str) -> None:
+    description = SHARPIT[name].description
+    if name in ADOPTED_PINNED_CHECKS:
+        for pinned_sentence in ADOPTED_PINNED_CHECKS[name]:
+            assert pinned_sentence in description
+    else:
+        for sentence in _added_sentences(name):
+            adapted = sentence.replace("BootUI", "sharpit").replace("bootui", "sharpit")
+            assert adapted in description

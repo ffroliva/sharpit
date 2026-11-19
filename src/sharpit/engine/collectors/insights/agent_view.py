@@ -307,7 +307,21 @@ def agent_list(report: Row, query: str | None, limit: int | None, steps: Steps) 
         unavailable = _Next(steps).ask(
             "get_config", "query", JOURNAL_SETTINGS, "whether the runtime journal is enabled"
         )
-        return _list(False, report["unavailableReason"], asked, 0, [], [], [], 0, [], 0, [], unavailable.rows)
+        return _list(
+            False,
+            report["unavailableReason"],
+            asked,
+            0,
+            [],
+            [],
+            [],
+            0,
+            [],
+            0,
+            [],
+            unavailable.rows,
+            incomplete=(0, 0),
+        )
     matching = [o for o in report["observations"] if _matches(o, asked)]
 
     def exact(row: Row) -> bool:  # a subject named exactly lists first, and its lead row is the one followed up
@@ -324,23 +338,27 @@ def agent_list(report: Row, query: str | None, limit: int | None, steps: Steps) 
         _follow(follow, lead, True)
     shown = min(MAX_NOT_EXERCISED, len(report["notExercised"]))
     steps_out = asks.then(follow) if asked.lower() == "diff" else follow.then(asks)
+    counts = Counter(o["status"] for o in matching)
     return _list(
         True, None, asked, requests, report["coverage"], _checks_not_run(report["checks"]),
         [_compact(o) for o in listed], len(matching) - len(listed), report["notExercised"][:shown],
         len(report["notExercised"]) - shown + report["notExercisedOmitted"], limitations, steps_out,
+        incomplete=(counts["INSUFFICIENT"], counts["PARTIAL"]),
     )  # fmt: skip
 
 
 def _list(
     available: bool, reason: object, query: str, requests: int, coverage: list[Row], not_run: list[str],
     observations: list[Row], omitted: int, not_exercised: list[str], not_exercised_omitted: int,
-    limitations: list[str], next_steps: list[Row],
+    limitations: list[str], next_steps: list[Row], *, incomplete: tuple[int, int],
 ) -> Row:  # fmt: skip
+    """``incomplete`` is (INSUFFICIENT, PARTIAL) over every matching observation, rows cut by the limit included."""
+    insufficient, partial = incomplete
     return {
         "available": available, "unavailableReason": reason, "query": query, "requests": requests,
         "coverage": coverage, "checksNotRun": not_run, "observations": observations, "omitted": omitted,
         "notExercised": not_exercised, "notExercisedOmitted": not_exercised_omitted, "limitations": limitations,
-        "next": next_steps,
+        "next": next_steps, "insufficient": insufficient, "partial": partial,
     }  # fmt: skip
 
 

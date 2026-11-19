@@ -1,7 +1,7 @@
-"""Validation tests for captured BootUI 2.3.0 tracker fixtures.
+"""Validation tests for captured BootUI tracker fixtures (2.3.0 and 2.4.0).
 
 Verifies provenance, pinned commit, scoped build command, JDK record,
-and completeness against BootUI v2.3.0 source contracts.
+and completeness against BootUI v2.3.0 and v2.4.0 source contracts.
 """
 
 from __future__ import annotations
@@ -13,9 +13,16 @@ from pathlib import Path
 
 import pytest
 
-FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "bootui" / "2.3.0"
-PINNED_COMMIT = "7c89042c6a0a47e1cb22d2df7412d2177d7416d1"
-PINNED_TAG = "v2.3.0"
+FIXTURES_BASE = Path(__file__).parent / "fixtures" / "bootui"
+VERSIONS = ("2.3.0", "2.4.0")
+PINNED_COMMITS = {
+    "2.3.0": "7c89042c6a0a47e1cb22d2df7412d2177d7416d1",
+    "2.4.0": "0df7ed764688d04f83c246c9965e90158c1db488",
+}
+PINNED_TAGS = {
+    "2.3.0": "v2.3.0",
+    "2.4.0": "v2.4.0",
+}
 
 REQUIRED_FIXTURES = (
     "meta.json",
@@ -28,9 +35,32 @@ REQUIRED_FIXTURES = (
     "bootui-tests.json",
 )
 
+EXPECTED_COUNTS = {
+    "2.3.0": {
+        "reads": 82,
+        "actions": 78,
+        "testClasses": 1109,
+        "testMethods": 10646,
+    },
+    "2.4.0": {
+        "reads": 82,
+        "actions": 78,
+        "testClasses": 1128,
+        "testMethods": 10927,
+    },
+}
 
-def _load_json(filename: str) -> dict | list:
-    path = FIXTURES_ROOT / filename
+TOTAL_CLASSES = {"2.3.0": 1109, "2.4.0": 1128}
+TOTAL_SIMPLE_NAMES = {"2.3.0": 1106, "2.4.0": 1125}
+
+RECONCILIATION_COUNTS = {
+    "2.3.0": {"union": 619, "rules": 603, "exclusions": 42, "additions": 26},
+    "2.4.0": {"union": 621, "rules": 604, "exclusions": 43, "additions": 26},
+}
+
+
+def _load_json(filename: str, version: str = "2.3.0") -> dict | list:
+    path = FIXTURES_BASE / version / filename
     assert path.is_file(), f"Missing required fixture file: {path}"
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -84,17 +114,20 @@ def _assert_route_completeness(routes: dict, expected_counts: dict) -> None:
     )
 
 
-def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> None:
-    """S1: Prove BootUI 2.3.0 fixtures record full commit, exact commands, JDK and complete catalog."""
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_fixtures_record_pin_command_and_catalog_completeness(version: str) -> None:
+    """Prove BootUI fixtures record full commit, exact commands, JDK and complete catalog."""
     # 1. Metadata provenance
-    meta_path = FIXTURES_ROOT / "meta.json"
+    meta_path = FIXTURES_BASE / version / "meta.json"
     assert meta_path.is_file(), f"Missing fixture metadata at {meta_path}"
 
-    meta = _load_json("meta.json")
+    meta = _load_json("meta.json", version)
     assert isinstance(meta, dict), "meta.json must be a JSON object"
-    assert meta.get("commit") == PINNED_COMMIT, f"Expected commit {PINNED_COMMIT}, got {meta.get('commit')}"
-    assert meta.get("tag") == PINNED_TAG, f"Expected tag {PINNED_TAG}, got {meta.get('tag')}"
-    assert meta.get("bootuiVersion") == "2.3.0", f"Expected bootuiVersion 2.3.0, got {meta.get('bootuiVersion')}"
+    assert meta.get("commit") == PINNED_COMMITS[version], (
+        f"Expected commit {PINNED_COMMITS[version]}, got {meta.get('commit')}"
+    )
+    assert meta.get("tag") == PINNED_TAGS[version], f"Expected tag {PINNED_TAGS[version]}, got {meta.get('tag')}"
+    assert meta.get("bootuiVersion") == version, f"Expected bootuiVersion {version}, got {meta.get('bootuiVersion')}"
     assert "command" in meta, "meta.json must record the exact capture command"
     assert "mavenCommand" in meta, "meta.json must record the scoped Maven build command"
     assert "mvn -pl bootui-spring-boot-starter -am -DskipTests" in str(meta.get("mavenCommand")), (
@@ -104,10 +137,10 @@ def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> Non
 
     # 2. All 8 required fixtures exist
     for filename in REQUIRED_FIXTURES:
-        assert (FIXTURES_ROOT / filename).is_file(), f"Missing fixture file: {filename}"
+        assert (FIXTURES_BASE / version / filename).is_file(), f"Missing fixture file: {filename}"
 
     # 3. Panels catalog completeness
-    panels_data = _load_json("panels.json")
+    panels_data = _load_json("panels.json", version)
     assert isinstance(panels_data, dict), "panels.json must be a JSON object"
     panels = panels_data.get("panels", [])
     assert len(panels) >= 50, f"Expected >= 50 panels, got {len(panels)}"
@@ -123,7 +156,7 @@ def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> Non
         assert "apiPrefixes" in p
 
     # 4. Routes catalog and cross-check completeness
-    routes_data = _load_json("routes.json")
+    routes_data = _load_json("routes.json", version)
     assert isinstance(routes_data, dict), "routes.json must be a JSON object"
     reads = routes_data.get("reads", [])
     actions = routes_data.get("actions", [])
@@ -135,7 +168,7 @@ def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> Non
     assert "gaps" in cross_check, "routes.json cross-check must record gaps"
 
     # 5. Tools catalog completeness
-    tools_data = _load_json("tools.json")
+    tools_data = _load_json("tools.json", version)
     assert isinstance(tools_data, dict), "tools.json must be a JSON object"
     tools = tools_data.get("tools", [])
     assert len(tools) >= 50, f"Expected >= 50 tools, got {len(tools)}"
@@ -156,16 +189,16 @@ def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> Non
             assert annotations["idempotentHint"] is True, f"Read tool {t['name']} must have idempotentHint=True"
 
     # 6. Rule IDs and diff completeness
-    rule_ids_data = _load_json("rule-ids.json")
+    rule_ids_data = _load_json("rule-ids.json", version)
     assert isinstance(rule_ids_data, dict), "rule-ids.json must be a JSON object"
     rules = rule_ids_data.get("rules", [])
     assert len(rules) >= 50, f"Expected >= 50 rules, got {len(rules)}"
-    diff_data = _load_json("rule-ids-diff.json")
+    diff_data = _load_json("rule-ids-diff.json", version)
     assert isinstance(diff_data, dict), "rule-ids-diff.json must be a JSON object"
     assert "explanations" in diff_data, "rule-ids-diff.json must explain diffs"
 
     # 7. Properties completeness
-    props_data = _load_json("properties.json")
+    props_data = _load_json("properties.json", version)
     assert isinstance(props_data, dict), "properties.json must be a JSON object"
     properties = props_data.get("properties", [])
     assert len(properties) == 209, f"Expected 209 properties, got {len(properties)}"
@@ -176,21 +209,21 @@ def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> Non
         assert "type" in p
 
     # 8. BootUI tests completeness
-    tests_data = _load_json("bootui-tests.json")
+    tests_data = _load_json("bootui-tests.json", version)
     assert isinstance(tests_data, dict), "bootui-tests.json must be a JSON object"
     test_classes = tests_data.get("testClasses", {})
     assert len(test_classes) >= 100, f"Expected >= 100 test classes, got {len(test_classes)}"
 
 
-def test_bootui_23_panels_catalog_exactness() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_panels_catalog_exactness(version: str) -> None:
     """Verifies panels catalog contains all 65 panels matching BootUiPanels.java."""
-    panels_data = _load_json("panels.json")
+    panels_data = _load_json("panels.json", version)
     assert isinstance(panels_data, dict)
     panels = panels_data["panels"]
     assert len(panels) == 65
     panel_map = {p["id"]: p for p in panels}
 
-    # Verify specific key panels and their actionCapable flags
     assert panel_map["overview"]["title"] == "Scorecard"
     assert panel_map["overview"]["actionCapable"] is False
     assert panel_map["overview"]["apiPrefixes"] == []
@@ -212,16 +245,16 @@ def test_bootui_23_panels_catalog_exactness() -> None:
     assert panel_map["cli"]["apiPrefixes"] == []
 
 
-def test_bootui_23_tools_mcp_annotations_and_schemas() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_tools_mcp_annotations_and_schemas(version: str) -> None:
     """Verifies all 116 tools have complete MCP annotations and expanded input schemas."""
-    tools_data = _load_json("tools.json")
+    tools_data = _load_json("tools.json", version)
     assert isinstance(tools_data, dict)
     tools = tools_data["tools"]
     assert len(tools) == 116
 
     tool_map = {t["name"]: t for t in tools}
 
-    # Verify read tool annotations
     overview_tool = tool_map["get_overview"]
     assert overview_tool["action"] is False
     assert overview_tool["annotations"]["readOnlyHint"] is True
@@ -229,18 +262,15 @@ def test_bootui_23_tools_mcp_annotations_and_schemas() -> None:
     assert overview_tool["annotations"]["idempotentHint"] is True
     assert overview_tool["annotations"]["openWorldHint"] is False
 
-    # Verify action tool annotations
     scan_tool = tool_map["vulnerabilities_scan"]
     assert scan_tool["action"] is True
     assert scan_tool["annotations"]["readOnlyHint"] is False
-    assert scan_tool["annotations"]["openWorldHint"] is True  # OSV.dev network call
+    assert scan_tool["annotations"]["openWorldHint"] is True
 
-    # Verify destructive action tool
     clear_tool = tool_map["clear_sql_traces"]
     assert clear_tool["action"] is True
     assert clear_tool["annotations"]["destructiveHint"] is True
 
-    # Verify compact answer default limit
     vuln_report_tool = tool_map["get_vulnerabilities_report"]
     assert vuln_report_tool.get("defaultLimit") == 10
 
@@ -248,22 +278,23 @@ def test_bootui_23_tools_mcp_annotations_and_schemas() -> None:
     assert thread_snap_tool.get("defaultLimit") == 6
 
 
-def test_bootui_23_tool_default_limits_match_tag_constants() -> None:
-    tools = _load_json("tools.json")["tools"]
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_tool_default_limits_match_tag_constants(version: str) -> None:
+    tools = _load_json("tools.json", version)["tools"]
     limits = {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}
     assert limits["get_metrics"] == 25
     assert limits["get_log_tail"] == 50
     assert limits["get_startup_timeline"] == 25
 
 
-def test_bootui_23_properties_hand_filled_citations() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_properties_hand_filled_citations(version: str) -> None:
     """Verifies hand-filled properties cite BootUiProperties.java line numbers."""
-    props_data = _load_json("properties.json")
+    props_data = _load_json("properties.json", version)
     assert isinstance(props_data, dict)
     properties = props_data["properties"]
     prop_map = {p["name"]: p for p in properties}
 
-    # Verify hand-filled properties cite BootUiProperties.java lines
     assert "bootui.enabled-profiles" in prop_map
     enabled_prof = prop_map["bootui.enabled-profiles"]
     assert enabled_prof["defaultValue"] == ["dev", "local"]
@@ -285,9 +316,10 @@ def test_bootui_23_properties_hand_filled_citations() -> None:
     assert "BootUiProperties.java" in cli_timeout["defaultValueSource"]
 
 
-def test_bootui_23_tests_catalog_resolves_ported_citations() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_tests_catalog_resolves_ported_citations(version: str) -> None:
     """Verifies test catalog resolves ported BootUI test citations."""
-    tests_data = _load_json("bootui-tests.json")
+    tests_data = _load_json("bootui-tests.json", version)
     assert isinstance(tests_data, dict)
     test_classes = tests_data["testClasses"]
 
@@ -300,9 +332,10 @@ def test_bootui_23_tests_catalog_resolves_ported_citations() -> None:
     assert "enabledOffForcesDisabled" in methods
 
 
-def test_bootui_23_rule_ids_diff_has_all_explanations() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_rule_ids_diff_has_all_explanations(version: str) -> None:
     """Verifies rule-ids-diff.json has an explanation for every single diff entry."""
-    diff_data = _load_json("rule-ids-diff.json")
+    diff_data = _load_json("rule-ids-diff.json", version)
     assert isinstance(diff_data, dict)
     in_doc_only = diff_data["inDocOnly"]
     in_java_only = diff_data["inJavaOnly"]
@@ -317,19 +350,22 @@ def test_bootui_23_rule_ids_diff_has_all_explanations() -> None:
         assert len(explanations[rid]) > 0
 
 
-def test_bootui_23_fixtures_reject_incomplete_catalogs_and_machine_paths() -> None:
-    meta = _load_json("meta.json")
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_fixtures_reject_incomplete_catalogs_and_machine_paths(version: str) -> None:
+    meta = _load_json("meta.json", version)
     assert "javaVersionOutput" in meta, "metadata must record actual java -version output"
     assert "mavenVersionOutput" in meta, "metadata must record actual mvn -v output"
     assert "settingsOverride" in meta, "metadata must record the Maven settings override"
-    assert meta["counts"]["reads"] == 82
-    assert meta["counts"]["actions"] == 78
-    assert meta["counts"]["testClasses"] == 1109
-    assert meta["counts"]["testMethods"] == 10646
+    exp = EXPECTED_COUNTS[version]
+    assert meta["counts"]["reads"] == exp["reads"]
+    assert meta["counts"]["actions"] == exp["actions"]
+    assert meta["counts"]["testClasses"] == exp["testClasses"]
+    assert meta["counts"]["testMethods"] == exp["testMethods"]
 
 
-def test_bootui_capture_pin_check_is_not_an_optimizable_assert() -> None:
-    source = Path(__file__).parents[1] / "scripts" / "capture_bootui_23.py"
+@pytest.mark.parametrize("script_name", ["capture_bootui_23.py", "capture_bootui_24.py"])
+def test_bootui_capture_pin_check_is_not_an_optimizable_assert(script_name: str) -> None:
+    source = Path(__file__).parents[1] / "scripts" / script_name
     tree = ast.parse(source.read_text(encoding="utf-8"))
     guards = [
         node
@@ -339,36 +375,16 @@ def test_bootui_capture_pin_check_is_not_an_optimizable_assert() -> None:
     assert len(guards) == 1, "capture must explicitly compare the resolved commit to the pinned commit"
     guard = guards[0]
     assert any(isinstance(node, ast.Raise) for node in guard.body)
-    routes = _load_json("routes.json")
-    assert len(routes["reads"]) == 82
-    assert len(routes["actions"]) == 78
-    assert all(route["path"] != "/missing" for route in routes["reads"])
-    assert all(
-        "classification" in route or route.get("category") == "catalog-without-mapping"
-        for route in routes["crossCheck"]["gaps"]
-    )
-    tools = _load_json("tools.json")["tools"]
-    assert {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}["get_metrics"] == 25
-    assert {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}["get_log_tail"] == 50
-    props = {prop["name"] for prop in _load_json("properties.json")["properties"]}
-    assert "bootui.cli.max-payload-bytes" not in props
-    assert "bootui.cli.max-response-bytes" not in props
-    catalog = _load_json("bootui-tests.json")
-    assert all("." in name for name in catalog["testClasses"])
-    assert all(
-        "C:/development" not in rule["javaSource"]
-        for rule in _load_json("rule-ids.json")["rules"]
-        if rule.get("javaSource")
-    )
 
 
-def test_bootui_23_routes_are_complete_and_classified() -> None:
-    routes = _load_json("routes.json")
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_routes_are_complete_and_classified(version: str) -> None:
+    routes = _load_json("routes.json", version)
     reads = routes["reads"]
     actions = routes["actions"]
     cross_check = routes["crossCheck"]
     mappings = cross_check["starterMappings"]
-    meta = _load_json("meta.json")
+    meta = _load_json("meta.json", version)
     assert len(reads) == meta["counts"]["reads"]
     assert len(actions) == meta["counts"]["actions"]
     assert len(mappings) == meta["counts"]["starterMappings"]
@@ -386,41 +402,47 @@ def test_bootui_23_routes_are_complete_and_classified() -> None:
     ), "BootUI's dev-services restart inconsistency must be explicitly classified"
 
 
-def test_bootui_23_route_completeness_check_rejects_removed_route() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_route_completeness_check_rejects_removed_route(version: str) -> None:
     import shutil
     import tempfile
 
     with tempfile.TemporaryDirectory() as temp:
         copy = Path(temp) / "routes.json"
-        shutil.copy(FIXTURES_ROOT / "routes.json", copy)
+        shutil.copy(FIXTURES_BASE / version / "routes.json", copy)
         routes = json.loads(copy.read_text(encoding="utf-8"))
         routes["reads"].pop()
         copy.write_text(json.dumps(routes), encoding="utf-8")
         mutated = json.loads(copy.read_text(encoding="utf-8"))
-        counts = _load_json("meta.json")["counts"]
+        counts = _load_json("meta.json", version)["counts"]
         with pytest.raises(AssertionError, match="read route count changed"):
             _assert_route_completeness(mutated, counts)
 
 
-def test_bootui_23_fixtures_contain_no_machine_paths() -> None:
-    for path in FIXTURES_ROOT.glob("*.json"):
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_fixtures_contain_no_machine_paths(version: str) -> None:
+    for path in (FIXTURES_BASE / version).glob("*.json"):
         contents = path.read_text(encoding="utf-8")
         assert not re.search(r"(?<![A-Za-z0-9])[A-Za-z]:[/\\]", contents), f"Machine-specific path in {path.name}"
         assert "Files\\Amazon Corretto" not in contents, f"Machine-specific path in {path.name}"
+    rules_data = _load_json("rule-ids.json", version)
+    assert all("C:/development" not in rule["javaSource"] for rule in rules_data["rules"] if rule.get("javaSource"))
 
 
-def test_bootui_23_properties_exclude_nonexistent_cli_properties() -> None:
-    names = {prop["name"] for prop in _load_json("properties.json")["properties"]}
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_properties_exclude_nonexistent_cli_properties(version: str) -> None:
+    names = {prop["name"] for prop in _load_json("properties.json", version)["properties"]}
     assert "bootui.cli.max-payload-bytes" not in names
     assert "bootui.cli.max-response-bytes" not in names
 
 
-def test_bootui_23_test_catalog_is_fully_qualified_and_unambiguous() -> None:
-    catalog = _load_json("bootui-tests.json")
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_test_catalog_is_fully_qualified_and_unambiguous(version: str) -> None:
+    catalog = _load_json("bootui-tests.json", version)
     classes = catalog["testClasses"]
-    assert catalog["totalClasses"] == 1109
-    assert len(classes) == 1109
-    assert len(catalog["simpleNameIndex"]) == 1106
+    assert catalog["totalClasses"] == TOTAL_CLASSES[version]
+    assert len(classes) == TOTAL_CLASSES[version]
+    assert len(catalog["simpleNameIndex"]) == TOTAL_SIMPLE_NAMES[version]
     assert all(re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", name) for name in classes)
     for name in (
         "CodeInventoryServiceTests",
@@ -430,9 +452,10 @@ def test_bootui_23_test_catalog_is_fully_qualified_and_unambiguous() -> None:
     assert any(entry["ambiguous"] for entry in catalog["simpleNameIndex"].values())
 
 
-def test_bootui_23_retired_doc_rules_are_marked_and_explained() -> None:
-    rules = {rule["id"]: rule for rule in _load_json("rule-ids.json")["rules"]}
-    explanations = _load_json("rule-ids-diff.json")["explanations"]
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_retired_doc_rules_are_marked_and_explained(version: str) -> None:
+    rules = {rule["id"]: rule for rule in _load_json("rule-ids.json", version)["rules"]}
+    explanations = _load_json("rule-ids-diff.json", version)["explanations"]
     retired = [
         "MEM-CONTENT-004",
         "MEM-FOOTPRINT-004",
@@ -457,22 +480,25 @@ def test_bootui_23_retired_doc_rules_are_marked_and_explained() -> None:
     assert "ConfigMapping is recommended" in rules["QA-CFG-001"]["retiredExplanation"]
 
 
-def test_bootui_23_rule_id_independent_counter_is_reconciled() -> None:
-    rules_data = _load_json("rule-ids.json")
+@pytest.mark.parametrize("version", VERSIONS)
+def test_bootui_rule_id_independent_counter_is_reconciled(version: str) -> None:
+    rules_data = _load_json("rule-ids.json", version)
     reconciliation = rules_data["reconciliation"]
     exclusions = reconciliation["independentIdsExcluded"]
     additions = reconciliation["fixtureIdsOutsideIndependentCounter"]
-    assert reconciliation["independentUnionCount"] == 619
-    assert reconciliation["fixtureCount"] == len(rules_data["rules"]) == 603
-    assert len(exclusions) == 42
-    assert len(additions) == 26
+    exp = RECONCILIATION_COUNTS[version]
+    assert reconciliation["independentUnionCount"] == exp["union"]
+    assert reconciliation["fixtureCount"] == len(rules_data["rules"]) == exp["rules"]
+    assert len(exclusions) == exp["exclusions"]
+    assert len(additions) == exp["additions"]
     assert all(item["source"] and item["reason"] for item in [*exclusions, *additions])
     assert reconciliation["independentUnionCount"] == reconciliation["fixtureCount"] + len(exclusions) - len(additions)
 
 
-def test_catalog_includes_conformance_test_classes() -> None:
+@pytest.mark.parametrize("version", VERSIONS)
+def test_catalog_includes_conformance_test_classes(version: str) -> None:
     """The catalog lists test classes outside src/test, e.g. the bootui-conformance base classes in src/main."""
-    classes = _load_json("bootui-tests.json")["testClasses"]
+    classes = _load_json("bootui-tests.json", version)["testClasses"]
     name = "io.github.jdubois.bootui.conformance.AbstractMcpConformanceTest"
     assert name in classes, f"{name} is missing from the test catalog"
     methods = set(classes[name])

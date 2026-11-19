@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, post } from '../lib/api';
   import { ServerPage } from '../lib/paging';
+  import { panelActionReason } from '../lib/panelState';
   import { statusFamilyClass } from '../lib/status';
   import type { Mapping, Panel, ProbeResult } from '../lib/types';
 
@@ -63,7 +64,8 @@
     return out;
   }
 
-  async function send() {
+  export async function send() {
+    if (why) return;
     const headers = parseHeaders(headersText);
     failure = typeof headers === 'string' ? headers : null;
     if (typeof headers === 'string') return;
@@ -87,16 +89,16 @@
       return text;
     }
   };
-  const why = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined);
+  const why = $derived(panelActionReason(panel));
 </script>
 
-<PanelShell title="HTTP Probe" notice={panel.readOnly ? why : null}>
+<PanelShell {panel} title="HTTP Probe">
   <form class="form" onsubmit={(e) => (e.preventDefault(), void send())}>
     <div class="line">
       <select aria-label="Method" bind:value={method}>{#each METHODS as m}<option>{m}</option>{/each}</select>
       <input class="path" type="text" aria-label="Path" list="probe-routes" placeholder="/owners/1?expand=pets" bind:value={path} autocomplete="off" spellcheck="false" />
       <datalist id="probe-routes">{#each routes as r}<option value={r}></option>{/each}</datalist>
-      <button type="submit" class="primary" disabled={panel.readOnly || sending || !path} title={why}>{sending ? 'Sending…' : 'Send'}</button>
+      <button type="submit" class="primary" disabled={!!why || sending || !path} title={why ?? undefined}>{sending ? 'Sending…' : 'Send'}</button>
     </div>
     <div class="areas">
       <label>Headers <span class="muted sm">one per line, Name: value. Never saved.</span>

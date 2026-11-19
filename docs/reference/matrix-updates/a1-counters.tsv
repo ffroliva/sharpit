@@ -1,0 +1,7 @@
+tool:get_exceptions	matched	BootUI 2.4.0 description adopted: explains caughtInCode insufficient and partial evidence states and clear_exceptions CLI reset (refused over MCP); tests/parity/test_tools_parity.py
+tool:get_runtime_insights	matched	BootUI 2.4.0 description adopted: explains insufficient and partial counts cover every observation matching query including rows omitted by limit; tests/parity/test_tools_parity.py
+tool:get_runtime_insight	matched	BootUI 2.4.0 description adopted: states observation status is explicit and insufficient evidence / partial coverage is not clean; tests/parity/test_tools_parity.py
+dto:CaughtExceptionsReport	matched	BootUI 2.4.0 CaughtExceptionsReport adds insufficient and partial integer counters after findings; emitted as zeros when sensor is unavailable (PLAN Decision 5); src/sharpit/engine/capture/exceptions.py
+dto:RuntimeInsightsAgentReportDto	matched	BootUI 2.4.0 RuntimeInsightsAgentReportDto appends insufficient and partial integer counters covering all matching observations including limit omissions, or zeros when unavailable; src/sharpit/engine/collectors/insights/agent_view.py
+dto:CaughtExceptionsSummaryDto	gap	BootUI 2.4.0 added insufficient and partial integer counters; status gap: no caught-exception sensor in sharpit; src/sharpit/engine/capture/exceptions.py
+dto:CaughtExceptionRowDto	gap	BootUI 2.4.0 added status, notRethrownOrLoggedRequests, minimumRequests; status gap: no caught-exception sensor in sharpit; src/sharpit/engine/capture/exceptions.py

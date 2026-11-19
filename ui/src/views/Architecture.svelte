@@ -30,10 +30,10 @@
 
 <AdvisorPanel
   title={panel.title}
+  {panel}
   {report}
   {loadError}
   onretry={load}
-  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
   scanLabel={(phase) =>
     phase === 'scanning'
       ? 'Scanning…'

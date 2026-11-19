@@ -1,4 +1,4 @@
-"""Sharpit settings parity against the BootUI 2.3.0 property fixture."""
+"""Sharpit settings parity against the BootUI 2.4.0 property fixture."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from sharpit.engine.masking import Exposure
 from sharpit.settings import load_settings
 from sharpit.settings_registry import SPECS, UNSET
 
-_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "properties.json"
-_STATUS = Path(__file__).with_name("properties_23_status.json")
+_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.4.0" / "properties.json"
+_STATUS = Path(__file__).with_name("properties_status.json")
 
 pytestmark = [
     pytest.mark.bootui("prop:bootui.activity.max-entries"),
@@ -148,6 +148,13 @@ def test_bootui_marks_equal_the_matched_rows() -> None:
     _, status = _fixture_and_status()
     matched = {"prop:" + row["name"] for row in status["properties"] if row["status"] == "matched"}
     assert marked == matched
+
+
+def test_status_records_current_fixture() -> None:
+    _, status = _fixture_and_status()
+    repo = Path(__file__).resolve().parents[2]
+    assert repo / status["fixture"] == _FIXTURE
+    assert status["fixture"] == _FIXTURE.relative_to(repo).as_posix()
 
 
 def _field(key: str) -> str:
