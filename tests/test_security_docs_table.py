@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from sharpit.engine.collectors.security.report import RULES
+from sharpit.engine.collectors.security.static_analysis import StaticSecurityAnalysisRule
 
 DOCS = Path(__file__).resolve().parents[1] / "docs" / "security-advisor-checks.md"
 # BootUI 2.2.0 SecurityRuleRegistry.ACTIVE_RULES (servlet), in registry order
@@ -81,7 +82,8 @@ def test_docs_table_matches_registry():
     # ported: SecurityDocumentationTests (the checks table lists exactly the registry's rules)
     rows = _rows()
     active = {rule_id: row[:3] for rule_id, row in rows.items() if row[3] in "PN"}
-    registry = {r.definition.id: (r.definition.name, r.definition.category, r.definition.severity) for r in RULES}
+    definitions = [r.definition for r in RULES] + [StaticSecurityAnalysisRule.rule_definition()]
+    registry = {d.id: (d.name, d.category, d.severity) for d in definitions}
     assert active == registry
 
 

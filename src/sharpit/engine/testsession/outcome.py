@@ -10,7 +10,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
-from sharpit.engine.advisors.findings import AdvisorRun, Finding, assessed_in_part, partial_note
+from sharpit.engine.advisors.findings import AdvisorRun, Finding, assessed_in_part, partial_notes
 from sharpit.engine.advisors.rules import severity_rank
 from sharpit.engine.testsession.facts import SessionFacts, TestFacts
 
@@ -187,11 +187,11 @@ def _flat_findings(tests: Sequence[TestFacts], runs: Sequence[AdvisorRun]) -> di
 
 def _partial_notes(runs: Iterable[AdvisorRun], fail_on: str) -> list[str]:
     """One warning per app an advisor assessed in part: a clean partial assessment passes, but it is not proof."""
-    return [
-        partial_note(run.advisor, run.app, run.evidence.get("limitations") or [], fail_on)
+    return partial_notes(
+        (run.advisor, run.app, run.evidence.get("limitations") or [], fail_on)
         for run in runs
         if assessed_in_part(run.status, run.reason, run.evidence)
-    ]
+    )
 
 
 def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str], *, fail_on: str) -> MergedFacts:

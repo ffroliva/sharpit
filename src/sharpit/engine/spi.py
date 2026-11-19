@@ -128,6 +128,9 @@ class SecuredRoute:
     mounts: tuple[tuple[int, str | None], ...] = ()
 
 
+NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
+
+
 @dataclass(frozen=True)
 class SecurityModel:
     present: bool  # the app has FastAPI dependency trees to read

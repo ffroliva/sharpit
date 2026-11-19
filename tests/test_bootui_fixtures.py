@@ -363,18 +363,16 @@ def test_bootui_fixtures_reject_incomplete_catalogs_and_machine_paths(version: s
     assert meta["counts"]["testMethods"] == exp["testMethods"]
 
 
-@pytest.mark.parametrize("script_name", ["capture_bootui_23.py", "capture_bootui_24.py"])
-def test_bootui_capture_pin_check_is_not_an_optimizable_assert(script_name: str) -> None:
-    source = Path(__file__).parents[1] / "scripts" / script_name
+def test_bootui_capture_pin_check_is_not_an_optimizable_assert() -> None:
+    source = Path(__file__).parents[1] / "scripts" / "capture_bootui.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     guards = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.If) and ast.unparse(node.test) == "actual_commit != PINNED_COMMIT"
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "actual_commit != commit"
     ]
-    assert len(guards) == 1, "capture must explicitly compare the resolved commit to the pinned commit"
-    guard = guards[0]
-    assert any(isinstance(node, ast.Raise) for node in guard.body)
+    assert len(guards) == 1, "capture must compare the resolved commit to the pinned commit"
+    assert any(isinstance(node, ast.Raise) for node in guards[0].body)
 
 
 @pytest.mark.parametrize("version", VERSIONS)

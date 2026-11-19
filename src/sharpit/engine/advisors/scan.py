@@ -51,6 +51,8 @@ class Evaluation:
     evidence: dict[str, Any]
     detail: Any = None  # the advisor's own facts, for its scope and extra-section hooks
     skipped: tuple[str, ...] = ()  # ids reported SKIPPED: counted in rulesEvaluated, never evaluated (BootUI skipped())
+    analyzer: str | None = None
+    disclaimer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,19 +98,21 @@ def build_report(
     rules_evaluated: int,
     report_evidence: dict[str, Any],
     extra: Mapping[str, Any],
+    analyzer: str | None = None,
+    disclaimer: str | None = None,
 ) -> dict[str, Any]:
     """The shared report shape (WAVE-B contract): scope keys, counts, ``scan``, ``results``, evidence, extras."""
     violations = violating(results)
     return {
         "localOnly": True,
-        "disclaimer": spec.disclaimer,
+        "disclaimer": disclaimer if disclaimer is not None else spec.disclaimer,
         **scope.lists,
         **scope.counts,
         "rulesEvaluated": rules_evaluated,
         "violationsFound": len(violations),
         "severityCounts": severity_counts(((r.severity, r.violation_count) for r in violations), SEVERITIES),
         "scan": {
-            "analyzer": spec.analyzer,
+            "analyzer": analyzer if analyzer is not None else spec.analyzer,
             "status": status,
             "message": message,
             "scannedAt": scanned_at,
@@ -199,6 +203,8 @@ class AdvisorScan:
         report_evidence: dict[str, Any],
     ) -> dict[str, Any]:
         scope = self._scope(done)
+        analyzer = done.analyzer if done is not None else None
+        disclaimer = done.disclaimer if done is not None else None
         return build_report(
             self.spec,
             status,
@@ -209,6 +215,8 @@ class AdvisorScan:
             len(results),
             {**report_evidence, "limitations": _mask_tree(self._masker, report_evidence["limitations"])},
             _mask_tree(self._masker, self._extra(done)),
+            analyzer=analyzer,
+            disclaimer=disclaimer,
         )
 
     def _scan_once(self, request: Any) -> _Scan:

@@ -258,8 +258,8 @@ def _interpreter_state() -> dict[str, object]:
 
 # spec §14: config's lazy getenv scan on its first GET is the one module allowed to read app source on a read
 SOURCE_READ_EXEMPT = ("sharpit.engine.collectors.config",)
-# every way a reader opens a file by name: open(), io.open (pathlib), tokenize.open's own reference to open
-_OPENERS: tuple[tuple[Any, str], ...] = ((builtins, "open"), (io, "open"), (tokenize, "_builtin_open"))
+# every way a reader opens a file by name: open(), io.open (pathlib), tokenize.open's own reference to open, os.open
+_OPENERS: tuple[tuple[Any, str], ...] = ((builtins, "open"), (io, "open"), (os, "open"), (tokenize, "_builtin_open"))
 
 
 def _exempt_caller() -> bool:

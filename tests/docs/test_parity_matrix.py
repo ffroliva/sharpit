@@ -1,5 +1,5 @@
 """ROADMAP.md and README.md state how close sharpit is to BootUI; these numbers are recomputed from the code and the
-BootUI 2.3.0 fixtures, so the docs cannot drift from either."""
+BootUI 2.4.0 fixtures (routes stay measured against the 2.3.0 live goldens), so the docs cannot drift from either."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from sharpit.engine.panels import PANELS  # noqa: E402
 from sharpit.engine.tools import TOOLS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-BOOTUI = ROOT / "tests" / "fixtures" / "bootui" / "2.3.0"
+BOOTUI = ROOT / "tests" / "fixtures" / "bootui" / "2.4.0"
 
 
 def _listed_panels() -> int:
@@ -40,14 +40,16 @@ def _matrix() -> dict[str, str]:
     implemented = [k for k in KINDS if k.module.IMPLEMENTED]
     evaluating = [k for k in implemented if k.reads <= PRODUCED_SOURCES]
     applicable = routes["total"] - routes["n-a"]
+    bootui_panels = len(json.loads((BOOTUI / "panels.json").read_text("utf-8"))["panels"])
     return {
-        "tools": f"| MCP/CLI tools | 54 | {len(ours)} | {len(bootui_tools)} | 116 |",
-        "names": f"| Tools under BootUI's exact names | 45 | {len(ours & bootui_tools)} | - | - |",
-        "panels": f"| Panels | 31 | {len(PANELS)} ({_listed_panels()} listed in the console) | "
-        f"{len(json.loads((BOOTUI / 'panels.json').read_text('utf-8'))['panels'])} (Spring) | 65 (Spring) |",
-        "insights": f"| Runtime insight kinds that evaluate | none | {len(evaluating)} of {len(KINDS)} registered | "
-        f"{len(KINDS)} | 28 |",
+        "tools": f"| MCP/CLI tools | 54 | 71 | {len(ours)} | 116 | {len(bootui_tools)} |",
+        "names": f"| Tools under BootUI's exact names | 45 | 62 | {len(ours & bootui_tools)} | - | - |",
+        "panels": f"| Panels | 31 | 48 (46 listed in the console) | {len(PANELS)} "
+        f"({_listed_panels()} listed in the console) | 65 (Spring) | {bootui_panels} (Spring) |",
+        "insights": f"| Runtime insight kinds that evaluate | none | 8 of 28 registered | "
+        f"{len(evaluating)} of {len(KINDS)} registered | 28 | {len(KINDS)} |",
         "routes": f"| BootUI API routes served, of the {applicable} that apply to Python | not measured | "
+        "33 (5 shape-identical, 28 partial) | "
         f"{routes['matched'] + routes['partial']} ({routes['matched']} shape-identical, {routes['partial']} partial) | "
         f"{applicable} | not captured |",
     }
