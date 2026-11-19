@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing.pool import ThreadPool
 from typing import Any
 
 import pytest
@@ -279,6 +281,21 @@ def test_an_autocommit_outer_connection_is_not_an_open_transaction(recorder: Tra
     engine.dispose()
 
 
+def test_engine_level_autocommit_outer_does_not_make_a_requires_new_boundary(
+    recorder: TransactionRecorder, sa: Any
+) -> None:
+    engine = _engine(sa, isolation_level="AUTOCOMMIT")
+    with engine.connect() as first, engine.connect() as second:
+        outer = first.begin()
+        inner = second.begin()
+        inner.commit()
+        outer.commit()
+    outer_row, inner_row = _by_id(recorder.report([]))
+    assert outer_row["propagation"] == "NEW", "the engine's AUTOCOMMIT setting is detected"
+    assert inner_row["propagation"] == "NEW", "an AUTOCOMMIT outer is not a REQUIRES_NEW parent"
+    engine.dispose()
+
+
 def test_an_autocommit_connection_beside_an_open_transaction_is_unknown(recorder: TransactionRecorder, sa: Any) -> None:
     engine = _engine(sa)
     with engine.connect() as first, engine.connect().execution_options(isolation_level="AUTOCOMMIT") as second:
@@ -358,6 +375,32 @@ async def test_an_executor_thread_inheriting_an_open_transaction_is_unknown(
     engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_default_asyncio_executor_jobs_do_not_share_boundary_ownership(
+    recorder: TransactionRecorder, sa: Any
+) -> None:
+    engine = _engine(sa, connect_args={"check_same_thread": False})
+    asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=1, thread_name_prefix="asyncio"))
+
+    def open_outer() -> tuple[Any, Any]:
+        connection = engine.connect()
+        return connection, connection.begin()
+
+    connection, transaction = await asyncio.get_running_loop().run_in_executor(None, open_outer)
+
+    def inner() -> None:
+        with engine.connect() as other:
+            other.begin().commit()
+
+    await asyncio.get_running_loop().run_in_executor(None, inner)
+    await asyncio.get_running_loop().run_in_executor(None, transaction.commit)
+    connection.close()
+    outer_row, inner_row = _by_id(recorder.report([]))
+    assert outer_row["propagation"] == "NEW", "the first asyncio worker job opens NEW"
+    assert inner_row["propagation"] == "UNKNOWN", "a later asyncio worker job does not inherit ownership"
+    engine.dispose()
+
+
 def test_a_reused_executor_worker_does_not_claim_a_previous_jobs_parent(
     recorder: TransactionRecorder, sa: Any, tmp_path: Any
 ) -> None:
@@ -374,6 +417,219 @@ def test_a_reused_executor_worker_does_not_claim_a_previous_jobs_parent(
     assert outer_row["propagation"] == "NEW", "the first job owns its own boundary"
     assert inner_row["propagation"] == "UNKNOWN", "a reused executor worker does not claim a prior job's parent"
     assert inner_row["parentId"] is None, "an unverified owner names no parent"
+    engine.dispose()
+
+
+def test_a_single_executor_job_can_observe_its_own_physical_child(recorder: TransactionRecorder, sa: Any) -> None:
+    engine = _engine(sa)
+
+    def work() -> None:
+        with engine.connect() as first, engine.connect() as second:
+            outer = first.begin()
+            inner = second.begin()
+            inner.commit()
+            outer.commit()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(work).result()
+    outer_row, inner_row = _by_id(recorder.report([]))
+    assert outer_row["propagation"] == "NEW", "the first physical begin is NEW"
+    assert inner_row["propagation"] == "REQUIRES_NEW", "one job's physical child has the same owner"
+    engine.dispose()
+
+
+@pytest.mark.parametrize("pool_kind", ["executor", "multiprocessing"])
+def test_reused_thread_pool_jobs_do_not_share_boundary_ownership(
+    recorder: TransactionRecorder, sa: Any, tmp_path: Any, pool_kind: str
+) -> None:
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'pool-ownership.db'}", pool_size=2)
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db") if pool_kind == "executor" else ThreadPool(1)
+    try:
+
+        def run(call: Any) -> Any:
+            return pool.submit(call).result() if pool_kind == "executor" else pool.apply(call)
+
+        outer = run(engine.connect)
+        outer_tx = run(outer.begin)
+        inner = run(engine.connect)
+        run(lambda: inner.begin().commit())
+        run(outer_tx.commit)
+        inner.close()
+        outer.close()
+    finally:
+        pool.shutdown(wait=True) if pool_kind == "executor" else pool.close()
+        if pool_kind == "multiprocessing":
+            pool.join()
+    outer_row, inner_row = _by_id(recorder.report([]))
+    assert outer_row["propagation"] == "NEW", "the first worker job owns a NEW boundary"
+    assert inner_row["propagation"] == "UNKNOWN", "worker reuse does not transfer ownership between jobs"
+    engine.dispose()
+
+
+def test_a_cleared_recorder_row_is_not_reused_as_a_parent(recorder: TransactionRecorder, sa: Any) -> None:
+    engine = _engine(sa)
+    with engine.connect() as first, engine.connect() as second:
+        outer = first.begin()
+        recorder.clear()
+        inner = second.begin()
+        inner.commit()
+        outer.rollback()
+    (row,) = _by_id(recorder.report([]))
+    assert row["propagation"] == "NEW", "a cleared row cannot be named as a parent"
+    assert row["parentId"] is None, "the report never references an absent parent id"
+    engine.dispose()
+
+
+def test_a_later_statement_error_does_not_resettle_a_committed_row(
+    recorder: TransactionRecorder, sa: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sharpit.engine.capture.correlation import internal
+
+    engine = _engine(sa)
+    settled: list[int] = []
+    settle = recorder.settle
+
+    def track_settle(entry_id: int, error: BaseException | None = None) -> None:
+        settled.append(entry_id)
+        settle(entry_id, error)
+
+    monkeypatch.setattr(recorder, "settle", track_settle)
+    with engine.connect() as connection:
+        connection.begin().commit()
+        with internal():
+            connection.begin()
+        settled_before_statement = len(settled)
+        with internal(), pytest.raises(sa.exc.OperationalError):
+            connection.exec_driver_sql("select * from missing_tx_probe")
+        assert len(settled) == settled_before_statement, "a statement error cannot settle a previous commit"
+        connection.rollback()
+    (row,) = recorder.report([])["entries"]
+    assert row["status"] == "COMMITTED", "an internal statement error cannot rewrite an earlier commit"
+    engine.dispose()
+
+
+def test_commits_on_a_shared_record_keep_each_connections_pending_row(
+    recorder: TransactionRecorder, sa: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+    settled: list[int] = []
+    settle = recorder.settle
+
+    def track_settle(entry_id: int, error: BaseException | None = None) -> None:
+        settled.append(entry_id)
+        settle(entry_id, error)
+
+    monkeypatch.setattr(recorder, "settle", track_settle)
+    with engine.connect() as first, engine.connect() as second:
+        first.begin().commit()
+        second.begin().commit()
+    rows = _by_id(recorder.report([]))
+    assert len(rows) == 2, "both physical begins remain recorded"
+    assert [row["status"] for row in rows] == ["COMMITTED", "COMMITTED"], "commit callbacks retain both pending rows"
+    assert len(settled) == 2, "pool checkin settles both connections' commit rows"
+    engine.dispose()
+
+
+@pytest.mark.parametrize("other_state", ["pending_commit", "open_savepoint"])
+def test_shared_record_state_on_another_connection_does_not_hide_failed_begin(
+    recorder: TransactionRecorder, sa: Any, monkeypatch: pytest.MonkeyPatch, other_state: str
+) -> None:
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+    fail = {"on": False}
+    original = engine.dialect.do_begin
+
+    def do_begin(dbapi_connection: Any) -> None:
+        if fail["on"]:
+            raise sqlite3.OperationalError("refused")
+        original(dbapi_connection)
+
+    monkeypatch.setattr(engine.dialect, "do_begin", do_begin)
+    with engine.connect() as first, engine.connect() as second:
+        outer = first.begin()
+        if other_state == "pending_commit":
+            outer.commit()
+        else:
+            first.begin_nested()
+        fail["on"] = True
+        with pytest.raises((sa.exc.OperationalError, sqlite3.OperationalError)):
+            second.begin()
+        fail["on"] = False
+        if other_state == "open_savepoint":
+            outer.commit()
+    rows = _by_id(recorder.report([]))
+    failed = rows[-1]
+    assert failed["status"] == "UNKNOWN", "another connection's state cannot mask this failed begin"
+    assert failed["connectionCount"] == 0, "the failed begin owns no connection"
+    assert rows[0]["status"] == "COMMITTED", "the other connection's row remains unaffected"
+    engine.dispose()
+
+
+def test_a_connection_that_begins_again_gets_a_fresh_open_transaction_identity(
+    recorder: TransactionRecorder, sa: Any
+) -> None:
+    engine = _engine(sa)
+    with engine.connect() as connection:
+        connection.begin().commit()
+        connection.begin().commit()
+    rows = _by_id(recorder.report([]))
+    assert [row["propagation"] for row in rows] == ["NEW", "NEW"], "a new SQLAlchemy transaction has a fresh identity"
+    assert [row["parentId"] for row in rows] == [None, None], "a prior transaction object cannot be its parent"
+    engine.dispose()
+
+
+def test_an_open_entry_from_a_previous_transaction_object_is_not_a_parent() -> None:
+    import threading
+    import weakref
+
+    from sharpit.engine.capture import transactions
+
+    recorder = _recorder()
+    entry_id = _begin(recorder)
+    old_transaction, current_transaction = object(), object()
+
+    class Connection:
+        def in_transaction(self) -> bool:
+            return True
+
+        def get_transaction(self) -> object:
+            return current_transaction
+
+    connection = Connection()
+    if hasattr(transactions.Owner, "_fields"):
+        owner = transactions.Owner(threading.get_ident(), "MainThread", None, None, None)
+    else:
+        owner = (threading.get_ident(), None, None, False)
+    opened = [weakref.ref(connection), owner, 1, {id(recorder): entry_id}, False]
+    if "transaction_id" in transactions.OpenTransaction._fields:
+        opened.extend([id(old_transaction), {id(recorder): weakref.ref(recorder)}])
+    token = transactions._OPEN.set((transactions.OpenTransaction(*opened),))
+    try:
+        live, known, parents = transactions._other_open_transactions(owner, 2)
+    finally:
+        transactions._OPEN.reset(token)
+        recorder.end(entry_id, "UNKNOWN")
+    assert live == [], "a replaced root transaction is not live under the old entry"
+    assert known, "a stale transaction identity is ignored rather than making the new boundary uncertain"
+    assert parents == {}, "the new transaction cannot name a stale parent's row"
+
+
+def test_a_garbage_collected_connection_does_not_leave_an_open_pooled_stack_item(
+    recorder: TransactionRecorder, sa: Any
+) -> None:
+    engine = sa.create_engine("sqlite:///:memory:", poolclass=sa.pool.SingletonThreadPool)
+
+    def leak() -> None:
+        connection = engine.connect()
+        connection.begin()
+
+    leak()
+    gc.collect()
+    with engine.connect() as connection:
+        connection.begin().commit()
+        assert len(connection.info["sharpit_tx"]) == 0, "the next begin prunes stale rows from the pooled record"
+    rows = _by_id(recorder.report([]))
+    assert rows[0]["status"] == "UNKNOWN", "a dropped transaction closes as unknown"
+    assert rows[1]["parentId"] is None, "a stale pooled row cannot become a parent"
     engine.dispose()
 
 
@@ -481,15 +737,14 @@ class _FailingDbapi:
         self.connection.rollback()
 
 
-@pytest.mark.parametrize("fails", ["commit", "rollback"])
-def test_a_failing_commit_or_rollback_is_not_a_failed_begin(recorder: TransactionRecorder, sa: Any, fails: str) -> None:
+def test_a_failing_commit_is_not_a_failed_begin(recorder: TransactionRecorder, sa: Any) -> None:
     base = sa.create_engine("sqlite://")
     engine = sa.create_engine("sqlite://", creator=lambda: _FailingDbapi(base.pool._creator(), ""))  # noqa: SLF001
     with engine.connect() as connection:
         transaction = connection.begin()
-        connection.connection.dbapi_connection.fails = fails
+        connection.connection.dbapi_connection.fails = "commit"
         with pytest.raises(sa.exc.OperationalError):
-            getattr(transaction, fails)()
+            transaction.commit()
         connection.connection.dbapi_connection.fails = ""
     (row,) = recorder.report([])["entries"]
     assert row["propagation"] == "NEW", "the boundary was observed when the transaction began"
@@ -499,25 +754,80 @@ def test_a_failing_commit_or_rollback_is_not_a_failed_begin(recorder: Transactio
     base.dispose()
 
 
-def test_a_failed_savepoint_drops_its_row_and_leaves_the_outer_open(recorder: TransactionRecorder, sa: Any) -> None:
+def test_a_failing_rollback_is_not_a_failed_begin(recorder: TransactionRecorder, sa: Any) -> None:
+    base = sa.create_engine("sqlite://")
+    engine = sa.create_engine("sqlite://", creator=lambda: _FailingDbapi(base.pool._creator(), ""))  # noqa: SLF001
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        connection.connection.dbapi_connection.fails = "rollback"
+        with pytest.raises(sa.exc.OperationalError):
+            transaction.rollback()
+        connection.connection.dbapi_connection.fails = ""
+    (row,) = recorder.report([])["entries"]
+    assert row["propagation"] == "NEW", "the boundary was observed when the transaction began"
+    assert row["connectionCount"] == 1, "a transaction that began held its connection"
+    assert row["status"] == "ROLLED_BACK", "the failed rollback does not turn begin into a failure"
+    engine.dispose()
+    base.dispose()
+
+
+def test_a_failed_savepoint_at_depth_two_does_not_fail_the_outer_savepoint(
+    recorder: TransactionRecorder, sa: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _engine(sa)
+    refuse = {"on": False}
+    do_savepoint = engine.dialect.do_savepoint
+
+    def _refuse(connection: Any, name: str) -> None:
+        if refuse["on"]:
+            raise sqlite3.OperationalError("savepoint refused")
+        do_savepoint(connection, name)
+
+    monkeypatch.setattr(engine.dialect, "do_savepoint", _refuse)
+
+    with engine.connect() as connection:
+        outer = connection.begin()
+        first_savepoint = connection.begin_nested()
+        refuse["on"] = True
+        with pytest.raises((sa.exc.OperationalError, sqlite3.OperationalError)):
+            connection.begin_nested()
+        refuse["on"] = False
+        first_savepoint.commit()
+        with pytest.raises(sa.exc.OperationalError):
+            connection.exec_driver_sql("select * from missing_tx_probe")
+        outer.commit()
+    rows = _by_id(recorder.report([]))
+    assert rows[0]["status"] == "COMMITTED", "a later statement error must not fail the outer row"
+    assert rows[1]["status"] == "COMMITTED", "the released savepoint remains committed"
+    assert rows[2]["status"] == "UNKNOWN", "the failed depth-two savepoint is detected"
+    engine.dispose()
+
+
+def test_a_failed_savepoint_drops_its_row_and_leaves_the_outer_open(
+    recorder: TransactionRecorder, sa: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     engine = _engine(sa)
     refuse = {"on": True}
+    do_savepoint = engine.dialect.do_savepoint
 
-    @sa.event.listens_for(engine, "before_cursor_execute")
-    def _refuse(_connection: Any, _cursor: Any, statement: str, *_rest: Any) -> None:
-        if refuse["on"] and statement.startswith("SAVEPOINT"):
+    def _refuse(connection: Any, name: str) -> None:
+        if refuse["on"]:
             raise sqlite3.OperationalError("savepoint refused password=hunter2")
+        do_savepoint(connection, name)
+
+    monkeypatch.setattr(engine.dialect, "do_savepoint", _refuse)
 
     with engine.connect() as connection:
         outer = connection.begin()
         with pytest.raises((sa.exc.OperationalError, sqlite3.OperationalError)):
             connection.begin_nested()
-        frames_after_failure = list(connection.info["sharpit_tx_savepoints"])
         refuse["on"] = False
-        connection.begin_nested().commit()
+        retry = connection.begin_nested()
+        retry_frames = list(connection.info["sharpit_tx_savepoints"])
+        retry.commit()
         outer.commit()
     outer_row, failed_row, savepoint_row = _by_id(recorder.report([]))
-    assert frames_after_failure == [], "a savepoint that failed to begin leaves no frame behind"
+    assert len(retry_frames) == 1, "the failed frame is dropped before the next savepoint is tracked"
     assert failed_row["propagation"] == "UNKNOWN", "a SAVEPOINT that failed is not a nested boundary anyone observed"
     assert failed_row["status"] == "UNKNOWN", "a failed SAVEPOINT neither committed nor rolled back"
     assert failed_row["connectionCount"] == 0, "a failed SAVEPOINT holds no connection"

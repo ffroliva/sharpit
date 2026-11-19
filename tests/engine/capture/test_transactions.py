@@ -255,10 +255,17 @@ def test_savepoint_closes_one_child_per_context(monkeypatch) -> None:
                 ),
             )
         )
-    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    nested = [None]
+    connection = SimpleNamespace(
+        info={},
+        engine=object(),
+        connection=SimpleNamespace(dbapi_connection=object()),
+        get_nested_transaction=lambda: nested[0],
+    )
     monkeypatch.setattr(dispatch, "_targets", lambda _engine: contexts)
     tx_begin(connection)
     tx_savepoint(connection, "sa_savepoint_1")
+    nested[0] = object()
     tx_release_savepoint(connection, "sa_savepoint_1", None)
     assert len(connection.info["sharpit_tx"]) == 2, "a savepoint event must close its child entry in each context"
 

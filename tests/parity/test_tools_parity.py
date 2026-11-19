@@ -384,12 +384,15 @@ def test_transactions_description_pins_observed_boundaries() -> None:
         "propagation describes observed boundaries: NEW (physical begin without a known parent), REQUIRES_NEW "
         "(child physical begin), NESTED (savepoint), or UNKNOWN (begin failed or ownership unverified), not "
         "declared annotation values. A joining method adds no boundary. Use it to verify which local operations "
-        "actually ran in a transaction. totalCaptured counts transactions recorded since startup; stats and "
-        "entries cover the retained window only."
+        "actually ran in a transaction. SQLAlchemy records physical begin/commit/rollback callbacks, not a complete "
+        "method propagation hierarchy. SQL statement and connection counts cover work correlated to the transaction's "
+        "SQLAlchemy connection, not work performed on another thread. totalCaptured counts transactions recorded "
+        "since startup and is not reset by clear; stats and entries cover the retained window only. When capture is "
+        "paused, capturing is false and does not mean the application was quiet."
     )
 
 
-MATCHED_TOOLS_PIN = 39  # lanes that move a tool into MATCHED_TOOLS raise this in the same commit
+MATCHED_TOOLS_PIN = 38  # lanes that move a tool into MATCHED_TOOLS raise this in the same commit
 
 
 @pytest.mark.parametrize("name", DESCRIPTION_MATCHED)
@@ -441,6 +444,14 @@ ADOPTED_PINNED_CHECKS: dict[str, tuple[str, ...]] = {
         "insufficient and partial are evidence states, not findings.",
         "totalExceptions counts the occurrences in the retained groups, "
         "reset via CLI exceptions clear (clear_exceptions is refused over MCP).",
+    ),
+    "get_transactions": (
+        "SQLAlchemy records physical begin/commit/rollback callbacks, not a complete method propagation hierarchy.",
+        "SQL statement and connection counts cover work correlated to the transaction's SQLAlchemy connection, "
+        "not work performed on another thread.",
+        "totalCaptured counts transactions recorded since startup and is not reset by clear; stats and entries "
+        "cover the retained window only.",
+        "When capture is paused, capturing is false and does not mean the application was quiet.",
     ),
 }
 
