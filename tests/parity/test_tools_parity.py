@@ -172,14 +172,7 @@ SHARPIT_ONLY = (
     "get_fastapi_report",
     "get_fastapi_security",
 )
-CLI_COMMAND_DIFFERENCES = (
-    "get_request_profile",
-    "clear_transactions",
-    "get_transactions",
-    "pause_transaction_recording",
-    "resume_transaction_recording",
-)
-MATCHED_CLI = tuple((BOOTUI[name]["command"], name) for name in MATCHED_TOOLS if name not in CLI_COMMAND_DIFFERENCES)
+MATCHED_CLI = tuple((BOOTUI[name]["command"], name) for name in MATCHED_TOOLS)
 
 pytestmark = [
     pytest.mark.bootui("cli:ai overview"),
@@ -202,6 +195,7 @@ pytestmark = [
     pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:overview"),
     pytest.mark.bootui("cli:profile diff"),
+    pytest.mark.bootui("cli:request-profile"),
     pytest.mark.bootui("cli:rest-api report"),
     pytest.mark.bootui("cli:rest-api scan"),
     pytest.mark.bootui("cli:security report"),
@@ -214,6 +208,10 @@ pytestmark = [
     pytest.mark.bootui("cli:sql pause"),
     pytest.mark.bootui("cli:sql resume"),
     pytest.mark.bootui("cli:traces clear"),
+    pytest.mark.bootui("cli:tx clear"),
+    pytest.mark.bootui("cli:tx list"),
+    pytest.mark.bootui("cli:tx pause"),
+    pytest.mark.bootui("cli:tx resume"),
     pytest.mark.bootui("cli:vulnerabilities scan"),
     pytest.mark.bootui("tool:architecture_scan"),
     pytest.mark.bootui("tool:clear_exceptions"),

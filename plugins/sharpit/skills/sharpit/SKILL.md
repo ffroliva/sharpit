@@ -17,6 +17,21 @@ sharpit is a Python port of [BootUI](https://github.com/jdubois/boot-ui), the Sp
 a console at `/sharpit` and a BootUI-compatible JSON API at `/sharpit/api` inside your own app. It is for **local
 development only**: it switches itself off unless it has a reason to be on, and it refuses non-loopback callers.
 
+## Playbooks
+
+For a guided investigation, load the [shared playbook contract](references/playbooks/README.md) and **one** guide:
+
+| User goal | Playbook |
+|---|---|
+| Assess the application; what should I fix first? | [Application checkup](references/playbooks/application-checkup.md) |
+| Reduce SQL work or investigate transactions | [Database efficiency](references/playbooks/database-efficiency.md) |
+| Explain a slow route | [Slow endpoint](references/playbooks/slow-endpoint.md) |
+| Diagnose exceptions or errors behind successful responses | [Errors and hidden failures](references/playbooks/errors-and-hidden-failures.md) |
+| Check that a fix ran and changed the intended behavior | [Verify my changes](references/playbooks/verify-my-changes.md) |
+| Investigate CPU, memory, thread growth, or event loop stalls | [Python performance and memory](references/playbooks/python-performance-and-memory.md) |
+
+These are instructions for the external coding agent, not new sharpit tools. Load only the playbook that matches the goal.
+
 ## Install
 
 Python 3.12+. Runtime dependencies are only `starlette` and `packaging`; FastAPI 0.115+ is the supported host.
@@ -138,7 +153,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
 | Live Memory | `GET {api}/live-memory/footprint`, `POST {api}/live-memory/footprint` (`{"enabled": bool}`) | inspect or pause sharpit's capture hooks; status is available over MCP and CLI, while enable/disable are CLI and route actions only |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
-| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 21 action tools (see Actions below), over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
+| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 21 action tools (see Actions below), over plain HTTP. The `sharpit` command-line client runs against this endpoint: it supports the advertised tools plus `tools` and `mcp status|enable|disable` (see Command-line client below; `sharpit --help` for usage) |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
 | Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason. The `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`, off by default) feed the runtime journal, not these panels; with them on, `POST {api}/java-agent/sensors/files` switches the files sensor, otherwise it is refused (409) as BootUI refuses it without the agent. MCP: `get_agent_status` |
@@ -180,7 +195,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - AI Framework: `get_ai_overview` (CLI: `ai overview`).
 - Email: `get_emails` (CLI: `mail`).
 - Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which has no agent; the
-  `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. The sensor tools (`get_code_inventory`, `get_code_paths`, `get_method_probe`, `get_side_effects`) are not
+  `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. BootUI's code inventory, method probe, and side-effect sensor tools are not
   advertised and answer "Tool not available in this application".
 - Advisors and security (a report tool and a per-rule violations tool each, neither starts a scan):
   `get_vulnerabilities_report`; `get_rest_api_report`, `get_rest_api_rule_violations`; `get_security_report`,
@@ -205,6 +220,52 @@ An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharp
   `start_method_probe` is not advertised.
 
 Live Memory also accepts `POST {api}/live-memory/footprint` with `{"enabled": bool}`; its `get_low_footprint` status tool is on MCP and CLI, while the two action tools are CLI and route only. `SHARPIT_FREE_ON_IDLE_ENABLED` defaults to `true`; `SHARPIT_FREE_ON_IDLE_TIMEOUT` defaults to 300 seconds.
+
+## Command-line client (`sharpit`)
+
+The `sharpit` console script queries a running sharpit application over HTTP from a shell or terminal session without adding dependencies. It is included in the base `sharpit` package.
+
+### Global options
+
+- `--url <url>`: application base URL (default `http://localhost:8000`, env `SHARPIT_URL`).
+- `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
+- `--token <token>`: bearer token for authentication. While `--token` overrides `SHARPIT_TOKEN`, using `SHARPIT_TOKEN` is recommended to avoid exposing credentials in host process listings (`ps`, Task Manager).
+- `--timeout <seconds>`: request timeout in seconds (default `60.0`, accepts `Ns` or `Nms`).
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety (recommended for agent consumption).
+- `--fail-on <severity>`: gate command exit code on finding severity (`critical`, `high`, `medium`, `low`, `info`) or `insufficient` evidence.
+
+### Command discovery and MCP control
+
+- `sharpit tools`: lists the tools advertised by the running target application.
+- `sharpit mcp status`: inspects the current MCP server status and revision.
+- `sharpit mcp enable` / `sharpit mcp disable`: switches the MCP server on or off (action; refused on a read-only panel).
+
+### Tool commands and examples
+
+Commands are derived from the tool catalogue:
+
+```bash
+# Read application overview
+sharpit overview
+
+# Filter configuration
+sharpit config -q database
+
+# Run a security scan and fail if high or critical findings exist
+sharpit security scan --fail-on high
+
+# Inspect runtime insights and fail if evidence is insufficient
+sharpit insights list --fail-on insufficient
+```
+
+### Exit codes
+
+Exit codes follow BootUI 2.4.0 (`sharpit.cli.exit_codes.ExitCodes`):
+
+- `0` (`SUCCESS`): command succeeded and findings are below the gate threshold.
+- `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated; a refused MCP toggle exits 1.
+- `2` (`REFUSED`): refused tool action because the endpoint or panel is disabled or the action is denied by a read-only policy (`PANEL_ACCESS_DENIED`). Tool refusals are confirmed by checking the target application before exiting 2.
+- `3` (`THRESHOLD`): findings met or exceeded the `--fail-on` severity threshold, or runtime insights evidence was insufficient.
 
 ## Running test gates (`pytest --sharpit`)
 
@@ -256,10 +317,10 @@ is confirmed empty and passes. Lost capture stays `unknown`.
 
 ### Report-only mode and baselines
 
-For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
+For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](https://github.com/ffroliva/sharpit/blob/main/docs/pytest-safety-gate.md).
 
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
-  `sharpit report-only: N tests would fail, status <status>`. Report-only relaxes findings, never blindness: any unknown
+  a summary of failing tests and status. Report-only relaxes findings, never blindness: any unknown
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
 - With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
   gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a

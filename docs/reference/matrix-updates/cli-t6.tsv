@@ -1,0 +1,13 @@
+cli:fail-on-severity	matched	evaluate severity thresholds (critical..info) against severityCounts, exiting 3 or 0; ported from FailOn.evaluateSeverity
+cli:fail-on-insufficient	matched	evaluate insufficient and partial evidence on runtime insights, exiting 3, 0 or 1; ported from FailOn.evaluateInsufficient
+cli:fail-on-partial-note	matched	PARTIAL scan without findings passes (exit 0) with stderr note that absence is not proof
+cli:fail-on-query-default	matched	insights list defaults to query=all when --fail-on insufficient is active and query omitted
+cli:fail-on-tools-fastapi	adapted	fastapi_scan and get_fastapi_report added to ADVISOR_TOOLS for FastAPI framework advisor
+cli:fail-on-tools-dropped	adapted	crac, graalvm, hibernate, memory, pentest, spring advisor tools dropped as absent from sharpit
+cli:fail-on-tools-heap-dump	adapted	BootUI lists get_heap_dump_report in EXCLUDED; dropped because sharpit provides no heap dump analysis tool
+cli:fail-on-exceptions-sensor	adapted	get_exceptions removed from insufficient-criterion tools: sharpit records no caught-in-code evidence, so this gate cannot be evaluated (usage error)
+cli:fail-on-pytest-gate-comparison	n-a	note: CLI follows BootUI exactly (gates on INFO; scan status ERROR exits 1 unevaluable regardless of findings); the pytest gate follows the 0.4.0 ruling (INFO notes-only, ERROR with findings fails)
+cli:fail-on-missing-value-parser	matched	bare option missing value is rejected by the CLI parser with exit 1
+cli:fail-on-refused	matched	HTTP tool refusal exits 2 after the target application confirms its policy response
+cli:fail-on-failed-call	matched	HTTP 500 error exits 1 without evaluating the fail-on gate
+cli:fail-on-print-before-gate	matched	stdout payload is emitted before fail-on evaluation

@@ -668,7 +668,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "pause_sql_trace_recording": "sql pause",
     "resume_sql_trace_recording": "sql resume",
     "get_live_activity": "activity",
-    "get_request_profile": "activity profile",
+    "get_request_profile": "request-profile",
     "get_alembic_migrations": "db alembic",
     "get_health": "health",
     "get_database_connection_pools": "db pools",

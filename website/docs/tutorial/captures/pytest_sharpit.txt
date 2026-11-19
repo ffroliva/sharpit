@@ -1,0 +1,32 @@
+Exit code: 1
+============================= test session starts =============================
+platform win32 -- Python 3.13.7, pytest-9.2.0, pluggy-1.7.0
+rootdir: <tmp>\tmprzza_04_
+plugins: anyio-4.15.1, hypothesis-6.170.15, asyncio-1.4.1.post1, cov-7.1.0, rerunfailures-16.7, timeout-2.4.0, xdist-3.8.0, sharpit-0.6.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+<tmp>\test_sample.py F  [100%]
+
+================================== FAILURES ===================================
+______________________________ test_orders_route ______________________________
+sharpit: sharpit.n-plus-one: 30 executions of one SELECT in the call phase
+================================ sharpit: fail ================================
+sharpit: no application found among the modules the tests imported (conftest, test modules and installed packages are not searched); rest-api skipped (pass --sharpit-app module:attr to assess the same app on any selection; --sharpit-require-app makes a missing app an error instead of a skip)
+status: fail
+tests with findings: 1
+gate counts:
+  sharpit.n-plus-one: 1
+worst tests:
+  test_sample.py::test_orders_route: 1 finding(s)
+report: sharpit-report.json
+sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception)
+sharpit did not check: REST API, vulnerabilities, database-advisor, security, architecture, fastapi; routes and SQL your tests did not exercise; security testing (sharpit does no attack or penetration testing)
+=========================== short test summary info ===========================
+FAILED <tmp>\test_sample.py::test_orders_route
+============================== 1 failed in 3.04s ==============================
+
+<site-packages>\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))

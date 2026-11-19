@@ -1,0 +1,26 @@
+docs:playbook-application-checkup	matched	All tools and steps ported with sharpit equivalents: FastAPI advisor, database advisor, health, runtime insights, architecture.
+docs:playbook-database-efficiency	partial	SQLAlchemy, SQL trace, N+1 and implemented insight kinds ported; Hibernate-specific tools and transaction grouping limitations adapted to SQLAlchemy and DB-API.
+docs:playbook-slow-endpoint	partial	Activity, request profile, route rankings, threads and asyncio task inspection ported; BootUI Java bytecode agent code paths tool is not available in sharpit.
+docs:playbook-errors-and-hidden-failures	matched	Activity, request profile, exceptions list and detail, logs tail, and runtime insights ported.
+docs:playbook-verify-my-changes	partial	Overview, configuration profile diff, runtime insights, request profile, and SQL traces ported; BootUI Java bytecode agent code inventory and side effects tools are not available in sharpit.
+docs:playbook-jvm-performance-and-memory	n-a	BootUI playbook covers JVM-specific GC, HPROF heap dumps, JFR profiler, and NMT; replaced by python-performance-and-memory.
+docs:playbook-python-performance-and-memory	partial	New Python/FastAPI performance and memory playbook based on real sharpit evidence: threads, asyncio task states, SQL timing, request profile; notes absence of Python heap dumps or bytecode profilers.
+docs:recipe-investigate-one-request	matched	get_live_activity and get_request_profile correlate HTTP request, SQL, and exceptions by request ID.
+docs:recipe-runtime-insights	matched	get_runtime_insights and get_runtime_insight evaluate runtime insight kinds, coverage, and exemplars.
+docs:recipe-did-my-change-run	partial	sharpit verifies via request configuration profile diff, route replay, and advisor rescans; Java bytecode agent code inventory is not available in sharpit.
+docs:recipe-handler-timing	partial	sharpit provides request-profile SQL duration breakdown and thread/asyncio task inspection; Java agent bytecode method self-time code paths are not available.
+docs:recipe-reading-retained-advisor-violations	matched	get_database_advisor_rule_violations, get_architecture_rule_violations, get_fastapi_rule_violations with retained fields ruleId, scanId, violations, total, retained, truncated.
+docs:recipe-checking-what-a-fix-changed	matched	get_profile_diff, advisor rescan summaries, and violation count diffs.
+docs:recipe-reading-a-bounded-result	matched	limit, offset, query, page.hasMore on *_violations only; defaults include 8 insights and 25 metrics.
+docs:recipe-unknown-ids-and-unavailable-capabilities	matched	404 / UNKNOWN_ID, in-band tool errors, and unavailable tool prefix.
+docs:recipe-agent-sized-defaults	matched	Compact DTOs, default paging limits, and secret masking.
+docs:recipe-safety-model	matched	Fails closed, loopback-only, bearer token on remote, secret masking, read-only panel policy.
+docs:recipe-assess-application-and-approve-plan	matched	assess_application prompt, review-first default, Context/Coverage/Actions/Approval plan.
+docs:recipe-attach-java-agent	n-a	Java bytecode agent is specific to Spring Boot and JVM runtimes; sharpit runs in Python and FastAPI with no Java agent.
+docs:recipe-check-method-probe	n-a	Java agent method probes with dynamic bytecode instrumentation are not applicable to the Python runtime.
+docs:recipe-side-effects	n-a	Java agent side-effect sensors for OS processes, network sockets, and file handles are not implemented in sharpit.
+docs:recipe-mysql-operational-evidence	partial	get_mysql_report provides bounded operational metrics and server variables.
+docs:recipe-investigate-blocked-thread	partial	get_threads provides thread states, stacks, and asyncio event-loop task await chains.
+docs:recipe-tools-agent-can-call	partial	MCP exposes reads; CLI actions require approval.
+docs:recipe-compact-answers	partial	Bounded DTOs exist; BootUI compact-answer facility does not.
+docs:recipe-protocol-eras	n-a	No corresponding sharpit protocol eras.
