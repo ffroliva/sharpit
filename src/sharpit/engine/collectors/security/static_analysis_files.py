@@ -14,7 +14,7 @@ def _is_symlink_or_junction(path: Path) -> bool:
         lst = os.lstat(path)
         if stat.S_ISLNK(lst.st_mode):
             return True
-        return bool(hasattr(os.path, "isjunction") and os.path.isjunction(path))
+        return os.path.isjunction(path)
     except FileNotFoundError:
         return False
     except OSError:
@@ -59,8 +59,6 @@ def _validate_lstat(trusted_root: Path, path: Path) -> os.stat_result:
     except OSError as exc:
         raise ValueError("Cannot stat file") from exc
 
-    if stat.S_ISLNK(lst.st_mode) or (hasattr(os.path, "isjunction") and os.path.isjunction(path)):
-        raise ValueError("File is symlink or junction")
     if not stat.S_ISREG(lst.st_mode):
         raise ValueError("File is not a regular file")
     if lst.st_size > MAX_FILE_BYTES:

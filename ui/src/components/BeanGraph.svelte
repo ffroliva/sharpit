@@ -1,6 +1,5 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
-  import { ApiError } from '../lib/api';
   import { describeLoadError } from '../lib/loadError';
   import { buildGraph, neighbourhood, type Graph, type GraphNode } from '../lib/graph';
   import { forceLayout, layeredLayout, radialLayout, type Point } from '../lib/layout';
@@ -27,7 +26,7 @@
     try {
       full = buildGraph(await ServerPage.loadAll<BeanRow>('beans', 'beans', MAX_BEANS));
     } catch (e) {
-      error = describeLoadError(e).message;
+      error = describeLoadError(e);
     }
   }
   void load();

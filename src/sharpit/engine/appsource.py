@@ -182,13 +182,13 @@ def _is_file(path: Path) -> bool:
 def _has_requirements(directory: Path) -> bool:
     try:
         with os.scandir(directory) as entries:
-            names = [Path(entry.path) for entry in entries if _requirements_name(entry.name)]
+            names = [Path(entry.path) for entry in entries if requirements_name(entry.name)]
     except (OSError, ValueError, RuntimeError):
         return False
     return any(_is_file(path) for path in names)
 
 
-def _requirements_name(name: str) -> bool:
+def requirements_name(name: str) -> bool:
     lowered = name.lower()
     return lowered.startswith("requirements") and lowered.endswith(".txt")
 

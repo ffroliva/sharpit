@@ -15,7 +15,6 @@ from sharpit.engine.collectors.security.static_analysis import (
     RULE_ID,
     State,
     StaticSecurityAnalysisDetector,
-    StaticSecurityAnalysisRule,
     _repository_root,
     _split_shell_commands,
     strip_yaml_comments,
@@ -664,8 +663,8 @@ def test_project_root_without_pyproject_requirements_bandit(tmp_path: Path, monk
         settings,
     )
     evaluation = scan_evaluation(inputs)
-    assert StaticSecurityAnalysisRule.RULE_ID in evaluation.evaluated
-    assert not any(f.rule_id == StaticSecurityAnalysisRule.RULE_ID for f in evaluation.findings)
+    assert RULE_ID in evaluation.evaluated
+    assert not any(f.rule_id == RULE_ID for f in evaluation.findings)
 
 
 def test_project_root_without_pyproject_requirements_no_bandit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -696,8 +695,8 @@ def test_project_root_without_pyproject_requirements_no_bandit(tmp_path: Path, m
         settings,
     )
     evaluation = scan_evaluation(inputs)
-    assert StaticSecurityAnalysisRule.RULE_ID in evaluation.evaluated
-    assert any(f.rule_id == StaticSecurityAnalysisRule.RULE_ID for f in evaluation.findings)
+    assert RULE_ID in evaluation.evaluated
+    assert any(f.rule_id == RULE_ID for f in evaluation.findings)
 
 
 def test_fail_open_pre_commit_exclude_is_not_hook(tmp_path: Path) -> None:
@@ -1201,3 +1200,28 @@ def test_build_files_scandir_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyP
     files = detector._build_files(p)
     assert len(files) == 1
     assert files[0].name == "pyproject.toml"
+
+
+@pytest.mark.parametrize("local_config", ["pyproject", "ruff.toml"])
+def test_subproject_ruff_config_precedes_repository_config(tmp_path: Path, local_config: str) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    repo = tmp_path / "repo"
+    _write(repo / ".git" / "HEAD", "ref: refs/heads/main\n")
+    project = repo / "svc"
+    local_ruff = '[tool.ruff.lint]\nselect = ["S"]\n' if local_config == "pyproject" else ""
+    _write(project / "pyproject.toml", f'[project]\nname = "svc"\n{local_ruff}')
+    if local_config == "ruff.toml":
+        _write(project / "ruff.toml", '[lint]\nselect = ["S"]\n')
+    _write(repo / "ruff.toml", '[lint]\nselect = ["E"]\n')
+    assert detector.inspect(project).state == State.CONFIGURED
+
+
+@pytest.mark.parametrize("runner", ["uv run", "uvx"])
+def test_runner_isolated_flag_is_boolean(tmp_path: Path, runner: str) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "runner"\n')
+    _write(
+        tmp_path / ".github" / "workflows" / "ci.yml",
+        f"name: CI\njobs:\n  test:\n    steps:\n      - run: {runner} --isolated bandit -r src\n",
+    )
+    assert detector.inspect(tmp_path).state == State.CONFIGURED

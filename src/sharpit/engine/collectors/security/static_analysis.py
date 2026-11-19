@@ -13,14 +13,16 @@ import configparser
 import enum
 import os
 import re
-from collections.abc import Sequence
+import tomllib
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import RuleDefinition
-from sharpit.engine.appsource import as_dict, as_str_list
+from sharpit.engine.appsource import as_dict, as_str_list, requirements_name
 from sharpit.engine.collectors.security.static_analysis_files import (
     contains_symbolic_link,
     read_bounded,
@@ -91,11 +93,13 @@ class Inspection:
         return self.state in (State.CONFIGURED, State.NOT_CONFIGURED)
 
 
-def _update_shell_quote(c: str, quote: str, escaped: bool) -> tuple[str | None, bool]:
+def _process_quoted_char(c: str, quote: str, escaped: bool, token: list[str] | None = None) -> tuple[str | None, bool]:
     if c == "\\" and quote == '"' and not escaped:
         return quote, True
     if c == quote and not escaped:
         return None, False
+    if token is not None:
+        token.append(c)
     return quote, False
 
 
@@ -115,7 +119,7 @@ def _split_shell_commands(command: str) -> list[str]:
     while i < n:
         c = command[i]
         if quote is not None:
-            quote, escaped = _update_shell_quote(c, quote, escaped)
+            quote, escaped = _process_quoted_char(c, quote, escaped)
         elif c in ('"', "'"):
             quote = c
         elif c in (";", "|", "&"):
@@ -125,15 +129,6 @@ def _split_shell_commands(command: str) -> list[str]:
         i += 1
     statements.append(command[start:])
     return [s.strip() for s in statements if s.strip()]
-
-
-def _process_quoted_token_char(c: str, quote: str, escaped: bool, token: list[str]) -> tuple[str | None, bool]:
-    if c == "\\" and quote == '"' and not escaped:
-        return quote, True
-    if c == quote and not escaped:
-        return None, False
-    token.append(c)
-    return quote, False
 
 
 def _flush_token(token: list[str], tokens: list[str]) -> None:
@@ -149,7 +144,7 @@ def _shell_tokens(statement: str) -> list[str]:
     escaped = False
     for c in statement:
         if quote is not None:
-            quote, escaped = _process_quoted_token_char(c, quote, escaped, token)
+            quote, escaped = _process_quoted_char(c, quote, escaped, token)
         elif c in ('"', "'"):
             quote = c
         elif c.isspace():
@@ -178,7 +173,6 @@ _RUNNER_VALUE_OPTIONS = frozenset(
     {
         "--python",
         "--group",
-        "-g",
         "--with",
         "--extra",
         "--package",
@@ -187,9 +181,6 @@ _RUNNER_VALUE_OPTIONS = frozenset(
         "--directory",
         "-C",
         "--env-file",
-        "--spec",
-        "--isolated",
-        "-e",
         "--index",
         "--default-index",
     }
@@ -435,34 +426,33 @@ def _inspect_workflows(repository_root: Path, directory: Path) -> tuple[bool, bo
         return False, True
 
 
-def _inspect_sonar_properties(repository_root: Path, path: Path) -> tuple[bool, bool]:
-    """(configured, indeterminate) for sonar-project.properties."""
-    if contains_symbolic_link(repository_root, path):
+def _inspect_bounded_file(
+    trusted_root: Path, path: Path, check: Callable[[bytes], bool | tuple[bool, bool]]
+) -> tuple[bool, bool] | None:
+    """Read one safe, bounded config file and return (configured, indeterminate), or None if absent."""
+    if contains_symbolic_link(trusted_root, path):
         return False, True
     try:
         if not path.exists():
-            return False, False
-        if not path.is_file():
-            return False, True
-        content = read_text(repository_root, path, errors="replace")
-        return (True, False) if content.strip() else (False, False)
-    except Exception:  # noqa: BLE001
+            return None
+        result = check(read_bounded(trusted_root, path))
+        return result if isinstance(result, tuple) else (result, False)
+    except Exception:  # noqa: BLE001 - malformed or unsafe local config is indeterminate
         return False, True
+
+
+def _inspect_sonar_properties(repository_root: Path, path: Path) -> tuple[bool, bool]:
+    """(configured, indeterminate) for sonar-project.properties."""
+    result = _inspect_bounded_file(
+        repository_root, path, lambda data: bool(data.decode("utf-8-sig", errors="replace").strip())
+    )
+    return result or (False, False)
 
 
 def _inspect_single_semgrep_file(repository_root: Path, cfg: Path) -> tuple[bool, bool]:
     """Return (configured, indeterminate) for a single semgrep config file."""
-    if contains_symbolic_link(repository_root, cfg):
-        return False, True
-    try:
-        if not cfg.exists():
-            return False, False
-        if not cfg.is_file():
-            return False, True
-        content = read_text(repository_root, cfg)
-        return (True, False) if content.strip() else (False, False)
-    except Exception:  # noqa: BLE001
-        return False, True
+    result = _inspect_bounded_file(repository_root, cfg, lambda data: bool(data.decode("utf-8-sig").strip()))
+    return result or (False, False)
 
 
 def _inspect_semgrep_configs(repository_root: Path, candidate_roots: Sequence[Path]) -> tuple[bool, bool]:
@@ -506,38 +496,24 @@ def _inspect_pre_commit_line(line: str) -> bool:
 
 def _inspect_pre_commit(repository_root: Path, path: Path) -> tuple[bool, bool]:
     """(configured, indeterminate) for .pre-commit-config.yaml."""
-    if contains_symbolic_link(repository_root, path):
-        return False, True
-    try:
-        if not path.exists():
-            return False, False
-        if not path.is_file():
-            return False, True
-        text = strip_yaml_comments(read_text(repository_root, path))
-        return (True, False) if any(_inspect_pre_commit_line(line) for line in text.splitlines()) else (False, False)
-    except Exception:  # noqa: BLE001
-        return False, True
+
+    def check(data: bytes) -> bool:
+        text = strip_yaml_comments(data.decode("utf-8-sig"))
+        return any(_inspect_pre_commit_line(line) for line in text.splitlines())
+
+    return _inspect_bounded_file(repository_root, path, check) or (False, False)
 
 
 def _inspect_requirements(repository_root: Path, path: Path) -> tuple[bool, bool]:
     """(configured, indeterminate) for requirements*.txt files."""
-    if contains_symbolic_link(repository_root, path):
-        return False, True
-    try:
-        if not path.exists():
-            return False, False
-        if not path.is_file():
-            return False, True
-        text = read_text(repository_root, path)
-        for line in text.splitlines():
-            trimmed = line.partition("#")[0].strip()
-            if not trimmed:
-                continue
-            if REQUIREMENT_NAME_PATTERN.match(trimmed):
-                return True, False
-        return False, False
-    except Exception:  # noqa: BLE001
-        return False, True
+
+    def check(data: bytes) -> bool:
+        return any(
+            REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip())
+            for line in data.decode("utf-8-sig").splitlines()
+        )
+
+    return _inspect_bounded_file(repository_root, path, check) or (False, False)
 
 
 def _has_setup_cfg_requirements(parser: configparser.ConfigParser) -> bool:
@@ -552,19 +528,13 @@ def _has_setup_cfg_requirements(parser: configparser.ConfigParser) -> bool:
 
 def _inspect_setup_cfg(repository_root: Path, path: Path) -> tuple[bool, bool]:
     """(configured, indeterminate) for setup.cfg."""
-    if contains_symbolic_link(repository_root, path):
-        return False, True
-    try:
-        if not path.exists():
-            return False, False
-        if not path.is_file():
-            return False, True
+
+    def check(data: bytes) -> bool:
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(read_text(repository_root, path))
-        has_bandit = any("bandit" in s.lower() for s in parser.sections())
-        return (True, False) if has_bandit or _has_setup_cfg_requirements(parser) else (False, False)
-    except Exception:  # noqa: BLE001 - malformed setup.cfg is indeterminate; never echoes content
-        return False, True
+        parser.read_string(data.decode("utf-8-sig"))
+        return any("bandit" in section.lower() for section in parser.sections()) or _has_setup_cfg_requirements(parser)
+
+    return _inspect_bounded_file(repository_root, path, check) or (False, False)
 
 
 def _tox_section_has_analyzer(parser: configparser.ConfigParser, sec: str) -> bool:
@@ -577,18 +547,13 @@ def _tox_section_has_analyzer(parser: configparser.ConfigParser, sec: str) -> bo
 
 def _inspect_tox_ini(repository_root: Path, path: Path) -> tuple[bool, bool]:
     """(configured, indeterminate) for tox.ini."""
-    if contains_symbolic_link(repository_root, path):
-        return False, True
-    try:
-        if not path.exists():
-            return False, False
-        if not path.is_file():
-            return False, True
+
+    def check(data: bytes) -> bool:
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(read_text(repository_root, path))
-        return (True, False) if any(_tox_section_has_analyzer(parser, s) for s in parser.sections()) else (False, False)
-    except Exception:  # noqa: BLE001
-        return False, True
+        parser.read_string(data.decode("utf-8-sig"))
+        return any(_tox_section_has_analyzer(parser, section) for section in parser.sections())
+
+    return _inspect_bounded_file(repository_root, path, check) or (False, False)
 
 
 def _resolve_ruff_dict(data: dict[str, object]) -> tuple[bool, bool]:
@@ -615,20 +580,9 @@ def _resolve_ruff_dict(data: dict[str, object]) -> tuple[bool, bool]:
 
 
 def _inspect_ruff_file(trusted_root: Path, path: Path) -> tuple[bool, bool] | None:
-    if contains_symbolic_link(trusted_root, path):
-        return False, True
-    try:
-        if not path.exists():
-            return None
-        if not path.is_file():
-            return False, True
-        raw_bytes = read_bounded(trusted_root, path)
-        import tomllib
-
-        raw_data = tomllib.loads(raw_bytes.decode("utf-8-sig"))
-        return _resolve_ruff_dict(as_dict(raw_data))
-    except Exception:  # noqa: BLE001
-        return False, True
+    return _inspect_bounded_file(
+        trusted_root, path, lambda data: _resolve_ruff_dict(as_dict(tomllib.loads(data.decode("utf-8-sig"))))
+    )
 
 
 def _check_ruff_section(data: dict[str, object], project_root: Path, repository_root: Path) -> tuple[bool, bool]:
@@ -636,16 +590,18 @@ def _check_ruff_section(data: dict[str, object], project_root: Path, repository_
 
     Returns (configured, indeterminate).
     """
-    for candidate_root in (project_root, repository_root):
-        for name in (DOT_RUFF_TOML, RUFF_TOML):
-            candidate = candidate_root / name
-            result = _inspect_ruff_file(candidate_root, candidate)
-            if result is not None:
-                return result
+    for name in (DOT_RUFF_TOML, RUFF_TOML):
+        result = _inspect_ruff_file(project_root, project_root / name)
+        if result is not None:
+            return result
 
     tool = as_dict(data.get("tool"))
     ruff = as_dict(tool.get("ruff"))
     if not ruff:
+        for name in (DOT_RUFF_TOML, RUFF_TOML):
+            result = _inspect_ruff_file(repository_root, repository_root / name)
+            if result is not None:
+                return result
         return False, False
 
     return _resolve_ruff_dict(ruff)
@@ -697,36 +653,18 @@ def _inspect_pyproject(
     repository_root: Path,
 ) -> tuple[bool, bool]:
     """(configured, indeterminate) for pyproject.toml."""
-    if contains_symbolic_link(trusted_root, path):
-        return False, True
-    try:
-        if not path.exists():
-            return False, False
-        if not path.is_file():
-            return False, True
-        raw_bytes = read_bounded(trusted_root, path)
-        import tomllib
 
-        raw_data = tomllib.loads(raw_bytes.decode("utf-8-sig"))
-        data = as_dict(raw_data)
-    except Exception:  # noqa: BLE001 - decode error or TOML error
-        return False, True
+    def check(raw_bytes: bytes) -> tuple[bool, bool]:
+        data = as_dict(tomllib.loads(raw_bytes.decode("utf-8-sig")))
+        tool = as_dict(data.get("tool"))
+        if "bandit" in tool:
+            return True, False
+        ruff_configured, ruff_indeterminate = _check_ruff_section(data, trusted_root, repository_root)
+        if ruff_configured or _has_pyproject_deps(data, tool):
+            return True, False
+        return False, ruff_indeterminate
 
-    tool = as_dict(data.get("tool"))
-    if "bandit" in tool:
-        return True, False
-
-    ruff_configured, ruff_indeterminate = _check_ruff_section(data, trusted_root, repository_root)
-    if ruff_configured:
-        return True, False
-
-    if _has_pyproject_deps(data, tool):
-        return True, False
-
-    if ruff_indeterminate:
-        return False, True
-
-    return False, False
+    return _inspect_bounded_file(trusted_root, path, check) or (False, False)
 
 
 def _inspect_single_build_file(root: Path, bf: Path, repo_root: Path) -> tuple[bool, bool]:
@@ -775,7 +713,7 @@ def _inspect_candidate_requirements(cand: Path, repo_root: Path) -> tuple[bool, 
         with os.scandir(cand) as entries:
             for entry in entries:
                 ename = entry.name.lower()
-                if ename.startswith("requirements") and ename.endswith(".txt"):
+                if requirements_name(ename):
                     conf, ind = _inspect_requirements(repo_root, Path(entry.path))
                     if conf:
                         return True, False
@@ -840,7 +778,7 @@ class StaticSecurityAnalysisDetector:
             return Inspection(State.NOT_APPLICABLE)
         try:
             root = Path(os.path.abspath(project_root))
-            if not root.is_dir() or root.is_symlink() or (hasattr(root, "is_junction") and root.is_junction()):
+            if not root.is_dir() or root.is_symlink() or root.is_junction():
                 return Inspection(State.NOT_APPLICABLE)
 
             build_files = self._build_files(root)
@@ -892,7 +830,7 @@ class StaticSecurityAnalysisDetector:
             with os.scandir(root) as entries:
                 for entry in entries:
                     ename = entry.name.lower()
-                    if ename.startswith("requirements") and ename.endswith(".txt"):
+                    if requirements_name(ename):
                         files.append(Path(entry.path))
         except OSError:
             pass
@@ -902,42 +840,29 @@ class StaticSecurityAnalysisDetector:
 class StaticSecurityAnalysisRule:
     """Rule SEC-STATIC-001 finding metadata and evidence limitation helper."""
 
-    RULE_ID = RULE_ID
-    NAME = TITLE
-    CATEGORY = CATEGORY
-    SEVERITY = SEVERITY
-    DETAIL = DETAIL
-    DESCRIPTION = DESCRIPTION
-    RECOMMENDATION = RECOMMENDATION
-    LEARN_MORE_URL = LEARN_MORE_URL
-
     @classmethod
     def rule_definition(cls) -> RuleDefinition:
         return RuleDefinition(
-            id=cls.RULE_ID,
-            name=cls.NAME,
-            category=cls.CATEGORY,
-            severity=cls.SEVERITY,
-            description=cls.DESCRIPTION,
-            recommendation=cls.RECOMMENDATION,
-            learn_more_url=cls.LEARN_MORE_URL,
+            id=RULE_ID,
+            name=TITLE,
+            category=CATEGORY,
+            severity=SEVERITY,
+            description=DESCRIPTION,
+            recommendation=RECOMMENDATION,
+            learn_more_url=LEARN_MORE_URL,
         )
 
     @classmethod
     def finding(cls) -> Finding:
         return Finding(
-            rule_id=cls.RULE_ID,
+            rule_id=RULE_ID,
             advisor="security",
-            severity=cls.SEVERITY,
+            severity=SEVERITY,
             target="project",
-            message=cls.DETAIL,
-            identity=cls.RULE_ID,
+            message=DETAIL,
+            identity=RULE_ID,
         )
 
     @classmethod
     def add_assessment_limitation(cls, ev: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "usable": ev.get("usable", False),
-            "coverageComplete": False,
-            "limitations": list(ev.get("limitations", [])) + [LIMITATION_TEXT],
-        }
+        return evidence(bool(ev.get("usable")), False, [*ev.get("limitations", []), LIMITATION_TEXT])
