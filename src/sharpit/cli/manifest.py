@@ -20,10 +20,14 @@ class ManifestTool:
 
     @property
     def takes_scan_id(self) -> bool:
-        return self.schema == "RULE_VIOLATIONS"
+        return self._takes_scan_id
 
     @property
     def takes_offset(self) -> bool:
+        return self._takes_scan_id
+
+    @property
+    def _takes_scan_id(self) -> bool:
         return self.schema == "RULE_VIOLATIONS"
 
     @property

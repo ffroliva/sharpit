@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from sharpit.cli.arguments import build_tool_arguments
 from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.fail_on import (
     ADVISOR_TOOLS,
@@ -13,7 +14,6 @@ from sharpit.cli.fail_on import (
     INSUFFICIENT_TOOLS,
     Criterion,
     accepted,
-    build_tool_arguments,
     effective_query,
     evaluate,
     parse,
