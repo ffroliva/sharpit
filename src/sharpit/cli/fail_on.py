@@ -37,7 +37,8 @@ def build_tool_arguments(
     CLI options like fail_on, json, url, token, api_path never reach the call.
     Task 7 wires this helper into the command runner.
     """
-    return {"fail_on": "stub"}
+    allowed = set(tool.arguments)
+    return {k: v for k, v in options.items() if k in allowed and v is not None}
 
 
 class Severity(enum.StrEnum):
@@ -98,14 +99,40 @@ ADVISOR_TOOLS: frozenset[str] = frozenset(
 # Reports with explicit evidence sufficiency states.
 INSUFFICIENT_TOOLS: frozenset[str] = frozenset(
     {
-        "get_exceptions",
         "get_runtime_insight",
         "get_runtime_insights",
     }
 )
 
 _EVALUATED = frozenset({"SCANNED", "PARTIAL"})
-_WORD_PATTERN = re.compile(r"^[A-Za-z_]{1,32}$")
+_WORD_PATTERN = re.compile(r"[A-Za-z_]{1,32}")
+
+_SEVERITY_ORDER: dict[Severity, int] = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+    Severity.INFO: 4,
+}
+
+
+def _trim_java(s: str) -> str:
+    """Strip characters <= U+0020 from both ends, matching Java's String.trim()."""
+    start = 0
+    end = len(s)
+    while start < end and ord(s[start]) <= 0x20:
+        start += 1
+    while end > start and ord(s[end - 1]) <= 0x20:
+        end -= 1
+    return s[start:end]
+
+
+def _parse_severity(text: str) -> Severity | None:
+    norm = _trim_java(text).upper()
+    try:
+        return Severity(norm)
+    except ValueError:
+        return None
 
 
 def supports_severity(tool_name: str) -> bool:
@@ -127,18 +154,26 @@ def accepted(tool_name: str) -> str:
     """Accepted criteria for the tool."""
     if supports_severity(tool_name) and supports_insufficient(tool_name):
         return f"{accepted_severities()}, insufficient"
-    return "insufficient" if supports_insufficient(tool_name) else accepted_severities()
+    if supports_insufficient(tool_name):
+        return "insufficient"
+    if supports_severity(tool_name):
+        return accepted_severities()
+    return f"'{tool_name}' takes no --fail-on"
 
 
 def parse(tool_name: str, value: str) -> Criterion:
     """Reads a --fail-on value allowed for the selected tool, ignoring case."""
-    normalized = value.strip().upper()
+    if tool_name == "get_exceptions":
+        raise ValueError("sharpit records no caught-in-code evidence, so this gate cannot be evaluated")
+    if not supports_severity(tool_name) and not supports_insufficient(tool_name):
+        raise ValueError(f"'{tool_name}' takes no --fail-on.")
+    normalized = _trim_java(value).upper()
     if normalized == "INSUFFICIENT" and supports_insufficient(tool_name):
         return Criterion.INSUFFICIENT
     if supports_severity(tool_name):
-        for sev in Severity:
-            if sev.value == normalized:
-                return Criterion[sev.name]
+        sev = _parse_severity(normalized)
+        if sev is not None:
+            return Criterion[sev.name]
     raise ValueError(f"'{value}' is not accepted here; use one of {accepted(tool_name)}.")
 
 
@@ -164,21 +199,6 @@ def _is_word(text: str) -> bool:
     return bool(_WORD_PATTERN.fullmatch(text))
 
 
-def _known(severity: str) -> bool:
-    normalized = severity.strip().upper()
-    return normalized in Severity._value2member_map_
-
-
-def _at_or_above(severity: str, threshold: Severity) -> bool:
-    normalized = severity.strip().upper()
-    try:
-        sev = Severity(normalized)
-    except ValueError:
-        return False
-    order = list(Severity)
-    return order.index(sev) <= order.index(threshold)
-
-
 def _non_negative_integer(val: object) -> TypeGuard[int]:
     return isinstance(val, int) and not isinstance(val, bool) and val >= 0
 
@@ -195,11 +215,12 @@ def _record_count(
     ignored: dict[str, str],
 ) -> None:
     text = str(count)
-    if not _known(severity):
+    sev = _parse_severity(severity)
+    if sev is None:
         key = severity if _is_word(severity) else "?"
         ignored[key] = f"{ignored[key]}+{text}" if key in ignored else text
-    elif _at_or_above(severity, threshold):
-        norm_key = severity.strip().upper()
+    elif _SEVERITY_ORDER[sev] <= _SEVERITY_ORDER[threshold]:
+        norm_key = sev.value
         met[norm_key] = f"{met[norm_key]}+{text}" if norm_key in met else text
 
 
@@ -320,7 +341,7 @@ def _verify_empty_runtime_insights(payload: Mapping[str, object]) -> Verdict | N
     requests = payload.get("requests")
     if (
         not isinstance(query, str)
-        or query.strip().lower() != "all"
+        or _trim_java(query).lower() != "all"
         or not _non_negative_integer(requests)
         or requests == 0
     ):
