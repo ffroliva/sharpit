@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from collections import Counter
 from collections.abc import Sequence
 
 _FNV_BASIS, _FNV_PRIME, _MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
@@ -65,4 +66,5 @@ def median(values: list[int]) -> int:
 
 def primary_call_site(sites: Sequence[str]) -> str:
     """The most frequent call site among the executions, preserving first-seen order on ties."""
-    return max(sites, key=sites.count) if sites else ""
+    # Counter keeps first-seen order and most_common sorts stably, so ties go to the site seen first, in one pass
+    return Counter(sites).most_common(1)[0][0] if sites else ""
