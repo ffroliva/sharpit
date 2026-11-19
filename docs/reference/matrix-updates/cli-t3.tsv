@@ -1,0 +1,3 @@
+cli-t3-catalog-validation	partial	Catalog validation moved to Client.catalog so every caller receives a validated sharpit catalog.
+cli-t3-outcome-message	partial	Python carries ToolResult.raw_body and payload; classify reads the decoded client payload and applies the client's redaction helpers.
+cli-t3-refusal-shape	partial	The FastAPI guard's /cli/tools refusal body has only error; the reason is therefore taken from that server-provided text.

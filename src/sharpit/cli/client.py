@@ -16,7 +16,7 @@ from sharpit import __version__
 # Default response cap for ordinary calls; bounded calls accept the caller's limit.
 _MAX_RESPONSE_BYTES = 1_048_576
 _PANEL_ACCESS_DENIED = "sharpit panel access denied"
-__all__ = ["Client", "ClientError", "ToolResult"]
+__all__ = ["Client", "ClientError", "ToolResult", "nonblank", "redact", "sharpit_text"]
 
 
 class _NoRedirect(_request.HTTPRedirectHandler):
@@ -59,7 +59,7 @@ class Client:
     ) -> ToolResult:
         return self._invoke(tool, arguments, max_response_bytes, self.options.timeout if timeout is None else timeout)
 
-    def catalog(self) -> Any:
+    def catalog(self) -> dict[str, Any]:
         return self._catalog(_MAX_RESPONSE_BYTES, None)
 
     def catalog_bounded(self, max_response_bytes: int, timeout: float | None = None) -> Any:
@@ -87,7 +87,7 @@ class Client:
         payload = _parse_json(body, endpoint, status)
         return ToolResult(tool, status, body, payload)
 
-    def _catalog(self, max_response_bytes: int, timeout: float | None) -> Any:
+    def _catalog(self, max_response_bytes: int, timeout: float | None) -> dict[str, Any]:
         path = "/cli"
         endpoint = self._endpoint(path)
         status, body = self._send(endpoint, "GET", None, max_response_bytes, timeout)
@@ -98,7 +98,20 @@ class Client:
             )
         if not 200 <= status < 300:
             raise self._describe_failure(status, body)
-        return _parse_json(body, endpoint, status)
+        payload = _parse_json(body, endpoint, status)
+        catalog = cast("dict[str, Any]", payload) if isinstance(payload, dict) else None
+        if (
+            catalog is None
+            or catalog.get("serverName") != "sharpit"
+            or not isinstance(catalog.get("enabled"), bool)
+            or not isinstance(catalog.get("tools"), list)
+            or (not catalog["enabled"] and catalog["tools"])
+        ):
+            raise self._client_error(
+                "Response is not a sharpit catalog: expected serverName 'sharpit', a boolean enabled, "
+                "and a tools array that is empty while disabled."
+            )
+        return catalog
 
     def _send(
         self,
@@ -322,6 +335,10 @@ def _nonblank(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def nonblank(value: Any) -> str | None:
+    return _nonblank(value)
+
+
 def _sharpit_text(text: str) -> str:
     return text.replace("BootUI", "sharpit").replace("bootui.", "sharpit.")
 
@@ -331,6 +348,14 @@ def _redact(text: str, token: str | None) -> str:
         text = text.replace(f"Authorization: Bearer {token}", "[redacted]")
         text = text.replace(f"Bearer {token}", "Bearer [redacted]").replace(token, "[redacted]")
     return text
+
+
+def redact(text: str, token: str | None) -> str:
+    return _redact(text, token)
+
+
+def sharpit_text(text: str) -> str:
+    return _sharpit_text(text)
 
 
 def _valid_timeout(value: Any) -> float:
