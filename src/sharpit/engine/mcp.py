@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -63,15 +64,18 @@ class Prompt:
     text: str
     arguments: tuple[PromptArgument, ...] = ()
 
-    def render(self, values: Mapping[str, object], mask_text: Callable[[str | None], str | None]) -> str:
+    def render(self, values: Mapping[str, str], mask_text: Callable[[str | None], str | None]) -> str:
         supplied: list[tuple[str, str]] = []
         for argument in self.arguments:
             value = values.get(argument.name)
-            if not isinstance(value, str) or not value.strip():
+            if value is None:
                 continue
-            masked = mask_text(value)
-            if masked is not None and masked.strip():
-                supplied.append((argument.label, masked.strip()[:500] + ("..." if len(masked.strip()) > 500 else "")))
+            stripped = _java_strip(value)
+            if not stripped:
+                continue
+            masked = mask_text(stripped)
+            if masked is not None:
+                supplied.append((argument.label, _bounded(masked)))
         if not supplied:
             return self.text
         lines = "\n".join(f"- {label}: {value}" for label, value in supplied)
@@ -83,6 +87,38 @@ class Prompt:
         )
 
 
+MAX_ARGUMENT_LENGTH = 500
+
+
+def _java_whitespace(character: str) -> bool:
+    return character in "\t\n\v\f\r\x1c\x1d\x1e\x1f" or (
+        unicodedata.category(character) in {"Zs", "Zl", "Zp"} and character not in "\u00a0\u2007\u202f"
+    )
+
+
+def _java_strip(value: str) -> str:
+    start, end = 0, len(value)
+    while start < end and _java_whitespace(value[start]):
+        start += 1
+    while end > start and _java_whitespace(value[end - 1]):
+        end -= 1
+    return value[start:end]
+
+
+def _bounded(value: str) -> str:
+    if len(value.encode("utf-16-le")) // 2 <= MAX_ARGUMENT_LENGTH:
+        return value
+    units = 0
+    end = 0
+    for index, character in enumerate(value):
+        width = 2 if ord(character) > 0xFFFF else 1
+        if units + width > MAX_ARGUMENT_LENGTH:
+            break
+        units += width
+        end = index + 1
+    return value[:end] + "..."
+
+
 # --- Guidance (adapted from BootUI McpGuidance to the sharpit tool catalogue) ---------------------------------------
 
 INSTRUCTIONS = (
@@ -90,8 +126,9 @@ INSTRUCTIONS = (
     "choose the smallest relevant read tool: get_config for effective settings, get_mappings for routes and "
     "handlers, get_loggers for logger levels, get_beans for dependency providers, middleware and the lifespan "
     "handler, and get_vulnerabilities_report for the cached dependency vulnerability report. Use narrow queries "
-    "and limits. A fresh vulnerability scan (vulnerabilities_scan) is available only through the sharpit CLI, not "
-    "over MCP; it sends package names and versions to OSV.dev, so run it only with approval. Treat results as "
+    "and limits. A fresh vulnerability scan (`sharpit vulnerabilities scan`, `vulnerabilities_scan`) is available "
+    "only through the sharpit CLI, not over MCP; it sends package names and versions to OSV.dev, so run it only "
+    "with approval. Treat results as "
     "evidence to verify against source and configuration, and do not modify code blindly. For a "
     "whole-application action plan, use the assess_application prompt; assessment is not permission to execute "
     "fixes. Configuration secrets are masked, but application-controlled values may still contain sensitive data; "
@@ -105,10 +142,12 @@ Assessment is not permission to execute fixes. Start with existing evidence only
 running tool catalog and panel availability/policy; disabled panels refuse their tools. Use the
 user's goal, or state a general application-health goal when absent. Account for relevant
 capabilities without calling every tool. Before fresh scans, name the applicable scans and obtain
-approval for that scope unless it was already explicitly approved. Request separate approval for
-vulnerabilities_scan (sends package names and versions to OSV.dev), database_advisor_scan
-(contacts the configured database for metadata), and relevant enabled scans such as
-security_scan, architecture_scan, rest_api_scan, and fastapi_scan. Sharpit has no memory scan,
+approval for that scope unless it was already explicitly approved. Sharpit's action scans are CLI-only:
+`sharpit vulnerabilities scan` (`vulnerabilities_scan`), `sharpit db scan` (`database_advisor_scan`),
+`sharpit security scan` (`security_scan`), `sharpit architecture scan` (`architecture_scan`),
+`sharpit rest-api scan` (`rest_api_scan`), and `sharpit fastapi scan` (`fastapi_scan`). Obtain approval for
+the applicable commands; the vulnerability scan sends package names and versions to OSV.dev, and the
+database scan contacts the configured database for metadata. Sharpit has no memory scan,
 penetration probe, or method probe. Native-image and CRaC readiness are outside sharpit's observed
 capabilities. Do not generate traffic, install integrations, or loosen disabled/read-only policy to
 improve coverage.
@@ -179,8 +218,8 @@ PROMPTS: tuple[Prompt, ...] = (
         "Investigate a runtime failure by correlating health, activity, exceptions, traces, SQL, and logs.",
         "Diagnose the current runtime issue in this "
         + _FRAMEWORK
-        + " application. Check get_low_footprint on results first: paused evidence is not an idle application; "
-        "get_low_footprint gives the state and changing it needs approval. Begin with get_runtime_insights: read its "
+        + " application. Call get_low_footprint first: paused evidence is not an idle application, and changing "
+        "the mode needs approval. Begin with get_runtime_insights: read its "
         "coverage and the checks that did not run before its observations, and treat INSUFFICIENT as unknown. Its "
         "default list leaves out short routes and other rows it counts in a limitation; when nothing listed explains "
         "the issue, call it again with the query all or the route. Do not read requests 0 as idle when an observation "
@@ -212,17 +251,17 @@ PROMPTS: tuple[Prompt, ...] = (
     ),
     Prompt(
         "verify_after_change",
-        "Verify a change by comparing the run after the tests with the previous one, then stop.",
+        "Verify a change with the runtime evidence sharpit currently records, then stop.",
         "Verify the change just made to this "
         + _FRAMEWORK
-        + " application. Start with get_runtime_insights and get_sql_trace_insights to inspect the available "
-        "runtime and SQL evidence; sharpit has no changed-code inventory, method probes, or previous-run comparison, "
-        "so state those limitations instead of claiming they were checked. If get_low_footprint says evidence is "
-        "paused, obtain approval before disable_low_footprint and collect fresh traffic; missing observations while "
-        "held cannot verify a change. Run the tests or requests that exercise the changed route before interpreting "
-        "latency or activity. Use get_runtime_insight for targeted detail and get_request_profile for a profileable "
-        "request. Use get_sql_traces to inspect the statements and timings relevant to the change. Report which "
-        "evidence is comparable and which is missing; INSUFFICIENT is not a pass. Do not edit code from a latency "
+        + " application. Run the tests or requests that exercise the changed route, then call get_runtime_insights "
+        "with the query repeated-selects and with lazy-sql-after-handler to check whether repeated SQL is still "
+        "observed. Use get_runtime_insight for targeted detail, get_request_profile for a profileable request, and "
+        "get_sql_traces for relevant statements and timings. Sharpit has no previous-run comparison, changed-code "
+        "inventory, or method probes; state these limits instead of claiming a comparison. Call get_low_footprint "
+        "first; paused evidence is not an idle application. Disabling the mode is an action and is CLI-only: with "
+        "approval, run `sharpit low-footprint disable` (`disable_low_footprint`) before collecting fresh traffic. "
+        "Report which evidence is available and missing; INSUFFICIENT is not a pass. Do not edit code from a latency "
         "row, and do not treat a missing observation as proof that a behavior is gone.",
         (
             PromptArgument(
@@ -232,9 +271,8 @@ PROMPTS: tuple[Prompt, ...] = (
             ),
             PromptArgument(
                 "route",
-                "The route or test the change should affect: run it before comparing, and pass it as the query of "
-                "get_runtime_insights.",
-                "The route or test the change should affect",
+                "The route or test to exercise after the change, and to pass as the query of get_runtime_insights.",
+                "The route or test to exercise",
             ),
         ),
     ),
@@ -500,23 +538,25 @@ def _get_prompt(name: object, arguments: object, mask_text: Callable[[str | None
         raise RpcError(INVALID_PARAMS, "Missing prompt name")
     prompt = next((p for p in PROMPTS if p.name == name), None)
     if prompt is None:
-        raise RpcError(INVALID_PARAMS, f"Unknown prompt: {name}")
+        raise RpcError(INVALID_PARAMS, f"Unknown prompt: {mask_text(name) or '[redacted]'}")
     if arguments is None:
         arguments = {}
     if not isinstance(arguments, dict):
         raise RpcError(INVALID_PARAMS, "Prompt arguments must be an object")
     argument_values: dict[str, str] = {}
-    for key, value in cast(dict[object, object], arguments).items():
-        if not isinstance(key, str):
-            raise RpcError(INVALID_PARAMS, "Prompt arguments must be an object")
+    for key, value in cast(dict[str, object], arguments).items():
         if not isinstance(value, str):
-            raise RpcError(INVALID_PARAMS, f"Argument '{key}' must be a string")
+            raise RpcError(INVALID_PARAMS, f"Argument '{mask_text(key) or '[redacted]'}' must be a string")
         argument_values[key] = value
     unexpected = sorted(argument_values.keys() - {argument.name for argument in prompt.arguments})
     if unexpected:
         declared = sorted(argument.name for argument in prompt.arguments)
         takes = f"It takes {', '.join(declared)}." if declared else "It takes no arguments."
-        raise RpcError(INVALID_PARAMS, f"Unknown argument for prompt {name}: {unexpected[0]}. {takes}")
+        raise RpcError(
+            INVALID_PARAMS,
+            f"Unknown argument for prompt {mask_text(name) or '[redacted]'}: "
+            f"{mask_text(unexpected[0]) or '[redacted]'}. {takes}",
+        )
     message = {
         "role": "user",
         "content": {"type": "text", "text": prompt.render(argument_values, mask_text)},

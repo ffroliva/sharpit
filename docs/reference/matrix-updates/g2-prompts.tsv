@@ -16,3 +16,11 @@ mcp:prompt-assess_application	partial	Adapts JVM identity, snapshot, and tracing
 mcp:prompt-assess_application	partial	Limits application identity to sharpit's FastAPI adapter and marks Spring MVC, WebFlux, Quarkus, native-image, and CRaC readiness as outside this lane's observed capabilities.
 mcp:prompt-assess_application	partial	Replaces BootUI agent-only code inventory and advisor detail with sharpit's bounded reports, identifiers, and enabled advisor scans.
 mcp:prompt-assess_application	partial	Applies sharpit's text masker to supplied argument values before rendering, as required by sharpit's MCP secret-masking invariant.
+mcp:prompt-diagnose_runtime_issue	partial	Calls get_low_footprint first because sharpit reports low-footprint state through that tool rather than a lowFootprint field on result rows.
+mcp:prompt-verify_after_change	partial	Removes BootUI's previous-run comparison promise because sharpit has no runtime-run comparison or prior-run identifier.
+mcp:prompt-verify_after_change	partial	Rewords the route argument for exercising the changed route and using it as a Runtime Insights query; it is not a prior-run comparison key.
+mcp:prompt-verify_after_change	partial	Uses sharpit's implemented repeated-selects and lazy-sql-after-handler Runtime Insights queries to check repeated SQL evidence.
+mcp:prompt-verify_after_change	partial	Names CLI-only sharpit action tools with their CLI commands because actions are omitted from MCP tools/list.
+mcp:prompt-assess_application	partial	Names available sharpit advisor scans with their CLI commands because action tools are omitted from MCP tools/list.
+mcp:prompt-diagnose_runtime_issue	partial	Matches Java String.strip/isBlank whitespace behavior, including retaining non-breaking spaces, and bounds at 500 UTF-16 code units without splitting a surrogate pair.
+mcp:prompt-verify_after_change	partial	Masks caller-supplied prompt and argument names in JSON-RPC errors, extending the required secret masking to error output.

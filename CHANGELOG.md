@@ -15,7 +15,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- MCP runtime-diagnosis, change-verification, application-review, and application-assessment guidance is adapted to sharpit evidence and available tools; unsupported BootUI-only observations are identified as unavailable.
+- MCP runtime-diagnosis, change-verification, application-review, and application-assessment guidance is adapted to sharpit evidence and available tools; CLI-only actions include their command, change verification checks both repeated-SQL insights, and unsupported previous-run comparisons are not promised. Prompt arguments follow Java whitespace and UTF-16 truncation semantics and are masked before appearing in replies or errors.
 - The caught-exceptions report (`GET /sharpit/api/exceptions/caught`) emits `insufficient` and `partial` integer counters (zeros when the sensor is unavailable), and the runtime insights agent view (`get_runtime_insights`) emits `insufficient` and `partial` counts covering every observation matching the query, including rows omitted by `limit`. The MCP tool descriptions for `get_exceptions`, `get_runtime_insights`, and `get_runtime_insight` adopt BootUI 2.4.0 explanations for incomplete-evidence states (BootUI 2.4.0 #1589).
 - The web UI enforces read-only panel policies across views and navigation: action buttons are disabled with their canonical refusal reasons instead of remaining interactive or hidden, panels state refusal reasons on 403 access denials without masking them as generic connection failures, and mutating actions guard execution against policy changes (BootUI 2.4.0 #1602).
 - Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL) or failed ORM model
