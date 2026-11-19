@@ -27,7 +27,9 @@ How each row is counted:
   sample app's (the live capture fixture, `tests/fixtures/bootui/2.4.0/panels.json`; at BootUI's tags,
   `bootui-conformance/.../expected-panels-spring.json`). Some BootUI panels are Java-only, so 48 of 65 is not a
   percentage of the work left.
-- **Runtime insights:** sharpit registers all 28 of BootUI's insight kinds; 10 evaluate in 0.7.0 and 18 are deferred.
+- **Runtime insights:** sharpit registers all 28 of BootUI's insight kinds; 10 evaluate in 0.7.0; of the other 18, `proxy-bypass` and
+  `event-loop-blocking` are recorded as not applicable (sharpit has no evidence source for them) and 16 are not
+  implemented yet.
   A kind evaluates when it is implemented and every journal source it requires is one sharpit produces (all 10 do).
   BootUI counts the classes implementing `Observation`.
 - **Routes:** the BootUI 2.3.0 live goldens (`tests/parity/routes_status.json`, measured against 2.3.0): 96 routes, of
@@ -51,11 +53,11 @@ sharpit 0.7.0 targets BootUI 2.4.0 behaviour and engine robustness across existi
 - **Static security analysis rule `SEC-STATIC-001` (A3):** detects local static security analyzer declarations (Bandit,
   Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without execution, bounded to 1 MiB per
   file and 64 workflows (BootUI 2.4.0 #1597).
-- **Database advisor incomplete discovery (A4):** missing driver metadata, failed ORM model discovery, or incomplete
-  PostgreSQL relation inventories report WARNING diagnostics and leave advisor status `PARTIAL` rather than clean
-  (BootUI 2.4.0 #1600).
-- **Runtime journal robustness (A5a):** idempotent aggregate registration and request-profile timeline tie-breaking by
-  SQL start time then duration (BootUI 2.4.0 #1598).
+- **Database advisor incomplete discovery (A4):** missing driver metadata or failed ORM model discovery report WARNING
+  diagnostics and leave advisor status `PARTIAL` rather than clean (BootUI 2.4.0 #1600); BootUI's incomplete PostgreSQL
+  relation-inventory diagnostic is not reported yet.
+- **Runtime journal robustness (A5a):** idempotent aggregate registration (BootUI 2.4.0 #1598); the request-profile
+  timeline tie-break does not apply, since sharpit's request profile has no journal timeline.
 - **UI read-only panel policy (A6):** action buttons are disabled with canonical refusal reasons, and 403 access denials
   display explicit refusal reasons rather than generic failure states (BootUI 2.4.0 #1602).
 - **HTTP exchange recording resilience (A7):** recording failures never alter or disrupt streamed or committed HTTP

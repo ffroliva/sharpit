@@ -16,10 +16,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - The caught-exceptions report (`GET /sharpit/api/exceptions/caught`) emits `insufficient` and `partial` integer counters (zeros when the sensor is unavailable), and the runtime insights agent view (`get_runtime_insights`) emits `insufficient` and `partial` counts covering every observation matching the query, including rows omitted by `limit`. The MCP tool descriptions for `get_exceptions`, `get_runtime_insights`, and `get_runtime_insight` adopt BootUI 2.4.0 explanations for incomplete-evidence states (BootUI 2.4.0 #1589).
 - The web UI enforces read-only panel policies across views and navigation: action buttons are disabled with their canonical refusal reasons instead of remaining interactive or hidden, panels state refusal reasons on 403 access denials without masking them as generic connection failures, and mutating actions guard execution against policy changes (BootUI 2.4.0 #1602).
-- Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL), failed ORM model discovery, or incomplete PostgreSQL relation inventories as WARNING diagnostics with incomplete evidence coverage (`PARTIAL` scan status, never clean `SCANNED`), while unconfigured/absent ORM models remain a neutral INFO skip and complete empty relation inventories remain clean (BootUI 2.4.0 #1600).
-- Runtime journal aggregate listener registration is idempotent in `HookRegistry`, and request-profile timeline tie-breaking orders items by SQL execution start then duration (BootUI 2.4.0 #1598).
+- Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL) or failed ORM model
+  discovery as WARNING diagnostics with incomplete evidence coverage (`PARTIAL` scan status, never a clean `SCANNED`),
+  while unconfigured or absent ORM models remain a neutral INFO skip (BootUI 2.4.0 #1600). BootUI's incomplete
+  PostgreSQL relation-inventory diagnostic is not reported yet: sharpit's catalog does not observe that signal.
+- Registering a capture hook twice in `HookRegistry` is idempotent: an aggregate is never counted twice (BootUI 2.4.0
+  #1598).
 - HTTP exchange recording failures never alter or disrupt streamed or committed HTTP responses, never mask host application exceptions, and log a warning naming the exception class only (BootUI 2.4.0 #1615).
-- Unused setting re-exports dropped from `sharpit.settings`, and `IdleTracker` exposes `low_footprint_lock` through a public property.
 - The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
   assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.
 
