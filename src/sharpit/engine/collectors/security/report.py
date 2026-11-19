@@ -117,6 +117,28 @@ def _message(chains: int, limitations: list[str]) -> str:
     return message
 
 
+_STATIC_ONLY: dict[State, tuple[str | None, tuple[str, ...], tuple[Finding, ...]]] = {
+    # message, rules evaluated, findings, per inspection state, when no FastAPI security surface was read
+    State.NOT_APPLICABLE: (None, (), ()),
+    State.CONFIGURED: (
+        "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
+        " sharpit does not verify analyzer execution.",
+        (StaticSecurityAnalysisRule.RULE_ID,),
+        (),
+    ),
+    State.NOT_CONFIGURED: (
+        "No FastAPI application was found to inspect. No local static analyzer declaration was found.",
+        (StaticSecurityAnalysisRule.RULE_ID,),
+        (StaticSecurityAnalysisRule.finding(),),
+    ),
+    State.INDETERMINATE: (
+        "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed.",
+        (),
+        (),
+    ),
+}
+
+
 def _non_present_model_evaluation(model: SecurityModel, inspection: Inspection) -> Evaluation:
     proxy_unavailable = not model.limitations or list(model.limitations) == [NOT_FASTAPI]
     analyzer = STATIC_ANALYZER if proxy_unavailable else None
@@ -132,34 +154,12 @@ def _non_present_model_evaluation(model: SecurityModel, inspection: Inspection) 
     if inspection.state == State.INDETERMINATE:
         ev = StaticSecurityAnalysisRule.add_assessment_limitation(ev)
 
-    if inspection.state == State.NOT_APPLICABLE:
-        status = "DISABLED"
+    static_message, evaluated, findings = _STATIC_ONLY[inspection.state]
+    status = "DISABLED" if inspection.state == State.NOT_APPLICABLE else "PARTIAL"
+    if static_message is None:
         msg = base_message
-        evaluated: tuple[str, ...] = ()
-        findings: tuple[Finding, ...] = ()
-    elif inspection.state == State.CONFIGURED:
-        status = "PARTIAL"
-        static_message = (
-            "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
-            " sharpit does not verify analyzer execution."
-        )
+    else:
         msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
-        evaluated = (StaticSecurityAnalysisRule.RULE_ID,)
-        findings = ()
-    elif inspection.state == State.NOT_CONFIGURED:
-        status = "PARTIAL"
-        static_message = "No FastAPI application was found to inspect. No local static analyzer declaration was found."
-        msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
-        evaluated = (StaticSecurityAnalysisRule.RULE_ID,)
-        findings = (StaticSecurityAnalysisRule.finding(),)
-    else:  # INDETERMINATE
-        status = "PARTIAL"
-        static_message = (
-            "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed."
-        )
-        msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
-        evaluated = ()
-        findings = ()
 
     return Evaluation(
         status,
@@ -239,7 +239,7 @@ def build_inputs(
     reasons: list[str] = []
     root = appsource.resolve_app_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
     index = appsource.build_index(root) if root is not None else None  # dropped with the inputs after the scan
-    project_root = appsource.find_project_root(root, sys.path) if root is not None else None
+    project_root = appsource.find_project_root(root) if root is not None else None
     return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons), project_root=project_root)
 
 

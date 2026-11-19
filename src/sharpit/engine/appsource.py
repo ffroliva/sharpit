@@ -46,6 +46,10 @@ class SourceIndex:
 # ---- the one package-root resolver -----------------------------------------------------------------------------
 
 
+PYPROJECT = "pyproject.toml"
+BUILD_FILES = (PYPROJECT, "setup.cfg", "setup.py", "tox.ini")  # requirements*.txt is matched by name
+
+
 def _holder(app: object, modules: Mapping[str, object]) -> str | None:
     """Shortest name of a loaded module whose globals hold ``app``: ``vars()`` only, never getattr or a module hook."""
     names = [
@@ -168,26 +172,29 @@ def as_str_tuple(val: object) -> tuple[str, ...]:
     return ()
 
 
-def _has_build_file(directory: Path) -> bool:
-    for name in ("pyproject.toml", "setup.cfg", "setup.py", "tox.ini"):
-        try:
-            if (directory / name).is_file():
-                return True
-        except (OSError, ValueError, RuntimeError):
-            pass
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def _has_requirements(directory: Path) -> bool:
     try:
         with os.scandir(directory) as entries:
-            for entry in entries:
-                ename = entry.name.lower()
-                if ename.startswith("requirements") and ename.endswith(".txt"):
-                    try:
-                        if entry.is_file():
-                            return True
-                    except (OSError, ValueError, RuntimeError):
-                        pass
+            names = [Path(entry.path) for entry in entries if _requirements_name(entry.name)]
     except (OSError, ValueError, RuntimeError):
-        pass
-    return False
+        return False
+    return any(_is_file(path) for path in names)
+
+
+def _requirements_name(name: str) -> bool:
+    lowered = name.lower()
+    return lowered.startswith("requirements") and lowered.endswith(".txt")
+
+
+def _has_build_file(directory: Path) -> bool:
+    return any(_is_file(directory / name) for name in BUILD_FILES) or _has_requirements(directory)
 
 
 def _is_stopped(current: Path, home: Path | None) -> bool:
@@ -198,7 +205,7 @@ def _is_stopped(current: Path, home: Path | None) -> bool:
     )
 
 
-def find_project_root(package_root: Path | None, sys_path: Sequence[object] = ()) -> Path | None:
+def find_project_root(package_root: Path | None) -> Path | None:
     """The nearest ancestor of the app package holding a build file (at most 5 levels up).
 
     Never crosses site-packages/dist-packages, never returns the filesystem root or the user's home.
@@ -247,9 +254,9 @@ def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> 
         return None
     if not on_path:
         return None
-    candidates = [holder / "pyproject.toml"]
+    candidates = [holder / PYPROJECT]
     if holder.name == "src":
-        candidates.append(holder.parent / "pyproject.toml")
+        candidates.append(holder.parent / PYPROJECT)
     return next((c for c in candidates if c.is_file()), None)
 
 
