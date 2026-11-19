@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import { scannedWhen } from '../lib/format';
   import type { AlembicReport, Panel } from '../lib/types';
 
@@ -11,13 +12,13 @@
   const report = loader(() => get<AlembicReport>('alembic/migrations'));
   $effect(() => void report.reload());
 
-  const readOnly = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null);
+  const actionReason = $derived(panelActionReason(panel));
   let reading = $state(false);
   let failure = $state<string | null>(null);
 
   /** The only call that connects to the database; GET never does. */
   async function readVersion() {
-    if (reading || readOnly) return;
+    if (reading || actionReason) return;
     reading = true;
     failure = null;
     try {
@@ -34,15 +35,15 @@
 </script>
 
 <PanelShell
+  {panel}
   title="Alembic"
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={readOnly}
   count={report.data?.alembicPresent ? `${report.data.total} revisions` : null}
 >
   {#snippet controls()}
-    <button class="primary" onclick={readVersion} disabled={!!readOnly || reading} aria-busy={reading} title={readOnly ?? undefined}>
+    <button class="primary" onclick={readVersion} disabled={!!actionReason || reading} aria-busy={reading} title={actionReason ?? undefined}>
       {reading ? 'Reading…' : 'Read database version'}
     </button>
   {/snippet}

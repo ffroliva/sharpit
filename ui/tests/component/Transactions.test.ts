@@ -55,10 +55,15 @@ it('renders transactions, indents savepoints, and refreshes on a stream update',
   await until(() => expect(h.calls('GET')).toHaveLength(before + 1));
 });
 
-it('hides transaction controls for a read-only panel', async () => {
+it('disables transaction controls for a read-only panel', async () => {
   h.route((url) => (url === 'api/transactions' ? json(200, report) : undefined));
   h.mount(Transactions, { panel: readOnly('transactions') });
   await until(() => expect(h.text()).toContain('orders:create'));
-  expect([...h.target.querySelectorAll('button')].some((button) => /Pause|Resume|Clear/.test(button.textContent ?? ''))).toBe(false);
+  const controls = [...h.target.querySelectorAll('button')].filter((button) => /Pause|Resume|Clear/.test(button.textContent ?? ''));
+  expect(controls).toHaveLength(2);
+  for (const b of controls) {
+    expect(b.disabled).toBe(true);
+    expect(b.title).toContain('SHARPIT_READ_ONLY=true');
+  }
 });
 

@@ -10,10 +10,11 @@ import pytest
 import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
 from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.sqltext import Dialect
-from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey, UnboundedReadFact
-from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
+from sharpit.engine.testsession.facts import PhaseFacts, SwallowedFact, TestFacts, TestKey, UnboundedReadFact
+from sharpit.engine.testsession.gates import Budget, evaluate_test, fails, legacy_dismissal_warnings
 from sharpit.engine.testsession.sink import TestSessionSink
 
 NONE = Budget(None, False, 0)
@@ -471,7 +472,8 @@ def test_swallowed_message_names_handler_and_type_only() -> None:
     found = _swallowed_findings(_swallowed("AttributeError", True))
 
     assert [f["message"] for f in found] == [
-        "AttributeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged)"
+        "AttributeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged); "
+        "identity app/weeks.py:21:AttributeError"
     ]
 
 
@@ -507,3 +509,154 @@ def test_statement_sites_survive_json_round_trip() -> None:
     restored = PhaseFacts.from_json(json.loads(json.dumps(facts.to_json())))
 
     assert restored.statement_sites == facts.statement_sites
+
+
+# --- #66: the swallowed-exception identity is a scope and a content hash, not a line ---------------------------------
+
+IDENTITY = "app/weeks.py:Week.count:AttributeError#1a2b3c4d"
+OTHER = "app/weeks.py:Week.count:AttributeError#5e6f7a8b"
+LEGACY = "app/weeks.py:21:AttributeError"
+
+
+def _located(line: int, identity: str | None = IDENTITY, legacy_location: str | None = None) -> TestFacts:
+    fact = SwallowedFact(f"app/weeks.py:{line}", "AttributeError", True, identity, legacy_location)
+    return _facts(call=PhaseFacts(swallowed=[fact]))
+
+
+def _only(facts: TestFacts, dismissed_pairs: set[tuple[str, str]] | None = None, **kwargs) -> Finding:
+    [finding] = evaluate_test(facts, NONE, 5, (), dismissed_pairs or (), **kwargs)
+    return finding
+
+
+def test_the_message_prints_an_identity_that_pasted_into_sharpit_yml_dismisses_the_finding(tmp_path) -> None:
+    finding = _only(_located(21))
+    pasted = finding.message.rpartition("identity ")[2]
+    assert pasted == IDENTITY
+
+    (tmp_path / "sharpit.yml").write_text(f"dismissedFindings:\n  - {SWALLOWED_RULE} {pasted}\n", encoding="utf-8")
+    again = _only(_located(21), DismissalStore(tmp_path).dismissed_pairs())
+
+    assert again.dismissed is True
+
+
+def test_a_dismissal_by_identity_survives_a_moved_line_and_not_a_changed_clause() -> None:
+    pairs = {(SWALLOWED_RULE, IDENTITY)}
+
+    assert _only(_located(21), pairs).dismissed is True
+    assert _only(_located(35), pairs).dismissed is True
+    assert _only(_located(21, "app/weeks.py:Week.total:AttributeError#1a2b3c4d"), pairs).dismissed is False
+    assert _only(_located(21, OTHER), pairs).dismissed is False
+
+
+def test_a_legacy_line_keyed_entry_no_longer_dismisses() -> None:
+    pairs = {(SWALLOWED_RULE, LEGACY)}
+
+    assert _only(_located(21), pairs).dismissed is False
+    assert fails(_only(_located(21), pairs).to_dto()) is True
+
+
+def test_a_legacy_entry_that_matches_names_the_clause_key_now_on_its_line() -> None:
+    pairs = {(SWALLOWED_RULE, LEGACY)}
+
+    assert legacy_dismissal_warnings(_located(21), pairs) == [
+        f"dismissedFindings entry '{SWALLOWED_RULE} {LEGACY}' is keyed by a line number and no longer dismisses "
+        f"anything; the clause on that line has the key '{SWALLOWED_RULE} {IDENTITY}': replace the entry with that "
+        "key if that is the clause you meant"
+    ]
+
+
+def test_a_legacy_entry_in_the_working_directory_form_warns_when_the_rootdir_differs() -> None:
+    cwd_form = "/repo/app/weeks.py:21:AttributeError"
+    pairs = {(SWALLOWED_RULE, cwd_form)}
+
+    warnings = legacy_dismissal_warnings(_located(21, legacy_location="/repo/app/weeks.py:21"), pairs)
+
+    assert [w for w in warnings if cwd_form in w and IDENTITY in w]
+
+
+def test_a_legacy_entry_beside_its_new_key_is_reported_as_stale() -> None:
+    pairs = {(SWALLOWED_RULE, LEGACY), (SWALLOWED_RULE, IDENTITY)}
+
+    assert legacy_dismissal_warnings(_located(21), pairs) == [
+        f"dismissedFindings entry '{SWALLOWED_RULE} {LEGACY}' is keyed by a line number and no longer dismisses "
+        f"anything; '{SWALLOWED_RULE} {IDENTITY}' already dismisses that clause: remove the line-keyed entry"
+    ]
+
+
+def test_a_new_key_entry_or_a_legacy_entry_for_another_line_warns_nothing() -> None:
+    assert legacy_dismissal_warnings(_located(21), {(SWALLOWED_RULE, IDENTITY)}) == []
+    assert legacy_dismissal_warnings(_located(35), {(SWALLOWED_RULE, LEGACY)}) == []
+
+
+def test_a_legacy_warning_never_suggests_a_key_the_store_would_refuse() -> None:
+    long_identity = "d/" * 300 + "weeks.py:Week.count:AttributeError#1a2b3c4d"
+    facts = _located(21, long_identity)
+
+    [warning] = legacy_dismissal_warnings(facts, {(SWALLOWED_RULE, LEGACY)})
+
+    assert long_identity not in warning
+    assert "cannot be stored as a dismissedFindings key" in warning
+    assert _only(facts).fingerprint in warning
+
+
+def test_an_identity_over_the_dismissal_limit_names_the_fingerprint_route() -> None:
+    long_identity = "d/" * 300 + "weeks.py:Week.count:AttributeError#1a2b3c4d"
+    finding = _only(_located(21, long_identity))
+
+    assert "cannot be stored as a dismissedFindings key" in finding.message
+    assert "covers this test only" in finding.message
+    assert finding.fingerprint in finding.message
+    assert long_identity not in finding.message
+    [by_fingerprint] = evaluate_test(_located(21, long_identity), NONE, 5, (finding.fingerprint,))
+    assert by_fingerprint.dismissed is True
+
+
+def test_any_identity_the_store_refuses_gets_the_same_plain_reason() -> None:
+    unstorable = "app/weeks\n.py:Week.count:AttributeError#1a2b3c4d"  # a control character
+
+    message = _only(_located(21, unstorable)).message
+
+    assert "cannot be stored as a dismissedFindings key" in message
+    assert "512" not in message
+
+
+def test_an_identity_of_exactly_the_dismissal_limit_is_still_printed() -> None:
+    identity = "d/" * 240 + "e" * (512 - 480)
+
+    assert len(identity) == 512
+    assert _only(_located(21, identity)).message.endswith(f"identity {identity}")
+
+
+def test_the_fingerprint_follows_the_identity_not_the_line() -> None:
+    at_21 = _only(_located(21))
+    at_35 = _only(_located(35))
+
+    assert at_21.fingerprint == at_35.fingerprint
+
+
+def test_a_baseline_entry_survives_a_moved_line() -> None:
+    baseline = {_only(_located(21)).fingerprint: None}
+
+    assert _only(_located(35), baseline=baseline).baseline_state == "existing"
+
+
+def test_a_line_keyed_baseline_entry_does_not_match_the_first_run_after_the_upgrade() -> None:
+    legacy = Finding(SWALLOWED_RULE, "test-runtime", "HIGH", "app/weeks.py:21", "m", NODE, identity=LEGACY)
+
+    assert _only(_located(21), baseline={legacy.fingerprint: None}).baseline_state == "new"
+
+
+def test_a_fact_from_the_previous_form_loads_and_keeps_the_line_key() -> None:
+    fact = SwallowedFact.from_json({"location": "app/weeks.py:21", "type": "AttributeError", "programmingError": True})
+
+    assert fact.identity is None
+    assert (
+        _only(_facts(call=PhaseFacts(swallowed=[fact]))).fingerprint
+        == Finding(SWALLOWED_RULE, "test-runtime", "HIGH", "app/weeks.py:21", "m", NODE, identity=LEGACY).fingerprint
+    )
+
+
+def test_the_worker_identity_travels_in_the_fact_json() -> None:
+    fact = SwallowedFact("app/weeks.py:21", "AttributeError", True, IDENTITY, "/repo/app/weeks.py:21")
+
+    assert SwallowedFact.from_json(fact.to_json()) == fact
