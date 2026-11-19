@@ -154,7 +154,9 @@ def test_server_text_and_bootui_url_are_not_rewritten():
     out, err = io.StringIO(), io.StringIO()
     code = commands.run(["--url", "http://bootui.localhost:9", "health"], {}, True, out, err)
     assert code == 1
-    assert "http://bootui.localhost:9" in err.getvalue()
+    assert err.getvalue() == (
+        "Cannot reach sharpit at http://bootui.localhost:9. Is the application running, and is that the right --url?\n"
+    )
 
 
 def test_json_escaped_unicode_token_is_redacted_after_decoding():
