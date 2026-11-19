@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import functools
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
@@ -86,11 +87,11 @@ CLI_STDLIB = frozenset(
         "sys",  # Tasks 5 and 7: process arguments, streams and version output
         "textwrap",  # Task 7: help text rendering
         "time",  # Task 2: request timeout accounting
+        "threading",  # Task 2: enforce a deadline across response headers and bodies
         "typing",  # Tasks 2-7: public type annotations
         "urllib.parse",  # Task 5: URL normalization
     }
 )
-CLI_CLIENT_LIBRARIES = ("urllib.request", "http.client")  # allowed in sharpit/cli/client.py only, by GATEKEEPERS
 
 
 # a dotted call (or assignment target) that changes interpreter state; reads such as gc.get_objects() are not here
@@ -243,8 +244,99 @@ def cli_dependency_violations(root: Path | None = None) -> list[str]:
         if not any(_within(name, (allowed,)) for allowed in CLI_STDLIB)
         and not _within(name, ("sharpit.cli",))
         and name != "sharpit"
-        and not _within(name, CLI_CLIENT_LIBRARIES)
+        and not (
+            _rel(path) == "sharpit/cli/client.py"
+            and (
+                any(
+                    _within(name, (library,)) for library in GATEKEEPERS if library in ("urllib.request", "http.client")
+                )
+                or name in ("urllib", "http")
+            )
+        )
     ] + package_name_violations(package / "cli", source_name="CLI")
+
+
+def cli_dynamic_loading_violations(root: Path | None = None) -> list[str]:
+    package = root or SRC / "sharpit"
+    found: list[str] = []
+    for path in sorted((package / "cli").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        aliases = _aliases(tree)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Import)
+                and any(alias.name == "importlib.util" for alias in node.names)
+                or (
+                    isinstance(node, ast.ImportFrom)
+                    and (
+                        node.module == "importlib"
+                        and any(alias.name == "util" for alias in node.names)
+                        or node.module is not None
+                        and node.module.startswith("importlib.util")
+                    )
+                )
+            ):
+                found.append(f"{_rel(path)}:{node.lineno} uses importlib.util")
+            if isinstance(node, ast.Call):
+                call = _dotted(node.func, aliases)
+                if call in (
+                    "importlib.import_module",
+                    "builtins.__import__",
+                    "__import__",
+                    "importlib.__import__",
+                    "exec",
+                    "eval",
+                    "compile",
+                    "builtins.exec",
+                    "builtins.eval",
+                    "builtins.compile",
+                ):
+                    found.append(f"{_rel(path)}:{node.lineno} calls {call}")
+                elif call == "importlib.resources.files" and (
+                    not node.args
+                    or not isinstance(node.args[0], ast.Constant)
+                    or not isinstance(node.args[0].value, str)
+                ):
+                    found.append(f"{_rel(path)}:{node.lineno} calls importlib.resources.files without a string literal")
+            elif isinstance(node, ast.Attribute) and _dotted(node, aliases) == "importlib.util":
+                found.append(f"{_rel(path)}:{node.lineno} uses importlib.util")
+            elif isinstance(node, (ast.Attribute, ast.Subscript)) and _dotted(node.value, aliases) == "sys.modules":
+                found.append(f"{_rel(path)}:{node.lineno} accesses sys.modules")
+    return found
+
+
+def cli_network_call_violations(root: Path | None = None) -> list[str]:
+    package = root or SRC / "sharpit"
+    found: list[str] = []
+    for path in sorted((package / "cli").rglob("*.py")):
+        if _rel(path) == "sharpit/cli/client.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        aliases = _aliases(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                dotted = _dotted(node, aliases)
+                if dotted and (
+                    dotted.startswith("urllib.request.")
+                    or dotted.startswith("http.client.")
+                    or dotted.startswith("client.request.")
+                    or dotted.startswith("client.http_client.")
+                    or dotted.startswith("sharpit.cli.client.request.")
+                    or dotted.startswith("sharpit.cli.client.http_client.")
+                    or dotted.startswith("client._")
+                    or dotted.startswith("sharpit.cli.client._")
+                ):
+                    found.append(f"{_rel(path)}:{node.lineno} uses {dotted}")
+            if isinstance(node, ast.ImportFrom) and node.module == "sharpit.cli.client":
+                source = (path.parent / "client.py").read_text(encoding="utf-8")
+                match = re.search(r"__all__\s*=\s*\[([^\]]*)\]", source)
+                public = set(ast.literal_eval("[" + match.group(1) + "]")) if match else set()
+                found.extend(
+                    f"{_rel(path)}:{node.lineno} imports non-public sharpit.cli.client.{alias.name}"
+                    for alias in node.names
+                    if alias.name not in public
+                )
+    return found
 
 
 def collector_violations(root: Path = COLLECTORS) -> list[str]:
@@ -545,6 +637,79 @@ def test_cli_import_boundaries_hold_on_the_real_tree() -> None:
     assert (SRC / "sharpit" / "cli").is_dir()
     assert cli_inward_violations() == []
     assert cli_dependency_violations() == []
+    assert cli_network_call_violations() == []
+    assert cli_dynamic_loading_violations() == []
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("import urllib.request\nurllib.request.urlopen('x')", "urllib.request.urlopen"),
+        ("from urllib import request\nrequest.urlopen('x')", "urllib.request.urlopen"),
+        ("import http.client as hc\nhc.HTTPConnection('x')", "http.client.HTTPConnection"),
+    ],
+)
+def test_cli_network_calls_are_confined_to_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str, expected: str
+) -> None:
+    root = tmp_path / "src" / "sharpit"
+    (root / "cli").mkdir(parents=True)
+    (root / "cli" / "rogue.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert cli_network_call_violations() == [f"sharpit/cli/rogue.py:2 uses {expected}"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from sharpit.cli import client\nclient.request.urlopen('x')",
+        "from sharpit.cli.client import _request\n_request.urlopen('x')",
+        "from sharpit.cli import client\nclient._opener.open('x')",
+    ],
+)
+def test_cli_client_reexports_and_private_members_are_not_accessible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    root = tmp_path / "src" / "sharpit"
+    cli = root / "cli"
+    cli.mkdir(parents=True)
+    (cli / "client.py").write_text('__all__ = ["Client"]\n', encoding="utf-8")
+    (cli / "rogue.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert cli_network_call_violations()
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("import importlib\nimportlib.import_module('x')", "calls importlib.import_module"),
+        ("__import__('x')", "calls __import__"),
+        ("import sys\nsys.modules['x']", "accesses sys.modules"),
+        ("import sys\nsys.modules.pop('x')", "accesses sys.modules"),
+        ("import importlib\nimportlib.__import__('x')", "calls importlib.__import__"),
+        ("import importlib.util", "uses importlib.util"),
+        ("from importlib.util import find_spec", "uses importlib.util"),
+        ("import importlib\nx = importlib.util", "uses importlib.util"),
+        ("exec('pass')", "calls exec"),
+        ("eval('1')", "calls eval"),
+        ("compile('1', '<x>', 'eval')", "calls compile"),
+        (
+            "from importlib.resources import files\nfiles(name)",
+            "calls importlib.resources.files without a string literal",
+        ),
+    ],
+)
+def test_cli_dynamic_loading_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str, expected: str
+) -> None:
+    root = tmp_path / "src" / "sharpit"
+    (root / "cli").mkdir(parents=True)
+    (root / "cli" / "rogue.py").write_text(source, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [item.split(":", 1)[1].split(" ", 1)[1] for item in cli_dynamic_loading_violations()] == [expected]
 
 
 def test_cli_dependency_allow_list_is_fixed_and_gatekeeps_transitive_network_modules(
