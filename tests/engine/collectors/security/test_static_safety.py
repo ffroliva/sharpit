@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from conftest import SideEffectGuard
 from sharpit.engine.collectors.security.report import SecurityService, build_inputs
 from sharpit.engine.collectors.security.static_analysis import (
     LIMITATION_TEXT,
@@ -254,10 +255,8 @@ def test_fifo_pyproject_posix(tmp_path: Path) -> None:
     assert report2["scan"]["status"] == "PARTIAL"
 
 
-def test_get_mcp_cli_reads_open_no_files_before_or_after_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET /security and MCP/CLI reads never open build or source files."""
-    import builtins
-
+def test_get_mcp_cli_reads_open_no_files_before_or_after_scan(tmp_path: Path, no_side_effects: SideEffectGuard) -> None:
+    """GET /security and MCP/CLI reads never open build or source files; scan does (positive control)."""
     project = tmp_path / "monitored_project"
     _write(project / "pyproject.toml", '[project]\nname = "test"\n')
 
@@ -267,41 +266,146 @@ def test_get_mcp_cli_reads_open_no_files_before_or_after_scan(tmp_path: Path, mo
         None,
         app_settings_stub(project),  # pyright: ignore[reportArgumentType]
     )
-    inputs = inputs.__class__(
+    inputs_with_root = inputs.__class__(
         inputs.model, inputs.facts, inputs.source, inputs.view, inputs.limitations, project_root=project
     )
     service = SecurityService(
-        lambda: inputs,
+        lambda: inputs_with_root,
         dismissal_store_stub(tmp_path),  # pyright: ignore[reportArgumentType]
         masker_stub(),  # pyright: ignore[reportArgumentType]
         single_flight_stub(),  # pyright: ignore[reportArgumentType]
         max_retained=1000,
     )
 
-    opened_files: list[str] = []
-    real_open = builtins.open
-
-    def spy_open(file: Any, *args: Any, **kwargs: Any) -> Any:
-        fpath = str(file)
-        if str(project) in fpath:
-            opened_files.append(fpath)
-        return real_open(file, *args, **kwargs)
+    no_side_effects.watch_sources(project)
 
     # 1. Before scan: report() opens 0 project files
-    with monkeypatch.context() as m:
-        m.setattr(builtins, "open", spy_open)
-        service.report()
-    assert opened_files == []
+    service.report()
+    assert no_side_effects.source_reads == []
 
-    # 2. Explicit scan opens project files
+    # 2. Positive control: scan DOES open project files
     service.scan()
+    assert no_side_effects.source_reads != []
+    no_side_effects.source_reads.clear()
 
     # 3. After scan: report() and violations() open 0 project files
-    with monkeypatch.context() as m:
-        m.setattr(builtins, "open", spy_open)
-        report = service.report()
-        service.violations(RULE_ID, report["violationDetails"]["scanId"], 0, 100)
-    assert opened_files == []
+    report = service.report()
+    assert no_side_effects.source_reads == []
+    service.violations(RULE_ID, report["violationDetails"]["scanId"], 0, 100)
+    assert no_side_effects.source_reads == []
+
+
+def test_not_present_model_with_introspection_error_retains_limitations(tmp_path: Path) -> None:
+    """Introspection error is kept in message and evidence across all states."""
+    p = tmp_path / "app_not_present"
+    _write(p / "pyproject.toml", '[project]\nname = "app"\n')
+
+    # Case 1: NOT_CONFIGURED (pyproject without analyzer)
+    model = SecurityModel(False, (), (), (), ("FastAPI security could not be read (RuntimeError).",))
+    inputs = build_inputs(
+        model,
+        SecurityFacts(False, None, (), (), ()),
+        None,
+        app_settings_stub(p),  # pyright: ignore[reportArgumentType]
+    )
+    inputs_with_root = inputs.__class__(
+        inputs.model, inputs.facts, inputs.source, inputs.view, inputs.limitations, project_root=p
+    )
+    service = SecurityService(
+        lambda: inputs_with_root,
+        dismissal_store_stub(tmp_path),  # pyright: ignore[reportArgumentType]
+        masker_stub(),  # pyright: ignore[reportArgumentType]
+        single_flight_stub(),  # pyright: ignore[reportArgumentType]
+        max_retained=1000,
+    )
+    report = service.scan()
+    expected_msg = (
+        "FastAPI security configuration could not be read: FastAPI security could not be read (RuntimeError)."
+    )
+    assert expected_msg in report["scan"]["message"]
+    assert "FastAPI security could not be read (RuntimeError)." in report["evidence"]["limitations"]
+
+    # Case 2: CONFIGURED
+    _write(p / "requirements.txt", "bandit>=1.7\n")
+    report2 = service.scan()
+    assert "could not be read: FastAPI security could not be read (RuntimeError)." in report2["scan"]["message"]
+    assert "FastAPI security could not be read (RuntimeError)." in report2["evidence"]["limitations"]
+
+    # Case 3: INDETERMINATE (oversized requirements.txt)
+    _write(p / "requirements.txt", "x\n" * 600_000)
+    report3 = service.scan()
+    assert "could not be read: FastAPI security could not be read (RuntimeError)." in report3["scan"]["message"]
+    assert "FastAPI security could not be read (RuntimeError)." in report3["evidence"]["limitations"]
+    assert LIMITATION_TEXT in report3["evidence"]["limitations"]
+
+
+def test_static_only_report_analyzer_and_disclaimer(tmp_path: Path) -> None:
+    """When only the static rule ran (model not present, no discovery error), use static analyzer and disclaimer."""
+    p = tmp_path / "static_only"
+    _write(p / "pyproject.toml", '[project]\nname = "app"\n')
+
+    inputs = build_inputs(
+        SecurityModel(False, (), (), (), ()),
+        SecurityFacts(False, None, (), (), ()),
+        None,
+        app_settings_stub(p),  # pyright: ignore[reportArgumentType]
+    )
+    inputs_with_root = inputs.__class__(
+        inputs.model, inputs.facts, inputs.source, inputs.view, inputs.limitations, project_root=p
+    )
+    service = SecurityService(
+        lambda: inputs_with_root,
+        dismissal_store_stub(tmp_path),  # pyright: ignore[reportArgumentType]
+        masker_stub(),  # pyright: ignore[reportArgumentType]
+        single_flight_stub(),  # pyright: ignore[reportArgumentType]
+        max_retained=1000,
+    )
+    report = service.scan()
+    assert report["scan"]["analyzer"] == "sharpit Static Security Advisor"
+    assert report["disclaimer"] == (
+        "This limited check inspects local analyzer configuration only. It does not assess runtime security or"
+        " verify that a configured analyzer ran."
+    )
+
+
+def test_rule_description_python_limits() -> None:
+    """Rule SEC-STATIC-001 description describes Python limits, not Maven/Gradle."""
+    from sharpit.engine.collectors.security.static_analysis import StaticSecurityAnalysisRule
+
+    desc = StaticSecurityAnalysisRule.DESCRIPTION
+    assert "Maven" not in desc
+    assert "Gradle" not in desc
+    assert "ruff.toml" in desc
+    assert "-r" in desc
+    assert "remote or organization-managed" in desc
+
+
+def test_build_inputs_derives_project_root_from_app_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """build_inputs derives project_root from app_package without hard-coding."""
+    import types
+
+    proj = tmp_path / "pkg_root_test"
+    pkg = proj / "src" / "sample_app"
+    _write(pkg / "__init__.py", "")
+    _write(proj / "pyproject.toml", '[project]\nname = "sample_app"\nversion = "0.1.0"\n')
+
+    mod = types.ModuleType("sample_app")
+    mod.__file__ = str(pkg / "__init__.py")
+    mod.__path__ = [str(pkg)]
+
+    monkeypatch.setitem(sys.modules, "sample_app", mod)
+    monkeypatch.syspath_prepend(str(proj / "src"))
+
+    settings = app_settings_stub("sample_app")
+    assert settings.app_package == "sample_app"
+
+    inputs = build_inputs(
+        SecurityModel(False, (), (), (), ()),
+        SecurityFacts(False, None, (), (), ()),
+        None,
+        settings,
+    )
+    assert inputs.project_root == proj.resolve()
 
 
 def test_windows_junction_refusal(tmp_path: Path) -> None:
@@ -336,10 +440,11 @@ def test_security_collector_never_imports_architecture() -> None:
 
 
 # Helpers for test stubs
-def app_settings_stub(project_root: Path) -> Any:
+def app_settings_stub(project_root_or_package: Path | str) -> Any:
     from sharpit.settings import SharpitSettings
 
-    return SharpitSettings()
+    pkg = project_root_or_package if isinstance(project_root_or_package, str) else project_root_or_package.name
+    return SharpitSettings(app_package=pkg)
 
 
 def dismissal_store_stub(tmp_path: Path) -> Any:

@@ -49,12 +49,18 @@ DISCLAIMER = (
     " and source only. These checks are review prompts, not verdicts, and should be validated against the"
     " application's threat model."
 )
+STATIC_ANALYZER = "sharpit Static Security Advisor"
+STATIC_DISCLAIMER = (
+    "This limited check inspects local analyzer configuration only. It does not assess runtime security or verify"
+    " that a configured analyzer ran."
+)
 NOT_SCANNED_MESSAGE = (
     "Security Advisor has not run yet. Run security checks in the panel, or call security_scan (sharpit security"
     " scan), to inspect the middleware stacks."
 )
 
 DISABLED_MESSAGE = "No FastAPI application was found to inspect."
+NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
 PARTIAL_TAIL = " Unsupported or incomplete evidence remains unknown; skipped checks are not security passes."
 FRAMEWORK_LOGGERS = ("fastapi", "starlette", "uvicorn", "sqlalchemy.engine")
 
@@ -110,27 +116,82 @@ def _message(chains: int, limitations: list[str]) -> str:
 
 
 def _non_present_model_evaluation(model: Any, inspection: Inspection) -> Evaluation:
+    proxy_unavailable = not model.limitations or list(model.limitations) == [NOT_FASTAPI]
+    static_only = proxy_unavailable
+    analyzer = STATIC_ANALYZER if static_only else None
+    disclaimer = STATIC_DISCLAIMER if static_only else None
+
+    base_message = (
+        DISABLED_MESSAGE
+        if proxy_unavailable
+        else "FastAPI security configuration could not be read: " + "; ".join(model.limitations)
+    )
+
     if inspection.state == State.NOT_APPLICABLE:
         limitations = list(model.limitations) or None
-        return Evaluation("DISABLED", DISABLED_MESSAGE, (), (), evidence(limitations=limitations), _Done(()))
+        return Evaluation(
+            "DISABLED",
+            base_message,
+            (),
+            (),
+            evidence(limitations=limitations),
+            _Done(()),
+            analyzer=analyzer,
+            disclaimer=disclaimer,
+        )
+
     if inspection.state == State.CONFIGURED:
         static_message = (
             "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
             " sharpit does not verify analyzer execution."
         )
-        return Evaluation("PARTIAL", static_message, (StaticSecurityAnalysisRule.RULE_ID,), (), evidence(), _Done(()))
+        msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
+        limitations = list(model.limitations) or None
+        return Evaluation(
+            "PARTIAL",
+            msg,
+            (StaticSecurityAnalysisRule.RULE_ID,),
+            (),
+            evidence(limitations=limitations),
+            _Done(()),
+            analyzer=analyzer,
+            disclaimer=disclaimer,
+        )
+
     if inspection.state == State.NOT_CONFIGURED:
         static_message = "No FastAPI application was found to inspect. No local static analyzer declaration was found."
+        msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
         finding_tuple = (StaticSecurityAnalysisRule.finding(),)
+        limitations = list(model.limitations) or None
         return Evaluation(
-            "PARTIAL", static_message, (StaticSecurityAnalysisRule.RULE_ID,), finding_tuple, evidence(), _Done(())
+            "PARTIAL",
+            msg,
+            (StaticSecurityAnalysisRule.RULE_ID,),
+            finding_tuple,
+            evidence(limitations=limitations),
+            _Done(()),
+            analyzer=analyzer,
+            disclaimer=disclaimer,
         )
+
     # INDETERMINATE
     static_message = (
         "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed."
     )
-    ev = StaticSecurityAnalysisRule.add_assessment_limitation(evidence())
-    return Evaluation("PARTIAL", static_message, (), (), ev, _Done(()))
+    msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
+    limitations = list(model.limitations)
+    limitations.append(LIMITATION_TEXT)
+    ev = evidence(usable=False, coverage_complete=False, limitations=limitations)
+    return Evaluation(
+        "PARTIAL",
+        msg,
+        (),
+        (),
+        ev,
+        _Done(()),
+        analyzer=analyzer,
+        disclaimer=disclaimer,
+    )
 
 
 def scan_evaluation(inputs: Inputs) -> Evaluation:

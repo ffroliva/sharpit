@@ -389,3 +389,10 @@ def test_find_pyproject_path_refuses_site_packages(tmp_path: Path) -> None:
     _write(site_pkg / "__init__.py")
     _write(tmp_path / "site-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
     assert appsource.find_pyproject_path(site_pkg, [str(tmp_path / "site-packages")]) is None
+
+
+def test_find_pyproject_path_refuses_dist_packages(tmp_path: Path) -> None:
+    dist_pkg = tmp_path / "dist-packages" / "pkg"
+    _write(dist_pkg / "__init__.py")
+    _write(tmp_path / "dist-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
+    assert appsource.find_pyproject_path(dist_pkg, [str(tmp_path / "dist-packages")]) is None

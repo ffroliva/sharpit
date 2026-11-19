@@ -21,6 +21,7 @@ from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.rules import RuleDefinition
+from sharpit.engine.appsource import as_dict, as_str_list
 
 RULE_ID = "SEC-STATIC-001"
 TITLE = "No local static security analysis declared"
@@ -28,8 +29,8 @@ CATEGORY = "Static analysis"
 SEVERITY = "INFO"
 DETAIL = "No recognized static security analyzer declaration was found in the inspected local project files."
 DESCRIPTION = (
-    DETAIL + " External Maven parents, Gradle applied scripts or convention plugins, and organization-managed CI"
-    " configuration are not resolved. sharpit does not run analyzers or verify execution."
+    DETAIL + " ruff.toml is not parsed for S selection, requirements -r includes are not followed, and remote or"
+    " organization-managed configuration is not resolved. sharpit does not run analyzers or verify execution."
 )
 RECOMMENDATION = (
     "Declare Bandit (e.g. in requirements, pyproject.toml, or setup.cfg), Semgrep, CodeQL, a"
@@ -46,10 +47,11 @@ MAX_PARENT_DEPTH = 5
 KNOWN_WORKFLOW_ACTION = re.compile(
     r"(?i)^(?:github/codeql-action/(?:init|analyze)@\S+|"
     r"(?:semgrep|returntocorp)/semgrep-action\S*|"
-    r"sonarsource/(?:sonarqube-scan-action|sonarcloud-github-action)\S*)$"
+    r"sonarsource/(?:sonarqube-scan-action|sonarcloud-github-action)\S*|"
+    r"pycqa/bandit-action\S*)$"
 )
 ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
-REQUIREMENT_NAME_PATTERN = re.compile(r"^(?:bandit|semgrep)(?:[\[<>=!~;].*)?$", re.IGNORECASE)
+REQUIREMENT_NAME_PATTERN = re.compile(r"^(?:bandit|semgrep)(?:\s*\[[^\]]*\])?(?:\s*(?:[<>=!~;@\(].*))?$", re.IGNORECASE)
 
 SEMGREP_CONFIG_RELPATHS = (
     Path(".semgrep.yml"),
@@ -148,7 +150,7 @@ def _read_fd_bounded(fd: int, lst: os.stat_result) -> bytes:
 def read_bounded(trusted_root: Path, path: Path) -> bytes:
     """Read a regular file under trusted_root safely within MAX_FILE_BYTES without following symlinks/junctions."""
     lst = _validate_lstat(trusted_root, path)
-    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
     try:
         fd = os.open(path, flags)
     except OSError as exc:
@@ -208,8 +210,9 @@ def _split_shell_commands(command: str) -> list[str]:
     quote: str | None = None
     escaped = False
     start = 0
+    i = 0
     n = len(command)
-    for i in range(n):
+    while i < n:
         c = command[i]
         if quote is not None:
             if c == "\\" and quote == '"' and not escaped:
@@ -223,10 +226,11 @@ def _split_shell_commands(command: str) -> list[str]:
         elif c in (";", "|", "&"):
             statements.append(command[start:i])
             if i + 1 < n and ((c == "|" and command[i + 1] == "|") or (c == "&" and command[i + 1] == "&")):
-                i += 1  # noqa: PLW2901
+                i += 1
             start = i + 1
+        i += 1
     statements.append(command[start:])
-    return statements
+    return [s.strip() for s in statements if s.strip()]
 
 
 def _shell_tokens(statement: str) -> list[str]:
@@ -270,21 +274,53 @@ def _is_semgrep_invocation(args: Sequence[str]) -> bool:
     return False
 
 
+def _skip_prefix_options(args: list[str]) -> list[str]:
+    pos = 0
+    while pos < len(args) and args[pos].startswith("-"):
+        pos += 1
+    return args[pos:]
+
+
+def _unwrap_runner_tokens(tokens: list[str]) -> tuple[str, list[str]]:
+    """Unwrap execution runners like uv, uvx, python -m, poetry, pipx to find the target command and args."""
+    idx = 0
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if tok in ("env", "sudo", "time", "command", "exec") or ENVIRONMENT_ASSIGNMENT.match(tok):
+            idx += 1
+        else:
+            break
+    if idx >= len(tokens):
+        return "", []
+
+    executable = tokens[idx].rpartition("/")[2].rpartition("\\")[2].lower()
+    args = tokens[idx + 1 :]
+
+    # Python runner: python -m bandit ...
+    if (executable in ("python", "python3", "py") or re.match(r"^python3\.\d+$", executable)) and "-m" in args:
+        m_idx = args.index("-m")
+        if m_idx + 1 < len(args):
+            return args[m_idx + 1].lower(), args[m_idx + 2 :]
+
+    # uv run ... / poetry run ... / pipx run ...
+    if executable in ("uv", "poetry", "pipx") and args and args[0] == "run":
+        rem = _skip_prefix_options(args[1:])
+        return (rem[0].rpartition("/")[2].rpartition("\\")[2].lower(), rem[1:]) if rem else ("", [])
+
+    # uvx ...
+    if executable == "uvx":
+        rem = _skip_prefix_options(args)
+        return (rem[0].rpartition("/")[2].rpartition("\\")[2].lower(), rem[1:]) if rem else ("", [])
+
+    return executable, args
+
+
 def _has_known_workflow_command(command: str) -> bool:
     for stmt in _split_shell_commands(command):
         tokens = _shell_tokens(stmt)
-        cmd_idx = 0
-        while cmd_idx < len(tokens):
-            tok = tokens[cmd_idx]
-            if tok in ("env", "sudo", "time", "command", "exec") or ENVIRONMENT_ASSIGNMENT.match(tok):
-                cmd_idx += 1
-            else:
-                break
-        if cmd_idx >= len(tokens):
+        name, args = _unwrap_runner_tokens(tokens)
+        if not name:
             continue
-        executable = tokens[cmd_idx]
-        name = executable.rpartition("/")[2].rpartition("\\")[2].lower()
-        args = tokens[cmd_idx + 1 :]
         if name == "bandit" and (not args or not args[0].startswith("--version")):
             return True
         if name == "semgrep" and _is_semgrep_invocation(args):
@@ -475,6 +511,22 @@ def _inspect_semgrep_configs(repository_root: Path, candidate_roots: Sequence[Pa
     return False, indeterminate
 
 
+def _inspect_pre_commit_line(line: str) -> bool:
+    trimmed = line.strip().lower()
+    if "pycqa/bandit" in trimmed or "semgrep/semgrep" in trimmed:
+        return True
+    item = trimmed.removeprefix("-").strip()
+    if item.startswith("id:"):
+        val = item.partition("id:")[2].strip().strip("\"'")
+        if val in ("bandit", "semgrep"):
+            return True
+    if item.startswith("entry:"):
+        cmd = item.partition("entry:")[2].strip().strip("\"'")
+        if _has_known_workflow_command(cmd):
+            return True
+    return False
+
+
 def _inspect_pre_commit(repository_root: Path, path: Path) -> tuple[bool, bool]:
     """(configured, indeterminate) for .pre-commit-config.yaml."""
     if contains_symbolic_link(repository_root, path):
@@ -485,16 +537,7 @@ def _inspect_pre_commit(repository_root: Path, path: Path) -> tuple[bool, bool]:
         if not path.is_file():
             return False, True
         text = strip_yaml_comments(read_text(repository_root, path))
-        for line in text.splitlines():
-            trimmed = line.strip().lower()
-            if (
-                "pycqa/bandit" in trimmed
-                or "semgrep/semgrep" in trimmed
-                or trimmed == "id: bandit"
-                or trimmed == "id: semgrep"
-            ):
-                return True, False
-        return False, False
+        return (True, False) if any(_inspect_pre_commit_line(line) for line in text.splitlines()) else (False, False)
     except Exception:  # noqa: BLE001
         return False, True
 
@@ -583,20 +626,6 @@ def _inspect_tox_ini(repository_root: Path, path: Path) -> tuple[bool, bool]:
         return False, True
 
 
-def _as_dict(val: object) -> dict[str, object]:
-    if isinstance(val, dict):
-        d = cast("dict[object, object]", val)
-        return {str(k): v for k, v in d.items()}
-    return {}
-
-
-def _as_str_list(val: object) -> list[str]:
-    if isinstance(val, (list, tuple)):
-        s = cast("Sequence[object]", val)
-        return [str(x) for x in s]
-    return []
-
-
 def _check_ruff_section(data: dict[str, object], project_root: Path, repository_root: Path) -> tuple[bool, bool]:
     """Check Ruff configuration under tool.ruff and tool.ruff.lint.
 
@@ -615,28 +644,28 @@ def _check_ruff_section(data: dict[str, object], project_root: Path, repository_
         except OSError:
             return False, True
 
-    tool = _as_dict(data.get("tool"))
-    ruff = _as_dict(tool.get("ruff"))
+    tool = as_dict(data.get("tool"))
+    ruff = as_dict(tool.get("ruff"))
     if not ruff:
         return False, False
 
     if "extend" in ruff:
         return False, True
 
-    lint = _as_dict(ruff.get("lint"))
+    lint = as_dict(ruff.get("lint"))
     if "extend" in lint:
         return False, True
 
-    select: list[str] = _as_str_list(ruff.get("select"))
-    ignore: list[str] = _as_str_list(ruff.get("ignore"))
-    extend_select: list[str] = _as_str_list(ruff.get("extend-select"))
-    extend_ignore: list[str] = _as_str_list(ruff.get("extend-ignore"))
+    select: list[str] = as_str_list(ruff.get("select"))
+    ignore: list[str] = as_str_list(ruff.get("ignore"))
+    extend_select: list[str] = as_str_list(ruff.get("extend-select"))
+    extend_ignore: list[str] = as_str_list(ruff.get("extend-ignore"))
 
     if lint:
-        select.extend(_as_str_list(lint.get("select")))
-        ignore.extend(_as_str_list(lint.get("ignore")))
-        extend_select.extend(_as_str_list(lint.get("extend-select")))
-        extend_ignore.extend(_as_str_list(lint.get("extend-ignore")))
+        select.extend(as_str_list(lint.get("select")))
+        ignore.extend(as_str_list(lint.get("ignore")))
+        extend_select.extend(as_str_list(lint.get("extend-select")))
+        extend_ignore.extend(as_str_list(lint.get("extend-ignore")))
 
     all_select = set(select + extend_select)
     all_ignore = set(ignore + extend_ignore)
@@ -669,18 +698,58 @@ def _check_deps_list(deps: object) -> bool:
 def _has_pyproject_project_deps(project: dict[str, Any]) -> bool:
     if _check_deps_list(project.get("dependencies")):
         return True
-    optional = _as_dict(project.get("optional-dependencies"))
+    optional = as_dict(project.get("optional-dependencies"))
     return any(_check_deps_list(group) for group in optional.values())
 
 
 def _has_pyproject_poetry_deps(tool: dict[str, Any]) -> bool:
-    poetry = _as_dict(tool.get("poetry"))
+    poetry = as_dict(tool.get("poetry"))
     if not poetry:
         return False
     if _check_deps_list(poetry.get("dependencies")) or _check_deps_list(poetry.get("dev-dependencies")):
         return True
-    group = _as_dict(poetry.get("group"))
-    return any(_check_deps_list(_as_dict(grp).get("dependencies")) for grp in group.values())
+    group = as_dict(poetry.get("group"))
+    return any(_check_deps_list(as_dict(grp).get("dependencies")) for grp in group.values())
+
+
+def _has_hatch_deps(tool: dict[str, Any]) -> bool:
+    hatch = as_dict(tool.get("hatch"))
+    if not hatch:
+        return False
+    envs = as_dict(hatch.get("envs"))
+    for env in envs.values():
+        if isinstance(env, dict):
+            env_d = as_dict(cast("object", env))
+            if _check_deps_list(env_d.get("dependencies")) or _check_deps_list(env_d.get("extra-dependencies")):
+                return True
+    return False
+
+
+def _has_pyproject_deps(data: dict[str, Any], tool: dict[str, Any]) -> bool:
+    project = as_dict(data.get("project"))
+    if project and _has_pyproject_project_deps(project):
+        return True
+    if _has_pyproject_poetry_deps(tool):
+        return True
+    # PEP 735 [dependency-groups]
+    dep_groups = as_dict(data.get("dependency-groups"))
+    if any(_check_deps_list(group) for group in dep_groups.values()):
+        return True
+    # [tool.uv] dev-dependencies
+    uv = as_dict(tool.get("uv"))
+    if _check_deps_list(uv.get("dev-dependencies")):
+        return True
+    # [tool.pdm.dev-dependencies]
+    pdm = as_dict(tool.get("pdm"))
+    pdm_dev = pdm.get("dev-dependencies")
+    if isinstance(pdm_dev, dict):
+        pdm_dict = cast("dict[object, object]", pdm_dev)
+        if any(_check_deps_list(grp) for grp in pdm_dict.values()):
+            return True
+    elif _check_deps_list(pdm_dev):
+        return True
+    # hatch env dependencies
+    return bool(_has_hatch_deps(tool))
 
 
 def _inspect_pyproject(
@@ -700,24 +769,23 @@ def _inspect_pyproject(
         import tomllib
 
         raw_data = tomllib.loads(raw_bytes.decode("utf-8"))
-        data = _as_dict(raw_data)
+        data = as_dict(raw_data)
     except Exception:  # noqa: BLE001 - decode error or TOML error
         return False, True
 
-    tool = _as_dict(data.get("tool"))
+    tool = as_dict(data.get("tool"))
     if "bandit" in tool:
         return True, False
+
     ruff_configured, ruff_indeterminate = _check_ruff_section(data, trusted_root, repository_root)
     if ruff_configured:
         return True, False
+
+    if _has_pyproject_deps(data, tool):
+        return True, False
+
     if ruff_indeterminate:
         return False, True
-
-    project = _as_dict(data.get("project"))
-    if project and _has_pyproject_project_deps(project):
-        return True, False
-    if _has_pyproject_poetry_deps(tool):
-        return True, False
 
     return False, False
 
@@ -759,10 +827,48 @@ def _inspect_parent_pyproject(cand: Path, repo_root: Path) -> tuple[bool, bool]:
         return False, True
 
 
+def _inspect_candidate_files(cand: Path, repo_root: Path) -> tuple[bool, bool]:
+    cand_pre_commit = cand / ".pre-commit-config.yaml"
+    conf, ind = _inspect_pre_commit(repo_root, cand_pre_commit)
+    if conf:
+        return True, False
+    indeterminate = ind
+
+    cand_setup = cand / "setup.cfg"
+    conf, ind = _inspect_setup_cfg(repo_root, cand_setup)
+    if conf:
+        return True, False
+    indeterminate |= ind
+
+    cand_tox = cand / "tox.ini"
+    conf, ind = _inspect_tox_ini(repo_root, cand_tox)
+    if conf:
+        return True, False
+    indeterminate |= ind
+
+    try:
+        with os.scandir(cand) as entries:
+            for entry in entries:
+                ename = entry.name.lower()
+                if ename.startswith("requirements") and ename.endswith(".txt"):
+                    conf, ind = _inspect_requirements(repo_root, Path(entry.path))
+                    if conf:
+                        return True, False
+                    indeterminate |= ind
+    except OSError:
+        indeterminate = True
+    return False, indeterminate
+
+
 def _inspect_candidate_root(root: Path, cand: Path, repo_root: Path) -> tuple[bool, bool]:
     indeterminate = False
     if cand != root:
         conf, ind = _inspect_parent_pyproject(cand, repo_root)
+        if conf:
+            return True, False
+        indeterminate |= ind
+
+        conf, ind = _inspect_candidate_files(cand, repo_root)
         if conf:
             return True, False
         indeterminate |= ind

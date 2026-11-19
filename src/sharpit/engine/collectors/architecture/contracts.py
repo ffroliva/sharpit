@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from sharpit.engine.appsource import find_pyproject_path
+from sharpit.engine.appsource import as_dict, as_str_tuple, find_pyproject_path
 
 
 @dataclass(frozen=True)
@@ -18,20 +18,6 @@ class Contract:
     layers: tuple[str, ...] = ()
     source_modules: tuple[str, ...] = ()
     forbidden_modules: tuple[str, ...] = ()
-
-
-def _as_dict(val: object) -> dict[str, object]:
-    if isinstance(val, dict):
-        d = cast("dict[object, object]", val)
-        return {str(k): v for k, v in d.items()}
-    return {}
-
-
-def _as_str_tuple(val: object) -> tuple[str, ...]:
-    if isinstance(val, (list, tuple)):
-        s = cast("Sequence[object]", val)
-        return tuple(str(x) for x in s)
-    return ()
 
 
 def read_contracts(package_root: Path, sys_path: Sequence[object] = ()) -> tuple[list[Contract], list[str]]:
@@ -46,8 +32,8 @@ def read_contracts(package_root: Path, sys_path: Sequence[object] = ()) -> tuple
     except (tomllib.TOMLDecodeError, OSError) as exc:
         return [], [f"pyproject.toml: {exc}"]
 
-    tool = _as_dict(data.get("tool"))
-    importlinter = _as_dict(tool.get("importlinter"))
+    tool = as_dict(data.get("tool"))
+    importlinter = as_dict(tool.get("importlinter"))
     raw_contracts = importlinter.get("contracts")
     if not isinstance(raw_contracts, list):
         return [], []
@@ -56,12 +42,12 @@ def read_contracts(package_root: Path, sys_path: Sequence[object] = ()) -> tuple
     for raw_item in cast("list[object]", raw_contracts):
         if not isinstance(raw_item, dict):
             continue
-        raw = _as_dict(cast("object", raw_item))
+        raw = as_dict(cast("object", raw_item))
         name = str(raw.get("name", "unnamed"))
         c_type = str(raw.get("type", ""))
-        layers = _as_str_tuple(raw.get("layers"))
-        source_modules = _as_str_tuple(raw.get("source_modules"))
-        forbidden_modules = _as_str_tuple(raw.get("forbidden_modules"))
+        layers = as_str_tuple(raw.get("layers"))
+        source_modules = as_str_tuple(raw.get("source_modules"))
+        forbidden_modules = as_str_tuple(raw.get("forbidden_modules"))
         contracts.append(Contract(name, c_type, layers, source_modules, forbidden_modules))
 
     return contracts, []

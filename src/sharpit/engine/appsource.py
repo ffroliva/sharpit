@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 MAX_FILES = 2000
 MAX_FILE_BYTES = 524_288
@@ -140,22 +141,50 @@ def resolve_app_root(
     return root
 
 
-# ---- pyproject locator (moved from collectors/architecture/contracts.py) ---------------------------------------
+# ---- pyproject locator and TOML coercion helpers ----------------------------------------------------------------
+
+
+def toml_dict(val: object) -> dict[str, object]:
+    """Safely coerce a TOML section value to dict[str, object]."""
+    if isinstance(val, dict):
+        d = cast("dict[object, object]", val)
+        return {str(k): v for k, v in d.items()}
+    return {}
+
+
+def toml_str_list(val: object) -> list[str]:
+    """Safely coerce a TOML array value to list[str]."""
+    if isinstance(val, (list, tuple)):
+        s = cast("Sequence[object]", val)
+        return [str(x) for x in s]
+    return []
+
+
+def toml_str_tuple(val: object) -> tuple[str, ...]:
+    """Safely coerce a TOML array value to tuple[str, ...]."""
+    if isinstance(val, (list, tuple)):
+        s = cast("Sequence[object]", val)
+        return tuple(str(x) for x in s)
+    return ()
+
+
+as_dict = toml_dict
+as_str_list = toml_str_list
+as_str_tuple = toml_str_tuple
 
 
 def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> Path | None:
     """The ``pyproject.toml`` of the sys.path entry holding ``package_root``, or that entry's parent for a src/ layout.
 
     Spec §5.5, §14: nowhere else. The holding entry is the root's own parent directory; an ancestor entry does not
-    hold the package, and nothing is read when the holding entry is not on ``sys_path`` or is under site-packages.
+    hold the package, and nothing is read when the holding entry is not on ``sys_path`` or is under site-packages or
+    dist-packages.
     """
     try:
         resolved = package_root.resolve()
-        if "site-packages" in resolved.parts:
+        if any(p in ("site-packages", "dist-packages") for p in resolved.parts):
             return None
         holder = resolved.parent
-        if "site-packages" in holder.parts:
-            return None
         on_path = any(isinstance(e, str) and e and Path(e).resolve() == holder for e in sys_path)
     except (OSError, ValueError):
         return None

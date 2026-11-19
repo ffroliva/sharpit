@@ -11,6 +11,7 @@ from sharpit.engine.collectors.security.static_analysis import (
     RULE_ID,
     State,
     StaticSecurityAnalysisDetector,
+    _split_shell_commands,
     strip_yaml_comments,
 )
 
@@ -323,7 +324,7 @@ def test_static_only_advisor_does_not_claim_runtime_evidence_or_scan_on_read(tmp
     assert result["severity"] == "INFO"
     assert result["status"] == "VIOLATION"
     assert "Bandit" in result["recommendation"]
-    assert "organization-managed CI" in result["description"]
+    assert "remote or organization-managed" in result["description"]
 
     # Rule violations query
     violations = service.violations(RULE_ID, report_scanned["violationDetails"]["scanId"], 0, None)
@@ -371,3 +372,255 @@ def test_static_only_advisor_reports_project_root_inspection_failure(tmp_path: P
     assert report["evidence"]["usable"] is False
     assert LIMITATION_TEXT in report["evidence"]["limitations"]
     assert report["results"] == []
+
+
+def test_pep_508_requirement_variants(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+
+    # 1. bandit >= 1.7 in requirements.txt
+    p1 = tmp_path / "p1"
+    _write(p1 / "requirements.txt", "bandit >= 1.7\n")
+    assert detector.inspect(p1).state == State.CONFIGURED
+
+    # 2. bandit ; python_version>'3.8' in requirements.txt
+    p2 = tmp_path / "p2"
+    _write(p2 / "requirements.txt", "bandit ; python_version>'3.8'\n")
+    assert detector.inspect(p2).state == State.CONFIGURED
+
+    # 3. bandit @ git+https://... in requirements.txt
+    p3 = tmp_path / "p3"
+    _write(p3 / "requirements.txt", "bandit @ git+https://github.com/PyCQA/bandit.git@main\n")
+    assert detector.inspect(p3).state == State.CONFIGURED
+
+    # 4. PEP 508 in pyproject dependencies
+    p4 = tmp_path / "p4"
+    _write(
+        p4 / "pyproject.toml",
+        '[project]\nname = "p4"\nversion = "0.1.0"\ndependencies = ["bandit >= 1.7"]\n',
+    )
+    assert detector.inspect(p4).state == State.CONFIGURED
+
+    p5 = tmp_path / "p5"
+    _write(
+        p5 / "pyproject.toml",
+        '[project]\nname = "p5"\nversion = "0.1.0"\n[project.optional-dependencies]\n'
+        'dev = ["bandit @ git+https://github.com/PyCQA/bandit.git@main"]\n',
+    )
+    assert detector.inspect(p5).state == State.CONFIGURED
+
+
+def test_pep_735_and_build_tool_dependency_groups(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+
+    # PEP 735 [dependency-groups]
+    p1 = tmp_path / "pep735"
+    _write(
+        p1 / "pyproject.toml",
+        '[project]\nname = "p1"\n\n[dependency-groups]\ndev = ["bandit >= 1.7"]\n',
+    )
+    assert detector.inspect(p1).state == State.CONFIGURED
+
+    # PEP 735 with include-group dict item
+    p1b = tmp_path / "pep735_include"
+    _write(
+        p1b / "pyproject.toml",
+        '[project]\nname = "p1b"\n\n[dependency-groups]\ntest = [{include-group = "lint"}, "bandit"]\n',
+    )
+    assert detector.inspect(p1b).state == State.CONFIGURED
+
+    # [tool.uv] dev-dependencies
+    p2 = tmp_path / "uv_dev"
+    _write(
+        p2 / "pyproject.toml",
+        '[project]\nname = "p2"\n\n[tool.uv]\ndev-dependencies = ["bandit"]\n',
+    )
+    assert detector.inspect(p2).state == State.CONFIGURED
+
+    # [tool.pdm.dev-dependencies]
+    p3 = tmp_path / "pdm_dev"
+    _write(
+        p3 / "pyproject.toml",
+        '[project]\nname = "p3"\n\n[tool.pdm.dev-dependencies]\ndev = ["bandit"]\n',
+    )
+    assert detector.inspect(p3).state == State.CONFIGURED
+
+    # hatch env dependencies
+    p4 = tmp_path / "hatch_env"
+    _write(
+        p4 / "pyproject.toml",
+        '[project]\nname = "p4"\n\n[tool.hatch.envs.default]\ndependencies = ["bandit"]\n',
+    )
+    assert detector.inspect(p4).state == State.CONFIGURED
+
+    # hatch extra-dependencies
+    p5 = tmp_path / "hatch_extra"
+    _write(
+        p5 / "pyproject.toml",
+        '[project]\nname = "p5"\n\n[tool.hatch.envs.lint]\nextra-dependencies = ["semgrep"]\n',
+    )
+    assert detector.inspect(p5).state == State.CONFIGURED
+
+
+def test_pre_commit_quoted_ids_and_local_hooks(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+
+    # - id: bandit (list item)
+    p1 = tmp_path / "pc1"
+    _write(
+        p1 / ".pre-commit-config.yaml",
+        "repos:\n  - repo: https://github.com/PyCQA/bandit\n    rev: 1.7.5\n    hooks:\n      - id: bandit\n",
+    )
+    assert detector.inspect(p1).state == State.CONFIGURED
+
+    # - id: "bandit" (quoted id)
+    p2 = tmp_path / "pc2"
+    _write(
+        p2 / ".pre-commit-config.yaml",
+        'repos:\n  - repo: https://github.com/PyCQA/bandit\n    rev: 1.7.5\n    hooks:\n      - id: "bandit"\n',
+    )
+    assert detector.inspect(p2).state == State.CONFIGURED
+
+    # - id: 'semgrep' (single quoted)
+    p3 = tmp_path / "pc3"
+    _write(
+        p3 / ".pre-commit-config.yaml",
+        "repos:\n  - repo: https://github.com/semgrep/semgrep\n    rev: v1.0.0\n    hooks:\n      - id: 'semgrep'\n",
+    )
+    assert detector.inspect(p3).state == State.CONFIGURED
+
+    # repo: local hook with entry: bandit
+    p4 = tmp_path / "pc4"
+    _write(
+        p4 / ".pre-commit-config.yaml",
+        "repos:\n  - repo: local\n    hooks:\n      - id: run-security\n        name: security\n"
+        "        entry: bandit -r src\n        language: system\n",
+    )
+    assert detector.inspect(p4).state == State.CONFIGURED
+
+
+def test_monorepo_root_level_candidate_files(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    repo = tmp_path / "monorepo"
+    _write(repo / ".git" / "HEAD", "ref: refs/heads/main\n")
+    subproject = repo / "services" / "api"
+    _write(subproject / "pyproject.toml", '[project]\nname = "api"\nversion = "0.1.0"\n')
+
+    # 1. Root-level .pre-commit-config.yaml
+    _write(
+        repo / ".pre-commit-config.yaml",
+        "repos:\n  - repo: https://github.com/PyCQA/bandit\n    rev: 1.7.5\n    hooks:\n      - id: bandit\n",
+    )
+    assert detector.inspect(subproject).state == State.CONFIGURED
+    (repo / ".pre-commit-config.yaml").unlink()
+
+    # 2. Root-level requirements-dev.txt
+    _write(repo / "requirements-dev.txt", "bandit>=1.7\n")
+    assert detector.inspect(subproject).state == State.CONFIGURED
+    (repo / "requirements-dev.txt").unlink()
+
+    # 3. Root-level setup.cfg
+    _write(repo / "setup.cfg", "[bandit]\nexclude = /tests\n")
+    assert detector.inspect(subproject).state == State.CONFIGURED
+    (repo / "setup.cfg").unlink()
+
+    # 4. Root-level tox.ini
+    _write(repo / "tox.ini", "[testenv]\ndeps = bandit\n")
+    assert detector.inspect(subproject).state == State.CONFIGURED
+
+
+def test_workflow_and_tox_runner_commands(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+
+    # uv run bandit in workflow
+    p1 = tmp_path / "w_uv"
+    _write(p1 / "pyproject.toml", '[project]\nname = "p1"\n')
+    _write(
+        p1 / ".github" / "workflows" / "ci.yml",
+        "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: uv run bandit -r src/\n",
+    )
+    assert detector.inspect(p1).state == State.CONFIGURED
+
+    # uvx bandit in workflow
+    p2 = tmp_path / "w_uvx"
+    _write(p2 / "pyproject.toml", '[project]\nname = "p2"\n')
+    _write(
+        p2 / ".github" / "workflows" / "ci.yml",
+        "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: uvx bandit -r src/\n",
+    )
+    assert detector.inspect(p2).state == State.CONFIGURED
+
+    # python -m bandit in workflow
+    p3 = tmp_path / "w_pym"
+    _write(p3 / "pyproject.toml", '[project]\nname = "p3"\n')
+    _write(
+        p3 / ".github" / "workflows" / "ci.yml",
+        "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: python -m bandit -r src/\n",
+    )
+    assert detector.inspect(p3).state == State.CONFIGURED
+
+    # poetry run bandit in workflow
+    p4 = tmp_path / "w_poetry"
+    _write(p4 / "pyproject.toml", '[project]\nname = "p4"\n')
+    _write(
+        p4 / ".github" / "workflows" / "ci.yml",
+        "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: poetry run bandit -r src/\n",
+    )
+    assert detector.inspect(p4).state == State.CONFIGURED
+
+    # pipx run bandit in workflow
+    p5 = tmp_path / "w_pipx"
+    _write(p5 / "pyproject.toml", '[project]\nname = "p5"\n')
+    _write(
+        p5 / ".github" / "workflows" / "ci.yml",
+        "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: pipx run bandit -r src/\n",
+    )
+    assert detector.inspect(p5).state == State.CONFIGURED
+
+    # commands in tox.ini using uv run bandit
+    p6 = tmp_path / "tox_runner"
+    _write(p6 / "tox.ini", "[testenv:lint]\ncommands = uv run bandit -r src\n")
+    assert detector.inspect(p6).state == State.CONFIGURED
+
+
+def test_workflow_bandit_action(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "w_bandit_action"
+    _write(p / "pyproject.toml", '[project]\nname = "p"\n')
+    _write(
+        p / ".github" / "workflows" / "ci.yml",
+        "name: CI\non: [push]\njobs:\n  security:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - uses: PyCQA/bandit-action@v1\n",
+    )
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+def test_ruff_toml_does_not_mask_other_analyzers(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "ruff_with_bandit"
+    # ruff.toml makes ruff INDETERMINATE
+    _write(p / "ruff.toml", '[lint]\nselect = ["ALL"]\n')
+    # but pyproject has bandit in dependencies -> CONFIGURED
+    _write(
+        p / "pyproject.toml",
+        '[project]\nname = "app"\nversion = "0.1.0"\ndependencies = ["bandit"]\n',
+    )
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+def test_read_bounded_ctrl_z_binary_mode(tmp_path: Path) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "ctrl_z"
+    # `# \x1a\nbandit\n` in requirements.txt
+    (p / "requirements.txt").parent.mkdir(parents=True, exist_ok=True)
+    (p / "requirements.txt").write_bytes(b"# \x1a\nbandit\n")
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+def test_split_shell_commands_handles_logical_operators() -> None:
+    result = _split_shell_commands("a && b || c")
+    assert result == ["a", "b", "c"]
