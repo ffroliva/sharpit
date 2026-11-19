@@ -73,6 +73,7 @@ nav:
       - Pytest plugin: pytest-plugin.md
       - Test report: report.md
       - MCP for AI agents: mcp.md
+      - AI agents: ai-agents.md
       - Settings: settings.md
   - Reference:
       - Safety model: safety.md

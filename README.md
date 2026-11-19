@@ -243,7 +243,7 @@ connection in one step:
 The same `plugins/sharpit` directory is listed for Cursor (`.cursor-plugin/marketplace.json`) and Codex
 (`.agents/plugins/marketplace.json`). The plugin points at `http://127.0.0.1:8000/sharpit/api/mcp`; if your app listens on
 another port, set `SHARPIT_MCP_URL` (Claude Code). Other clients, and what was tested, are in
-[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/).
+[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/). For guided investigations, see the application-improvement playbooks in [`skills/sharpit/references/playbooks/`](skills/sharpit/references/playbooks/README.md) and the [AI agents guide](https://ffroliva.github.io/sharpit/ai-agents/).
 
 ## Documentation
 
@@ -255,6 +255,7 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 - [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
 - [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): tracing SQLAlchemy and raw `sqlite3`
 - [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its tools
+- [AI agents](https://ffroliva.github.io/sharpit/ai-agents/): improvement playbooks, CLI and MCP workflows, and runtime recipes
 - [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers
 - [How it works](https://ffroliva.github.io/sharpit/how-it-works/) and [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/)
