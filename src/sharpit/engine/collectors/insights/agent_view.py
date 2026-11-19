@@ -320,8 +320,7 @@ def agent_list(report: Row, query: str | None, limit: int | None, steps: Steps) 
             0,
             [],
             unavailable.rows,
-            insufficient=0,
-            partial=0,
+            incomplete=(0, 0),
         )
     matching = [o for o in report["observations"] if _matches(o, asked)]
 
@@ -340,21 +339,21 @@ def agent_list(report: Row, query: str | None, limit: int | None, steps: Steps) 
     shown = min(MAX_NOT_EXERCISED, len(report["notExercised"]))
     steps_out = asks.then(follow) if asked.lower() == "diff" else follow.then(asks)
     counts = Counter(o["status"] for o in matching)
-    insufficient = counts["INSUFFICIENT"]
-    partial = counts["PARTIAL"]
     return _list(
         True, None, asked, requests, report["coverage"], _checks_not_run(report["checks"]),
         [_compact(o) for o in listed], len(matching) - len(listed), report["notExercised"][:shown],
         len(report["notExercised"]) - shown + report["notExercisedOmitted"], limitations, steps_out,
-        insufficient=insufficient, partial=partial,
+        incomplete=(counts["INSUFFICIENT"], counts["PARTIAL"]),
     )  # fmt: skip
 
 
 def _list(
     available: bool, reason: object, query: str, requests: int, coverage: list[Row], not_run: list[str],
     observations: list[Row], omitted: int, not_exercised: list[str], not_exercised_omitted: int,
-    limitations: list[str], next_steps: list[Row], *, insufficient: int, partial: int,
+    limitations: list[str], next_steps: list[Row], *, incomplete: tuple[int, int],
 ) -> Row:  # fmt: skip
+    """``incomplete`` is (INSUFFICIENT, PARTIAL) over every matching observation, rows cut by the limit included."""
+    insufficient, partial = incomplete
     return {
         "available": available, "unavailableReason": reason, "query": query, "requests": requests,
         "coverage": coverage, "checksNotRun": not_run, "observations": observations, "omitted": omitted,
