@@ -19,8 +19,17 @@ FRAGMENTS_0_7_0: list[tuple[str, str]] = [
     ("A6", "a6-ui-readonly.tsv"),
     ("A7", "a7-exchange-recording.tsv"),
     ("B1", "b1-sql-kinds.tsv"),
+    ("C", "cli-t2.tsv"),
+    ("C", "cli-t3.tsv"),
+    ("C", "cli-t4.tsv"),
+    ("C", "cli-t5.tsv"),
+    ("C", "cli-t6.tsv"),
+    ("C", "cli-t7.tsv"),
+    ("C", "cli-t8.tsv"),
     ("E1", "e1-65.tsv"),
     ("E2", "e2-66.tsv"),
+    ("G1", "g1-playbooks.tsv"),
+    ("G2", "g2-prompts.tsv"),
     ("W0", "w0-pin-24.tsv"),
 ]
 

@@ -9,11 +9,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Guided agent playbooks and an AI agents guide ported from BootUI 2.4.0 (`skills/sharpit/references/playbooks/` and `website/docs/ai-agents.md`): application checkup, database efficiency, slow endpoint diagnosis, errors and hidden failures, verifying changes, and Python performance/memory. The skill and shipped plugin include playbooks with side-by-side MCP tools and `sharpit` CLI commands.
 - MCP prompt guidance follows BootUI 2.4.0: all four prompts advertise optional arguments, echo masked and bounded context, and include `verify_after_change`.
-- The `sharpit` command-line client (see below).
+- Interactive tutorial (`website/docs/tutorial.md`): step-by-step walkthrough of application inspection, issue diagnosis, and change verification with sharpit.
 - The `sharpit` command-line client (`sharpit` console script): connects to a running sharpit application over HTTP without extra dependencies, executing any tool from the catalogue with BootUI 2.4.0 exit codes (0 success, 1 error, 2 refused, 3 threshold), global options (`--url`, `--api-path`, `--token`, `--timeout`, `--json`, `--no-color`, `-v`), `--fail-on` gates on finding severity (`critical`..`info`) or `insufficient` runtime evidence, `sharpit tools` listing, and `sharpit mcp status|enable|disable` controls.
 - Runtime Insights implements `repeated-selects` and `unbatched-write-loop` with BootUI 2.4.0 thresholds and request counts.
-- Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only on the security scan action (panel, MCP and CLI `security scan`), never on reads.
-- An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
+- Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only on the security scan action (the Security panel and the CLI `sharpit security scan`; never over MCP, never on reads).
 
 ### Changed
 
@@ -84,9 +83,9 @@ Deferred lanes from the 0.7.0 plan move to the next release:
 - D2 (SQL listener per-statement path): evaluating BootUI 2.4.0 runtime event-sink capture against listener overhead deferred.
 - D3 (SQL Trace panel availability): aligning SQL Trace panel availability before a data source is wrapped deferred.
 - D4 (connection and SQL facts): connection statement count and recorded-SQL presence flag follow-ups deferred.
-- D6 (masking safety): single-pass quoted-text masking and fail-safe email mask fallback deferred pending council review and corpus diff.
+- D6 (masking double pass, the `SHARPIT_EMAIL_MASK_CONTENT` fallback): masking changes need predict, council review and a base-against-branch corpus diff.
 - paged-without-order: deferred until SQL row-limit and shape analysis is ported without relying on regex approximation under masking.
-- E0 / #207: handling `--sharpit-app` naming an object without a route list deferred pending external pull request review.
+- E0 / #207: a pull request from a fork; it waits for its author and a maintainer's review (handling `--sharpit-app` naming an object with no route list).
 
 ## [0.6.0] - 2026-11-13
 

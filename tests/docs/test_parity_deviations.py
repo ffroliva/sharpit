@@ -30,7 +30,7 @@ def test_parity_md_contains_current_deviations_section():
 
 def test_every_fragment_row_is_categorized():
     deviations = collect_deviations()
-    assert len(deviations) == 29
+    assert len(deviations) == 117
 
     for lane, filename in FRAGMENTS_0_7_0:
         filepath = MATRIX_UPDATES / filename

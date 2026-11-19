@@ -181,20 +181,22 @@ re-measures all of this against 2.4.0.
 
 ### Track C: command-line client (#60)
 
-- [~] **C** — [2026-11-16-sharpit-cli.md](../2026-11-16-sharpit-cli.md), executed from its own plan. Task 6
+- [x] **C** — [2026-11-16-sharpit-cli.md](../2026-11-16-sharpit-cli.md), executed from its own plan. Task 6
       (`--fail-on`, including the insufficient-evidence gate) merges after A1. Task 4's drift test reads BootUI's
       command paths from `tests/fixtures/bootui/2.3.0/tools.json` until W0 lands and from `2.4.0/tools.json` after
       it; 2.4.0 changes no command path, so the switch is a path change only.
 
 ### Track G: agent and human usage guidance (added 2026-11-19)
 
-- [ ] **G1 — agent playbooks and the AI-agents guide.** Port BootUI 2.4.0's
+- [x] **G1 — agent playbooks and the AI-agents guide.** Port BootUI 2.4.0's
       `skills/bootui/references/playbooks/` (the shared contract and the application checkup, database efficiency, slow
       endpoint, errors and hidden failures, and verify-my-changes playbooks; a Python performance playbook from the
       evidence sharpit has in place of the JVM one) and `docs/AI-AGENTS.md` as `website/docs/ai-agents.md`; the skill and
       the agent plugin point to them, and a test checks every tool and command they cite.
-- [ ] **G2 — MCP prompt arguments and `verify_after_change`.** Port `McpPrompt` arguments and the fourth prompt from
+- [x] **G2 — MCP prompt arguments and `verify_after_change`.** Port `McpPrompt` arguments and the fourth prompt from
       `McpGuidance.java`, with `McpDispatcherTests`' prompt cases.
+- [x] **G3 — interactive tutorial.** Hands-on guided walkthrough (`website/docs/tutorial.md`) stepping through
+      inspection, diagnosing issues, and verifying fixes with sharpit.
 
 ### Track D: engineering deferred from 0.6.0
 

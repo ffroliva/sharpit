@@ -77,6 +77,7 @@ nav:
       - Pytest plugin: pytest-plugin.md
       - Test report: report.md
       - MCP for AI agents: mcp.md
+      - Command-line client: cli.md
       - AI agents: ai-agents.md
       - Settings: settings.md
   - Reference:
