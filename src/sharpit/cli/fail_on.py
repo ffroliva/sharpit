@@ -17,23 +17,40 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeGuard
 
+from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.manifest import ManifestTool
 
-# Plain exit codes: 0 pass, 1 cannot evaluate, 3 threshold met; Task 7 unifies with sharpit.cli.exit_codes.
-SUCCESS: int = 0
-ERROR: int = 1
-THRESHOLD: int = 3
-PASS: int = SUCCESS
-CANNOT_EVALUATE: int = ERROR
-THRESHOLD_MET: int = THRESHOLD
+GET_RUNTIME_INSIGHTS: str = "get_runtime_insights"
+
+_OPTION_TO_WIRE: Mapping[str, str] = {
+    "scan_id": "scanId",
+    "scanId": "scanId",
+    "query": "query",
+    "limit": "limit",
+    "id": "id",
+    "offset": "offset",
+}
+
+
+def effective_query(tool_name: str, query: str | None, criterion: Criterion | None) -> str | None:
+    """The query argument to send to the tool.
+
+    An insufficient-evidence gate on get_runtime_insights requests 'all' when none was supplied.
+    """
+    if criterion == Criterion.INSUFFICIENT and tool_name == GET_RUNTIME_INSIGHTS and query is None:
+        return "all"
+    return query
 
 
 def build_tool_arguments(
     tool: ManifestTool,
     options: Mapping[str, object],
+    criterion: Criterion | None = None,
 ) -> dict[str, object]:
     """Build tool arguments from declared tool arguments only (an allowlist).
 
+    Maps CLI option names to wire names (scan_id -> scanId, query, limit, id, offset)
+    and applies effective_query when query is handled.
     CLI options like fail_on, json, url, token, api_path never reach the call.
     Task 7 wires this helper into the command runner.
     """
@@ -41,7 +58,14 @@ def build_tool_arguments(
     return {k: v for k, v in options.items() if k in allowed and v is not None}
 
 
-class Severity(enum.StrEnum):
+
+class _Labeled(enum.StrEnum):
+    @property
+    def label(self) -> str:
+        return self.value.lower()
+
+
+class Severity(_Labeled):
     """The severities the gate understands, most severe first. Any other severity in an answer is ignored."""
 
     CRITICAL = "CRITICAL"
@@ -51,31 +75,30 @@ class Severity(enum.StrEnum):
     INFO = "INFO"
 
     @property
-    def label(self) -> str:
-        return self.value.lower()
+    def rank(self) -> int:
+        return list(Severity).index(self)
+
+    def at_or_above(self, threshold: Severity) -> bool:
+        return self.rank <= threshold.rank
 
 
-class Criterion(enum.StrEnum):
+class Criterion(_Labeled):
     """A severity threshold or an evidence-sufficiency gate."""
 
-    CRITICAL = "CRITICAL"
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
-    INFO = "INFO"
+    CRITICAL = Severity.CRITICAL.value
+    HIGH = Severity.HIGH.value
+    MEDIUM = Severity.MEDIUM.value
+    LOW = Severity.LOW.value
+    INFO = Severity.INFO.value
     INSUFFICIENT = "INSUFFICIENT"
-
-    @property
-    def label(self) -> str:
-        return self.value.lower()
 
 
 @dataclass(frozen=True)
 class Verdict:
-    """What the gate decided: exit_code (0 pass, 1 cannot evaluate, 3 threshold met) and message."""
+    """What the gate decided: exit_code and message."""
 
-    exit_code: int = SUCCESS
-    message: str = ""
+    exit_code: int
+    message: str
 
 
 # Every advisor scan and cached report in sharpit, which share the compact severity summary.
@@ -100,20 +123,16 @@ ADVISOR_TOOLS: frozenset[str] = frozenset(
 INSUFFICIENT_TOOLS: frozenset[str] = frozenset(
     {
         "get_runtime_insight",
-        "get_runtime_insights",
+        GET_RUNTIME_INSIGHTS,
     }
 )
 
+# Reads that grade nothing: runtime views and a heap-dump inventory have no severities to gate on,
+# or lack evidence sensors.
+EXCLUDED: Mapping[str, str] = {}
+
 _EVALUATED = frozenset({"SCANNED", "PARTIAL"})
 _WORD_PATTERN = re.compile(r"[A-Za-z_]{1,32}")
-
-_SEVERITY_ORDER: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
 
 
 def _trim_java(s: str) -> str:
@@ -177,16 +196,6 @@ def parse(tool_name: str, value: str) -> Criterion:
     raise ValueError(f"'{value}' is not accepted here; use one of {accepted(tool_name)}.")
 
 
-def effective_query(tool_name: str, query: str | None, criterion: Criterion | None) -> str | None:
-    """The query argument to send to the tool.
-
-    An insufficient-evidence gate on get_runtime_insights requests 'all' when none was supplied.
-    """
-    if criterion == Criterion.INSUFFICIENT and tool_name == "get_runtime_insights" and query is None:
-        return "all"
-    return query
-
-
 def _is_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
     return isinstance(value, Mapping)
 
@@ -204,7 +213,7 @@ def _non_negative_integer(val: object) -> TypeGuard[int]:
 
 
 def _unevaluable(reason: str) -> Verdict:
-    return Verdict(ERROR, f"cannot evaluate --fail-on: {reason}.")
+    return Verdict(ExitCodes.ERROR, f"cannot evaluate --fail-on: {reason}.")
 
 
 def _record_count(
@@ -219,7 +228,7 @@ def _record_count(
     if sev is None:
         key = severity if _is_word(severity) else "?"
         ignored[key] = f"{ignored[key]}+{text}" if key in ignored else text
-    elif _SEVERITY_ORDER[sev] <= _SEVERITY_ORDER[threshold]:
+    elif sev.at_or_above(threshold):
         norm_key = sev.value
         met[norm_key] = f"{met[norm_key]}+{text}" if norm_key in met else text
 
@@ -298,7 +307,7 @@ def _evaluate_severity(payload: object, threshold: Severity) -> Verdict:
         return _unevaluable("the scan found no usable evidence, so zero findings is not an assessment")
 
     notes = _format_severity_notes(met, ignored, status, threshold)
-    exit_code = THRESHOLD if met else SUCCESS
+    exit_code = ExitCodes.THRESHOLD if met else ExitCodes.SUCCESS
     return Verdict(exit_code, notes)
 
 
@@ -310,9 +319,9 @@ def _evaluate_runtime_insight(payload: Mapping[str, object]) -> Verdict:
     if not isinstance(obs_status, str):
         return _unevaluable("the observation has no status")
     if obs_status in ("OBSERVED", "FINDING"):
-        return Verdict(SUCCESS, "")
+        return Verdict(ExitCodes.SUCCESS, "")
     if obs_status in ("INSUFFICIENT", "PARTIAL"):
-        return Verdict(THRESHOLD, f"--fail-on insufficient: observation status is {obs_status}.")
+        return Verdict(ExitCodes.THRESHOLD, f"--fail-on insufficient: observation status is {obs_status}.")
     if obs_status in ("UNAVAILABLE", "NOT_APPLICABLE"):
         return _unevaluable(f"the observation status is {obs_status}")
     return _unevaluable("the observation status is not recognised")
@@ -379,10 +388,10 @@ def _evaluate_runtime_insights(payload: Mapping[str, object]) -> Verdict:
 
     if insufficient > 0 or partial > 0:
         return Verdict(
-            THRESHOLD,
+            ExitCodes.THRESHOLD,
             f"--fail-on insufficient: found {insufficient} insufficient and {partial} partial evidence rows.",
         )
-    return Verdict(SUCCESS, "")
+    return Verdict(ExitCodes.SUCCESS, "")
 
 
 def _evaluate_insufficient(payload: object, tool_name: str) -> Verdict:
@@ -390,7 +399,7 @@ def _evaluate_insufficient(payload: object, tool_name: str) -> Verdict:
         return _unevaluable("the answer is unavailable")
     if tool_name == "get_runtime_insight":
         return _evaluate_runtime_insight(payload)
-    if tool_name == "get_runtime_insights":
+    if tool_name == GET_RUNTIME_INSIGHTS:
         return _evaluate_runtime_insights(payload)
     return _unevaluable("the selected tool does not report evidence sufficiency")
 
