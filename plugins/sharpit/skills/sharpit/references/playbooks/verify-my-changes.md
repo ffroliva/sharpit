@@ -37,8 +37,8 @@ reloading. If the change already happened without a baseline, report that limita
    - Verify that N+1 suspects identified in the baseline are resolved.
    - Check that no new unexpected SQL queries or exceptions were introduced.
 4. sharpit has no previous-run comparison. Re-read evidence after the change: request profile, SQL Trace, and runtime insights for the specific query; state when no comparable baseline exists.
-5. For advisor findings (such as Database advisor or FastAPI advisor), run an authorized re-scan (`database_advisor_scan`,
-   `fastapi_scan`, or `architecture_scan`) and read the corresponding report (`get_database_advisor_report`,
+5. For advisor findings (such as Database advisor or FastAPI advisor), run an authorized re-scan (`sharpit db scan` (CLI only, after the user's approval),
+   `sharpit fastapi scan` (CLI only, after the user's approval), or `sharpit architecture scan` (CLI only, after the user's approval)) and read the corresponding report (`get_database_advisor_report`,
    `get_fastapi_report`, `get_architecture_report`). Verify that the specific finding identities were resolved in
    the updated scan results.
 

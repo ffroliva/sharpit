@@ -317,7 +317,7 @@ is confirmed empty and passes. Lost capture stays `unknown`.
 
 ### Report-only mode and baselines
 
-For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
+For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](https://github.com/ffroliva/sharpit/blob/main/docs/pytest-safety-gate.md).
 
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
   a summary of failing tests and status. Report-only relaxes findings, never blindness: any unknown

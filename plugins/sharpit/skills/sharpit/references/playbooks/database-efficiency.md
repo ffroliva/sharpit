@@ -37,8 +37,8 @@ connections provide partial evidence. Do not enable statistics or change SQL cap
    column projections, pagination limits, and session lifecycle. Repetition alone does not prescribe a single fix.
 4. For transaction observations, inspect actual session boundaries: `async with session.begin():` blocks, explicit
    commits, rollback triggers, and autocommit behavior. Never infer absence of work solely from the HTTP request counter.
-5. If cached findings are stale or insufficient, propose `database_advisor_scan` (`sharpit db scan --json`). A named
-   delegation covers only its named scan: `database_advisor_scan` contacts the database for schema and index metadata
+5. If cached findings are stale or insufficient, propose `sharpit db scan` (CLI only, after the user's approval) (`sharpit db scan --json`). A named
+   delegation covers only its named scan: `sharpit db scan` (CLI only, after the user's approval) contacts the database for schema and index metadata
    and needs that separate explicit approval. Rescan only within the approved scope.
 6. If the hypothesis needs operational evidence, read `get_mysql_report` or `get_postgresql_report`. Raw live reads (`sharpit db mysql read --json`, `sharpit db postgres read --json`) are CLI-only actions and require explicit user approval first. Server-wide counters include other clients.
 7. BootUI’s lazy-SQL-after-handler check is not applicable: sharpit reports this insight kind as `NOT_APPLICABLE` (`lazy_sql_after_handler.py`), so it cannot establish that behavior.

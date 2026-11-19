@@ -53,7 +53,7 @@ produce the versioned plan, and stop before edits or restarts.
 **Fix within scope** requires explicit upfront delegation. Record the permitted named actions/scans, workload,
 source boundaries, tests, restart permission, and verification criteria. For example:
 
-> Investigate database efficiency. You may run `database_advisor_scan`, run the existing local tests, make focused
+> Investigate database efficiency. You may run `sharpit db scan` (CLI only, after the user's approval), run the existing local tests, make focused
 > fixes in the affected route/repository code, reload the dev app, and replay my specified local read-only request
 > three times against the agreed test dataset to verify. Stop before migrations, dependency upgrades, external queries,
 > or changes to API behavior.

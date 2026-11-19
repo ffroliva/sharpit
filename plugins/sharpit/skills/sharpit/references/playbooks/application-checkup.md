@@ -42,8 +42,8 @@ Start with existing evidence and permitted reads. `get_health` returns a cached 
 | Exceptions or an error behind a successful response | [Errors and hidden failures](errors-and-hidden-failures.md) |
 | Memory growth, thread contention, or event loop stalls | [Python performance and memory](python-performance-and-memory.md) |
 
-Name any proposed fresh scans (`architecture_scan`, `fastapi_scan`, `database_advisor_scan`, `security_scan`,
-`vulnerabilities_scan`) and obtain the required approval first. Do not run memory, security, vulnerability, or
+Name any proposed fresh scans (`sharpit architecture scan` (CLI only, after the user's approval), `sharpit fastapi scan` (CLI only, after the user's approval), `sharpit db scan` (CLI only, after the user's approval), `sharpit security scan` (CLI only, after the user's approval),
+`sharpit vulnerabilities scan` (CLI only, after the user's approval)) and obtain the required approval first. Do not run memory, security, vulnerability, or
 database metadata actions as an implicit "check everything" step.
 
 ## Fix and verify
