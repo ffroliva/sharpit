@@ -1,0 +1,7 @@
+tool:get_exceptions	matched	BootUI 2.4.0 description adopted: explains caughtInCode insufficient and partial evidence states and clear_exceptions CLI reset (refused over MCP); lane A1; tests/parity/test_tools_parity.py
+tool:get_runtime_insights	matched	BootUI 2.4.0 description adopted: explains insufficient and partial counts cover every observation matching query including rows omitted by limit; lane A1; tests/parity/test_tools_parity.py
+tool:get_runtime_insight	matched	BootUI 2.4.0 description adopted: states observation status is explicit and insufficient evidence / partial coverage is not clean; lane A1; tests/parity/test_tools_parity.py
+tool:get_transactions	matched	BootUI 2.4.0 describes the propagation values NEW, REQUIRES_NEW, NESTED and UNKNOWN; lane A2; tests/parity/test_tools_parity.py
+tool:get_security_report	matched	BootUI 2.4.0 describes the static-only report; lane A3; tests/parity/test_tools_parity.py
+tool:security_scan	matched	BootUI 2.4.0 changed the summary and description for the static analyzer declarations; lane A3; tests/parity/test_tools_parity.py
+rule:SEC-STATIC-001	missing	BootUI 2.4.0 adds the static security analysis rule (StaticSecurityAnalysisDetector.java); lane A3; tests/fixtures/bootui/2.4.0/rule-ids.json

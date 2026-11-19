@@ -2,9 +2,12 @@
   import AdvisorPanel from '../components/AdvisorPanel.svelte';
   import { del, errorText, get, post } from '../lib/api';
   import { scannedWhen, upgradeHint } from '../lib/format';
+  import { panelActionReason } from '../lib/panelState';
   import type { Dependency, Panel, Vulnerability, VulnReport } from '../lib/types';
 
   let { panel }: { panel: Panel } = $props();
+
+  const actionReason = $derived(panelActionReason(panel));
 
   let report = $state<VulnReport | null>(null);
   let loadError = $state<string | null>(null);
@@ -41,10 +44,10 @@
 
 <AdvisorPanel
   title="Vulnerabilities"
+  {panel}
   {report}
   {loadError}
   vulnerabilities
-  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
   onretry={load}
   scanDisabledReason={report && !report.scanningEnabled ? report.scan.message : null}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Scan with OSV.dev')}
@@ -121,8 +124,8 @@
                 <td class="num">
                   <button
                     onclick={() => toggle(ruleId(dep, v), v.dismissed)}
-                    disabled={!!pending || panel.readOnly}
-                    title={panel.readOnly ? (panel.readOnlyReason ?? undefined) : undefined}
+                    disabled={!!pending || !!actionReason}
+                    title={actionReason ?? undefined}
                     aria-label="{v.dismissed ? 'Restore' : 'Dismiss'} {v.id} in {dep.packageName}"
                   >
                     {v.dismissed ? 'Restore' : 'Dismiss'}

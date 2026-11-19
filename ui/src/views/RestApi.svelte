@@ -27,10 +27,10 @@
 
 <AdvisorPanel
   title="REST API"
+  {panel}
   {report}
   {loadError}
   onretry={load}
-  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Run REST API checks')}
   onScan={async () => void (report = await post<RestApiReport>('rest-api/scan'))}
   onDismiss={async (id) => { await post(rule(id)); await reload(); }}

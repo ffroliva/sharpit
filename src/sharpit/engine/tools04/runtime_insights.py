@@ -56,14 +56,15 @@ TOOLS = (
         "run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for "
         "get_request_profile, a verify line, and whether the default list shows it. query is empty, all, new, "
         "security, diff, latency, an observation kind, or a route, table, bean, or class; past the limit, listed rows "
-        "come first and every kind is listed once before any kind twice. requests counts completed HTTP exchanges "
-        "only: zero is not proof nothing ran when an observation names a request or execution, a non-HTTP limitation, "
-        "or eviction says otherwise. A run-level observation with no exemplar does not. The empty query is the default "
-        "list, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and "
-        "garbage collection and heap rows; a limitation names each kind it left out with its count, and all, a kind, "
-        "or a route lists them. An empty list means not exercised only when limitations say so. INSUFFICIENT, "
-        "PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three follow-up calls, each "
-        "a tool with its arguments and the equivalent sharpit command.",
+        "come first and every kind is listed once before any kind twice. The insufficient and partial counts cover "
+        "every observation matching this query, including rows omitted by the limit. requests counts completed HTTP "
+        "exchanges only: zero is not proof nothing ran when an observation names a request or execution, a non-HTTP "
+        "limitation, or eviction says otherwise. A run-level observation with no exemplar does not. The empty query "
+        "is the default list, which leaves several kinds out, for example time breakdowns, exception hotspots, "
+        "repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its "
+        "count, and all, a kind, or a route lists them. An empty list means not exercised only when limitations say "
+        "so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three "
+        "follow-up calls, each a tool with its arguments and the equivalent sharpit command.",
         _QUERY_LIMIT,
         "runtime-insights",
         False,
@@ -75,7 +76,8 @@ TOOLS = (
         "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and "
         "at most 20 evidence rows. Drill down with get_request_profile on its exemplar request. An unknown or evicted "
         "id is a tool error naming get_runtime_insights, which lists the current ids; available=false with a reason "
-        "means Runtime Insights is unavailable.",
+        "means Runtime Insights is unavailable. The observation status is explicit: insufficient evidence and partial "
+        "source coverage are not a clean result.",
         _ID,
         "runtime-insights",
         False,

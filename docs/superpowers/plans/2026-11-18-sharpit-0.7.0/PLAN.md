@@ -86,12 +86,12 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 
 ### Wave 0: pin BootUI 2.4.0 (no behaviour change)
 
-- [ ] **W0** — [W0-pin.md](W0-pin.md). Capture `tests/fixtures/bootui/2.4.0/`, add the 2.4.0 parity tests and status
+- [~] **W0** — [W0-pin.md](W0-pin.md). Capture `tests/fixtures/bootui/2.4.0/`, add the 2.4.0 parity tests and status
       files, record the fixture delta, and move the version pin in the docs. Blocks every Track A and B lane.
 
 ### Track A: what 2.4.0 changed in existing features
 
-- [ ] **A1 — evidence counters and text** (after W0). Add `insufficient` and `partial` to the caught-exceptions
+- [~] **A1 — evidence counters and text** (after W0). Add `insufficient` and `partial` to the caught-exceptions
       report and summary (zeros: sharpit has no caught-exception sensor) and to the agent runtime-insights report,
       counted over every matching observation including rows cut by `limit`
       (`E/engine/insights/RuntimeInsightsAgentView.java:185-190`; `E/core/dto/CaughtExceptionsReport.java:27-28,46`;
@@ -100,7 +100,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       `engine/capture/exceptions.py` (`caught_report`), `engine/tools.py` (`caughtInCode`),
       `engine/collectors/insights/agent_view.py`, `engine/tools04/{runtime_insights,security,transactions}.py`.
       Tests: `RuntimeInsightsAgentViewTests`, `McpToolDescriptionsTests` (two cases). Unblocks CLI Task 6.
-- [ ] **A2 — observed transaction boundaries** (after W0; *predict*; one lane with B2, sequenced A2 then B2, since
+- [~] **A2 — observed transaction boundaries** (after W0; *predict*; one lane with B2, sequenced A2 then B2, since
       both change `engine/capture/transactions.py`). Port `TransactionBoundary.observed(known, nested, savepoint)`
       and `begun`: failed begins become `ERROR`/"begin failed" in the activity feed and request profile
       (`E/engine/transactions/TransactionBoundary.java:4-21`; `TransactionRecorder.java:61-66,271`;
@@ -109,14 +109,14 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       with a spike on which SQLAlchemy shapes are `NESTED` (`begin_nested`, SAVEPOINT) and which, if any, are
       `REQUIRES_NEW` without false positives. Tests: `TransactionRecorderTests`,
       `JournalActivityFeedTests.failedBeginsRemainVisibleWhenFilteringTransactionErrors`.
-- [ ] **A3 — `SEC-STATIC-001`** (after W0; *predict*: it reads project files). Port
+- [~] **A3 — `SEC-STATIC-001`** (after W0; *predict*: it reads project files). Port
       `E/engine/staticsecurity/StaticSecurityAnalysisDetector.java` and `StaticSecurityAnalysisRule.java`: the rule
       ID, INFO severity, title, bounds, silence when no build file is readable, and the rule that it never runs an
       analyzer and adds no runtime evidence or score. Adapt the declaration set to Python (open decision 1). The
       security panel stays available without a FastAPI security surface, reporting the static-only result
       (`S/web/PanelsController.java:653-666`). Tests: `StaticSecurityAnalysisDetectorTests` (22 cases, adapted).
       Docs: `docs/security-advisor-checks.md`.
-- [ ] **A4 — Database advisor incomplete discovery** (after W0). Absent ORM metadata is a neutral INFO skip, and a
+- [x] **A4 — Database advisor incomplete discovery** (after W0). Absent ORM metadata is a neutral INFO skip, and a
       failed model discovery is incomplete (WARNING), even with zero models
       (`E/engine/hibernate/EntityDiscovery.java:9,27`; `DatabaseAdvisorScanner.java:700`). Blank driver
       name, version or URL is a WARNING and incomplete evidence (`SchemaIntrospector.java:253-272`, read from
@@ -125,18 +125,18 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       Sharpit files: `engine/collectors/database_advisor/`, `engine/collectors/postgresql/`. Tests:
       `SchemaIntrospectorTests` (four named cases),
       `DatabaseAdvisorScannerTests.distinguishesAbsentJpaFromAZeroEntityDiscoveryFailure`.
-- [ ] **A5 — journal robustness** (after W0). Make aggregate listener registration idempotent
+- [x] **A5 — journal robustness** (after W0). Make aggregate listener registration idempotent
       (`E/engine/journal/RuntimeJournal.java:625`;
       `RuntimeJournalTests.registeringTheSameAggregateAgainNeitherCountsTwiceNorRepairsMissingCoverage`). Break
       request-profile timeline ties by SQL start, then by sequence (`RequestJournalProfiles.java:272-293,525-536`).
       Spike whether SQL can reach sharpit's aggregates after its execution has completed; if it can, port
       `rememberCompletedExecution` and the three `JournalAggregatesTests` cases (`JournalAggregates.java:110-111,888-901`).
-- [ ] **A6 — read-only policy in the UI** (after W0). A Svelte port of #1602: `ApiError` shows `"<reason> (HTTP 403)"`
+- [x] **A6 — read-only policy in the UI** (after W0). A Svelte port of #1602: `ApiError` shows `"<reason> (HTTP 403)"`
       for a panel-access refusal, which is not treated as "server unreachable", plus a `panelActionReason(panel)`
       helper (disabled, unavailable, read-only, unknown) used by every panel that runs a confirmed action. Server
       behaviour is unchanged (`engine/guard.py` already returns the reason). Tests: `actionPolicy.test.js`,
       `panelState.test.js`, `loadError.test.js`, ported to the `ui/` test runner. Rebuild `src/sharpit/ui/static/`.
-- [ ] **A7 — exchange recording never disrupts a response** (after W0). Port the #1615 test scenarios, not the
+- [x] **A7 — exchange recording never disrupts a response** (after W0). Port the #1615 test scenarios, not the
       Spring filter: a recording failure leaves status, body and headers of a streamed or committed response
       unchanged, never masks an application exception, and logs only the exception class
       (`S/web/HttpExchangeRecording.java:21-76`; `BootUiHttpExchangesFilterTests`). Fix only what turns red.
@@ -147,7 +147,7 @@ The 2.3.0 status at release: 33 of 66 applicable routes served (5 matched, 28 pa
 kinds implemented; 7 journal sources produced (`ai`, `connection`, `exception`, `http`, `log`, `mail`, `sql`). W0
 re-measures all of this against 2.4.0.
 
-- [ ] **B1 — SQL-only insight kinds** (after W0). `repeated-selects` (with 2.4.0's monotonic-start ordering and new
+- [~] **B1 — SQL-only insight kinds** (after W0). `repeated-selects` (with 2.4.0's monotonic-start ordering and new
       limitation text, `E/engine/insights/RepeatedSelects.java:77,152-186`), `paged-without-order`,
       `unbatched-write-loop`, `event-loop-blocking`, `proxy-bypass`. Each reads only `sql` (transaction optional), so
       each can be built today; one kind module per lane step, `IMPLEMENTED = True` flipped by its own commit.
@@ -208,22 +208,43 @@ smallest fix, a draft pull request. Port BootUI's behaviour where it has one.
 - [ ] **E0 — #207** (`--sharpit-app` naming an object with no route list passes as empty). A draft pull request
       from a fork: it needs its CI workflows approved, `/sharpit:pr-council-review`, and the contributor's updates. It
       changes `fastapi/introspector.py` and `pytest_plugin/apps.py`, so it merges before E3.
-- [ ] **E1 — #65** (a run with no findings exits 1 when one advisor assessed the app only in part; *predict*: it
+- [x] **E1 — #65** (a run with no findings exits 1 when one advisor assessed the app only in part; *predict*: it
       changes what the gate counts as a pass). Port the severity-gate semantics of BootUI's `FailOn`
       (`C/FailOn.java`): a `PARTIAL` assessment with no finding at or above the threshold passes and says it is not
       proof; a finding still fails; a gate that cannot be evaluated exits 1. Lost capture stays `unknown` (#19).
       Files: `engine/testsession/outcome.py`, `engine/testsession/gates.py` (the gate only), the advisors' statuses.
       Shares its semantics with CLI Task 6; whichever lands second reuses the first's tests.
-- [ ] **E2 — #66** (a dismissed swallowed-exception finding comes back when a line above it moves). Key the
+- [x] **E2 — #66** (a dismissed swallowed-exception finding comes back when a line above it moves). Key the
       identity on something that survives unrelated edits (path, qualified function, exception type), and check the
       baseline fingerprint for the same exposure. Existing `dismissedFindings` entries keep matching, or the
       changelog states the migration. Files: `engine/testsession/gates.py` (identity), the swallowed-exception fact.
-- [ ] **E3 — #67** (the detected app depends on which tests imported it). After E0. The same flags must give the same
+- [x] **E3 — #67** (the detected app depends on which tests imported it). After E0. The same flags must give the same
       advisors on a subset and on the full suite, or the report says why they differ. Files: `pytest_plugin/apps.py`.
 
 #59 (a SQLite double-quoted run read as an identifier) is a documented limitation, not a regression. A change there
 touches masking and goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`; it is not part of this
 track.
+
+### Deferred to the next release
+
+These lanes are recorded as deferred, each with its reason, so the 0.7.0 definition of done does not wait for them.
+Each keeps its plan text above and moves to the next release's plan.
+
+- **W0 live goldens** (the per-panel 2.4.0 captures): they need BootUI 2.4.0 built into the reference application with
+  its databases. The static 2.4.0 fixtures pin the contract (tools, properties, rules); route parity stays measured
+  against the 2.3.0 live goldens, whose routes 2.4.0 does not change.
+- **B2** (transaction journal source): its measured cost (31.3 µs per transaction pair on Windows) is over the 30 µs
+  budget, and a budget is never raised; it needs `/sharpit:perf-audit` first.
+- **B3, B4, B5** (ORM, authorization, app-event, gc, executor journal sources and their kinds): each adds a capture
+  source on a hot path or observes the security surface, so each needs `/sharpit:predict`, a council review where
+  marked, and overhead measurement before code.
+- **B6, B7** (missing and partial routes): 33 routes in six groups, nine of which must first be classified as
+  applicable or Java-only; each group is a lane of its own.
+- **D1-D4** (SQLAlchemy listener race, per-statement SQL path, SQL Trace availability, #184/#185 follow-ups): they
+  change the SQL capture hot path and need paired overhead measurement.
+- **D6** (masking double pass, the `SHARPIT_EMAIL_MASK_CONTENT` fallback): masking changes need `/sharpit:predict`,
+  `/sharpit:llm-council --tier high` and a base-against-branch corpus diff.
+- **E0 / #207**: a pull request from a fork; it waits for its author and a maintainer's review.
 
 ### Release wave
 

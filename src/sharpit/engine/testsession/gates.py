@@ -6,12 +6,13 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from sharpit.engine.advisors.dismissals import is_dismissable_identity
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.findings import fails as fails  # the one predicate, re-exported
 from sharpit.engine.advisors.rules import Severity
 
 if TYPE_CHECKING:
-    from sharpit.engine.testsession.facts import PhaseFacts, TestFacts
+    from sharpit.engine.testsession.facts import PhaseFacts, SwallowedFact, TestFacts
 
 ADVISOR = "test-runtime"
 MAX_QUERIES = "sharpit.max-queries"
@@ -66,6 +67,21 @@ def _finding(
     return Finding(rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed)
 
 
+def _legacy_identities(fact: SwallowedFact) -> list[str]:
+    """The line-keyed identities of 0.4.0 to 0.6.0, ``<path>:<line>:<Type>``, which no entry can use any more: with the
+    path relative to the rootdir and, as the old versions wrote it, relative to the working directory."""
+    locations = dict.fromkeys(location for location in (fact.location, fact.legacy_location) if location)
+    return [f"{location}:{fact.type_name}" for location in locations]
+
+
+def _fingerprint(identity: str, node: str) -> str:
+    return Finding(SWALLOWED, ADVISOR, "HIGH", "", "", node, identity=identity).fingerprint
+
+
+_UNSTORABLE = "cannot be stored as a dismissedFindings key"
+_FINGERPRINT_ROUTE = "dismiss its fingerprint {} in dismissedRules (that covers this test only)"
+
+
 def _swallowed_findings(
     call: PhaseFacts,
     budget: Budget,
@@ -74,21 +90,55 @@ def _swallowed_findings(
     dismissed_pairs: Collection[tuple[str, str]],
 ) -> list[Finding]:
     """A programming or database error swallowed by a broad handler fails the test unless relaxed; any other swallow is
-    a note."""
+    a note. A fact from a worker of the earlier form has only the line-keyed identity, which is then its key."""
     found: list[Finding] = []
     for fact in call.swallowed:
         gating = fact.programming_error or fact.type_name in DATABASE_ERRORS
         severity: Severity = "HIGH" if gating and not budget.allow_swallowed else "INFO"
+        identity = fact.identity or _legacy_identities(fact)[0]
+        if is_dismissable_identity(identity):
+            tail = f"identity {identity}"
+        else:
+            tail = f"its identity {_UNSTORABLE}; {_FINGERPRINT_ROUTE.format(_fingerprint(identity, node))}"
         message = (
-            f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged)"
+            f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged); "
+            f"{tail}"
         )
-        identity = f"{fact.location}:{fact.type_name}"
         found.append(
             _finding(
                 SWALLOWED, fact.location, message, node, dismissed, identity, dismissed_pairs, 1, severity=severity
             )
         )
     return found
+
+
+def legacy_dismissal_warnings(facts: TestFacts, dismissed_pairs: Collection[tuple[str, str]]) -> list[str]:
+    """A warning for every line-keyed ``dismissedFindings`` entry that matches a swallowed exception of this test: it
+    dismisses nothing now, and the warning names the key of the clause on that line, to replace it with."""
+    call = facts.phases.get("call")
+    warnings: list[str] = []
+    for fact in () if call is None else call.swallowed:
+        if fact.identity is None:
+            continue
+        for legacy in _legacy_identities(fact):
+            if (SWALLOWED, legacy) not in dismissed_pairs:
+                continue
+            lead = (
+                f"dismissedFindings entry '{SWALLOWED} {legacy}' is keyed by a line number and no longer dismisses "
+                "anything; "
+            )
+            if (SWALLOWED, fact.identity) in dismissed_pairs:
+                tail = f"'{SWALLOWED} {fact.identity}' already dismisses that clause: remove the line-keyed entry"
+            elif not is_dismissable_identity(fact.identity):
+                route = _FINGERPRINT_ROUTE.format(_fingerprint(fact.identity, facts.key.node_id))
+                tail = f"the clause on that line has an identity that {_UNSTORABLE}: {route}"
+            else:
+                tail = (
+                    f"the clause on that line has the key '{SWALLOWED} {fact.identity}': replace the entry with that "
+                    "key if that is the clause you meant"
+                )
+            warnings.append(lead + tail)
+    return warnings
 
 
 def _unbounded_read_findings(

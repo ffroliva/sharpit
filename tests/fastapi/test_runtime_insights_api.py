@@ -290,3 +290,30 @@ def test_cli_insights_list_and_show_are_registered() -> None:
     commands = {tool["name"]: tool["command"] for tool in client.get("/sharpit/api/cli").json()["tools"]}
     assert commands.get("get_runtime_insights") == "insights list"
     assert commands.get("get_runtime_insight") == "insights show"
+
+
+# ported: AbstractMcpConformanceTest.testMcpRuntimeInsightsToolsAnswerCompactFactsThatSayWhyInsteadOfEmptySuccesses
+def test_mcp_get_runtime_insights_carries_integer_evidence_counters() -> None:
+    client, _ = _client(seeded=True, mcp_enabled="ON")
+    structured = _mcp(client, "get_runtime_insights", limit=3).get("structuredContent", {})
+    assert "coverage" in structured
+    assert "checksNotRun" in structured
+    assert isinstance(structured["insufficient"], int)
+    assert not isinstance(structured["insufficient"], bool)
+    assert isinstance(structured["partial"], int)
+    assert not isinstance(structured["partial"], bool)
+    assert len(structured["observations"]) <= 3
+
+
+# ported: AbstractCliConformanceTest.testCliRuntimeInsightsCommandsAnswerOnEveryStack
+def test_cli_get_runtime_insights_carries_integer_evidence_counters() -> None:
+    client, _ = _client(seeded=True, cli_enabled=True)
+    response = client.post("/sharpit/api/cli/tools/get_runtime_insights", json={"query": "", "limit": 2})
+    assert response.status_code == 200
+    body = response.json()
+    assert "coverage" in body
+    assert isinstance(body["insufficient"], int)
+    assert not isinstance(body["insufficient"], bool)
+    assert isinstance(body["partial"], int)
+    assert not isinstance(body["partial"], bool)
+    assert len(body["observations"]) <= 2
