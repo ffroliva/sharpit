@@ -456,7 +456,9 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     Tool(
         "get_exceptions",
         "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, "
-        "causes, and individual occurrences.",
+        "causes, and individual occurrences. Without a caught-exceptions sensor, caughtInCode is null; "
+        "insufficient and partial are evidence states, not findings. totalExceptions counts the occurrences in the "
+        "retained groups, reset via CLI exceptions clear (clear_exceptions is refused over MCP).",
         _NONE,
         "exceptions",
         False,
