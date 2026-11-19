@@ -173,7 +173,7 @@ def test_free_on_idle_suspends_and_resumes_capture_in_lifespan(monkeypatch) -> N
     )
     service = handle.context.peek("low-footprint")
     assert service is not None
-    assert trackers[0].lock is service._lock
+    assert trackers[0].lock is service.lock
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         assert "sharpit-free-on-idle" in {thread.name for thread in threading.enumerate()}
         now[0] += 1
