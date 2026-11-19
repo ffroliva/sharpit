@@ -144,6 +144,8 @@ class TransactionRecorder:
         thread: str,
         trace_id: str | None,
         connection_id: str | None,
+        savepoint: bool = False,
+        known: bool = True,
     ) -> int:
         if not self.recording:
             return -1
@@ -202,6 +204,9 @@ class TransactionRecorder:
                 if not self._evict_completed_locked():
                     break
         self.changes.signal()
+
+    def fail_begin(self, entry_id: int, error: BaseException) -> None:
+        """Stub."""
 
     def settle(self, entry_id: int, error: BaseException | None = None) -> None:
         """The DBAPI commit returned (``error`` None) or failed: re-close the row so its duration includes it."""
