@@ -9,7 +9,7 @@ from sharpit.engine.collectors.insights.requests import Request, ids_withheld, p
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.collectors.insights.text import UNBATCHED_MIN_REQUESTS as MIN_REQUESTS
 from sharpit.engine.collectors.insights.text import counted, millis, stable_hash
-from sharpit.engine.sqltext.constants import MASK, UNSUPPORTED_STATEMENT
+from sharpit.engine.sqltext import MASK, UNSUPPORTED_STATEMENT
 
 KIND = "unbatched-write-loop"
 TITLE = "Unbatched write loops"

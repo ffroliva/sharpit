@@ -18,7 +18,7 @@ from sharpit.engine.collectors.insights.text import (
     millis,
     stable_hash,
 )
-from sharpit.engine.sqltext.constants import MASK, UNSUPPORTED_STATEMENT
+from sharpit.engine.sqltext import MASK, UNSUPPORTED_STATEMENT
 
 KIND = "repeated-selects"
 TITLE = "Repeated SELECTs"
