@@ -83,6 +83,7 @@ Titles of P rows are BootUI's, verbatim.
 | SEC-FAPI-004 | Optional security schemes should not be a route's only check | Authorization | INFO | N | a route whose every scheme has `auto_error=False` and which has no other dependency |
 | SEC-FAPI-005 | A route should not mix authentication schemes | Authentication | INFO | N | a route that requires schemes of more than one kind (e.g. `HTTPBasic` and `OAuth2PasswordBearer`) |
 | SEC-SRC-001 | Source code should not hold literal secret values | Configuration | HIGH | N | a string literal in the app source that the masker's value detectors flag (JWT, PEM key, AWS key, vendor token, URL credentials), or a literal bound to a secret-like name (assignment, keyword argument, dict key, parameter default, `Field(default=...)`) |
+| SEC-STATIC-001 | No local static security analysis declared | Static analysis | INFO | P | no recognized static security analyzer (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) declared in bounded local project files |
 
 BootUI's 26 reactive rules (`SEC-RXF-*`) and the Quarkus rules (`QS-*`) are [JVM] twins of the servlet rules above and
 have no rows.

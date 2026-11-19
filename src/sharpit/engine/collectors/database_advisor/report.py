@@ -80,22 +80,6 @@ def _orm_diagnostics(readable: Sequence[Source]) -> list[dict[str, Any]]:
     return [_diagnostic("SQLAlchemy metadata", level, str(err)) for err in raw_errors]
 
 
-def _postgres_diagnostics(readable: Sequence[Source]) -> list[dict[str, Any]]:
-    return [
-        _diagnostic(
-            s.name,
-            "WARNING",
-            "The PostgreSQL relation inventory is incomplete; some relations may be missing.",
-        )
-        for s in readable
-        if s.dialect == "postgresql"
-        and (
-            s.catalog.get("relation_inventory_complete") is False
-            or getattr(s, "relation_inventory_complete", None) is False
-        )
-    ]
-
-
 def _collect_limitations(diagnostics: Sequence[dict[str, Any]]) -> list[str]:
     problems: list[str] = []
     for d in diagnostics:
@@ -175,7 +159,6 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         detail = Detail(sources, 0, 0, tuple(diagnostics))
         return Evaluation("ERROR", NO_SCHEMA, (), (), evidence(False, False, unverified), detail)
     diagnostics.extend(_orm_diagnostics(readable))
-    diagnostics.extend(_postgres_diagnostics(readable))
     evaluated, findings, skipped, errored, rule_diags = _run_rules(readable)
     diagnostics.extend(rule_diags)
     truncated = any(s.catalog.get("truncated") for s in readable)

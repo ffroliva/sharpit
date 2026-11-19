@@ -1,7 +1,6 @@
 # BootUI 2.3.0 to 2.4.0 fixture delta
 
-The static fixtures under `tests/fixtures/bootui/2.4.0` come from `scripts/capture_bootui_24.py`, which is
-`scripts/capture_bootui_23.py` with the pins changed (tag `v2.4.0`, commit
+The static fixtures under `tests/fixtures/bootui/2.4.0` come from `scripts/capture_bootui.py --version 2.4.0`; the versioned legacy entry points remain compatibility wrappers (tag `v2.4.0`, commit
 `0df7ed764688d04f83c246c9965e90158c1db488`, tag object `9374398c832d5c75b02329c96426a42652ad0a8d`). This document
 compares them with `tests/fixtures/bootui/2.3.0`, file by file, and lists every difference with its BootUI source and
 the lane that closes it.
