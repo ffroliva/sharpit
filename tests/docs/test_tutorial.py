@@ -16,8 +16,6 @@ import re
 import shlex
 from pathlib import Path
 
-import pytest
-
 from sharpit.cli.commands import _build_root_parser
 from sharpit.cli.manifest import Manifest
 
