@@ -137,7 +137,7 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
 
 sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, and 0.7.0 targets BootUI 2.4.0.
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 (in progress) | BootUI 2.3.0 | BootUI 2.4.0 |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | BootUI 2.3.0 | BootUI 2.4.0 |
 |---|---|---|---|---|---|
 | MCP/CLI tools | 54 | 71 | 71 | 116 | 116 |
 | Tools under BootUI's exact names | 45 | 62 | 62 | - | - |
