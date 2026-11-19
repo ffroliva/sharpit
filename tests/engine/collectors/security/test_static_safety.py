@@ -148,11 +148,16 @@ def test_ruff_configuration_matrix(tmp_path: Path) -> None:
     _write(p3 / "pyproject.toml", '[project]\nname = "p3"\n\n[tool.ruff.lint]\nselect = ["ALL"]\n')
     assert detector.inspect(p3).state == State.CONFIGURED
 
-    # Case 4: separate ruff.toml -> INDETERMINATE
+    # Case 4: separate ruff.toml with extend -> INDETERMINATE; with S -> CONFIGURED
     p4 = tmp_path / "ruff_separate"
     _write(p4 / "pyproject.toml", '[project]\nname = "p4"\n')
-    _write(p4 / "ruff.toml", '[lint]\nselect = ["S"]\n')
+    _write(p4 / "ruff.toml", 'extend = "other.toml"\n')
     assert detector.inspect(p4).state == State.INDETERMINATE
+
+    p4_configured = tmp_path / "ruff_separate_s"
+    _write(p4_configured / "pyproject.toml", '[project]\nname = "p4s"\n')
+    _write(p4_configured / "ruff.toml", '[lint]\nselect = ["S"]\n')
+    assert detector.inspect(p4_configured).state == State.CONFIGURED
 
     # Case 5: extend in pyproject.toml -> INDETERMINATE
     p5 = tmp_path / "ruff_extend"

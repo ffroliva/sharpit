@@ -7,7 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only during security scan (`POST /security/scan`), never on GET reads or MCP/CLI tools.
+- Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only on the security scan action (panel, MCP and CLI `security scan`), never on reads.
 - An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
 
 ### Changed
@@ -18,7 +18,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Static security analysis detector (rule SEC-STATIC-001) supports PEP 508 requirement specifications (whitespace, version markers, URL references), PEP 735 dependency groups, build tool dev dependencies (uv, pdm, hatch), pre-commit quoted IDs and local repo hooks, monorepo root-level candidate configuration, and command runners (uv run, uvx, python -m, poetry run, pipx run). Also ensures ruff.toml independence, binary mode reading for Windows 0x1A safety, and preserves introspection limitations and static advisor metadata when no FastAPI application is found.
 - `pytest --sharpit` no longer exits 1 on a run with no finding when an advisor read part of an application and met
   an opaque mounted sub-app (#65). The advisor is `PARTIAL`: the run passes with a warning that names what was not
   read and says that having no finding at or above `--sharpit-fail-on` is not proof there is none, and a finding at

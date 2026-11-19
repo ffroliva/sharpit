@@ -151,7 +151,7 @@ def test_marks_uninspected_ruff_extend_or_separate_toml_as_indeterminate(tmp_pat
 
     tmp2 = tmp_path / "t2"
     _write(tmp2 / "pyproject.toml", '[project]\nname = "test"\n')
-    _write(tmp2 / "ruff.toml", '[lint]\nselect = ["S"]\n')
+    _write(tmp2 / "ruff.toml", 'extend = "base.toml"\n')
     assert detector.inspect(tmp2).state == State.INDETERMINATE
 
 
@@ -603,8 +603,8 @@ def test_workflow_bandit_action(tmp_path: Path) -> None:
 def test_ruff_toml_does_not_mask_other_analyzers(tmp_path: Path) -> None:
     detector = StaticSecurityAnalysisDetector()
     p = tmp_path / "ruff_with_bandit"
-    # ruff.toml makes ruff INDETERMINATE
-    _write(p / "ruff.toml", '[lint]\nselect = ["ALL"]\n')
+    # ruff.toml with extend makes ruff INDETERMINATE
+    _write(p / "ruff.toml", 'extend = "base.toml"\n')
     # but pyproject has bandit in dependencies -> CONFIGURED
     _write(
         p / "pyproject.toml",
@@ -631,6 +631,7 @@ def test_project_root_without_pyproject_requirements_bandit(tmp_path: Path, monk
     """An app with only requirements.txt containing bandit -> CONFIGURED; without bandit -> NOT_CONFIGURED."""
     import sys
     from types import ModuleType
+
     from sharpit.engine.collectors.security.report import build_inputs, scan_evaluation
     from sharpit.engine.spi import SecurityFacts, SecurityModel
     from sharpit.settings import SharpitSettings
@@ -662,6 +663,7 @@ def test_project_root_without_pyproject_requirements_no_bandit(tmp_path: Path, m
     """An app with only requirements.txt without bandit -> NOT_CONFIGURED (finding emitted)."""
     import sys
     from types import ModuleType
+
     from sharpit.engine.collectors.security.report import build_inputs, scan_evaluation
     from sharpit.engine.spi import SecurityFacts, SecurityModel
     from sharpit.settings import SharpitSettings
@@ -770,4 +772,3 @@ def test_tox_envpython_bandit(tmp_path: Path) -> None:
         "[testenv]\ncommands = {envpython} -m bandit -r myapp\n",
     )
     assert detector.inspect(p).state == State.CONFIGURED
-

@@ -22,6 +22,7 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Host, Mount, Route, WebSocketRoute, compile_path
 
 from sharpit.engine.spi import (
+    NOT_FASTAPI,
     ApiModel,
     ApiRouteInfo,
     AppInfo,
@@ -269,9 +270,6 @@ def _api_route(info: RouteInfo, route: object) -> ApiRouteInfo:
 
 def _framework(handler: str) -> bool:
     return handler.partition(":")[0].partition(".")[0] in ("fastapi", "starlette", "sharpit")
-
-
-NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
 
 
 def _backend(entry: object) -> object | None:

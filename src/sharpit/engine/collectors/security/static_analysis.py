@@ -29,8 +29,9 @@ CATEGORY = "Static analysis"
 SEVERITY = "INFO"
 DETAIL = "No recognized static security analyzer declaration was found in the inspected local project files."
 DESCRIPTION = (
-    DETAIL + " ruff.toml is not parsed for S selection, requirements -r includes are not followed, and remote or"
-    " organization-managed configuration is not resolved. sharpit does not run analyzers or verify execution."
+    DETAIL + " ruff.toml extend configurations are not followed, requirements -r includes are not followed, and"
+    " remote or organization-managed configuration is not resolved. sharpit does not run analyzers or verify"
+    " execution."
 )
 RECOMMENDATION = (
     "Declare Bandit (e.g. in requirements, pyproject.toml, or setup.cfg), Semgrep, CodeQL, a"
@@ -58,8 +59,8 @@ SEMGREP_CONFIG_RELPATHS = (
     Path(".semgrep.yaml"),
     Path("semgrep.yml"),
     Path("semgrep.yaml"),
-    Path(".semgrep") / "semgrep.yml",
-    Path(".semgrep") / "config.yml",
+    Path(".semgrep/semgrep.yml"),
+    Path(".semgrep/config.yml"),
 )
 
 
@@ -161,11 +162,11 @@ def read_bounded(trusted_root: Path, path: Path) -> bytes:
         os.close(fd)
 
 
-def read_text(trusted_root: Path, path: Path) -> str:
-    """Read bounded text as UTF-8; any decode error raises ValueError (becomes INDETERMINATE)."""
+def read_text(trusted_root: Path, path: Path, errors: str = "strict") -> str:
+    """Read bounded text as UTF-8 (BOM stripped); any decode error raises ValueError when errors='strict'."""
     data = read_bounded(trusted_root, path)
     try:
-        return data.decode("utf-8")
+        return data.decode("utf-8-sig", errors=errors)
     except UnicodeDecodeError as exc:
         raise ValueError("File is not valid UTF-8") from exc
 
@@ -274,15 +275,47 @@ def _is_semgrep_invocation(args: Sequence[str]) -> bool:
     return False
 
 
-def _skip_prefix_options(args: list[str]) -> list[str]:
+_RUNNER_VALUE_OPTIONS = frozenset(
+    {
+        "--python",
+        "--group",
+        "-g",
+        "--with",
+        "--extra",
+        "--package",
+        "-p",
+        "--project",
+        "--directory",
+        "-C",
+        "--env-file",
+        "--spec",
+        "--isolated",
+        "-e",
+        "--index",
+        "--default-index",
+    }
+)
+
+
+def _skip_runner_options(args: list[str]) -> list[str]:
     pos = 0
-    while pos < len(args) and args[pos].startswith("-"):
-        pos += 1
+    while pos < len(args):
+        tok = args[pos]
+        if tok == "--":
+            pos += 1
+            break
+        if tok in _RUNNER_VALUE_OPTIONS:
+            pos += 2
+            continue
+        if tok.startswith("-"):
+            pos += 1
+            continue
+        break
     return args[pos:]
 
 
 def _unwrap_runner_tokens(tokens: list[str]) -> tuple[str, list[str]]:
-    """Unwrap execution runners like uv, uvx, python -m, poetry, pipx to find the target command and args."""
+    """Unwrap execution runners like uv, uvx, python -m, poetry, pipx, tox to find target command and args."""
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
@@ -296,20 +329,22 @@ def _unwrap_runner_tokens(tokens: list[str]) -> tuple[str, list[str]]:
     executable = tokens[idx].rpartition("/")[2].rpartition("\\")[2].lower()
     args = tokens[idx + 1 :]
 
-    # Python runner: python -m bandit ...
-    if (executable in ("python", "python3", "py") or re.match(r"^python3\.\d+$", executable)) and "-m" in args:
+    # Python runner: python -m bandit ... or tox {envpython} -m bandit ...
+    if (
+        executable in ("python", "python3", "py", "{envpython}") or re.match(r"^python3\.\d+$", executable)
+    ) and "-m" in args:
         m_idx = args.index("-m")
         if m_idx + 1 < len(args):
             return args[m_idx + 1].lower(), args[m_idx + 2 :]
 
     # uv run ... / poetry run ... / pipx run ...
     if executable in ("uv", "poetry", "pipx") and args and args[0] == "run":
-        rem = _skip_prefix_options(args[1:])
+        rem = _skip_runner_options(args[1:])
         return (rem[0].rpartition("/")[2].rpartition("\\")[2].lower(), rem[1:]) if rem else ("", [])
 
     # uvx ...
     if executable == "uvx":
-        rem = _skip_prefix_options(args)
+        rem = _skip_runner_options(args)
         return (rem[0].rpartition("/")[2].rpartition("\\")[2].lower(), rem[1:]) if rem else ("", [])
 
     return executable, args
@@ -347,9 +382,7 @@ def _check_step_action_or_command(trimmed: str) -> tuple[bool, bool, bool]:
     if trimmed.startswith("- "):
         trimmed = trimmed[2:].lstrip()
     if trimmed.startswith("uses:"):
-        action = trimmed[len("uses:") :].strip()
-        if len(action) >= 2 and action[0] in ('"', "'") and action[-1] == action[0]:
-            action = action[1:-1]
+        action = trimmed[len("uses:") :].strip().strip("\"'")
         return bool(KNOWN_WORKFLOW_ACTION.match(action)), False, False
     if trimmed.startswith("run:"):
         command = trimmed[len("run:") :].strip()
@@ -432,13 +465,10 @@ def _inspect_workflow_entry(repository_root: Path, entry: os.DirEntry[str]) -> t
     if not entry.is_file(follow_symlinks=False) or entry.is_symlink():
         return False, True
     try:
-        content = read_text(repository_root, Path(entry.path))
-        cleaned = strip_yaml_comments(content)
-        if _has_known_workflow_declaration(cleaned):
-            return True, False
+        cleaned = strip_yaml_comments(read_text(repository_root, Path(entry.path)))
+        return (True, False) if _has_known_workflow_declaration(cleaned) else (False, False)
     except Exception:  # noqa: BLE001
         return False, True
-    return False, False
 
 
 def _inspect_workflows(repository_root: Path, directory: Path) -> tuple[bool, bool]:
@@ -482,7 +512,7 @@ def _inspect_sonar_properties(repository_root: Path, path: Path) -> tuple[bool, 
             return False, False
         if not path.is_file():
             return False, True
-        content = read_text(repository_root, path)
+        content = read_text(repository_root, path, errors="replace")
         return (True, False) if content.strip() else (False, False)
     except Exception:  # noqa: BLE001
         return False, True
@@ -512,15 +542,18 @@ def _inspect_semgrep_configs(repository_root: Path, candidate_roots: Sequence[Pa
 
 
 def _inspect_pre_commit_line(line: str) -> bool:
-    trimmed = line.strip().lower()
-    if "pycqa/bandit" in trimmed or "semgrep/semgrep" in trimmed:
-        return True
+    trimmed = line.strip()
     item = trimmed.removeprefix("-").strip()
-    if item.startswith("id:"):
-        val = item.partition("id:")[2].strip().strip("\"'")
+    lower = item.lower()
+    if lower.startswith("repo:"):
+        repo_val = lower.partition("repo:")[2].strip().strip("\"'")
+        if "pycqa/bandit" in repo_val or "semgrep/semgrep" in repo_val:
+            return True
+    elif lower.startswith("id:"):
+        val = lower.partition("id:")[2].strip().strip("\"'")
         if val in ("bandit", "semgrep"):
             return True
-    if item.startswith("entry:"):
+    elif lower.startswith("entry:"):
         cmd = item.partition("entry:")[2].strip().strip("\"'")
         if _has_known_workflow_command(cmd):
             return True
@@ -563,22 +596,14 @@ def _inspect_requirements(repository_root: Path, path: Path) -> tuple[bool, bool
         return False, True
 
 
-def _has_setup_cfg_bandit(parser: configparser.ConfigParser) -> bool:
-    return any("bandit" in sec.lower() for sec in parser.sections())
-
-
 def _has_setup_cfg_requirements(parser: configparser.ConfigParser) -> bool:
+    lines: list[str] = []
     if parser.has_section("options"):
-        requires = parser.get("options", "install_requires", fallback="")
-        for line in requires.splitlines():
-            if REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()):
-                return True
+        lines.extend(parser.get("options", "install_requires", fallback="").splitlines())
     if parser.has_section("options.extras_require"):
         for _, val in parser.items("options.extras_require"):
-            for line in val.splitlines():
-                if REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()):
-                    return True
-    return False
+            lines.extend(val.splitlines())
+    return any(REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()) for line in lines)
 
 
 def _inspect_setup_cfg(repository_root: Path, path: Path) -> tuple[bool, bool]:
@@ -590,12 +615,10 @@ def _inspect_setup_cfg(repository_root: Path, path: Path) -> tuple[bool, bool]:
             return False, False
         if not path.is_file():
             return False, True
-        text = read_text(repository_root, path)
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(text)
-        if _has_setup_cfg_bandit(parser) or _has_setup_cfg_requirements(parser):
-            return True, False
-        return False, False
+        parser.read_string(read_text(repository_root, path))
+        has_bandit = any("bandit" in s.lower() for s in parser.sections())
+        return (True, False) if has_bandit or _has_setup_cfg_requirements(parser) else (False, False)
     except Exception:  # noqa: BLE001 - malformed setup.cfg is indeterminate; never echoes content
         return False, True
 
@@ -609,147 +632,118 @@ def _inspect_tox_ini(repository_root: Path, path: Path) -> tuple[bool, bool]:
             return False, False
         if not path.is_file():
             return False, True
-        text = read_text(repository_root, path)
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(text)
+        parser.read_string(read_text(repository_root, path))
         for sec in parser.sections():
-            deps = parser.get(sec, "deps", fallback="")
-            for line in deps.splitlines():
-                if REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()):
-                    return True, False
-            commands = parser.get(sec, "commands", fallback="")
-            for line in commands.splitlines():
-                if _has_known_workflow_command(line.strip()):
-                    return True, False
+            deps = parser.get(sec, "deps", fallback="").splitlines()
+            if any(REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()) for line in deps):
+                return True, False
+            cmds = parser.get(sec, "commands", fallback="").splitlines()
+            if any(_has_known_workflow_command(line.strip()) for line in cmds):
+                return True, False
         return False, False
     except Exception:  # noqa: BLE001
         return False, True
 
 
-def _check_ruff_section(data: dict[str, object], project_root: Path, repository_root: Path) -> tuple[bool, bool]:
-    """Check Ruff configuration under tool.ruff and tool.ruff.lint.
+def _resolve_ruff_dict(data: dict[str, object]) -> tuple[bool, bool]:
+    """Resolve Ruff configuration dict (from ruff.toml or pyproject tool.ruff).
 
     Returns (configured, indeterminate).
     """
-    ruff_candidates = (
-        project_root / "ruff.toml",
-        project_root / ".ruff.toml",
-        repository_root / "ruff.toml",
-        repository_root / ".ruff.toml",
-    )
-    for candidate in ruff_candidates:
-        try:
-            if candidate.exists():
-                return False, True
-        except OSError:
+    if "extend" in data:
+        return False, True
+
+    lint = as_dict(data.get("lint"))
+    if "extend" in lint:
+        return False, True
+
+    def _field(name: str) -> list[str]:
+        return as_str_list(lint[name] if name in lint else data.get(name))
+
+    all_select = set(_field("select") + _field("extend-select"))
+    all_ignore = set(_field("ignore") + _field("extend-ignore"))
+
+    if "S" in all_select or "ALL" in all_select:
+        return (False, False) if "S" in all_ignore else (True, False)
+    return False, False
+
+
+def _inspect_ruff_file(trusted_root: Path, path: Path) -> tuple[bool, bool] | None:
+    if contains_symbolic_link(trusted_root, path):
+        return False, True
+    try:
+        if not path.exists():
+            return None
+        if not path.is_file():
             return False, True
+        raw_bytes = read_bounded(trusted_root, path)
+        import tomllib
+
+        raw_data = tomllib.loads(raw_bytes.decode("utf-8-sig"))
+        return _resolve_ruff_dict(as_dict(raw_data))
+    except Exception:  # noqa: BLE001
+        return False, True
+
+
+def _check_ruff_section(data: dict[str, object], project_root: Path, repository_root: Path) -> tuple[bool, bool]:
+    """Check Ruff configuration under ruff.toml, .ruff.toml, or tool.ruff.
+
+    Returns (configured, indeterminate).
+    """
+    for candidate_root in (project_root, repository_root):
+        for name in (".ruff.toml", "ruff.toml"):
+            candidate = candidate_root / name
+            result = _inspect_ruff_file(candidate_root, candidate)
+            if result is not None:
+                return result
 
     tool = as_dict(data.get("tool"))
     ruff = as_dict(tool.get("ruff"))
     if not ruff:
         return False, False
 
-    if "extend" in ruff:
-        return False, True
-
-    lint = as_dict(ruff.get("lint"))
-    if "extend" in lint:
-        return False, True
-
-    select: list[str] = as_str_list(ruff.get("select"))
-    ignore: list[str] = as_str_list(ruff.get("ignore"))
-    extend_select: list[str] = as_str_list(ruff.get("extend-select"))
-    extend_ignore: list[str] = as_str_list(ruff.get("extend-ignore"))
-
-    if lint:
-        select.extend(as_str_list(lint.get("select")))
-        ignore.extend(as_str_list(lint.get("ignore")))
-        extend_select.extend(as_str_list(lint.get("extend-select")))
-        extend_ignore.extend(as_str_list(lint.get("extend-ignore")))
-
-    all_select = set(select + extend_select)
-    all_ignore = set(ignore + extend_ignore)
-
-    has_s = "S" in all_select
-    has_all = "ALL" in all_select
-    s_ignored = "S" in all_ignore
-
-    if has_s:
-        return (False, False) if s_ignored else (True, False)
-    if has_all:
-        return (False, False) if s_ignored else (True, False)
-    return False, False
+    return _resolve_ruff_dict(ruff)
 
 
 def _check_deps_list(deps: object) -> bool:
     if isinstance(deps, (list, tuple)):
-        s = cast("Sequence[object]", deps)
-        for item in s:
-            if isinstance(item, str) and REQUIREMENT_NAME_PATTERN.match(item.strip()):
+        for x in cast(Sequence[object], deps):
+            if isinstance(x, str) and REQUIREMENT_NAME_PATTERN.match(x.strip()):
                 return True
     elif isinstance(deps, dict):
-        d = cast("dict[object, object]", deps)
-        for key in d:
-            if isinstance(key, str) and REQUIREMENT_NAME_PATTERN.match(key.strip()):
-                return True
-    return False
-
-
-def _has_pyproject_project_deps(project: dict[str, Any]) -> bool:
-    if _check_deps_list(project.get("dependencies")):
-        return True
-    optional = as_dict(project.get("optional-dependencies"))
-    return any(_check_deps_list(group) for group in optional.values())
-
-
-def _has_pyproject_poetry_deps(tool: dict[str, Any]) -> bool:
-    poetry = as_dict(tool.get("poetry"))
-    if not poetry:
-        return False
-    if _check_deps_list(poetry.get("dependencies")) or _check_deps_list(poetry.get("dev-dependencies")):
-        return True
-    group = as_dict(poetry.get("group"))
-    return any(_check_deps_list(as_dict(grp).get("dependencies")) for grp in group.values())
-
-
-def _has_hatch_deps(tool: dict[str, Any]) -> bool:
-    hatch = as_dict(tool.get("hatch"))
-    if not hatch:
-        return False
-    envs = as_dict(hatch.get("envs"))
-    for env in envs.values():
-        if isinstance(env, dict):
-            env_d = as_dict(cast("object", env))
-            if _check_deps_list(env_d.get("dependencies")) or _check_deps_list(env_d.get("extra-dependencies")):
+        for k in cast(dict[object, object], deps):
+            if isinstance(k, str) and REQUIREMENT_NAME_PATTERN.match(k.strip()):
                 return True
     return False
 
 
 def _has_pyproject_deps(data: dict[str, Any], tool: dict[str, Any]) -> bool:
     project = as_dict(data.get("project"))
-    if project and _has_pyproject_project_deps(project):
+    if _check_deps_list(project.get("dependencies")) or any(
+        _check_deps_list(g) for g in as_dict(project.get("optional-dependencies")).values()
+    ):
         return True
-    if _has_pyproject_poetry_deps(tool):
+    poetry = as_dict(tool.get("poetry"))
+    if (
+        _check_deps_list(poetry.get("dependencies"))
+        or _check_deps_list(poetry.get("dev-dependencies"))
+        or any(_check_deps_list(as_dict(g).get("dependencies")) for g in as_dict(poetry.get("group")).values())
+    ):
         return True
-    # PEP 735 [dependency-groups]
-    dep_groups = as_dict(data.get("dependency-groups"))
-    if any(_check_deps_list(group) for group in dep_groups.values()):
+    if any(_check_deps_list(g) for g in as_dict(data.get("dependency-groups")).values()):
         return True
-    # [tool.uv] dev-dependencies
-    uv = as_dict(tool.get("uv"))
-    if _check_deps_list(uv.get("dev-dependencies")):
+    if _check_deps_list(as_dict(tool.get("uv")).get("dev-dependencies")):
         return True
-    # [tool.pdm.dev-dependencies]
-    pdm = as_dict(tool.get("pdm"))
-    pdm_dev = pdm.get("dev-dependencies")
-    if isinstance(pdm_dev, dict):
-        pdm_dict = cast("dict[object, object]", pdm_dev)
-        if any(_check_deps_list(grp) for grp in pdm_dict.values()):
-            return True
-    elif _check_deps_list(pdm_dev):
+    pdm_dict = as_dict(as_dict(tool.get("pdm")).get("dev-dependencies"))
+    if any(_check_deps_list(g) for g in pdm_dict.values()) or _check_deps_list(
+        as_dict(tool.get("pdm")).get("dev-dependencies")
+    ):
         return True
-    # hatch env dependencies
-    return bool(_has_hatch_deps(tool))
+    return any(
+        _check_deps_list(as_dict(e).get("dependencies")) or _check_deps_list(as_dict(e).get("extra-dependencies"))
+        for e in as_dict(as_dict(tool.get("hatch")).get("envs")).values()
+    )
 
 
 def _inspect_pyproject(
@@ -768,7 +762,7 @@ def _inspect_pyproject(
         raw_bytes = read_bounded(trusted_root, path)
         import tomllib
 
-        raw_data = tomllib.loads(raw_bytes.decode("utf-8"))
+        raw_data = tomllib.loads(raw_bytes.decode("utf-8-sig"))
         data = as_dict(raw_data)
     except Exception:  # noqa: BLE001 - decode error or TOML error
         return False, True
@@ -794,6 +788,9 @@ def _inspect_single_build_file(root: Path, bf: Path, repo_root: Path) -> tuple[b
     name = bf.name.lower()
     if name == "pyproject.toml":
         return _inspect_pyproject(root, bf, repo_root)
+    if name in ("ruff.toml", ".ruff.toml"):
+        res = _inspect_ruff_file(root, bf)
+        return res if res is not None else (False, False)
     if name == "setup.cfg":
         return _inspect_setup_cfg(root, bf)
     if name == "tox.ini":
@@ -827,25 +824,8 @@ def _inspect_parent_pyproject(cand: Path, repo_root: Path) -> tuple[bool, bool]:
         return False, True
 
 
-def _inspect_candidate_files(cand: Path, repo_root: Path) -> tuple[bool, bool]:
-    cand_pre_commit = cand / ".pre-commit-config.yaml"
-    conf, ind = _inspect_pre_commit(repo_root, cand_pre_commit)
-    if conf:
-        return True, False
-    indeterminate = ind
-
-    cand_setup = cand / "setup.cfg"
-    conf, ind = _inspect_setup_cfg(repo_root, cand_setup)
-    if conf:
-        return True, False
-    indeterminate |= ind
-
-    cand_tox = cand / "tox.ini"
-    conf, ind = _inspect_tox_ini(repo_root, cand_tox)
-    if conf:
-        return True, False
-    indeterminate |= ind
-
+def _inspect_candidate_requirements(cand: Path, repo_root: Path) -> tuple[bool, bool]:
+    indeterminate = False
     try:
         with os.scandir(cand) as entries:
             for entry in entries:
@@ -858,6 +838,28 @@ def _inspect_candidate_files(cand: Path, repo_root: Path) -> tuple[bool, bool]:
     except OSError:
         indeterminate = True
     return False, indeterminate
+
+
+def _inspect_candidate_files(cand: Path, repo_root: Path) -> tuple[bool, bool]:
+    indeterminate = False
+    for checker, path in (
+        (_inspect_pre_commit, cand / ".pre-commit-config.yaml"),
+        (_inspect_setup_cfg, cand / "setup.cfg"),
+        (_inspect_tox_ini, cand / "tox.ini"),
+    ):
+        conf, ind = checker(repo_root, path)
+        if conf:
+            return True, False
+        indeterminate |= ind
+
+    for ruff_name in (".ruff.toml", "ruff.toml"):
+        if (res := _inspect_ruff_file(repo_root, cand / ruff_name)) is not None:
+            if res[0]:
+                return True, False
+            indeterminate |= res[1]
+
+    conf, ind = _inspect_candidate_requirements(cand, repo_root)
+    return (True, False) if conf else (False, indeterminate | ind)
 
 
 def _inspect_candidate_root(root: Path, cand: Path, repo_root: Path) -> tuple[bool, bool]:
@@ -924,10 +926,19 @@ class StaticSecurityAnalysisDetector:
             return Inspection(State.INDETERMINATE)
 
     def _build_files(self, root: Path) -> list[Path]:
+        names = (
+            "pyproject.toml",
+            "setup.cfg",
+            "setup.py",
+            "tox.ini",
+            ".pre-commit-config.yaml",
+            "ruff.toml",
+            ".ruff.toml",
+        )
         files: list[Path] = []
-        for name in ("pyproject.toml", "setup.cfg", "tox.ini", ".pre-commit-config.yaml"):
-            candidate = root / name
+        for name in names:
             try:
+                candidate = root / name
                 if candidate.exists():
                     files.append(candidate)
             except OSError:
@@ -980,10 +991,8 @@ class StaticSecurityAnalysisRule:
 
     @classmethod
     def add_assessment_limitation(cls, ev: dict[str, Any]) -> dict[str, Any]:
-        limitations = list(ev.get("limitations", []))
-        limitations.append(LIMITATION_TEXT)
         return {
             "usable": ev.get("usable", False),
             "coverageComplete": False,
-            "limitations": limitations,
+            "limitations": list(ev.get("limitations", [])) + [LIMITATION_TEXT],
         }

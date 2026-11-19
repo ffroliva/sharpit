@@ -122,6 +122,9 @@ def _source_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) 
 
 
 def test_scan_reads_only_app_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from sharpit.engine import appsource
+
+    monkeypatch.setattr(appsource, "find_project_root", lambda *args, **kwargs: None)
     package = tmp_path / "shopapp"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
@@ -247,3 +250,22 @@ def test_hand_written_wrapper_around_static_files_is_served_as_is(tmp_path: Path
     assert scanned["analysisErrors"] == []
     # served as is, never opaque: an opaque row would hide the blanket permit-all finding
     assert "SEC-AUTHZ-002" in [r["id"] for r in scanned["results"]]
+
+
+def test_security_scan_evaluates_static_rule_with_temp_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Hermetic security scan: evaluates SEC-STATIC-001 against a temp project root without touching sharpit repo."""
+    proj = tmp_path / "hermetic_project"
+    pkg = proj / "hermetic_app"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (proj / "pyproject.toml").write_text('[project]\nname = "hermetic"\n', encoding="utf-8")
+
+    mod = ModuleType("hermetic_app")
+    mod.__file__ = str(pkg / "__init__.py")
+    mod.__path__ = [str(pkg)]
+    monkeypatch.setitem(sys.modules, "hermetic_app", mod)
+
+    client = client_for(state_dir=str(tmp_path / "state"), app_package="hermetic_app")
+    scanned = _scan(client)
+    assert scanned["analysisErrors"] == []
+    assert "SEC-STATIC-001" in [r["id"] for r in scanned["results"]]

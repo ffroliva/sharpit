@@ -416,4 +416,3 @@ def test_find_pyproject_and_root_symlink_loop_returns_none(tmp_path: Path) -> No
         pytest.skip("Symlinks cannot be created in this environment")
     assert appsource.find_pyproject_path(link_a, [str(tmp_path)]) is None
     assert appsource.find_project_root(link_a) is None
-

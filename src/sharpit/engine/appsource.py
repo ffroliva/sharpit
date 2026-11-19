@@ -144,12 +144,7 @@ def resolve_app_root(
 # ---- pyproject locator and TOML coercion helpers ----------------------------------------------------------------
 
 
-def find_project_root(package_root: Path | None, sys_path: Sequence[object] = ()) -> Path | None:
-    """The nearest ancestor of package_root holding build files."""
-    return None
-
-
-def toml_dict(val: object) -> dict[str, object]:
+def as_dict(val: object) -> dict[str, object]:
     """Safely coerce a TOML section value to dict[str, object]."""
     if isinstance(val, dict):
         d = cast("dict[object, object]", val)
@@ -157,7 +152,7 @@ def toml_dict(val: object) -> dict[str, object]:
     return {}
 
 
-def toml_str_list(val: object) -> list[str]:
+def as_str_list(val: object) -> list[str]:
     """Safely coerce a TOML array value to list[str]."""
     if isinstance(val, (list, tuple)):
         s = cast("Sequence[object]", val)
@@ -165,7 +160,7 @@ def toml_str_list(val: object) -> list[str]:
     return []
 
 
-def toml_str_tuple(val: object) -> tuple[str, ...]:
+def as_str_tuple(val: object) -> tuple[str, ...]:
     """Safely coerce a TOML array value to tuple[str, ...]."""
     if isinstance(val, (list, tuple)):
         s = cast("Sequence[object]", val)
@@ -173,9 +168,66 @@ def toml_str_tuple(val: object) -> tuple[str, ...]:
     return ()
 
 
-as_dict = toml_dict
-as_str_list = toml_str_list
-as_str_tuple = toml_str_tuple
+def _has_build_file(directory: Path) -> bool:
+    for name in ("pyproject.toml", "setup.cfg", "setup.py", "tox.ini"):
+        try:
+            if (directory / name).is_file():
+                return True
+        except (OSError, ValueError, RuntimeError):
+            pass
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                ename = entry.name.lower()
+                if ename.startswith("requirements") and ename.endswith(".txt"):
+                    try:
+                        if entry.is_file():
+                            return True
+                    except (OSError, ValueError, RuntimeError):
+                        pass
+    except (OSError, ValueError, RuntimeError):
+        pass
+    return False
+
+
+def _is_stopped(current: Path, home: Path | None) -> bool:
+    return (
+        (home is not None and current == home)
+        or current.parent == current
+        or any(p in ("site-packages", "dist-packages") for p in current.parts)
+    )
+
+
+def find_project_root(package_root: Path | None, sys_path: Sequence[object] = ()) -> Path | None:
+    """The nearest ancestor of the app package holding a build file (at most 5 levels up).
+
+    Never crosses site-packages/dist-packages, never returns the filesystem root or the user's home.
+    Returns None when not found or on symlink loops / errors.
+    """
+    if package_root is None:
+        return None
+    try:
+        resolved = package_root.resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if any(p in ("site-packages", "dist-packages") for p in resolved.parts):
+        return None
+    try:
+        home: Path | None = Path.home().resolve()
+    except (OSError, ValueError, RuntimeError):
+        home = None
+
+    current = resolved.parent
+    for _ in range(5):
+        if _is_stopped(current, home):
+            break
+        if _has_build_file(current):
+            return current
+        try:
+            current = current.parent.resolve()
+        except (OSError, ValueError, RuntimeError):
+            break
+    return None
 
 
 def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> Path | None:
@@ -191,7 +243,7 @@ def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> 
             return None
         holder = resolved.parent
         on_path = any(isinstance(e, str) and e and Path(e).resolve() == holder for e in sys_path)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RuntimeError):
         return None
     if not on_path:
         return None

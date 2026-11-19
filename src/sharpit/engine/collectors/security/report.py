@@ -40,7 +40,7 @@ from sharpit.engine.collectors.security.static_analysis import (
 )
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
-from sharpit.engine.spi import SecurityChain, SecurityFacts, SecurityModel
+from sharpit.engine.spi import NOT_FASTAPI, SecurityChain, SecurityFacts, SecurityModel
 from sharpit.settings import SharpitSettings
 
 ANALYZER = "sharpit FastAPI Security Advisor"
@@ -60,7 +60,6 @@ NOT_SCANNED_MESSAGE = (
 )
 
 DISABLED_MESSAGE = "No FastAPI application was found to inspect."
-NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
 PARTIAL_TAIL = " Unsupported or incomplete evidence remains unknown; skipped checks are not security passes."
 FRAMEWORK_LOGGERS = ("fastapi", "starlette", "uvicorn", "sqlalchemy.engine")
 
@@ -111,15 +110,17 @@ def _limitations(inputs: Inputs) -> list[str]:
 def _message(chains: int, limitations: list[str]) -> str:
     message = f"Security Advisor completed against {chains} middleware stack" + ("." if chains == 1 else "s.")
     if limitations:
-        message += " Some configuration remains unobserved: " + "; ".join(limitations) + "." + PARTIAL_TAIL
+        tail = "; ".join(limitations)
+        if not tail.endswith("."):
+            tail += "."
+        message += " Some configuration remains unobserved: " + tail + PARTIAL_TAIL
     return message
 
 
-def _non_present_model_evaluation(model: Any, inspection: Inspection) -> Evaluation:
+def _non_present_model_evaluation(model: SecurityModel, inspection: Inspection) -> Evaluation:
     proxy_unavailable = not model.limitations or list(model.limitations) == [NOT_FASTAPI]
-    static_only = proxy_unavailable
-    analyzer = STATIC_ANALYZER if static_only else None
-    disclaimer = STATIC_DISCLAIMER if static_only else None
+    analyzer = STATIC_ANALYZER if proxy_unavailable else None
+    disclaimer = STATIC_DISCLAIMER if proxy_unavailable else None
 
     base_message = (
         DISABLED_MESSAGE
@@ -127,66 +128,44 @@ def _non_present_model_evaluation(model: Any, inspection: Inspection) -> Evaluat
         else "FastAPI security configuration could not be read: " + "; ".join(model.limitations)
     )
 
-    if inspection.state == State.NOT_APPLICABLE:
-        limitations = list(model.limitations) or None
-        return Evaluation(
-            "DISABLED",
-            base_message,
-            (),
-            (),
-            evidence(limitations=limitations),
-            _Done(()),
-            analyzer=analyzer,
-            disclaimer=disclaimer,
-        )
+    ev = evidence(limitations=list(model.limitations) or None)
+    if inspection.state == State.INDETERMINATE:
+        ev = StaticSecurityAnalysisRule.add_assessment_limitation(ev)
 
-    if inspection.state == State.CONFIGURED:
+    if inspection.state == State.NOT_APPLICABLE:
+        status = "DISABLED"
+        msg = base_message
+        evaluated: tuple[str, ...] = ()
+        findings: tuple[Finding, ...] = ()
+    elif inspection.state == State.CONFIGURED:
+        status = "PARTIAL"
         static_message = (
             "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
             " sharpit does not verify analyzer execution."
         )
         msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
-        limitations = list(model.limitations) or None
-        return Evaluation(
-            "PARTIAL",
-            msg,
-            (StaticSecurityAnalysisRule.RULE_ID,),
-            (),
-            evidence(limitations=limitations),
-            _Done(()),
-            analyzer=analyzer,
-            disclaimer=disclaimer,
-        )
-
-    if inspection.state == State.NOT_CONFIGURED:
+        evaluated = (StaticSecurityAnalysisRule.RULE_ID,)
+        findings = ()
+    elif inspection.state == State.NOT_CONFIGURED:
+        status = "PARTIAL"
         static_message = "No FastAPI application was found to inspect. No local static analyzer declaration was found."
         msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
-        finding_tuple = (StaticSecurityAnalysisRule.finding(),)
-        limitations = list(model.limitations) or None
-        return Evaluation(
-            "PARTIAL",
-            msg,
-            (StaticSecurityAnalysisRule.RULE_ID,),
-            finding_tuple,
-            evidence(limitations=limitations),
-            _Done(()),
-            analyzer=analyzer,
-            disclaimer=disclaimer,
+        evaluated = (StaticSecurityAnalysisRule.RULE_ID,)
+        findings = (StaticSecurityAnalysisRule.finding(),)
+    else:  # INDETERMINATE
+        status = "PARTIAL"
+        static_message = (
+            "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed."
         )
+        msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
+        evaluated = ()
+        findings = ()
 
-    # INDETERMINATE
-    static_message = (
-        "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed."
-    )
-    msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
-    limitations = list(model.limitations)
-    limitations.append(LIMITATION_TEXT)
-    ev = evidence(usable=False, coverage_complete=False, limitations=limitations)
     return Evaluation(
-        "PARTIAL",
+        status,
         msg,
-        (),
-        (),
+        evaluated,
+        findings,
         ev,
         _Done(()),
         analyzer=analyzer,
@@ -260,8 +239,7 @@ def build_inputs(
     reasons: list[str] = []
     root = appsource.resolve_app_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
     index = appsource.build_index(root) if root is not None else None  # dropped with the inputs after the scan
-    pyproject_file = appsource.find_pyproject_path(root, sys.path) if root is not None else None
-    project_root = pyproject_file.parent if pyproject_file is not None else None
+    project_root = appsource.find_project_root(root, sys.path) if root is not None else None
     return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons), project_root=project_root)
 
 
