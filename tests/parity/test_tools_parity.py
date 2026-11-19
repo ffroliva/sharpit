@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,8 @@ MATCHED_TOOLS = (
     "get_copilot_sessions",
     "get_claude_code_sessions",
     "get_github_dashboard",
+    "get_runtime_insights",
+    "get_runtime_insight",
 )
 PARTIAL_TOOLS = (
     "get_live_activity",
@@ -117,8 +120,6 @@ MISSING_TOOLS = (
     "get_http_sessions",
     "get_runtime_run_comparison",
     "get_runtime_impact",
-    "get_runtime_insights",
-    "get_runtime_insight",
     "get_jms_activity",
     "get_jvm_tuning",
     "get_kafka_activity",
@@ -195,8 +196,10 @@ pytestmark = [
     pytest.mark.bootui("cli:exceptions list"),
     pytest.mark.bootui("cli:exceptions show"),
     pytest.mark.bootui("cli:github"),
-    pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:health"),
+    pytest.mark.bootui("cli:insights list"),
+    pytest.mark.bootui("cli:insights show"),
+    pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:overview"),
     pytest.mark.bootui("cli:profile diff"),
     pytest.mark.bootui("cli:rest-api report"),
@@ -235,6 +238,8 @@ pytestmark = [
     pytest.mark.bootui("tool:get_profile_diff"),
     pytest.mark.bootui("tool:get_request_profile"),
     pytest.mark.bootui("tool:get_rest_api_report"),
+    pytest.mark.bootui("tool:get_runtime_insight"),
+    pytest.mark.bootui("tool:get_runtime_insights"),
     pytest.mark.bootui("tool:get_security_report"),
     pytest.mark.bootui("tool:get_startup_timeline"),
     pytest.mark.bootui("tool:get_scheduled_tasks"),
@@ -361,16 +366,17 @@ DESCRIPTION_MATCHED = (
 # Tools whose description or summary BootUI changed from 2.3.0 to 2.4.0 and that sharpit has not adopted yet.
 # Each value is the lane that closes the gap by moving the tool into DESCRIPTION_ADOPTED.
 DESCRIPTION_GAPS = {
-    "get_exceptions": "A1",
-    "get_runtime_insight": "A1",
-    "get_runtime_insights": "A1",
     "get_security_report": "A3",
     "get_transactions": "A2",
     "security_scan": "A3",
 }
 # Tools whose 2.4.0 description or summary a lane has adopted.
-DESCRIPTION_ADOPTED: tuple[str, ...] = ()
-MATCHED_TOOLS_PIN = 36  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
+DESCRIPTION_ADOPTED: tuple[str, ...] = (
+    "get_exceptions",
+    "get_runtime_insight",
+    "get_runtime_insights",
+)
+MATCHED_TOOLS_PIN = 38  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
 
 
 @pytest.mark.parametrize("name", DESCRIPTION_MATCHED)
@@ -401,3 +407,39 @@ def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
 def test_matched_tools_ratchet() -> None:
     """Pinned count a lane raises when it closes a row; lowering a pin needs its reason in the PR body."""
     assert len(MATCHED_TOOLS) == MATCHED_TOOLS_PIN
+
+
+def _added_sentences(name: str) -> list[str]:
+    previous = next(t for t in BOOTUI_TOOLS_PREVIOUS if t["name"] == name)["description"]
+    current = BOOTUI[name]["description"]
+
+    def sentences(text: str) -> list[str]:
+        return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+
+    prev_set = set(sentences(previous))
+    return [s for s in sentences(current) if s not in prev_set]
+
+
+# Pinned sentence checks for adopted tools where exact BootUI wording cannot be taken verbatim
+# (e.g. tool relies on Java agent sensors or CLI-only semantics that sharpit adapts).
+ADOPTED_PINNED_CHECKS: dict[str, tuple[str, ...]] = {
+    "get_exceptions": (
+        "Without a caught-exceptions sensor, caughtInCode is null; "
+        "insufficient and partial are evidence states, not findings.",
+        "totalExceptions counts the occurrences in the retained groups, "
+        "reset via CLI exceptions clear (clear_exceptions is refused over MCP).",
+    ),
+}
+
+
+# ported: McpToolDescriptionsTests.runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates (BootUI 2.4.0)
+@pytest.mark.parametrize("name", DESCRIPTION_ADOPTED)
+def test_adopted_tool_descriptions_contain_2_4_0_changes(name: str) -> None:
+    description = SHARPIT[name].description
+    if name in ADOPTED_PINNED_CHECKS:
+        for pinned_sentence in ADOPTED_PINNED_CHECKS[name]:
+            assert pinned_sentence in description
+    else:
+        for sentence in _added_sentences(name):
+            adapted = sentence.replace("BootUI", "sharpit").replace("bootui", "sharpit")
+            assert adapted in description
