@@ -248,8 +248,8 @@ sharpit insights list --fail-on insufficient
 Exit codes follow BootUI 2.4.0 (`sharpit.cli.exit_codes.ExitCodes`):
 
 - `0` (`SUCCESS`): command succeeded and findings are below the gate threshold.
-- `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated.
-- `2` (`REFUSED`): request was refused because the endpoint or panel is disabled, or the action is denied by a read-only policy (`PANEL_ACCESS_DENIED`). Refusals are confirmed by checking the target application before exiting 2.
+- `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated; a refused MCP toggle exits 1.
+- `2` (`REFUSED`): refused tool action because the endpoint or panel is disabled or the action is denied by a read-only policy (`PANEL_ACCESS_DENIED`). Tool refusals are confirmed by checking the target application before exiting 2.
 - `3` (`THRESHOLD`): findings met or exceeded the `--fail-on` severity threshold, or runtime insights evidence was insufficient.
 
 ## Running test gates (`pytest --sharpit`)

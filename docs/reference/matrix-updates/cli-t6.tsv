@@ -7,7 +7,7 @@ cli:fail-on-tools-dropped	adapted	crac, graalvm, hibernate, memory, pentest, spr
 cli:fail-on-tools-heap-dump	adapted	BootUI lists get_heap_dump_report in EXCLUDED; dropped because sharpit provides no heap dump analysis tool
 cli:fail-on-exceptions-sensor	adapted	get_exceptions removed from insufficient-criterion tools: sharpit records no caught-in-code evidence, so this gate cannot be evaluated (usage error)
 cli:fail-on-pytest-gate-comparison	n-a	note: CLI follows BootUI exactly (gates on INFO; scan status ERROR exits 1 unevaluable regardless of findings); the pytest gate follows the 0.4.0 ruling (INFO notes-only, ERROR with findings fails)
-cli:fail-on-missing-value-parser	gap	bare option missing value validation through CLI command parser is deferred to Task 7
-cli:fail-on-refused	gap	HTTP refusal exit 2 is tested and handled in Task 3 outcomes and Task 7 CLI runner
-cli:fail-on-failed-call	gap	HTTP 500 error exit 1 without gate processing is deferred to Task 7
-cli:fail-on-print-before-gate	gap	stdout payload emission before gate evaluation is handled in Task 7 render pipeline
+cli:fail-on-missing-value-parser	matched	bare option missing value is rejected by the CLI parser with exit 1
+cli:fail-on-refused	matched	HTTP tool refusal exits 2 after the target application confirms its policy response
+cli:fail-on-failed-call	matched	HTTP 500 error exits 1 without evaluating the fail-on gate
+cli:fail-on-print-before-gate	matched	stdout payload is emitted before fail-on evaluation

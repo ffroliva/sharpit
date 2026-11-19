@@ -225,8 +225,8 @@ sharpit insights list --fail-on insufficient
 Exit codes follow BootUI 2.4.0 (`ExitCodes`):
 
 - `0`: success (the command completed and any gate passed).
-- `1`: error (network or HTTP error, invalid argument, or gate cannot be evaluated).
-- `2`: refused (endpoint or panel is disabled, or action is rejected by read-only policy).
+- `1`: error (network or HTTP error, invalid argument, gate cannot be evaluated); a refused MCP toggle exits 1.
+- `2`: refused tool action (endpoint or panel is disabled, or a tool action is rejected by read-only policy).
 - `3`: threshold (findings reached or exceeded the `--fail-on` severity, or evidence was insufficient).
 
 ## Use with an AI agent

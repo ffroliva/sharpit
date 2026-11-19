@@ -1,2 +1,6 @@
 cli-t7-render	adapted	Machine output preserves UTF-8 bytes; terminal text replaces unencodable characters; BootUI writes through UTF-8 PrintWriter.
 cli-t7-entry	adapted	Python package and console-script entry points replace BootUI's JVM main entry.
+cli-t7-unknown-tool	adapted	a catalog-listed tool returning 404 keeps its server message; unlisted tools use BootUI's local description and panel-availability hint, with a version hint where stack metadata is absent.
+cli-t7-redaction	adapted	Parsed string values are redacted before rendering; raw JSON stays unchanged unless a value contains the token. CLI-generated messages are redacted at their write boundary.
+cli-t7-root-fail-on	adapted	Root-level --fail-on remains hidden for leading-option placement and is validated by the selected tool's FailOn parser.
+cli-t7-unknownToolHint	adapted	Keep BootUI's unavailable-panel hint; the manifest lacks stack metadata, so the fallback uses the running sharpit version hint.
