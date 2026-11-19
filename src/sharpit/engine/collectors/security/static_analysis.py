@@ -13,14 +13,16 @@ import configparser
 import enum
 import os
 import re
+import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import RuleDefinition
-from sharpit.engine.appsource import as_dict, as_str_list
+from sharpit.engine.appsource import as_dict, as_str_list, requirements_name
 from sharpit.engine.collectors.security.static_analysis_files import (
     contains_symbolic_link,
     read_bounded,
@@ -188,7 +190,6 @@ _RUNNER_VALUE_OPTIONS = frozenset(
         "-C",
         "--env-file",
         "--spec",
-        "--isolated",
         "-e",
         "--index",
         "--default-index",
@@ -623,8 +624,6 @@ def _inspect_ruff_file(trusted_root: Path, path: Path) -> tuple[bool, bool] | No
         if not path.is_file():
             return False, True
         raw_bytes = read_bounded(trusted_root, path)
-        import tomllib
-
         raw_data = tomllib.loads(raw_bytes.decode("utf-8-sig"))
         return _resolve_ruff_dict(as_dict(raw_data))
     except Exception:  # noqa: BLE001
@@ -636,16 +635,18 @@ def _check_ruff_section(data: dict[str, object], project_root: Path, repository_
 
     Returns (configured, indeterminate).
     """
-    for candidate_root in (project_root, repository_root):
-        for name in (DOT_RUFF_TOML, RUFF_TOML):
-            candidate = candidate_root / name
-            result = _inspect_ruff_file(candidate_root, candidate)
-            if result is not None:
-                return result
+    for name in (DOT_RUFF_TOML, RUFF_TOML):
+        result = _inspect_ruff_file(project_root, project_root / name)
+        if result is not None:
+            return result
 
     tool = as_dict(data.get("tool"))
     ruff = as_dict(tool.get("ruff"))
     if not ruff:
+        for name in (DOT_RUFF_TOML, RUFF_TOML):
+            result = _inspect_ruff_file(repository_root, repository_root / name)
+            if result is not None:
+                return result
         return False, False
 
     return _resolve_ruff_dict(ruff)
@@ -705,8 +706,6 @@ def _inspect_pyproject(
         if not path.is_file():
             return False, True
         raw_bytes = read_bounded(trusted_root, path)
-        import tomllib
-
         raw_data = tomllib.loads(raw_bytes.decode("utf-8-sig"))
         data = as_dict(raw_data)
     except Exception:  # noqa: BLE001 - decode error or TOML error
@@ -775,7 +774,7 @@ def _inspect_candidate_requirements(cand: Path, repo_root: Path) -> tuple[bool, 
         with os.scandir(cand) as entries:
             for entry in entries:
                 ename = entry.name.lower()
-                if ename.startswith("requirements") and ename.endswith(".txt"):
+                if requirements_name(ename):
                     conf, ind = _inspect_requirements(repo_root, Path(entry.path))
                     if conf:
                         return True, False
@@ -840,7 +839,7 @@ class StaticSecurityAnalysisDetector:
             return Inspection(State.NOT_APPLICABLE)
         try:
             root = Path(os.path.abspath(project_root))
-            if not root.is_dir() or root.is_symlink() or (hasattr(root, "is_junction") and root.is_junction()):
+            if not root.is_dir() or root.is_symlink() or root.is_junction():
                 return Inspection(State.NOT_APPLICABLE)
 
             build_files = self._build_files(root)
@@ -892,7 +891,7 @@ class StaticSecurityAnalysisDetector:
             with os.scandir(root) as entries:
                 for entry in entries:
                     ename = entry.name.lower()
-                    if ename.startswith("requirements") and ename.endswith(".txt"):
+                    if requirements_name(ename):
                         files.append(Path(entry.path))
         except OSError:
             pass
@@ -902,42 +901,29 @@ class StaticSecurityAnalysisDetector:
 class StaticSecurityAnalysisRule:
     """Rule SEC-STATIC-001 finding metadata and evidence limitation helper."""
 
-    RULE_ID = RULE_ID
-    NAME = TITLE
-    CATEGORY = CATEGORY
-    SEVERITY = SEVERITY
-    DETAIL = DETAIL
-    DESCRIPTION = DESCRIPTION
-    RECOMMENDATION = RECOMMENDATION
-    LEARN_MORE_URL = LEARN_MORE_URL
-
     @classmethod
     def rule_definition(cls) -> RuleDefinition:
         return RuleDefinition(
-            id=cls.RULE_ID,
-            name=cls.NAME,
-            category=cls.CATEGORY,
-            severity=cls.SEVERITY,
-            description=cls.DESCRIPTION,
-            recommendation=cls.RECOMMENDATION,
-            learn_more_url=cls.LEARN_MORE_URL,
+            id=RULE_ID,
+            name=TITLE,
+            category=CATEGORY,
+            severity=SEVERITY,
+            description=DESCRIPTION,
+            recommendation=RECOMMENDATION,
+            learn_more_url=LEARN_MORE_URL,
         )
 
     @classmethod
     def finding(cls) -> Finding:
         return Finding(
-            rule_id=cls.RULE_ID,
+            rule_id=RULE_ID,
             advisor="security",
-            severity=cls.SEVERITY,
+            severity=SEVERITY,
             target="project",
-            message=cls.DETAIL,
-            identity=cls.RULE_ID,
+            message=DETAIL,
+            identity=RULE_ID,
         )
 
     @classmethod
     def add_assessment_limitation(cls, ev: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "usable": ev.get("usable", False),
-            "coverageComplete": False,
-            "limitations": list(ev.get("limitations", [])) + [LIMITATION_TEXT],
-        }
+        return evidence(bool(ev.get("usable")), False, [*ev.get("limitations", []), LIMITATION_TEXT])
