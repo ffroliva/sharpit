@@ -99,18 +99,19 @@ class Client:
         if not 200 <= status < 300:
             raise self._describe_failure(status, body)
         payload = _parse_json(body, endpoint, status)
+        catalog = cast("dict[str, Any]", payload) if isinstance(payload, dict) else None
         if (
-            not isinstance(payload, dict)
-            or payload.get("serverName") != "sharpit"
-            or not isinstance(payload.get("enabled"), bool)
-            or not isinstance(payload.get("tools"), list)
-            or (not payload["enabled"] and payload["tools"])
+            catalog is None
+            or catalog.get("serverName") != "sharpit"
+            or not isinstance(catalog.get("enabled"), bool)
+            or not isinstance(catalog.get("tools"), list)
+            or (not catalog["enabled"] and catalog["tools"])
         ):
             raise self._client_error(
                 "Response is not a sharpit catalog: expected serverName 'sharpit', a boolean enabled, "
                 "and a tools array that is empty while disabled."
             )
-        return payload
+        return catalog
 
     def _send(
         self,

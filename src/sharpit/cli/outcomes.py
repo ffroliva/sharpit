@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from sharpit.cli.client import Client, ClientError, ToolResult, nonblank, redact, sharpit_text
 from sharpit.cli.exit_codes import ExitCodes
@@ -55,7 +55,7 @@ def classify(status: int, body: Any) -> Outcome:
     if status >= 200 and status < 300:
         return Outcome(kind, "")
     if isinstance(body, dict):
-        document = body
+        document = cast("dict[str, Any]", body)
         error = nonblank(document.get("error"))
         specific = nonblank(document.get("reason")) or nonblank(document.get("message"))
         message = error or specific or message
