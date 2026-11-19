@@ -126,10 +126,10 @@ def test_json_short_word_token_redacts_keys_and_values_but_keeps_other_bytes():
 
 
 def test_json_redaction_preserves_unmatched_escape_and_unicode_spelling():
-    body = r'{"message":"/ \u0041 数据 s3cret"}'
+    body = r'{"message":"\/ \u0041 数据 s3cret"}'
     _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "s3cret"}, body=body)
 
-    assert out == r'{"message":"/ \u0041 数据 [redacted]"}' + "\n"
+    assert out == r'{"message":"\/ \u0041 数据 [redacted]"}' + "\n"
 
 
 def test_json_number_containing_token_becomes_redacted_string():
@@ -174,12 +174,13 @@ def test_server_error_controls_are_sanitized_before_stderr():
 
 
 def test_terminal_json_escapes_raw_c1_controls_but_piped_json_is_verbatim():
-    body = '{"message":"a\u009bb"}'
+    body = '{\n\t"message":"a\u009bb"\n}'
     _, terminal_out, _ = run(["--json", "health"], body=body)
     out, err = io.StringIO(), io.StringIO()
     commands.run(["--json", "health"], {}, False, out, err, lambda options: Fake(options, 200, body))
 
     assert r"\u009b" in terminal_out
+    assert "\n\t" in terminal_out
     assert "\u009b" in out.getvalue()
     assert "a\u009bb" in out.getvalue()
     assert json.loads(terminal_out) == {"message": "a\u009bb"}
