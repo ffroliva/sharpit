@@ -456,12 +456,9 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     Tool(
         "get_exceptions",
         "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, "
-        "causes, and individual occurrences. With the sharpit agent's caught-exceptions sensor, caughtInCode "
-        "summarizes exceptions application code caught: a finding was not seen rethrown or logged at WARN or above "
-        "while the evidence was complete; unknown means incomplete evidence, never swallowed. caughtInCode also "
-        "reports counts for rows below the finding threshold (insufficient) and rows whose outcomes are unknown, "
-        "pending, or counted only (partial); these are evidence states, not findings. totalExceptions counts the "
-        "occurrences in the retained groups, so clear_exceptions resets it.",
+        "causes, and individual occurrences. Without a caught-exceptions sensor, caughtInCode is null; "
+        "insufficient and partial are evidence states, not findings. totalExceptions counts the occurrences in the "
+        "retained groups, reset via CLI exceptions clear (clear_exceptions is refused over MCP).",
         _NONE,
         "exceptions",
         False,
