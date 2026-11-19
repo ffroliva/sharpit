@@ -46,11 +46,11 @@ def normalize_token(token: str | None) -> str | None:
 
 def positive_seconds(value: str) -> float:
     raw = value.strip().lower()
-    if raw.endswith("ms"):
-        raw = str(float(raw[:-2]) / 1000)
-    elif raw.endswith("s"):
-        raw = raw[:-1]
     try:
+        if raw.endswith("ms"):
+            raw = str(float(raw[:-2]) / 1000)
+        elif raw.endswith("s"):
+            raw = raw[:-1]
         seconds = float(raw)
     except (ValueError, TypeError):
         raise argparse.ArgumentTypeError(f"'{value}' is not a number of seconds") from None

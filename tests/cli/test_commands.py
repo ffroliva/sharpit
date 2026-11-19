@@ -7,8 +7,6 @@ import shlex
 import threading
 from typing import Any
 
-import pytest
-
 from sharpit.cli.client import ClientError, ToolResult
 from sharpit.cli.commands import main, run
 from sharpit.cli.exit_codes import ExitCodes
@@ -107,6 +105,16 @@ def test_disabled_endpoint_names_the_enabling_setting():
     assert "SHARPIT_CLI_ENABLED=ON" in err
 
 
+def test_unknown_tool_message_names_the_manifest_tool():
+    class UnknownToolClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(tool, 404, '{"error":"unknown tool"}', {"error": "unknown tool"})
+
+    code, _, err, _ = _run_cli(["beans"], client=UnknownToolClient(None))
+    assert code == ExitCodes.ERROR
+    assert "This application does not expose 'get_beans'." in err
+
+
 # derived: token flag takes precedence over environment
 def test_token_flag_takes_precedence_over_environment():
     code, _, _, client = _run_cli(
@@ -189,10 +197,15 @@ def test_token_never_appears_in_output():
 
 
 def test_default_client_factory_completes_an_http_call(monkeypatch):
+    import json
+
     from sharpit.cli import client as client_module
 
     class Response:
         status = 200
+
+        def __init__(self):
+            self.chunks = [b'{"ok":true}', b""]
 
         def __enter__(self):
             return self
@@ -201,7 +214,7 @@ def test_default_client_factory_completes_an_http_call(monkeypatch):
             return None
 
         def read1(self, _size):
-            return b'{"ok":true}'
+            return self.chunks.pop(0)
 
     class Opener:
         def open(self, _request, timeout):
@@ -209,10 +222,11 @@ def test_default_client_factory_completes_an_http_call(monkeypatch):
             return Response()
 
     monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: Opener())
-    code, out, err, _ = _run_cli(["beans"])
+    out, err = io.StringIO(), io.StringIO()
+    code = run(["beans"], {}, False, out, err, client_factory=None)
     assert code == 0
-    assert out.strip() == '{"ok":true}'
-    assert err == ""
+    assert json.loads(out.getvalue()) == {"ok": True}
+    assert err.getvalue() == ""
 
 
 def test_global_options_repr_redacts_token():
@@ -299,8 +313,13 @@ def test_usage_errors_do_not_print_token_value():
 
 
 def test_usage_error_redacts_after_any_unknown_option():
-    for option, secret in (("--tken", "SECRETX"), ("--Token", "s3cret")):
-        code, _, err, _ = _run_cli(["beans", option, secret])
+    cases = (
+        (["--tken", "SECRETX", "beans"], "SECRETX"),
+        (["beans", "--tken", "SECRETX"], "SECRETX"),
+        (["beans", "--Token", "s3cret"], "s3cret"),
+    )
+    for args, secret in cases:
+        code, _, err, _ = _run_cli(args)
         assert code == ExitCodes.ERROR
         assert secret not in err
 
@@ -319,9 +338,11 @@ def test_usage_error_hides_a_stray_positional_token_from_environment():
 
 
 def test_conflicting_positional_and_flag_ids_are_usage_error():
-    code, _, err, client = _run_cli(["exceptions", "detail", "pos-id", "--id", "flag-id"])
+    tool = Manifest.bundled().by_name("get_exception_detail")
+    assert tool is not None
+    code, _, err, client = _run_cli([*tool.path, "pos-id", "--id", "flag-id"])
     assert code == ExitCodes.ERROR
-    assert "cannot be combined" in err
+    assert "not allowed with argument" in err
     assert client.invocations == []
 
 
@@ -331,25 +352,35 @@ def test_help_uses_readable_required_metavars_and_environment_names():
     assert "SHARPIT_URL" in out
     assert "SHARPIT_API_PATH" in out
     assert "SHARPIT_TOKEN" in out
+    assert "--url <text>" in out
+    assert "--timeout <seconds>" in out
     assert "FLAG_ID" not in out
 
-    _, id_help, _, _ = _run_cli(["exceptions", "detail", "--help"])
+    tool = Manifest.bundled().by_name("get_exception_detail")
+    assert tool is not None
+    _, id_help, _, _ = _run_cli([*tool.path, "--help"])
     assert "<id>" in id_help
+    assert "required; choose one form" in id_help
     _, scan_help, _, _ = _run_cli(["architecture", "violations", "--help"])
     assert "--scan-id <scanId>" in scan_help
+    _, query_help, _, _ = _run_cli(["beans", "--help"])
+    assert "--query <text>" in query_help
+    assert "--limit <count>" in query_help
 
 
 def test_two_concurrent_runs_keep_their_own_streams(monkeypatch):
     from sharpit.cli.commands import SharpitParser
 
+    Manifest.bundled()
+    _run_cli(["beans", "--help"])
     barrier = threading.Barrier(2)
-    original = SharpitParser.parse_args
+    original = SharpitParser.print_help
 
-    def synchronized_parse(parser, args=None, namespace=None):
+    def synchronized_help(parser, file=None):
         barrier.wait(timeout=2)
-        return original(parser, args, namespace)
+        return original(parser, file)
 
-    monkeypatch.setattr(SharpitParser, "parse_args", synchronized_parse)
+    monkeypatch.setattr(SharpitParser, "print_help", synchronized_help)
     outputs = [io.StringIO(), io.StringIO()]
     errors = [io.StringIO(), io.StringIO()]
     codes = [None, None]
@@ -366,7 +397,8 @@ def test_two_concurrent_runs_keep_their_own_streams(monkeypatch):
     assert codes == [0, 0]
     assert "usage: sharpit" in outputs[0].getvalue()
     assert "usage: sharpit" in outputs[1].getvalue()
-    assert errors == [io.StringIO(), io.StringIO()]
+    assert errors[0].getvalue() == ""
+    assert errors[1].getvalue() == ""
 
 
 # ported: CommandTreeTests.everyCommandInTheManifestInvokesTheToolItProjects
@@ -424,7 +456,7 @@ def test_an_id_command_refuses_to_run_without_one():
     code, _, err, client = _run_cli(list(tool.path))
     assert code == 1
     assert len(client.invocations) == 0
-    assert "error: the following arguments are required: <id>" in err
+    assert "one of the arguments <id> --id is required" in err
 
 
 # ported: CommandTreeTests.aQueryCommandSendsTheFilterItWasGiven
@@ -476,7 +508,7 @@ def test_advisor_commands_require_the_scan_id_and_forward_every_page_argument():
         code_fail, _, err_fail, client_fail = _run_cli([group, "violations", "RULE-1"])
         assert code_fail == 1
         assert len(client_fail.invocations) == 0
-        assert "error: the following arguments are required: --scan-id" in err_fail
+        assert "the following arguments are required: --scan-id" in err_fail
 
         # With all arguments
         code_ok, _, _, client_ok = _run_cli(
@@ -517,7 +549,8 @@ def test_missing_required_scan_id_is_usage_error_before_request():
     code, _, err, client = _run_cli(["architecture", "violations", "--id", "RULE-1"])
     assert code == 1
     assert len(client.invocations) == 0
-    assert "error: the following arguments are required: --scan-id" in err
+    assert "--scan-id" in err
+    assert "required" in err
 
 
 def test_main_delegates_to_run():
@@ -544,6 +577,7 @@ def test_confirmed_403_panel_access_denied_exits_refused():
     assert code == ExitCodes.REFUSED
     assert "sharpit panel access denied" in err
     assert "Panel 'security' is read-only" in err
+    assert "(panel 'beans')" in err
 
 
 # derived: confirm_answered verifies sharpit before trusting refusal statuses.
@@ -598,6 +632,23 @@ def test_unexpected_error_with_verbose_returns_error_and_prints_traceback():
     assert code == ExitCodes.ERROR
     assert "Traceback" in err
     assert "unexpected internal bug" in err
+
+
+def test_unexpected_error_during_refusal_confirmation_returns_error():
+    class CrashingCatalogClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(tool, 403, '{"error":"denied"}', {"error": "denied"})
+
+        def catalog(self) -> dict[str, Any]:
+            raise RuntimeError("unexpected catalog bug")
+
+    try:
+        code, _, err, _ = _run_cli(["-v", "beans"], client=CrashingCatalogClient(None))
+    except RuntimeError as exc:
+        code, err = None, str(exc)
+    assert code == ExitCodes.ERROR
+    assert "unexpected catalog bug" in err
+    assert "Traceback" in err
 
 
 def test_timeout_accepts_duration_strings_and_bare_seconds():

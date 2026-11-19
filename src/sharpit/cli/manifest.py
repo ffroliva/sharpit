@@ -54,9 +54,15 @@ _bundled: "Manifest | None" = None
 class Manifest:
     tools: tuple[ManifestTool, ...]
     _by_name: dict[str, ManifestTool] = field(init=False, repr=False, compare=False)
+    _command_specs: tuple[tuple[tuple[str, ...], ManifestTool], ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_by_name", {tool.name: tool for tool in self.tools})
+        object.__setattr__(self, "_command_specs", tuple((tool.path, tool) for tool in self.tools))
+
+    @property
+    def command_specs(self) -> tuple[tuple[tuple[str, ...], ManifestTool], ...]:
+        return self._command_specs
 
     @classmethod
     def bundled(cls) -> "Manifest":

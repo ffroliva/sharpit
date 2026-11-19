@@ -171,7 +171,9 @@ class Client:
             raise self._timeout_error(base, configured_timeout, timeout is not None)
         outcome = result[0]
         if isinstance(outcome, Exception):
-            raise self._request_error(outcome, base, configured_timeout, timeout) from None
+            if isinstance(outcome, ClientError):
+                raise outcome
+            raise self._request_error(outcome, base, configured_timeout, timeout) from outcome
         return outcome
 
     def _request_error(self, error: Exception, base: str, timeout: float, request_timeout: float | None) -> ClientError:
@@ -211,11 +213,13 @@ class Client:
                 error.close()
                 raise self._client_error(f"Request was redirected (HTTP {error.code})") from None
             return error
-        except OSError:
+        except TimeoutError as error:
+            raise self._timeout_error(self.options.base_url.rstrip("/"), self.timeout, False) from error
+        except OSError as error:
             raise self._client_error(
                 f"Cannot reach sharpit at {self.options.base_url.rstrip('/')}. "
                 "Is the application running, and is that the right --url?"
-            ) from None
+            ) from error
 
     def _transport_error(self, error: Exception, base: str) -> ClientError:
         if isinstance(error, OSError):
@@ -233,8 +237,9 @@ class Client:
     def _timeout_error(self, base: str, timeout: float, bounded: bool) -> ClientError:
         if bounded:
             return self._client_error(f"Request to {base} exceeded its response deadline.")
+        duration = f"{timeout * 1000:g}ms" if timeout < 1 else f"{timeout:g}s"
         return self._client_error(
-            f"No response from {base} within {int(timeout)}s. Raise --timeout if the tool is expected to be slow."
+            f"No response from {base} within {duration}. Raise --timeout if the tool is expected to be slow."
         )
 
     def _describe_failure(self, status: int, body: str) -> ClientError:
@@ -257,7 +262,8 @@ class Client:
         panel_refusal = status == 403 and panel is not None and reason is not None and error == _PANEL_ACCESS_DENIED
         if status == 401 or (status == 403 and not panel_refusal):
             text = (
-                f"sharpit refused the request (HTTP {status}){detail}. A non-loopback --url needs --token, "
+                f"sharpit refused the request (HTTP {status}){detail}. A non-loopback --url needs --token "
+                "or SHARPIT_TOKEN, "
                 "and sharpit only answers requests it considers local."
             )
         else:

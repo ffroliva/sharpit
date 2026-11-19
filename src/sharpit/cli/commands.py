@@ -11,15 +11,38 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, NoReturn, TextIO
 
 from sharpit import __version__
-from sharpit.cli.client import Client, ClientError, ToolResult
+from sharpit.cli.client import Client, ClientError, ToolResult, redact
 from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.manifest import Manifest, ManifestTool
-from sharpit.cli.options import ClientOptions, GlobalOptions, positive_seconds
-from sharpit.cli.outcomes import confirm_answered
+from sharpit.cli.options import ClientOptions, GlobalOptions, normalize_token, positive_seconds
+from sharpit.cli.outcomes import OutcomeKind, confirm_answered
 
 __all__ = ["main", "run"]
 
 _ACTION_TAG = "[action - needs approval]"
+_KNOWN_OPTIONS = frozenset(
+    {
+        "--url",
+        "--api-path",
+        "--token",
+        "--timeout",
+        "--json",
+        "--no-color",
+        "--verbose",
+        "-v",
+        "--version",
+        "-V",
+        "--help",
+        "-h",
+        "--query",
+        "-q",
+        "--limit",
+        "-n",
+        "--id",
+        "--scan-id",
+        "--offset",
+    }
+)
 
 
 class _CliExit(Exception):
@@ -28,11 +51,15 @@ class _CliExit(Exception):
         super().__init__(status)
 
 
-def _redact_usage_error(message: str) -> str:
-    if "invalid choice:" in message:
-        return "invalid command or option"
-    msg = re.sub(r"(--tok[a-zA-Z0-9_-]*=)[^\s]+", r"\1[redacted]", message)
-    return re.sub(r"(--tok[a-zA-Z0-9_-]*\s+)[^\s]+", r"\1[redacted]", msg)
+def _redact_usage_error(message: str, tokens: Sequence[str] = ()) -> str:
+    msg = message
+    if "unrecognized arguments:" in message:
+        msg = re.sub(r"(?i)(-{1,2}[^\s=]+\s+)[^\s]+", r"\1[redacted]", msg)
+        msg = re.sub(r"(?i)(-{1,2}[^\s=]+=)[^\s]+", r"\1[redacted]", msg)
+    for token in tokens:
+        if token:
+            msg = msg.replace(token, "[redacted]")
+    return msg
 
 
 class SharpitParser(argparse.ArgumentParser):
@@ -50,6 +77,7 @@ class SharpitParser(argparse.ArgumentParser):
         super().__init__(*args, **kwargs)
         self.out: TextIO | None = out
         self.err: TextIO | None = err
+        self.tokens: tuple[str, ...] = ()
 
     def set_streams(self, out: TextIO | None, err: TextIO | None) -> None:
         self.out = out
@@ -71,7 +99,7 @@ class SharpitParser(argparse.ArgumentParser):
 
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
-        sanitized = _redact_usage_error(message)
+        sanitized = _redact_usage_error(message, self.tokens)
         self.exit(ExitCodes.ERROR, f"{self.prog}: error: {sanitized}\n")
 
 
@@ -80,22 +108,26 @@ def _create_globals_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--url",
         default=argparse.SUPPRESS,
-        help="The application's base URL (default: http://localhost:8000)",
+        metavar="<text>",
+        help="The application's base URL (SHARPIT_URL; default: http://localhost:8000)",
     )
     parser.add_argument(
         "--api-path",
         default=argparse.SUPPRESS,
-        help="The sharpit API path (default: /sharpit/api)",
+        metavar="<text>",
+        help="The sharpit API path (SHARPIT_API_PATH; default: /sharpit/api)",
     )
     parser.add_argument(
         "--token",
         default=argparse.SUPPRESS,
-        help="Authentication bearer token",
+        metavar="<token>",
+        help="Authentication bearer token (SHARPIT_TOKEN)",
     )
     parser.add_argument(
         "--timeout",
         type=positive_seconds,
         default=argparse.SUPPRESS,
+        metavar="<seconds>",
         help="Request timeout in seconds (default: 60)",
     )
     parser.add_argument(
@@ -135,23 +167,27 @@ def _configure_leaf_arguments(leaf_parser: SharpitParser, tool: ManifestTool) ->
     leaf_parser.set_defaults(_tool=tool, _leaf_parser=leaf_parser)
 
     if tool.takes_query:
-        leaf_parser.add_argument("-q", "--query", default=None, help="Filter results")
+        leaf_parser.add_argument("-q", "--query", default=None, metavar="<text>", help="Filter results")
     if tool.takes_limit or tool.ignores_limit:
         help_text = "Return at most this many results" if tool.takes_limit else argparse.SUPPRESS
-        leaf_parser.add_argument("-n", "--limit", type=int, default=None, help=help_text)
+        leaf_parser.add_argument("-n", "--limit", type=int, default=None, metavar="<count>", help=help_text)
     if tool.takes_id:
-        leaf_parser.add_argument("pos_id", nargs="?", default=None, metavar="<id>", help="Identifier")
-        leaf_parser.add_argument("--id", dest="flag_id", default=None, help="Identifier")
+        required = "id" in tool.required or tool.schema in ("ID", "RULE_VIOLATIONS")
+        group = leaf_parser.add_mutually_exclusive_group(required=required)
+        identifier_help = "Identifier (required; choose one form)" if required else "Identifier"
+        group.add_argument("pos_id", nargs="?", default=None, metavar="<id>", help=identifier_help)
+        group.add_argument("--id", dest="flag_id", default=None, metavar="<id>", help=identifier_help)
     if tool.takes_scan_id:
-        leaf_parser.add_argument("--scan-id", dest="scan_id", default=None, help="Scan ID")
+        leaf_parser.add_argument(
+            "--scan-id", dest="scan_id", default=None, required=True, metavar="<scanId>", help="Scan ID"
+        )
     if tool.takes_offset:
-        leaf_parser.add_argument("--offset", type=int, default=None, help="Offset")
+        leaf_parser.add_argument("--offset", type=int, default=None, metavar="<count>", help="Offset")
 
 
-_parser_cache: dict[int, tuple[SharpitParser, list[SharpitParser]]] = {}
-
-
-def _build_root_parser(manifest: Manifest) -> tuple[SharpitParser, list[SharpitParser]]:
+def _build_root_parser(
+    manifest: Manifest, selected_path: tuple[str, ...] | None = None
+) -> tuple[SharpitParser, list[SharpitParser]]:
     globals_parser = _create_globals_parser()
     root = SharpitParser(
         prog="sharpit",
@@ -169,7 +205,13 @@ def _build_root_parser(manifest: Manifest) -> tuple[SharpitParser, list[SharpitP
             )
         return subparsers_by_prefix[prefix]
 
-    for tool in manifest.tools:
+    specs = manifest.command_specs
+    selected = (
+        (tool for path, tool in specs if path[: len(selected_path)] == selected_path)
+        if selected_path is not None
+        else (tool for _, tool in specs)
+    )
+    for tool in selected:
         path = tool.path
         for depth in range(len(path) - 1):
             prefix = path[:depth]
@@ -194,27 +236,79 @@ def _build_root_parser(manifest: Manifest) -> tuple[SharpitParser, list[SharpitP
     return root, all_parsers
 
 
-def _get_root_parser(manifest: Manifest, out: TextIO, err: TextIO) -> SharpitParser:
-    manifest_id = id(manifest)
-    cached = _parser_cache.get(manifest_id)
-    if cached is None:
-        cached = _build_root_parser(manifest)
-        _parser_cache[manifest_id] = cached
-    root, all_parsers = cached
-    for parser in all_parsers:
+def _get_root_parser(
+    manifest: Manifest,
+    out: TextIO,
+    err: TextIO,
+    tokens: Sequence[str] = (),
+    selected_path: tuple[str, ...] | None = None,
+) -> SharpitParser:
+    root, parsers = _build_root_parser(manifest, selected_path)
+    for parser in parsers:
         parser.set_streams(out, err)
+        parser.tokens = tuple(tokens)
     return root
 
 
+def _usage_tokens(argv: Sequence[str], environment: Mapping[str, str]) -> tuple[str, ...]:
+    raw_environment_token = environment.get("SHARPIT_TOKEN", "")
+    tokens = [raw_environment_token, normalize_token(raw_environment_token) or ""]
+    for index, value in enumerate(argv[:-1]):
+        option, separator, attached = value.partition("=")
+        if value == "--token":
+            tokens.extend((argv[index + 1], normalize_token(argv[index + 1]) or ""))
+        elif option == "--token" and separator:
+            tokens.extend((attached, normalize_token(attached) or ""))
+        elif value.startswith("-") and value not in _KNOWN_OPTIONS:
+            if separator:
+                tokens.append(attached)
+            elif not argv[index + 1].startswith("-"):
+                tokens.append(argv[index + 1])
+    return tuple(tokens)
+
+
+def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] | None:
+    candidates = tuple(
+        value
+        for index, value in enumerate(argv)
+        if not value.startswith("-")
+        and (index == 0 or argv[index - 1] not in {"--url", "--api-path", "--token", "--timeout"})
+    )
+    known_paths = {path for path, _ in manifest.command_specs}
+    path = next(
+        (candidates[:length] for length in range(len(candidates), 0, -1) if candidates[:length] in known_paths),
+        None,
+    )
+    if path is None and candidates and "--help" not in argv and "-h" not in argv:
+        return candidates[:1]
+    return path
+
+
 def _emit_error(err: TextIO, message: str, token: str | None, verbose: bool) -> None:  # noqa: ARG001
-    if token:
-        message = message.replace(f"Bearer {token}", "Bearer [redacted]")
-        message = message.replace(token, "[redacted]")
+    message = redact(message, token)
     err.write(message)
     if not message.endswith("\n"):
         err.write("\n")
     if hasattr(err, "flush"):
         err.flush()
+
+
+def _emit_client_error(err: TextIO, error: ClientError, token: str | None, verbose: bool) -> None:
+    _emit_error(err, str(error), token, verbose)
+    if verbose and error.__cause__ is not None:
+        import traceback
+
+        err.write(redact("".join(traceback.format_exception(error)), token))
+
+
+def _emit_unexpected_error(err: TextIO, error: Exception, token: str | None, verbose: bool) -> None:
+    if verbose:
+        import traceback
+
+        message = "".join(traceback.format_exception(error))
+    else:
+        message = " ".join(str(error).splitlines())
+    _emit_error(err, message, token, verbose)
 
 
 def _extract_global_options(namespace: argparse.Namespace) -> GlobalOptions:
@@ -239,7 +333,9 @@ def _extract_tool_args(
     leaf = getattr(namespace, "_leaf_parser", root_parser)
 
     if tool.takes_id:
-        id_val = getattr(namespace, "flag_id", None) or getattr(namespace, "pos_id", None)
+        flag_id = getattr(namespace, "flag_id", None)
+        pos_id = getattr(namespace, "pos_id", None)
+        id_val = flag_id if flag_id is not None else pos_id
         if id_val is not None:
             args_payload["id"] = id_val
         elif "id" in tool.required or tool.schema in ("ID", "RULE_VIOLATIONS"):
@@ -278,14 +374,11 @@ def _call_client(
         client = factory(client_options)
         result = client.invoke(tool_name, args_payload)
     except ClientError as exc:
-        _emit_error(err, str(exc), client_options.token, verbose)
+        _emit_client_error(err, exc, client_options.token, verbose)
         return None
-    except Exception:
-        if verbose:
-            import traceback
-
-            err.write(traceback.format_exc())
-        raise
+    except Exception as exc:
+        _emit_unexpected_error(err, exc, client_options.token, verbose)
+        return None
 
     if type(result) is not ToolResult or not isinstance(getattr(result, "status", None), int):
         _emit_error(err, "Client returned an invalid tool result", client_options.token, verbose)
@@ -297,6 +390,7 @@ def _emit_result(
     client: Client,
     result: ToolResult,
     client_options: ClientOptions,
+    tool: ManifestTool,
     out: TextIO,
     err: TextIO,
     verbose: bool,
@@ -310,28 +404,41 @@ def _emit_result(
     try:
         outcome = confirm_answered(client, result)
     except ClientError as exc:
-        _emit_error(err, str(exc), client_options.token, verbose)
+        _emit_client_error(err, exc, client_options.token, verbose)
         return ExitCodes.ERROR
 
-    msg = outcome.message or result.raw_body or f"sharpit answered HTTP {result.status}"
-    _emit_error(err, msg, client_options.token, verbose)
+    message = outcome.message
+    if outcome.kind is OutcomeKind.ENDPOINT_DISABLED:
+        message = (
+            "The sharpit command-line endpoint is disabled on this application. Set SHARPIT_CLI_ENABLED=ON to allow it."
+        )
+    elif outcome.kind is OutcomeKind.UNKNOWN_TOOL:
+        message = f"This application does not expose '{tool.name}'."
+    elif outcome.kind is OutcomeKind.UNAUTHENTICATED:
+        message += (
+            ". A non-loopback --url needs --token or SHARPIT_TOKEN, "
+            "and sharpit only answers requests it considers local."
+        )
+    elif outcome.kind is OutcomeKind.REFUSED_BY_POLICY:
+        message += f" (panel '{tool.panel}')"
+    _emit_error(err, message, client_options.token, verbose)
     return outcome.exit_code
 
 
 def _invoke_and_handle(
     factory: Callable[[ClientOptions], Client],
     client_options: ClientOptions,
-    tool_name: str,
+    tool: ManifestTool,
     args_payload: dict[str, Any],
     out: TextIO,
     err: TextIO,
     verbose: bool,
 ) -> int:
-    called = _call_client(factory, client_options, tool_name, args_payload, err, verbose)
+    called = _call_client(factory, client_options, tool.name, args_payload, err, verbose)
     if called is None:
         return ExitCodes.ERROR
     client, result = called
-    return _emit_result(client, result, client_options, out, err, verbose)
+    return _emit_result(client, result, client_options, tool, out, err, verbose)
 
 
 def run(
@@ -342,8 +449,10 @@ def run(
     err: TextIO,
     client_factory: Callable[[ClientOptions], Client] | None = None,
 ) -> int:
+    tokens = _usage_tokens(argv, environment)
     manifest = Manifest.bundled()
-    root_parser = _get_root_parser(manifest, out, err)
+    selected_path = _selected_path(argv, manifest)
+    root_parser = _get_root_parser(manifest, out, err, tokens, selected_path)
 
     try:
         namespace = root_parser.parse_args(list(argv))
@@ -358,12 +467,19 @@ def run(
 
     global_options = _extract_global_options(namespace)
     client_options = global_options.to_client_options(environment)
-    args_payload = _extract_tool_args(namespace, tool, root_parser, err)
+    try:
+        args_payload = _extract_tool_args(namespace, tool, root_parser, err)
+    except _CliExit as exc:
+        return exc.status
     if args_payload is None:
         return ExitCodes.ERROR
 
     factory = client_factory or Client
-    return _invoke_and_handle(factory, client_options, tool.name, args_payload, out, err, global_options.verbose)
+    try:
+        return _invoke_and_handle(factory, client_options, tool, args_payload, out, err, global_options.verbose)
+    except Exception as exc:
+        _emit_unexpected_error(err, exc, client_options.token, global_options.verbose)
+        return ExitCodes.ERROR
 
 
 def main(argv: Sequence[str] | None = None) -> int:
