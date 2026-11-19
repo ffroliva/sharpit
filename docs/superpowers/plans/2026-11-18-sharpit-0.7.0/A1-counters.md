@@ -28,11 +28,12 @@ Port the BootUI 2.4.0 incomplete-evidence counters and tool description enhancem
 
 ## Tasks
 
-- [ ] **Step 0:** Create plan and scenario documentation in `A1-counters.md`.
-- [ ] **Step 1:** Red tests for `CaughtExceptionsReport` `insufficient` and `partial` fields, and `caughtInCode` parity.
-- [ ] **Step 2:** Implement `insufficient: 0` and `partial: 0` in `caught_report()` (`src/sharpit/engine/capture/exceptions.py`).
-- [ ] **Step 3:** Red tests for `RuntimeInsightsAgentReportDto` `insufficient` and `partial` counters across all matching rows including limit omissions and in unavailable reports.
-- [ ] **Step 4:** Implement `insufficient` and `partial` counters in `agent_list` and `_list` (`src/sharpit/engine/collectors/insights/agent_view.py`).
-- [ ] **Step 5:** Red tests for adopted 2.4.0 tool description sentences and moving the three tools into `DESCRIPTION_ADOPTED` in `tests/parity/test_tools_parity.py`.
-- [ ] **Step 6:** Update tool descriptions in `src/sharpit/engine/tools04/runtime_insights.py` and `src/sharpit/engine/tools.py`.
-- [ ] **Step 7:** Record matrix update rows in `docs/reference/matrix-updates/a1-counters.tsv`, update `A1-counters.md` checkboxes, and run full lane gates and verify.
+- [x] **Step 0:** Create plan and scenario documentation in `A1-counters.md`.
+- [x] **Step 1:** Red tests for `CaughtExceptionsReport` `insufficient` and `partial` fields, and `caughtInCode` parity.
+- [x] **Step 2:** Implement `insufficient: 0` and `partial: 0` in `caught_report()` (`src/sharpit/engine/capture/exceptions.py`).
+- [x] **Step 3:** Red tests for `RuntimeInsightsAgentReportDto` `insufficient` and `partial` counters across all matching rows including limit omissions and in unavailable reports.
+- [x] **Step 4:** Implement `insufficient` and `partial` counters in `agent_list` and `_list` (`src/sharpit/engine/collectors/insights/agent_view.py`).
+- [x] **Step 5:** Red tests for adopted 2.4.0 tool description sentences and moving the three tools into `DESCRIPTION_ADOPTED` in `tests/parity/test_tools_parity.py`.
+- [x] **Step 6:** Update tool descriptions in `src/sharpit/engine/tools04/runtime_insights.py` and `src/sharpit/engine/tools.py`.
+- [x] **Step 7:** Record matrix update rows in `docs/reference/matrix-updates/a1-counters.tsv`, update `A1-counters.md` checkboxes, and run full lane gates and verify.
+

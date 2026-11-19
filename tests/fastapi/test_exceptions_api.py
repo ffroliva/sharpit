@@ -514,7 +514,6 @@ def test_exceptions_caught_endpoint_emits_insufficient_and_partial_zero():
     assert body["rows"] == []
 
 
-
 def test_exceptions_report_carries_caught_in_code():
     app = _failing_app()
     _install(app)

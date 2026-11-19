@@ -277,7 +277,6 @@ def test_runtime_and_caught_exception_descriptions_name_incomplete_evidence_stat
     assert "clear_exceptions resets it" in by_name["get_exceptions"]
 
 
-
 @pytest.mark.parametrize("name", RELEASE_TOOLS)
 def test_mcp_schema_matches_bootui(name: str):
     # BootUI bootui-tools.json names, commands, panels and schema kinds; BootUiMcpService.schema renders inputSchema

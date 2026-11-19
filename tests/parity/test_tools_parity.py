@@ -420,4 +420,3 @@ def test_a1_adopted_descriptions_name_incomplete_evidence_states() -> None:
     assert "below the finding threshold (insufficient)" in SHARPIT["get_exceptions"].description
     assert "counted only (partial)" in SHARPIT["get_exceptions"].description
     assert "clear_exceptions resets it" in SHARPIT["get_exceptions"].description
-

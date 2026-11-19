@@ -644,4 +644,3 @@ def test_caught_report_emits_insufficient_and_partial_zero():
         "partial",
         "rows",
     ]
-

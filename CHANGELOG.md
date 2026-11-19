@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The caught-exceptions report (`GET /sharpit/api/exceptions/caught`) emits `insufficient` and `partial` integer counters (zeros when the sensor is unavailable), and the runtime insights agent view (`get_runtime_insights`) emits `insufficient` and `partial` counts covering every observation matching the query, including rows omitted by `limit`. The MCP tool descriptions for `get_exceptions`, `get_runtime_insights`, and `get_runtime_insight` adopt BootUI 2.4.0 explanations for incomplete-evidence states (BootUI 2.4.0 #1589).
 - Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL), failed ORM model discovery, or incomplete PostgreSQL relation inventories as WARNING diagnostics with incomplete evidence coverage (`PARTIAL` scan status, never clean `SCANNED`), while unconfigured/absent ORM models remain a neutral INFO skip and complete empty relation inventories remain clean (BootUI 2.4.0 #1600).
 - The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
   assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.

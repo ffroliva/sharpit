@@ -143,8 +143,6 @@ def test_agent_list_unavailable_emits_zero_counters() -> None:
     assert listed.get("partial") == 0
 
 
-
-
 def test_an_unlisted_row_is_left_out_of_the_default_list_and_the_list_says_how_to_ask_for_it() -> None:
     hidden = _observation(1, "gc-inflated-latency", "GET /x", "slow", listed=False, unlistedReason="In Memory.")
     listed = agent_list(_report([hidden]), None, None, STEPS)
