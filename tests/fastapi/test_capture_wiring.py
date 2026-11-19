@@ -79,20 +79,33 @@ def _scope(path: str = "/x", **extra: Any) -> Scope:
     }
 
 
-async def _run(ctx: SharpitContext, app: FakeApp, inbox: list[Message] | None = None, scope: Scope | None = None):
+async def _run(
+    ctx: SharpitContext | None,
+    app: FakeApp,
+    inbox: list[Message] | None = None,
+    scope: Scope | None = None,
+    *,
+    fail_start: Exception | None = None,
+    wrap: bool = True,
+    sent: list[Message] | None = None,
+) -> list[Message]:
     pending = list(inbox or [{"type": "http.request", "body": b"", "more_body": False}])
-    sent: list[Message] = []
+    if sent is None:
+        sent = []
 
     async def receive() -> Message:
         if pending:
             return pending.pop(0)
-        await asyncio.Event().wait()  # like a server with nothing more to say
+        await asyncio.Event().wait()  # like a server with nothing more to say: a streaming response listens for it
         raise AssertionError  # pragma: no cover
 
     async def send(message: Message) -> None:
+        if fail_start is not None and message["type"] == "http.response.start":
+            raise fail_start
         sent.append(message)
 
-    await CaptureMiddleware(app, ctx)(scope or _scope(), receive, send)
+    target = CaptureMiddleware(app, ctx) if wrap and ctx is not None else app
+    await target(scope or _scope(), receive, send)
     return sent
 
 
@@ -329,25 +342,6 @@ def _explode(message: str) -> Callable[..., Any]:
     return explode
 
 
-async def _serve(app: FakeApp, scope: Scope, sent: list[Message], fail_start: Exception | None = None) -> None:
-    """One request straight into an ASGI app; ``fail_start`` makes the server's ``send`` fail on the response start."""
-
-    pending: list[Message] = [{"type": "http.request", "body": b"", "more_body": False}]
-
-    async def receive() -> Message:
-        if pending:
-            return pending.pop()
-        await asyncio.Event().wait()  # like a server with nothing more to say: a streaming response listens for it
-        raise AssertionError  # pragma: no cover
-
-    async def send(message: Message) -> None:
-        if fail_start is not None and message["type"] == "http.response.start":
-            raise fail_start
-        sent.append(message)
-
-    await app(scope, receive, send)
-
-
 def _starts(sent: list[Message]) -> list[Message]:
     return [m for m in sent if m["type"] == "http.response.start"]
 
@@ -499,11 +493,11 @@ def test_application_and_send_failures_propagate_unchanged(monkeypatch: pytest.M
     async def answers(_scope: Scope, _receive: Receive, send: Send) -> None:
         await send(_start(200))
 
-    raising_call = _serve(CaptureMiddleware(raises_at_once, handle.context), _scope("/api/fail"), [])
+    raising_call = _run(handle.context, raises_at_once, scope=_scope("/api/fail"))
     with pytest.raises(RuntimeError) as application:
         asyncio.run(raising_call)
     assert application.value is application_failure
-    failing_send = _serve(CaptureMiddleware(answers, handle.context), _scope("/api/fail"), [], send_failure)
+    failing_send = _run(handle.context, answers, scope=_scope("/api/fail"), fail_start=send_failure)
     with pytest.raises(OSError, match="commit") as commit:
         asyncio.run(failing_send)
     assert commit.value is send_failure
@@ -559,7 +553,7 @@ def test_a_setup_failure_leaves_no_trace_on_an_application_exception(monkeypatch
     async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
         raise failure
 
-    call = _serve(CaptureMiddleware(app, handle.context), _scope("/api/fail"), [])
+    call = _run(handle.context, app, scope=_scope("/api/fail"))
     with pytest.raises(ValueError) as raised:
         asyncio.run(call)
     assert raised.value is failure
@@ -579,7 +573,7 @@ def test_an_exception_from_sharpits_own_route_reaches_the_host_after_one_invocat
         raise failure
 
     sent: list[Message] = []
-    call = _serve(CaptureMiddleware(own_route, handle.context), _scope("/sharpit/api/boom"), sent)
+    call = _run(handle.context, own_route, scope=_scope("/sharpit/api/boom"), sent=sent)
     with caplog.at_level(logging.WARNING, logger="sharpit"), pytest.raises(ValueError) as raised:
         asyncio.run(call)
     assert raised.value is failure
@@ -611,6 +605,142 @@ def test_a_setup_failure_never_passes_a_forged_probe_header_to_the_host(
     assert resp.json() == {"probe": None}
 
 
+@pytest.mark.parametrize(
+    ("extensions", "headers"),
+    [
+        ("invalid-extensions", [(b"host", b"localhost"), (b"x-sharpit-probe", b"1")]),
+        ({}, [(b"host", b"localhost"), (b"x-sharpit-probe", b"1", b"extra")]),
+    ],
+    ids=["non-dict-extensions", "3-tuple-header"],
+)
+def test_malformed_scope_probe_strip_fails_open_calling_app_once(
+    caplog: pytest.LogCaptureFixture, extensions: Any, headers: list[Any]
+):
+    handle = _handle()
+    calls = 0
+    passed_scope: Scope | None = None
+
+    async def app(scope: Scope, _receive: Receive, send: Send) -> None:
+        nonlocal calls, passed_scope
+        calls += 1
+        passed_scope = scope
+        await send(_start(200))
+
+    scope = _scope("/api/orders", headers=headers, extensions=extensions)
+    raised: Exception | None = None
+    sent: list[Message] = []
+    try:
+        sent = asyncio.run(_run(handle.context, app, scope=scope))
+    except Exception as exc:
+        raised = exc
+
+    assert raised is None
+    assert calls == 1
+    assert len(_starts(sent)) == 1
+    assert passed_scope is not None
+    assert not any(
+        isinstance(h, (tuple, list)) and len(h) >= 1 and h[0] == PROBE_HEADER
+        for h in passed_scope.get("headers", ())
+    )
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "request start" in warnings[0]
+
+
+def test_forged_probe_header_stripped_when_capture_hook_suspended():
+    app = FastAPI()
+
+    @app.get("/probe-check")
+    def probe_check(request: Request) -> dict[str, Any]:
+        return {"probe": request.headers.get("x-sharpit-probe")}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    wiring.suspended_hooks.add(capture_mod.HOOK_CAPTURE_MIDDLEWARE)
+
+    client = TestClient(app)
+    resp = client.get("/probe-check", headers={"X-Sharpit-Probe": "forged-client-value"})
+    assert resp.status_code == 200
+    assert resp.json() == {"probe": None}
+
+
+def test_route_template_non_attribute_error_still_records_exchange_and_journal(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    app = FastAPI()
+
+    @app.get("/items/{item_id}")
+    def get_item(item_id: int):
+        return {"item_id": item_id}
+
+    handle = install(app, enabled="ON", show_banner=False)
+    monkeypatch.setattr(capture_mod, "_route_template", _explode("route template lookup failed"))
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        resp = client.get("/items/42")
+        assert resp.status_code == 200
+        assert resp.json() == {"item_id": 42}
+
+    buffer = _buffer(handle)
+    rows = buffer.rows()
+    assert len(rows) == 1
+    assert rows[0]["status"] == 200
+
+    journal = handle.context.capture.journal
+    assert journal is not None
+    events = [e for e in journal.tail(10) if e["type"] == "http"]
+    assert len(events) == 1
+    assert events[0]["status"] == 200
+
+    warnings = _warnings(caplog)
+    assert any("request end" in w and "RuntimeError" in w for w in warnings)
+
+
+def test_exception_store_record_failure_still_records_exchange_and_journal_and_cleans_up(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    app = FastAPI()
+
+    @app.get("/api/crash")
+    def crash():
+        raise ValueError("endpoint blew up")
+
+    handle = install(app, enabled="ON", show_banner=False)
+    store = handle.context.capture.exceptions
+    assert store is not None
+
+    forgotten_ids: list[str] = []
+    real_forget = store.forget_request
+
+    def track_forget(request_id: str) -> None:
+        forgotten_ids.append(request_id)
+        real_forget(request_id)
+
+    monkeypatch.setattr(store, "record", _explode("exception store record failed"))
+    monkeypatch.setattr(store, "forget_request", track_forget)
+
+    client = TestClient(app)
+    with caplog.at_level(logging.WARNING, logger="sharpit"), pytest.raises(ValueError, match="endpoint blew up"):
+        client.get("/api/crash")
+
+    buffer = _buffer(handle)
+    rows = buffer.rows()
+    assert len(rows) == 1
+    assert rows[0]["status"] == 500
+
+    journal = handle.context.capture.journal
+    assert journal is not None
+    events = [e for e in journal.tail(10) if e["type"] == "http"]
+    assert len(events) == 1
+    assert events[0]["status"] == 500
+
+    assert len(forgotten_ids) == 1
+    warnings = _warnings(caplog)
+    assert any("request end" in w and "RuntimeError" in w for w in warnings)
+
+
 def test_a_capture_clock_failure_on_the_last_chunk_still_serves_the_response(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
@@ -625,11 +755,15 @@ def test_a_capture_clock_failure_on_the_last_chunk_still_serves_the_response(
             raise RuntimeError("secret-send-message")
         return time.perf_counter_ns()
 
+    class _TimeProxy:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(time, name)
+
     @app.get("/download")
     def download():
-        monkeypatch.setattr(
-            capture_mod, "time", SimpleNamespace(perf_counter_ns=failing_once, time_ns=time.time_ns)
-        )  # after the request start: only the response stamp can fail
+        proxy = _TimeProxy()
+        proxy.perf_counter_ns = failing_once  # type: ignore[method-assign]
+        monkeypatch.setattr(capture_mod, "time", proxy)
         return Response(content="complete", status_code=200, media_type="text/plain")
 
     handle = install(app, enabled="ON", show_banner=False)
@@ -698,8 +832,7 @@ def test_streams_the_full_pdf_despite_malformed_metadata_and_repository_failures
     async def stream_all() -> dict[str, list[Message]]:
         answers: dict[str, list[Message]] = {}
         for anomaly in ("normal", "metadata", "repository"):
-            answers[anomaly] = []
-            await _serve(app, _scope(f"/api/recording-stream/{anomaly}"), answers[anomaly])
+            answers[anomaly] = await _run(None, app, scope=_scope(f"/api/recording-stream/{anomaly}"), wrap=False)
         return answers
 
     with caplog.at_level(logging.WARNING, logger="sharpit"):
