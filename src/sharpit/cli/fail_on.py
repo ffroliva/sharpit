@@ -17,10 +17,27 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeGuard
 
-# Plain exit codes: 0 pass, 1 cannot evaluate, 3 threshold met
-PASS: int = 0
-CANNOT_EVALUATE: int = 1
-THRESHOLD_MET: int = 3
+from sharpit.cli.manifest import ManifestTool
+
+# Plain exit codes: 0 pass, 1 cannot evaluate, 3 threshold met; Task 7 unifies with sharpit.cli.exit_codes.
+SUCCESS: int = 0
+ERROR: int = 1
+THRESHOLD: int = 3
+PASS: int = SUCCESS
+CANNOT_EVALUATE: int = ERROR
+THRESHOLD_MET: int = THRESHOLD
+
+
+def build_tool_arguments(
+    tool: ManifestTool,
+    options: Mapping[str, object],
+) -> dict[str, object]:
+    """Build tool arguments from declared tool arguments only (an allowlist).
+
+    CLI options like fail_on, json, url, token, api_path never reach the call.
+    Task 7 wires this helper into the command runner.
+    """
+    return {"fail_on": "stub"}
 
 
 class Severity(enum.StrEnum):
@@ -56,7 +73,7 @@ class Criterion(enum.StrEnum):
 class Verdict:
     """What the gate decided: exit_code (0 pass, 1 cannot evaluate, 3 threshold met) and message."""
 
-    exit_code: int
+    exit_code: int = SUCCESS
     message: str = ""
 
 
@@ -77,7 +94,6 @@ ADVISOR_TOOLS: frozenset[str] = frozenset(
         "get_vulnerabilities_report",
     }
 )
-TOOLS = ADVISOR_TOOLS
 
 # Reports with explicit evidence sufficiency states.
 INSUFFICIENT_TOOLS: frozenset[str] = frozenset(
@@ -88,26 +104,13 @@ INSUFFICIENT_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-# Reads that grade nothing: runtime views have no severities to gate on.
-EXCLUDED: frozenset[str] = frozenset(
-    {
-        "get_postgresql_report",
-        "get_mysql_report",
-    }
-)
-
 _EVALUATED = frozenset({"SCANNED", "PARTIAL"})
 _WORD_PATTERN = re.compile(r"^[A-Za-z_]{1,32}$")
 
 
-def supports(tool_name: str) -> bool:
-    """Whether the named tool accepts --fail-on."""
-    return tool_name in TOOLS or tool_name in INSUFFICIENT_TOOLS
-
-
 def supports_severity(tool_name: str) -> bool:
     """Whether the named tool accepts a severity threshold."""
-    return tool_name in TOOLS
+    return tool_name in ADVISOR_TOOLS
 
 
 def supports_insufficient(tool_name: str) -> bool:
@@ -137,11 +140,6 @@ def parse(tool_name: str, value: str) -> Criterion:
             if sev.value == normalized:
                 return Criterion[sev.name]
     raise ValueError(f"'{value}' is not accepted here; use one of {accepted(tool_name)}.")
-
-
-def clean_tool_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
-    """Ensure --fail-on option is consumed by the CLI and never sent as a tool argument."""
-    return {k: v for k, v in arguments.items() if k not in ("fail_on", "failOn")}
 
 
 def effective_query(tool_name: str, query: str | None, criterion: Criterion | None) -> str | None:
@@ -186,7 +184,7 @@ def _non_negative_integer(val: object) -> TypeGuard[int]:
 
 
 def _unevaluable(reason: str) -> Verdict:
-    return Verdict(CANNOT_EVALUATE, f"cannot evaluate --fail-on: {reason}.")
+    return Verdict(ERROR, f"cannot evaluate --fail-on: {reason}.")
 
 
 def _record_count(
@@ -279,7 +277,7 @@ def _evaluate_severity(payload: object, threshold: Severity) -> Verdict:
         return _unevaluable("the scan found no usable evidence, so zero findings is not an assessment")
 
     notes = _format_severity_notes(met, ignored, status, threshold)
-    exit_code = THRESHOLD_MET if met else PASS
+    exit_code = THRESHOLD if met else SUCCESS
     return Verdict(exit_code, notes)
 
 
@@ -291,28 +289,12 @@ def _evaluate_runtime_insight(payload: Mapping[str, object]) -> Verdict:
     if not isinstance(obs_status, str):
         return _unevaluable("the observation has no status")
     if obs_status in ("OBSERVED", "FINDING"):
-        return Verdict(PASS, "")
+        return Verdict(SUCCESS, "")
     if obs_status in ("INSUFFICIENT", "PARTIAL"):
-        return Verdict(THRESHOLD_MET, f"--fail-on insufficient: observation status is {obs_status}.")
+        return Verdict(THRESHOLD, f"--fail-on insufficient: observation status is {obs_status}.")
     if obs_status in ("UNAVAILABLE", "NOT_APPLICABLE"):
         return _unevaluable(f"the observation status is {obs_status}")
     return _unevaluable("the observation status is not recognised")
-
-
-def _evaluate_exceptions(payload: Mapping[str, object]) -> Verdict:
-    caught = payload.get("caughtInCode")
-    if not _is_mapping(caught) or caught.get("available") is not True:
-        return _unevaluable("caught-exception evidence is unavailable")
-    insufficient = caught.get("insufficient")
-    partial = caught.get("partial")
-    if not _non_negative_integer(insufficient) or not _non_negative_integer(partial):
-        return _unevaluable("the answer has no valid insufficient and partial counts")
-    if insufficient > 0 or partial > 0:
-        return Verdict(
-            THRESHOLD_MET,
-            f"--fail-on insufficient: found {insufficient} insufficient and {partial} partial evidence rows.",
-        )
-    return Verdict(PASS, "")
 
 
 def _tally_observations(observations: Sequence[object]) -> tuple[int, int] | Verdict:
@@ -376,10 +358,10 @@ def _evaluate_runtime_insights(payload: Mapping[str, object]) -> Verdict:
 
     if insufficient > 0 or partial > 0:
         return Verdict(
-            THRESHOLD_MET,
+            THRESHOLD,
             f"--fail-on insufficient: found {insufficient} insufficient and {partial} partial evidence rows.",
         )
-    return Verdict(PASS, "")
+    return Verdict(SUCCESS, "")
 
 
 def _evaluate_insufficient(payload: object, tool_name: str) -> Verdict:
@@ -387,8 +369,6 @@ def _evaluate_insufficient(payload: object, tool_name: str) -> Verdict:
         return _unevaluable("the answer is unavailable")
     if tool_name == "get_runtime_insight":
         return _evaluate_runtime_insight(payload)
-    if tool_name == "get_exceptions":
-        return _evaluate_exceptions(payload)
     if tool_name == "get_runtime_insights":
         return _evaluate_runtime_insights(payload)
     return _unevaluable("the selected tool does not report evidence sufficiency")

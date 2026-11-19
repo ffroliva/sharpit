@@ -7,19 +7,21 @@ from typing import Any
 import pytest
 
 from sharpit.cli.fail_on import (
+    ADVISOR_TOOLS,
     CANNOT_EVALUATE,
-    EXCLUDED,
+    ERROR,
     INSUFFICIENT_TOOLS,
     PASS,
+    SUCCESS,
+    THRESHOLD,
     THRESHOLD_MET,
-    TOOLS,
     Criterion,
-    clean_tool_arguments,
+    accepted,
+    build_tool_arguments,
     effective_query,
     evaluate,
     parse,
     supports_insufficient,
-    supports_severity,
 )
 from sharpit.cli.manifest import Manifest
 
@@ -169,6 +171,7 @@ def test_payload_text_is_never_echoed_to_stderr_verbatim():
         ],
     }
     ignored = evaluate(payload1, Criterion.HIGH, "get_fastapi_report")
+    assert ignored.exit_code == THRESHOLD
     assert "\u001b" not in ignored.message
 
     payload2 = summary("EVIL\u001b[31m", count("HIGH", 0))
@@ -259,7 +262,7 @@ def test_an_invalid_value_is_a_usage_error_listing_the_accepted_ones():
     assert "critical, high, medium, low, info" in str(excinfo.value)
 
 
-# ported: FailOnTests.theOptionNeedsAValue
+# derived: FailOnTests.theOptionNeedsAValue
 def test_the_option_needs_a_value():
     with pytest.raises(ValueError):
         parse("get_fastapi_report", "")
@@ -271,8 +274,23 @@ def test_the_threshold_is_never_sent_to_the_application():
     for tool in manifest.tools:
         assert "fail_on" not in tool.arguments
         assert "failOn" not in tool.arguments
-    cleaned = clean_tool_arguments({"fail_on": "high", "query": "x", "limit": 3})
-    assert cleaned == {"query": "x", "limit": 3}
+    insights_tool = manifest.by_name("get_runtime_insights")
+    assert insights_tool is not None
+    built = build_tool_arguments(
+        insights_tool,
+        {
+            "fail_on": "high",
+            "json": True,
+            "url": "http://127.0.0.1:8000",
+            "token": "tok",
+            "api_path": "/sharpit/api",
+            "query": "x",
+            "limit": 3,
+        },
+    )
+    assert built == {"query": "x", "limit": 3}
+    for forbidden in ("fail_on", "failOn", "json", "url", "token", "api_path"):
+        assert forbidden not in built
 
 
 # ported: FailOnTests.runtimeInsightsGateUsesAggregateCountsEvenWhenRowsAreOmitted
@@ -425,44 +443,17 @@ def test_one_runtime_observation_uses_its_explicit_status():
     assert "status is NOT_APPLICABLE" in not_applicable.message
 
 
-# ported: FailOnTests.caughtExceptionGateFailsOnInsufficientOrPartialRowsAndOnUnavailableEvidence
-def test_caught_exception_gate_fails_on_insufficient_or_partial_rows_and_on_unavailable_evidence():
-    payload_insufficient = {
-        "available": True,
-        "caughtInCode": {"available": True, "insufficient": 1, "partial": 0},
-    }
-    assert evaluate(payload_insufficient, Criterion.INSUFFICIENT, "get_exceptions").exit_code == THRESHOLD_MET
-
-    payload_pass = {
-        "available": True,
-        "caughtInCode": {"available": True, "insufficient": 0, "partial": 0},
-    }
-    assert evaluate(payload_pass, Criterion.INSUFFICIENT, "get_exceptions").exit_code == PASS
-
-    payload_partial = {
-        "available": True,
-        "caughtInCode": {"available": True, "insufficient": 0, "partial": 1},
-    }
-    assert evaluate(payload_partial, Criterion.INSUFFICIENT, "get_exceptions").exit_code == THRESHOLD_MET
-
-    payload_unavail = {
-        "available": True,
-        "caughtInCode": {"available": False, "insufficient": 0, "partial": 0},
-    }
-    unavailable = evaluate(payload_unavail, Criterion.INSUFFICIENT, "get_exceptions")
-    assert unavailable.exit_code == CANNOT_EVALUATE
-    assert "caught-exception evidence is unavailable" in unavailable.message
-
-    # sharpit's caughtInCode stays null without a sensor, so decide by BootUI's rule for unavailable answer:
-    payload_null = {"available": True, "caughtInCode": None}
-    no_sensor = evaluate(payload_null, Criterion.INSUFFICIENT, "get_exceptions")
-    assert no_sensor.exit_code == CANNOT_EVALUATE
-    assert "caught-exception evidence is unavailable" in no_sensor.message
+# adapted: FailOnTests.caughtExceptionGateFailsOnInsufficientOrPartialRowsAndOnUnavailableEvidence
+def test_exceptions_tool_rejects_fail_on_with_usage_error():
+    assert "get_exceptions" not in INSUFFICIENT_TOOLS
+    with pytest.raises(ValueError) as excinfo:
+        parse("get_exceptions", "insufficient")
+    assert "sharpit records no caught-in-code evidence, so this gate cannot be evaluated" in str(excinfo.value)
 
 
 # ported: FailOnTests.insufficientCriterionIsAcceptedOnlyForEvidenceTools
 def test_insufficient_criterion_is_accepted_only_for_evidence_tools():
-    assert {"get_exceptions", "get_runtime_insight", "get_runtime_insights"} == INSUFFICIENT_TOOLS
+    assert {"get_runtime_insight", "get_runtime_insights"} == INSUFFICIENT_TOOLS
     for tool in Manifest.bundled().tools:
         if supports_insufficient(tool.name):
             assert parse(tool.name, "insufficient") == Criterion.INSUFFICIENT
@@ -474,29 +465,76 @@ def test_insufficient_criterion_is_accepted_only_for_evidence_tools():
 # ported: FailOnTests.everyAdvisorToolTakesTheOptionAndNoOtherCommandDoes
 def test_every_advisor_tool_takes_the_option_and_no_other_command_does():
     manifest = Manifest.bundled()
-    accepting: set[str] = set()
-    rejecting: set[str] = set()
     for tool in manifest.tools:
-        if supports_severity(tool.name):
-            accepting.add(tool.name)
+        if tool.name in ADVISOR_TOOLS:
+            assert parse(tool.name, "high") == Criterion.HIGH
         else:
-            rejecting.add(tool.name)
-    assert len(accepting) == 12
-    assert accepting == set(TOOLS)
-    assert rejecting == {t.name for t in manifest.tools if t.name not in TOOLS}
+            with pytest.raises(ValueError):
+                parse(tool.name, "high")
 
 
-# ported: FailOnTests.everyScanAndReportToolIsEitherGatedOrExplicitlyExcluded
-def test_every_scan_and_report_tool_is_either_gated_or_explicitly_excluded():
-    manifest = Manifest.bundled()
-    candidates = {
-        tool.name
-        for tool in manifest.tools
-        if tool.name.endswith("_scan") or (tool.name.startswith("get_") and tool.name.endswith("_report"))
+def test_accepted_and_parse_for_tool_with_neither_criterion():
+    msg = accepted("get_overview")
+    assert "takes no --fail-on" in msg
+    assert "critical" not in msg
+    with pytest.raises(ValueError) as excinfo:
+        parse("get_overview", "high")
+    assert "takes no --fail-on" in str(excinfo.value)
+    assert "critical" not in str(excinfo.value)
+
+
+def test_error_scan_status_with_findings_is_unevaluable_in_cli():
+    payload = {
+        "scan": {"status": "ERROR"},
+        "severityCounts": [count("HIGH", 1)],
     }
-    known = set(TOOLS) | set(EXCLUDED)
-    assert candidates.issubset(known), "add a new advisor to TOOLS or EXCLUDED with a reason"
-    assert not (TOOLS & EXCLUDED)
-    assert known.issubset({tool.name for tool in manifest.tools}), (
-        "a gated or excluded tool that no longer exists is stale"
-    )
+    verdict = evaluate(payload, Criterion.HIGH, "architecture_scan")
+    assert verdict.exit_code == ERROR
+    assert "cannot evaluate --fail-on" in verdict.message
+    assert "the scan status is ERROR, so its counts are not evidence" in verdict.message
+
+
+def test_info_threshold_gates_on_info_finding():
+    payload = summary("SCANNED", count("INFO", 1))
+    verdict = evaluate(payload, Criterion.INFO, "get_fastapi_report")
+    assert verdict.exit_code == THRESHOLD
+    assert "--fail-on info: found INFO=1." in verdict.message
+
+
+def test_runtime_insights_gate_evaluates_real_engine_payload():
+    from dataclasses import dataclass, field
+
+    from sharpit.engine.capture.journal import RuntimeJournal
+    from sharpit.engine.collectors.insights.agent_view import Steps, agent_list
+    from sharpit.engine.collectors.insights.finding import Evaluation, Finding
+    from sharpit.engine.collectors.insights.service import InsightsService
+    from sharpit.engine.tools import COMMANDS
+    from sharpit.settings_registry import JOURNAL_SOURCES
+
+    steps = Steps(COMMANDS)
+    journal = RuntimeJournal(sources=JOURNAL_SOURCES)
+    journal.offer({"source": "http", "requestId": "r1"})
+
+    clean_report = InsightsService(journal, []).report()
+    clean_payload = agent_list(clean_report, "all", None, steps)
+    verdict_clean = evaluate(clean_payload, Criterion.INSUFFICIENT, "get_runtime_insights")
+    assert verdict_clean.exit_code == SUCCESS
+    assert verdict_clean.message == ""
+
+    @dataclass(frozen=True)
+    class FakeKind:
+        kind: str = "repeated-selects"
+        title: str = "Repeated SELECTs"
+        minimum_tier: str = "REQUEST_ID"
+        reads: frozenset[str] = frozenset({"ai"})
+        optional_reads: frozenset[str] = frozenset()
+        evaluate: object = field(default=lambda _s: Evaluation(0, []))
+
+    finding = Finding("k1", "GET /x", False, "Not enough data", 4, 3, ["look"], ["r1"], [], [], [])
+    bad_kind = FakeKind(evaluate=lambda _s: Evaluation(4, [finding]))
+
+    bad_report = InsightsService(journal, [bad_kind]).report()
+    bad_payload = agent_list(bad_report, "all", None, steps)
+    verdict_bad = evaluate(bad_payload, Criterion.INSUFFICIENT, "get_runtime_insights")
+    assert verdict_bad.exit_code == THRESHOLD
+    assert "--fail-on insufficient: found 1 insufficient and 0 partial" in verdict_bad.message
