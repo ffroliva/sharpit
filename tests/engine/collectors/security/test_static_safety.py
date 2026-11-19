@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 import sys
 import time
 from pathlib import Path
@@ -19,6 +20,13 @@ from sharpit.engine.collectors.security.static_analysis import (
     State,
     StaticSecurityAnalysisDetector,
     strip_yaml_comments,
+)
+from sharpit.engine.collectors.security.static_analysis_files import (
+    _is_outside_root,
+    _is_symlink_or_junction,
+    contains_symbolic_link,
+    read_bounded,
+    read_text,
 )
 from sharpit.engine.spi import SecurityFacts, SecurityModel
 
@@ -117,7 +125,9 @@ def test_oversized_file_and_workflow_limits(tmp_path: Path) -> None:
     start = time.perf_counter()
     cleaned = strip_yaml_comments(adversarial)
     elapsed = time.perf_counter() - start
-    assert elapsed < 1.0
+    coverage = sys.modules.get("coverage")
+    if coverage is None or coverage.Coverage.current() is None:
+        assert elapsed < 1.0
     assert len(cleaned) > 0
 
     # 3. 65 workflows -> INDETERMINATE
@@ -493,6 +503,78 @@ def test_not_fastapi_constant_in_spi() -> None:
 
     assert hasattr(spi, "NOT_FASTAPI")
     assert spi.NOT_FASTAPI == "FastAPI security dependencies are not available: the app is not a FastAPI app"
+
+
+def test_static_analysis_files_safe_io_boundaries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Safe bounded file and text operations refuse climbs, directories, unreadable files and bad UTF-8."""
+    root = tmp_path / "trusted_root"
+    outside = tmp_path / "outside_root"
+    _write(outside / "secret.txt", "secret")
+    _write(root / "regular.txt", "valid content")
+    sub_dir = root / "sub_dir"
+    sub_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Climbing outside root
+    assert contains_symbolic_link(root, outside / "secret.txt")
+    with pytest.raises(ValueError, match="Symlink or junction detected"):
+        read_bounded(root, outside / "secret.txt")
+
+    # 2. Non-existent file
+    with pytest.raises(ValueError, match="Cannot stat file"):
+        read_bounded(root, root / "missing.txt")
+
+    # 3. Directory instead of regular file
+    with pytest.raises(ValueError, match="File is not a regular file"):
+        read_bounded(root, sub_dir)
+
+    # 4. Open failure (OSError)
+    def failing_open(*args: Any, **kwargs: Any) -> Any:
+        raise PermissionError("Access denied")
+
+    monkeypatch.setattr(os, "open", failing_open)
+    with pytest.raises(ValueError, match="Cannot open file"):
+        read_bounded(root, root / "regular.txt")
+    monkeypatch.undo()
+
+    # 5. Non-UTF-8 bytes
+    bad_utf8 = root / "bad.txt"
+    bad_utf8.write_bytes(b"\xff\xfe\x00\x00")
+    with pytest.raises(ValueError, match="File is not valid UTF-8"):
+        read_text(root, bad_utf8)
+
+    # 6. Escaped quotes in strip_yaml_comments
+    sample = "title: \"a \\\" b\"\nmsg: 'c '' d # not comment'\n# comment\n"
+    assert strip_yaml_comments(sample) == "title: \"a \\\" b\"\nmsg: 'c '' d # not comment'\n\n"
+
+    # 7. _is_symlink_or_junction on OSError returns True
+    def failing_lstat(path: Any) -> Any:
+        raise OSError("Simulated stat error")
+
+    monkeypatch.setattr(os, "lstat", failing_lstat)
+    assert _is_symlink_or_junction(root / "regular.txt")
+    monkeypatch.undo()
+
+    # 8. Path on different drive returns True
+    assert _is_outside_root(Path("C:/a"), Path("D:/b"))
+    assert contains_symbolic_link(Path("C:/a"), Path("D:/b"))
+
+    # 9. File modified between stat and open (samestat returns False)
+    monkeypatch.setattr(os.path, "samestat", lambda s1, s2: False)
+    with pytest.raises(ValueError, match="File changed or is not regular"):
+        read_bounded(root, root / "regular.txt")
+    monkeypatch.undo()
+
+    # 10. File reading exceeds MAX_FILE_BYTES
+    monkeypatch.setattr(os, "read", lambda fd, sz: b"x" * 2_000_000)
+    with pytest.raises(ValueError, match="File size exceeds inspection limit"):
+        read_bounded(root, root / "regular.txt")
+    monkeypatch.undo()
+
+    # 11. Symlink detected by lstat
+    monkeypatch.setattr(os, "lstat", lambda p: os.stat_result((stat.S_IFLNK, 0, 0, 0, 0, 0, 10, 0, 0, 0)))
+    assert _is_symlink_or_junction(root / "regular.txt")
+    with pytest.raises(ValueError, match="Symlink or junction detected"):
+        read_bounded(root, root / "regular.txt")
 
 
 # Helpers for test stubs
