@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Sequence
 
 _FNV_BASIS, _FNV_PRIME, _MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
 
 
+@functools.lru_cache(maxsize=1024)
 def stable_hash(value: str | None) -> str:
     """``InsightText.stableHash``: FNV-1a over UTF-16 code units, the first ten hex digits."""
     code = _FNV_BASIS
     data = (value or "").encode("utf-16-le")
-    for i in range(0, len(data), 2):
-        code = ((code ^ int.from_bytes(data[i : i + 2], "little")) * _FNV_PRIME) & _MASK64
+    for u16 in memoryview(data).cast("H"):
+        code = ((code ^ u16) * _FNV_PRIME) & _MASK64
     return f"{code:016x}"[:10]
 
 

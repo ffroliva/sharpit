@@ -10,10 +10,9 @@ from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.collectors.insights.sql_readability import (
-    WRITE,
     event_call_site,
     event_duration,
-    is_unreadable_or_compound,
+    read_statement,
 )
 from sharpit.engine.collectors.insights.text import counted, millis, primary_call_site, stable_hash
 from sharpit.engine.sqltext import MASK
@@ -42,14 +41,6 @@ def not_applicable(snapshot: Snapshot) -> str | None:
     return ids_withheld(snapshot, "unbatched writes cannot be placed in a request")
 
 
-def _is_candidate_write(event: dict[str, object], statement: str) -> bool:
-    if event.get("provenance") != "EXECUTION" or event.get("failed") is True:
-        return False
-    if statement.lower().startswith("select"):
-        return False
-    return WRITE.match(statement) is not None
-
-
 def _batch_size(event: dict[str, object]) -> int | None:
     batch = event.get("batchSize")
     if isinstance(batch, int) and not isinstance(batch, bool) and batch >= 1:
@@ -61,10 +52,15 @@ def _request_writes(request: Request) -> tuple[dict[str, list[tuple[str, int, st
     per_request: dict[str, list[tuple[str, int, str]]] = {}
     unreadable = unknown_batch = 0
     for event in request.children["sql"]:
-        statement = event.get("sql")
-        if not isinstance(statement, str) or not _is_candidate_write(event, statement):
+        if event.get("provenance") != "EXECUTION" or event.get("failed") is True:
             continue
-        if is_unreadable_or_compound(statement):
+        statement = event.get("sql")
+        if not isinstance(statement, str):
+            continue
+        stmt = read_statement(statement)
+        if not stmt.is_write:
+            continue
+        if stmt.unreadable_or_compound:
             unreadable += 1
             continue
         batch = _batch_size(event)

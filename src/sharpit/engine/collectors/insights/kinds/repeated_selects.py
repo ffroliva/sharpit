@@ -13,7 +13,8 @@ from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.collectors.insights.sql_readability import (
     event_call_site,
     event_duration,
-    is_unreadable_or_compound,
+    event_start,
+    read_statement,
 )
 from sharpit.engine.collectors.insights.text import (
     HIGH_REPEAT_KEEP,
@@ -22,7 +23,6 @@ from sharpit.engine.collectors.insights.text import (
     counted,
     millis,
     primary_call_site,
-    stable_hash,
 )
 from sharpit.engine.sqltext import MASK
 
@@ -47,13 +47,27 @@ def not_applicable(snapshot: Snapshot) -> str | None:
     return ids_withheld(snapshot, "repeated SELECTs cannot be placed in a request")
 
 
-def _start(event: dict[str, object]) -> int:
-    completed, duration = event.get("completedNanos"), event.get("durationNanos")
-    return (
-        completed - duration
-        if isinstance(completed, int) and isinstance(duration, int) and completed >= 0 and duration >= 0
-        else 2**63 - 1
-    )
+def _record_repeat(
+    event: dict[str, object],
+    request_id: str,
+    counts: dict[str, list[tuple[str, int, str, str]]],
+    first: str | None,
+) -> tuple[str | None, int]:
+    sql = event.get("sql")
+    if not isinstance(sql, str):
+        return first or "", 0 if event.get("failed") is True else 1
+    stmt = read_statement(sql)
+    if first is None:
+        first = stmt.fingerprint
+    if event.get("failed") is True:
+        return first, 0
+    if stmt.unreadable_or_compound:
+        return first, 1
+    if stmt.is_select and stmt.fingerprint != first:
+        counts.setdefault(stmt.fingerprint, []).append(
+            (request_id, event_duration(event), event_call_site(event), stmt.normalized)
+        )
+    return first, 0
 
 
 def _request_repeats(request: Request) -> tuple[dict[str, list[tuple[str, int, str, str]]], int]:
@@ -62,32 +76,11 @@ def _request_repeats(request: Request) -> tuple[dict[str, list[tuple[str, int, s
     unread = 0
     events = request.children["sql"]
     if len(events) > 1:
-        events = sorted(events, key=_start)
+        events = sorted(events, key=event_start)
     for event in events:
-        if event.get("provenance") != "EXECUTION":
-            continue
-        sql = event.get("sql")
-        if first is None:
-            first = stable_hash(" ".join(sql.split())) if isinstance(sql, str) else ""
-        if event.get("failed") is True:
-            continue
-        if not isinstance(sql, str) or is_unreadable_or_compound(sql):
-            unread += 1
-            continue
-        if not sql.lower().startswith("select"):
-            continue
-        normalized = " ".join(sql.split())
-        fingerprint = stable_hash(normalized)
-        if fingerprint == first:
-            continue
-        counts.setdefault(fingerprint, []).append(
-            (
-                request.request_id,
-                event_duration(event),
-                event_call_site(event),
-                normalized,
-            )
-        )
+        if event.get("provenance") == "EXECUTION":
+            first, unread_event = _record_repeat(event, request.request_id, counts, first)
+            unread += unread_event
     return counts, unread
 
 
