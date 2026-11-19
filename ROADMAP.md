@@ -29,7 +29,7 @@ How each row is counted:
 - **Runtime insights:** sharpit registers all 28 of BootUI's insight kinds; 8 are implemented and 20 are not yet. A
   kind evaluates when it is implemented and every journal source it requires is one sharpit produces (all 8 do).
   BootUI counts the classes implementing `Observation`.
-- **Routes:** the BootUI 2.3.0 live goldens (`tests/parity/routes_23_status.json`): 96 routes, of which 30 are
+- **Routes:** the BootUI 2.3.0 live goldens (`tests/parity/routes_status.json`): 96 routes, of which 30 are
   Java-only; of the other 66, 5 match BootUI's shape, 28 are served with known differences and 33 are not built yet.
 
 ## The 8 insight kinds that evaluate in 0.6.0
