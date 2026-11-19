@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Guided agent playbooks and an AI agents guide ported from BootUI 2.4.0 (`skills/sharpit/references/playbooks/` and `website/docs/ai-agents.md`): application checkup, database efficiency, slow endpoint diagnosis, errors and hidden failures, verifying changes, and Python performance/memory. The skill and shipped plugin include playbooks with side-by-side MCP tools and `sharpit` CLI commands.
 - The `sharpit` command-line client (see below).
 - Runtime Insights implements `repeated-selects` and `unbatched-write-loop` with BootUI 2.4.0 thresholds and request counts.
 - Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only on the security scan action (panel, MCP and CLI `security scan`), never on reads.

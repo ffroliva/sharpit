@@ -17,6 +17,21 @@ sharpit is a Python port of [BootUI](https://github.com/jdubois/boot-ui), the Sp
 a console at `/sharpit` and a BootUI-compatible JSON API at `/sharpit/api` inside your own app. It is for **local
 development only**: it switches itself off unless it has a reason to be on, and it refuses non-loopback callers.
 
+## Playbooks
+
+For a guided investigation, load the [shared playbook contract](references/playbooks/README.md) and **one** guide:
+
+| User goal | Playbook |
+|---|---|
+| Assess the application; what should I fix first? | [Application checkup](references/playbooks/application-checkup.md) |
+| Reduce SQL work or investigate transactions | [Database efficiency](references/playbooks/database-efficiency.md) |
+| Explain a slow route | [Slow endpoint](references/playbooks/slow-endpoint.md) |
+| Diagnose exceptions or errors behind successful responses | [Errors and hidden failures](references/playbooks/errors-and-hidden-failures.md) |
+| Check that a fix ran and changed the intended behavior | [Verify my changes](references/playbooks/verify-my-changes.md) |
+| Investigate CPU, memory, thread growth, or event loop stalls | [Python performance and memory](references/playbooks/python-performance-and-memory.md) |
+
+These are instructions for the external coding agent, not new sharpit tools. Load only the playbook that matches the goal.
+
 ## Install
 
 Python 3.12+. Runtime dependencies are only `starlette` and `packaging`; FastAPI 0.115+ is the supported host.

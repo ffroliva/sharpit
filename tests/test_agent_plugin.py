@@ -28,6 +28,8 @@ CLAUDE_PLUGIN = PLUGIN / ".claude-plugin" / "plugin.json"
 MCP_JSON = PLUGIN / "mcp.json"
 CANONICAL_SKILL = ROOT / "skills" / "sharpit"
 SHIPPED_SKILL = PLUGIN / "skills" / "sharpit"
+CANONICAL_REFERENCES = CANONICAL_SKILL / "references"
+SHIPPED_REFERENCES = SHIPPED_SKILL / "references"
 LOOPBACK = {"127.0.0.1", "localhost"}
 
 
@@ -108,6 +110,12 @@ def test_mcp_config_holds_no_credentials(path: Path) -> None:
 
 def test_shipped_skill_matches_the_canonical_skill() -> None:
     assert files_under(SHIPPED_SKILL) == files_under(CANONICAL_SKILL)
+
+
+def test_shipped_references_tree_matches_the_canonical_references() -> None:
+    assert CANONICAL_REFERENCES.is_dir(), "missing skills/sharpit/references"
+    assert SHIPPED_REFERENCES.is_dir(), "missing plugins/sharpit/skills/sharpit/references"
+    assert files_under(SHIPPED_REFERENCES) == files_under(CANONICAL_REFERENCES)
 
 
 def test_plugin_ships_only_the_user_facing_skill() -> None:
