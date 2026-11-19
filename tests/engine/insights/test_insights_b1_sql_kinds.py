@@ -12,10 +12,22 @@ Row = dict[str, object]
 
 
 def sql(statement: str, completed: int = 20, duration: int = 1) -> Row:
-    return {"source": "sql", "sql": statement, "traceId": None, "thread": "MainThread", "durationNanos": duration,
-            "startedAt": completed-duration, "dataSource": None, "failed": False, "phase": None,
-            "completedNanos": completed, "codePathStamp": 0, "provenance": "EXECUTION", "batchSize": 1,
-            "callSite": "app.py:1"}
+    return {
+        "source": "sql",
+        "sql": statement,
+        "traceId": None,
+        "thread": "MainThread",
+        "durationNanos": duration,
+        "startedAt": completed - duration,
+        "dataSource": None,
+        "failed": False,
+        "phase": None,
+        "completedNanos": completed,
+        "codePathStamp": 0,
+        "provenance": "EXECUTION",
+        "batchSize": 1,
+        "callSite": "app.py:1",
+    }
 
 
 class Run:
@@ -37,10 +49,14 @@ class Run:
 
 # ported: RepeatedSelectsTests.aRepeatedSelectAfterAParentQueryIsReported
 
+
 def test_repeated_selects_report_repeated_shape_and_mask_secret_literals() -> None:
     run = Run()
     for _ in range(3):
-        run.request(sql("select id from orders"), *(sql("select id from items where api_token = 'secret-abc'") for _ in range(5)))
+        run.request(
+            sql("select id from orders"),
+            *(sql("select id from items where api_token = 'secret-abc'") for _ in range(5)),
+        )
     findings = run.findings("repeated-selects")
     assert len(findings) == 1
     assert findings[0]["status"] == "OBSERVED"
@@ -49,16 +65,23 @@ def test_repeated_selects_report_repeated_shape_and_mask_secret_literals() -> No
 
 # ported: RepeatedSelectsTests.sqlEventsAreSortedByTheirMonotonicStart
 
+
 def test_repeated_selects_order_events_by_monotonic_start_before_grouping() -> None:
     run = Run()
     # Journal order differs from execution order: parent starts before child queries.
-    run.request(sql("select id from orders", 50, 30), sql("select id from items", 30, 10),
-                sql("select id from items", 40, 10), sql("select id from items", 50, 10),
-                sql("select id from items", 60, 10), sql("select id from items", 70, 10))
+    run.request(
+        sql("select id from orders", 50, 30),
+        sql("select id from items", 30, 10),
+        sql("select id from items", 40, 10),
+        sql("select id from items", 50, 10),
+        sql("select id from items", 60, 10),
+        sql("select id from items", 70, 10),
+    )
     assert run.findings("repeated-selects")
 
 
 # ported: PagedWithoutOrderTests.anUnorderedPageIsReportedPerRoute
+
 
 def test_paged_without_order_reports_unordered_page_and_masks_literal() -> None:
     run = Run()
@@ -71,6 +94,7 @@ def test_paged_without_order_reports_unordered_page_and_masks_literal() -> None:
 
 
 # ported: PagedWithoutOrderTests.aSortedPageIsNotReported
+
 
 def test_paged_without_order_ignores_sorted_page() -> None:
     run = Run()
