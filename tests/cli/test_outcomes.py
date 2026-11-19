@@ -41,9 +41,10 @@ def result(status: int, payload=None) -> ToolResult:
 def test_foreign_403_is_an_error_not_a_refusal():
     # ported: CliContext.confirmBootUiAnswered
     client = FakeClient(catalog={"serverName": "other"})
+    answer = result(403, {"error": "forbidden"})
 
     with pytest.raises(ClientError, match="not a sharpit policy refusal"):
-        confirm_answered(client, result(403, {"error": "forbidden"}))
+        confirm_answered(client, answer)
 
 
 def test_503_is_disabled_only_when_sharpit_catalog_says_disabled():
@@ -60,8 +61,9 @@ def test_503_is_disabled_only_when_sharpit_catalog_says_disabled():
 
 def test_catalog_outage_does_not_confirm_a_503_refusal():
     # ported: CliContext.confirmBootUiAnswered
+    client, answer = FakeClient(error=ClientError("unreachable")), result(503)
     with pytest.raises(ClientError, match="503"):
-        confirm_answered(FakeClient(error=ClientError("unreachable")), result(503))
+        confirm_answered(client, answer)
 
 
 def test_read_only_panel_refusal_preserves_reason_without_token():
@@ -130,16 +132,17 @@ def test_refusal_message_redacts_token_in_server_body():
 @pytest.mark.parametrize("catalog", [None, {}, {"status": "UP"}])
 def test_invalid_catalog_is_not_trusted(catalog):
     # ported: BootUiClientTests.rejectsDocumentsThatAreNotBootUiCatalogs
+    client, answer = FakeClient(catalog=catalog), result(403, {"error": "denied"})
     with pytest.raises(ClientError, match="not a sharpit catalog"):
-        confirm_answered(FakeClient(catalog=catalog), result(403, {"error": "denied"}))
+        confirm_answered(client, answer)
 
 
 def test_disabled_catalog_must_have_no_tools():
     # ported: BootUiCliTests.anInconsistentDisabledCatalogCannotTurnAnOutageIntoAPolicySkip
+    client = FakeClient(catalog={"serverName": "sharpit", "enabled": False, "tools": [{"name": "x"}]})
+    answer = result(503)
     with pytest.raises(ClientError, match="not a sharpit catalog"):
-        confirm_answered(
-            FakeClient(catalog={"serverName": "sharpit", "enabled": False, "tools": [{"name": "x"}]}), result(503)
-        )
+        confirm_answered(client, answer)
 
 
 def test_confirmed_503_keeps_server_error_text_and_status():
@@ -154,10 +157,10 @@ def test_confirmed_503_keeps_server_error_text_and_status():
 
 def test_catalog_error_keeps_original_http_status_and_catalog_message():
     # ported: BootUiCliTests.anUnrelatedUnavailableServerIsAnErrorNotAConfigurationSkip
+    client = FakeClient(error=ClientError("catalog says unavailable"))
+    answer = result(503, {"error": "database down"})
     with pytest.raises(ClientError, match="503") as exc:
-        confirm_answered(
-            FakeClient(error=ClientError("catalog says unavailable")), result(503, {"error": "database down"})
-        )
+        confirm_answered(client, answer)
     assert "catalog says unavailable" in str(exc.value)
 
 
