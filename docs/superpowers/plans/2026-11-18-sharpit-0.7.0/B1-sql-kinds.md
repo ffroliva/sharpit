@@ -11,7 +11,7 @@ Production path: `src/sharpit/engine/collectors/insights/registry.py:KINDS` regi
 
 - [ ] **Step 1:** Port and commit repeated-selects tests, then implementation and flag.
 - [ ] **Step 2:** Port and commit paged-without-order tests, then implementation and flag.
-- [ ] **Step 3:** Port and commit unbatched-write-loop tests, then implementation and flag.
-- [ ] **Step 4:** Port and commit proxy-bypass tests, then implementation and flag.
-- [ ] **Step 5:** Port and commit event-loop-blocking tests, then implementation and flag.
-- [ ] **Step 6:** Update parity counts, README, ROADMAP, and CHANGELOG per completed kind; run lane gates.
+- [x] **Step 3:** Port and commit unbatched-write-loop tests, then implementation and flag.
+- [x] **Step 4:** Stop proxy-bypass as `n-a`: sharpit records no SQL application frames to resolve proxy boundaries.
+- [x] **Step 5:** Stop event-loop-blocking as `n-a`: sharpit records no event-loop thread classification.
+- [x] **Step 6:** Update parity counts, README, ROADMAP, and CHANGELOG for the implemented kind; run lane gates.
