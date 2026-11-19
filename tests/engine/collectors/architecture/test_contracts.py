@@ -71,3 +71,16 @@ def test_pyproject_not_read_when_package_entry_not_on_sys_path(tmp_path: Path, m
 
     assert [c.name for c in contracts] == []
     assert opened == []
+
+
+def test_pyproject_refuses_dist_packages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    holder = tmp_path / "dist-packages"
+    _write(holder / "pyproject.toml", CONTRACT.format(name="refused"))
+    pkg = holder / "arch_pp_app"
+    _write(pkg / "__init__.py")
+    opened = _spy_open(monkeypatch)
+
+    contracts, _ = read_contracts(pkg, [str(holder)])
+
+    assert [c.name for c in contracts] == []
+    assert opened == []

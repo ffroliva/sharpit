@@ -31,9 +31,16 @@ from sharpit.engine.collectors.security import (
     rules_source,
     rules_transport,
 )
+from sharpit.engine.collectors.security.static_analysis import (
+    LIMITATION_TEXT,
+    Inspection,
+    State,
+    StaticSecurityAnalysisDetector,
+    StaticSecurityAnalysisRule,
+)
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
-from sharpit.engine.spi import SecurityChain, SecurityFacts, SecurityModel
+from sharpit.engine.spi import NOT_FASTAPI, SecurityChain, SecurityFacts, SecurityModel
 from sharpit.settings import SharpitSettings
 
 ANALYZER = "sharpit FastAPI Security Advisor"
@@ -41,6 +48,11 @@ DISCLAIMER = (
     "Heuristic FastAPI security rules run against the host application's middleware stacks, security dependencies"
     " and source only. These checks are review prompts, not verdicts, and should be validated against the"
     " application's threat model."
+)
+STATIC_ANALYZER = "sharpit Static Security Advisor"
+STATIC_DISCLAIMER = (
+    "This limited check inspects local analyzer configuration only. It does not assess runtime security or verify"
+    " that a configured analyzer ran."
 )
 NOT_SCANNED_MESSAGE = (
     "Security Advisor has not run yet. Run security checks in the panel, or call security_scan (sharpit security"
@@ -98,16 +110,77 @@ def _limitations(inputs: Inputs) -> list[str]:
 def _message(chains: int, limitations: list[str]) -> str:
     message = f"Security Advisor completed against {chains} middleware stack" + ("." if chains == 1 else "s.")
     if limitations:
-        message += " Some configuration remains unobserved: " + "; ".join(limitations) + "." + PARTIAL_TAIL
+        tail = "; ".join(limitations)
+        if not tail.endswith("."):
+            tail += "."
+        message += " Some configuration remains unobserved: " + tail + PARTIAL_TAIL
     return message
+
+
+_STATIC_ONLY: dict[State, tuple[str | None, tuple[str, ...], tuple[Finding, ...]]] = {
+    # message, rules evaluated, findings, per inspection state, when no FastAPI security surface was read
+    State.NOT_APPLICABLE: (None, (), ()),
+    State.CONFIGURED: (
+        "A recognized static analyzer is declared locally, but no FastAPI application was found to inspect."
+        " sharpit does not verify analyzer execution.",
+        (StaticSecurityAnalysisRule.RULE_ID,),
+        (),
+    ),
+    State.NOT_CONFIGURED: (
+        "No FastAPI application was found to inspect. No local static analyzer declaration was found.",
+        (StaticSecurityAnalysisRule.RULE_ID,),
+        (StaticSecurityAnalysisRule.finding(),),
+    ),
+    State.INDETERMINATE: (
+        "No FastAPI application was found to inspect, and local static analyzer declarations could not be assessed.",
+        (),
+        (),
+    ),
+}
+
+
+def _non_present_model_evaluation(model: SecurityModel, inspection: Inspection) -> Evaluation:
+    proxy_unavailable = not model.limitations or list(model.limitations) == [NOT_FASTAPI]
+    analyzer = STATIC_ANALYZER if proxy_unavailable else None
+    disclaimer = STATIC_DISCLAIMER if proxy_unavailable else None
+
+    base_message = (
+        DISABLED_MESSAGE
+        if proxy_unavailable
+        else "FastAPI security configuration could not be read: " + "; ".join(model.limitations)
+    )
+
+    ev = evidence(limitations=list(model.limitations) or None)
+    if inspection.state == State.INDETERMINATE:
+        ev = StaticSecurityAnalysisRule.add_assessment_limitation(ev)
+
+    static_message, evaluated, findings = _STATIC_ONLY[inspection.state]
+    status = "DISABLED" if inspection.state == State.NOT_APPLICABLE else "PARTIAL"
+    if static_message is None:
+        msg = base_message
+    else:
+        msg = static_message if proxy_unavailable else f"{base_message} {static_message}"
+
+    return Evaluation(
+        status,
+        msg,
+        evaluated,
+        findings,
+        ev,
+        _Done(()),
+        analyzer=analyzer,
+        disclaimer=disclaimer,
+    )
 
 
 def scan_evaluation(inputs: Inputs) -> Evaluation:
     """Every rule over one scan's inputs (BootUI ``SecurityScanner.scan``): a rule that raises is an analysis error."""
+    detector = StaticSecurityAnalysisDetector()
+    inspection = detector.inspect(inputs.project_root)
     model = inputs.model
     if not model.present:
-        limitations = list(model.limitations) or None
-        return Evaluation("DISABLED", DISABLED_MESSAGE, (), (), evidence(limitations=limitations), _Done(()))
+        return _non_present_model_evaluation(model, inspection)
+
     limitations = _limitations(inputs)
     evaluated: list[str] = []
     findings: list[Finding] = []
@@ -126,6 +199,14 @@ def scan_evaluation(inputs: Inputs) -> Evaluation:
             Finding(definition.id, ADVISOR, definition.severity, v.target, v.message, identity=v.identity)
             for v in found
         )
+
+    if inspection.evaluated:
+        evaluated.append(StaticSecurityAnalysisRule.RULE_ID)
+    if inspection.state == State.NOT_CONFIGURED:
+        findings.append(StaticSecurityAnalysisRule.finding())
+    elif inspection.state == State.INDETERMINATE:
+        limitations.append(LIMITATION_TEXT)
+
     if errors:
         limitations.append(f"{len(errors)} rule(s) could not be evaluated.")
     status = "PARTIAL" if limitations else "SCANNED"
@@ -158,10 +239,12 @@ def build_inputs(
     reasons: list[str] = []
     root = appsource.resolve_app_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
     index = appsource.build_index(root) if root is not None else None  # dropped with the inputs after the scan
-    return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons))
+    project_root = appsource.find_project_root(root) if root is not None else None
+    return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons), project_root=project_root)
 
 
 SPEC = ScanSpec("security", ANALYZER, DISCLAIMER, NOT_SCANNED_MESSAGE)
+RULE_DEFINITIONS = (*[r.definition for r in RULES], StaticSecurityAnalysisRule.rule_definition())
 
 
 class SecurityService(AdvisorScan):
@@ -178,7 +261,7 @@ class SecurityService(AdvisorScan):
     ) -> None:
         super().__init__(
             SPEC,
-            [r.definition for r in RULES],
+            RULE_DEFINITIONS,
             lambda _request: scan_evaluation(inputs()),
             scope=_scope,
             extra_sections=_extra,
