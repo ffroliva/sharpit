@@ -1,0 +1,9 @@
+cli:fail-on-severity	matched	evaluate severity thresholds (critical..info) against severityCounts, exiting 3 or 0; ported from FailOn.evaluateSeverity
+cli:fail-on-insufficient	matched	evaluate insufficient and partial evidence on runtime insights and exceptions, exiting 3, 0 or 1; ported from FailOn.evaluateInsufficient
+cli:fail-on-partial-note	matched	PARTIAL scan without findings passes (exit 0) with stderr note that absence is not proof
+cli:fail-on-tools	matched	advisor scans/reports gated; runtime insights and exceptions take insufficient; others excluded or rejected
+cli:fail-on-query-default	matched	insights list defaults to query=all when --fail-on insufficient is active and query omitted
+cli:fail-on-exceptions-sensor	matched	caughtInCode null without sensor evaluates as unavailable (exit 1), following BootUI rule
+cli:fail-on-refused	n-a	HTTP refusal exit 2 is tested and handled in Task 3 outcomes and Task 7 CLI runner
+cli:fail-on-failed-call	n-a	HTTP 500 error exit 1 without gate processing is handled in Task 3/7
+cli:fail-on-print-before-gate	n-a	stdout payload emission before gate evaluation is handled in Task 7 render pipeline

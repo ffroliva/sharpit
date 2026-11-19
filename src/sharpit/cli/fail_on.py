@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import enum
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TypeGuard
 
 # Plain exit codes: 0 pass, 1 cannot evaluate, 3 threshold met
 PASS: int = 0
@@ -60,7 +61,22 @@ class Verdict:
 
 
 # Every advisor scan and cached report in sharpit, which share the compact severity summary.
-ADVISOR_TOOLS: frozenset[str] = frozenset()
+ADVISOR_TOOLS: frozenset[str] = frozenset(
+    {
+        "architecture_scan",
+        "get_architecture_report",
+        "database_advisor_scan",
+        "get_database_advisor_report",
+        "fastapi_scan",
+        "get_fastapi_report",
+        "rest_api_scan",
+        "get_rest_api_report",
+        "security_scan",
+        "get_security_report",
+        "vulnerabilities_scan",
+        "get_vulnerabilities_report",
+    }
+)
 TOOLS = ADVISOR_TOOLS
 
 # Reports with explicit evidence sufficiency states.
@@ -113,13 +129,19 @@ def accepted(tool_name: str) -> str:
 
 def parse(tool_name: str, value: str) -> Criterion:
     """Reads a --fail-on value allowed for the selected tool, ignoring case."""
-    # Stub: return Criterion.INFO without validating to fail red check on assertion
-    return Criterion.INFO
+    normalized = value.strip().upper()
+    if normalized == "INSUFFICIENT" and supports_insufficient(tool_name):
+        return Criterion.INSUFFICIENT
+    if supports_severity(tool_name):
+        for sev in Severity:
+            if sev.value == normalized:
+                return Criterion[sev.name]
+    raise ValueError(f"'{value}' is not accepted here; use one of {accepted(tool_name)}.")
 
 
-def clean_tool_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+def clean_tool_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
     """Ensure --fail-on option is consumed by the CLI and never sent as a tool argument."""
-    return arguments
+    return {k: v for k, v in arguments.items() if k not in ("fail_on", "failOn")}
 
 
 def effective_query(tool_name: str, query: str | None, criterion: Criterion | None) -> str | None:
@@ -127,11 +149,253 @@ def effective_query(tool_name: str, query: str | None, criterion: Criterion | No
 
     An insufficient-evidence gate on get_runtime_insights requests 'all' when none was supplied.
     """
-    # Stub: return query unchanged
+    if criterion == Criterion.INSUFFICIENT and tool_name == "get_runtime_insights" and query is None:
+        return "all"
     return query
 
 
-def evaluate(payload: Any, criterion: Criterion, tool_name: str) -> Verdict:
+def _is_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
+    return isinstance(value, Mapping)
+
+
+def _is_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
+def _is_word(text: str) -> bool:
+    return bool(_WORD_PATTERN.fullmatch(text))
+
+
+def _known(severity: str) -> bool:
+    normalized = severity.strip().upper()
+    return normalized in Severity._value2member_map_
+
+
+def _at_or_above(severity: str, threshold: Severity) -> bool:
+    normalized = severity.strip().upper()
+    try:
+        sev = Severity(normalized)
+    except ValueError:
+        return False
+    order = list(Severity)
+    return order.index(sev) <= order.index(threshold)
+
+
+def _non_negative_integer(val: object) -> TypeGuard[int]:
+    return isinstance(val, int) and not isinstance(val, bool) and val >= 0
+
+
+def _unevaluable(reason: str) -> Verdict:
+    return Verdict(CANNOT_EVALUATE, f"cannot evaluate --fail-on: {reason}.")
+
+
+def _record_count(
+    severity: str,
+    count: int,
+    threshold: Severity,
+    met: dict[str, str],
+    ignored: dict[str, str],
+) -> None:
+    text = str(count)
+    if not _known(severity):
+        key = severity if _is_word(severity) else "?"
+        ignored[key] = f"{ignored[key]}+{text}" if key in ignored else text
+    elif _at_or_above(severity, threshold):
+        norm_key = severity.strip().upper()
+        met[norm_key] = f"{met[norm_key]}+{text}" if norm_key in met else text
+
+
+def _tally_counts(counts: Sequence[object], threshold: Severity) -> tuple[dict[str, str], dict[str, str]] | Verdict:
+    met: dict[str, str] = {}
+    ignored: dict[str, str] = {}
+    for entry in counts:
+        if not _is_mapping(entry):
+            return _unevaluable("a severityCounts entry has no string severity")
+        severity = entry.get("severity")
+        count = entry.get("count")
+        if not isinstance(severity, str):
+            return _unevaluable("a severityCounts entry has no string severity")
+        if not _non_negative_integer(count):
+            return _unevaluable("a count in severityCounts is not a non-negative integer")
+        if count == 0:
+            continue
+        _record_count(severity, count, threshold, met, ignored)
+    return met, ignored
+
+
+def _scan_status(payload: Mapping[str, object]) -> str | Verdict:
+    scan = payload.get("scan")
+    if not _is_mapping(scan):
+        return _unevaluable("the answer has no scan status")
+    status = scan.get("status")
+    if not isinstance(status, str):
+        return _unevaluable("the answer has no scan status")
+    if status not in _EVALUATED:
+        display = status if _is_word(status) else "not recognised"
+        return _unevaluable(f"the scan status is {display}, so its counts are not evidence")
+    return status
+
+
+def _format_severity_notes(
+    met: Mapping[str, str],
+    ignored: Mapping[str, str],
+    status: str,
+    threshold: Severity,
+) -> str:
+    notes: list[str] = []
+    if met:
+        met_str = ", ".join(f"{k}={v}" for k, v in met.items())
+        notes.append(f"--fail-on {threshold.label}: found {met_str}.")
+    if ignored:
+        ignored_str = ", ".join(f"{k}={v}" for k, v in ignored.items())
+        notes.append(f"note: --fail-on does not count {ignored_str}.")
+    if status == "PARTIAL" and not met:
+        notes.append(
+            f"note: the scan is PARTIAL, so having no finding at or above {threshold.name} "
+            "is not proof there is none; see the evidence in the output."
+        )
+    return "\n".join(notes)
+
+
+def _evaluate_severity(payload: object, threshold: Severity) -> Verdict:
+    if not _is_mapping(payload):
+        return _unevaluable("the answer has no severityCounts entries")
+    counts = payload.get("severityCounts")
+    if not _is_list(counts) or len(counts) == 0:
+        return _unevaluable("the answer has no severityCounts entries")
+
+    tallied = _tally_counts(counts, threshold)
+    if isinstance(tallied, Verdict):
+        return tallied
+    met, ignored = tallied
+
+    status = _scan_status(payload)
+    if isinstance(status, Verdict):
+        return status
+
+    evidence = payload.get("evidence")
+    usable = evidence.get("usable") if _is_mapping(evidence) else None
+    if len(met) == 0 and isinstance(usable, bool) and not usable:
+        return _unevaluable("the scan found no usable evidence, so zero findings is not an assessment")
+
+    notes = _format_severity_notes(met, ignored, status, threshold)
+    exit_code = THRESHOLD_MET if met else PASS
+    return Verdict(exit_code, notes)
+
+
+def _evaluate_runtime_insight(payload: Mapping[str, object]) -> Verdict:
+    observation = payload.get("observation")
+    if not _is_mapping(observation):
+        return _unevaluable("the observation has no status")
+    obs_status = observation.get("status")
+    if not isinstance(obs_status, str):
+        return _unevaluable("the observation has no status")
+    if obs_status in ("OBSERVED", "FINDING"):
+        return Verdict(PASS, "")
+    if obs_status in ("INSUFFICIENT", "PARTIAL"):
+        return Verdict(THRESHOLD_MET, f"--fail-on insufficient: observation status is {obs_status}.")
+    if obs_status in ("UNAVAILABLE", "NOT_APPLICABLE"):
+        return _unevaluable(f"the observation status is {obs_status}")
+    return _unevaluable("the observation status is not recognised")
+
+
+def _evaluate_exceptions(payload: Mapping[str, object]) -> Verdict:
+    caught = payload.get("caughtInCode")
+    if not _is_mapping(caught) or caught.get("available") is not True:
+        return _unevaluable("caught-exception evidence is unavailable")
+    insufficient = caught.get("insufficient")
+    partial = caught.get("partial")
+    if not _non_negative_integer(insufficient) or not _non_negative_integer(partial):
+        return _unevaluable("the answer has no valid insufficient and partial counts")
+    if insufficient > 0 or partial > 0:
+        return Verdict(
+            THRESHOLD_MET,
+            f"--fail-on insufficient: found {insufficient} insufficient and {partial} partial evidence rows.",
+        )
+    return Verdict(PASS, "")
+
+
+def _tally_observations(observations: Sequence[object]) -> tuple[int, int] | Verdict:
+    listed_insufficient = 0
+    listed_partial = 0
+    for observation in observations:
+        if not _is_mapping(observation):
+            return _unevaluable("a listed observation has no status")
+        obs_status = observation.get("status")
+        if not isinstance(obs_status, str):
+            return _unevaluable("a listed observation has no status")
+        if obs_status not in ("OBSERVED", "INSUFFICIENT", "PARTIAL"):
+            return _unevaluable("an observation status is not recognised")
+        if obs_status == "INSUFFICIENT":
+            listed_insufficient += 1
+        elif obs_status == "PARTIAL":
+            listed_partial += 1
+    return listed_insufficient, listed_partial
+
+
+def _verify_empty_runtime_insights(payload: Mapping[str, object]) -> Verdict | None:
+    query = payload.get("query")
+    requests = payload.get("requests")
+    if (
+        not isinstance(query, str)
+        or query.strip().lower() != "all"
+        or not _non_negative_integer(requests)
+        or requests == 0
+    ):
+        return _unevaluable("an empty result requires query=all and request activity")
+    return None
+
+
+def _evaluate_runtime_insights(payload: Mapping[str, object]) -> Verdict:
+    insufficient = payload.get("insufficient")
+    partial = payload.get("partial")
+    observations = payload.get("observations")
+    omitted = payload.get("omitted")
+    if not _is_list(observations) or not _non_negative_integer(omitted):
+        return _unevaluable("the runtime-insights list is incomplete or misshapen")
+
+    tallied = _tally_observations(observations)
+    if isinstance(tallied, Verdict):
+        return tallied
+    listed_insufficient, listed_partial = tallied
+
+    if not _non_negative_integer(insufficient) or not _non_negative_integer(partial):
+        return _unevaluable("the answer has no valid insufficient and partial counts")
+
+    if insufficient < listed_insufficient or partial < listed_partial:
+        return _unevaluable("the runtime-insights aggregate counts do not match the listed results")
+    hidden_insufficient = insufficient - listed_insufficient
+    hidden_partial = partial - listed_partial
+    if hidden_insufficient > omitted or hidden_partial > (omitted - hidden_insufficient):
+        return _unevaluable("the runtime-insights aggregate counts do not match the listed results")
+
+    if insufficient == 0 and partial == 0 and len(observations) == 0 and omitted == 0:
+        empty_err = _verify_empty_runtime_insights(payload)
+        if empty_err is not None:
+            return empty_err
+
+    if insufficient > 0 or partial > 0:
+        return Verdict(
+            THRESHOLD_MET,
+            f"--fail-on insufficient: found {insufficient} insufficient and {partial} partial evidence rows.",
+        )
+    return Verdict(PASS, "")
+
+
+def _evaluate_insufficient(payload: object, tool_name: str) -> Verdict:
+    if not _is_mapping(payload) or payload.get("available") is not True:
+        return _unevaluable("the answer is unavailable")
+    if tool_name == "get_runtime_insight":
+        return _evaluate_runtime_insight(payload)
+    if tool_name == "get_exceptions":
+        return _evaluate_exceptions(payload)
+    if tool_name == "get_runtime_insights":
+        return _evaluate_runtime_insights(payload)
+    return _unevaluable("the selected tool does not report evidence sufficiency")
+
+
+def evaluate(payload: object, criterion: Criterion, tool_name: str) -> Verdict:
     """Decides the verdict (exit_code and message) for a tool answer."""
-    # Stub: return invalid exit code 999 to fail red check on assertion
-    return Verdict(999, "stub")
+    if criterion == Criterion.INSUFFICIENT:
+        return _evaluate_insufficient(payload, tool_name)
+    return _evaluate_severity(payload, Severity[criterion.name])

@@ -14,7 +14,6 @@ from sharpit.cli.fail_on import (
     THRESHOLD_MET,
     TOOLS,
     Criterion,
-    Severity,
     clean_tool_arguments,
     effective_query,
     evaluate,
@@ -463,7 +462,7 @@ def test_caught_exception_gate_fails_on_insufficient_or_partial_rows_and_on_unav
 
 # ported: FailOnTests.insufficientCriterionIsAcceptedOnlyForEvidenceTools
 def test_insufficient_criterion_is_accepted_only_for_evidence_tools():
-    assert INSUFFICIENT_TOOLS == {"get_exceptions", "get_runtime_insight", "get_runtime_insights"}
+    assert {"get_exceptions", "get_runtime_insight", "get_runtime_insights"} == INSUFFICIENT_TOOLS
     for tool in Manifest.bundled().tools:
         if supports_insufficient(tool.name):
             assert parse(tool.name, "insufficient") == Criterion.INSUFFICIENT
