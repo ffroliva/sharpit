@@ -39,23 +39,25 @@ Table = dict[str, Any]
 def facts(models: tuple[object, ...]) -> dict[str, Any]:
     """The declared tables behind ``models`` as plain dicts, or ``{"skipped": reason}``."""
     if not models:
-        return {"skipped": NO_MODELS}
-    found, _warnings = registries(models)
+        return {"skipped": NO_MODELS, "known_absent": True, "errors": [NO_MODELS]}
+    found, warnings = registries(models)
     if not found:
-        return {"skipped": NO_REGISTRY}
+        reason = f"{NO_REGISTRY} ({'; '.join(warnings)})" if warnings else NO_REGISTRY
+        return {"skipped": reason, "known_absent": False, "errors": [reason]}
     tables: dict[int, Table] = {}
     try:
         for registry in found:
             mappers = list(cast("Any", registry).mappers)
             if not mappers_configured(registry, mappers):
-                return {"skipped": UNCONFIGURED}
+                return {"skipped": UNCONFIGURED, "known_absent": True, "errors": [UNCONFIGURED]}
             for mapper in mappers:
                 table = mapper.local_table  # a configured mapper: reading it configures nothing
                 if type(table).__name__ == "Table" and id(table) not in tables:
                     tables[id(table)] = _declared(table)
     except Exception as exc:  # noqa: BLE001 - unreadable models skip the ORM rules; never fail the scan
-        return {"skipped": f"The models could not be read ({type(exc).__name__})."}
-    return {"tables": list(tables.values())}
+        reason = f"The models could not be read ({type(exc).__name__})."
+        return {"skipped": reason, "known_absent": False, "errors": [reason]}
+    return {"tables": list(tables.values()), "known_absent": False, "errors": []}
 
 
 def _is_numeric(column_type: Any) -> bool:
