@@ -12,9 +12,13 @@ Production paths: `sharpit.cli.commands.run`, `sharpit.cli.outcomes.confirm_answ
 | Console encoding | Unrepresentable output is replaced rather than raising. |
 | Package entry | `python -m sharpit.cli`, `sharpit.cli.main`, and the installed console script work without framework imports. |
 | Request count | No update check or other unrequested request occurs. |
+| JSON token redaction | Server JSON bytes stay verbatim except token occurrences; occurrences in keys and number literals are redacted, with a matching number literal emitted as the string `"[redacted]"`. |
+| Terminal diagnostics | Secrets and terminal controls are escaped on every argv-derived or error-output path; newlines and tabs remain readable. |
+| Listed-tool 404 | The catalog is checked at most once; static local metadata supplies hints without a `/panels` request. |
 
 - [x] **Step 1:** Add assertion-level tests and see them fail for the missing Task 7 behaviour.
 - [x] **Step 2:** Port BootUI 2.4.0 rendering and entry behavior through the existing CLI dispatch path.
 - [x] **Step 3:** Run the lane, required common, packaging, lint, formatting and type gates; build and inspect the wheel.
 - [x] **Step 4:** Record adaptations and commit the tests and implementation separately.
+- [ ] **Round 2:** Enforce token secrecy in JSON keys, values and number literals while preserving all other raw JSON bytes; redact rendered payloads, cover every argv usage error, preserve multiline diagnostics, escape controls in terminal JSON only, and avoid `/panels` reads for a tool 404.
 
