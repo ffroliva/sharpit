@@ -1,0 +1,1 @@
+cli:bounded-client-api	adapted	Per-call byte caps and timeout overrides are omitted because BootUI uses them only for the excluded `ci` command; normal `get` and `invoke` read the complete response.

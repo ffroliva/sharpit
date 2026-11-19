@@ -77,6 +77,9 @@ class ClientOptions:
     token: str | None = None
     timeout: float = DEFAULT_TIMEOUT
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "token", normalize_token(self.token))
+
     def __repr__(self) -> str:
         redacted = "******" if self.token else None
         return (

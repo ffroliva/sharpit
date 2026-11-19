@@ -215,6 +215,9 @@ def test_default_client_factory_completes_an_http_call(monkeypatch):
         def read1(self, _size):
             return self.chunks.pop(0)
 
+        def read(self):
+            return b"".join(self.chunks)
+
     class Opener:
         def open(self, _request, timeout):
             assert timeout > 0
@@ -591,6 +594,20 @@ def test_unconfirmed_foreign_403_exits_error():
     code, _, err, client = _run_cli(["beans"], client=Foreign403Client(None))
     assert code == ExitCodes.ERROR
     assert "not a sharpit policy refusal" in err
+
+
+def test_successful_response_echo_is_redacted_before_printing():
+    token = "BootUI-secret"
+
+    class EchoClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            body = f'{{"message":"BootUI echoed {token}"}}'
+            return ToolResult(tool, 200, body, {"message": f"BootUI echoed {token}"})
+
+    code, out, _, _ = _run_cli(["--token", token, "beans"], client=EchoClient(None))
+
+    assert code == ExitCodes.SUCCESS
+    assert token not in out
 
 
 # derived: classify maps HTTP responses to CLI outcomes.

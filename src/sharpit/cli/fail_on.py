@@ -18,18 +18,8 @@ from dataclasses import dataclass
 from typing import TypeGuard
 
 from sharpit.cli.exit_codes import ExitCodes
-from sharpit.cli.manifest import ManifestTool
 
 GET_RUNTIME_INSIGHTS: str = "get_runtime_insights"
-
-_OPTION_TO_WIRE: Mapping[str, str] = {
-    "scan_id": "scanId",
-    "scanId": "scanId",
-    "query": "query",
-    "limit": "limit",
-    "id": "id",
-    "offset": "offset",
-}
 
 
 def effective_query(tool_name: str, query: str | None, criterion: Criterion | None) -> str | None:
@@ -40,39 +30,6 @@ def effective_query(tool_name: str, query: str | None, criterion: Criterion | No
     if criterion == Criterion.INSUFFICIENT and tool_name == GET_RUNTIME_INSIGHTS and query is None:
         return "all"
     return query
-
-
-def build_tool_arguments(
-    tool: ManifestTool,
-    options: Mapping[str, object],
-    criterion: Criterion | None = None,
-) -> dict[str, object]:
-    """Build tool arguments from declared tool arguments only (an allowlist).
-
-    Maps CLI option names to wire names (scan_id -> scanId, query, limit, id, offset)
-    and applies effective_query when query is handled.
-    CLI options like fail_on, json, url, token, api_path never reach the call.
-    Task 7 wires this helper into the command runner.
-    """
-    allowed = set(tool.arguments)
-    raw_query = options.get("query")
-    query_val = effective_query(tool.name, str(raw_query) if raw_query is not None else None, criterion)
-
-    result: dict[str, object] = {}
-    for opt_name, opt_val in options.items():
-        if opt_val is None and opt_name != "query":
-            continue
-        wire_name = _OPTION_TO_WIRE.get(opt_name, opt_name)
-        if wire_name not in allowed:
-            continue
-        if wire_name == "query":
-            if query_val is not None:
-                result["query"] = query_val
-        elif opt_val is not None:
-            result[wire_name] = opt_val
-    if "query" in allowed and "query" not in result and query_val is not None:
-        result["query"] = query_val
-    return result
 
 
 class _Labeled(enum.StrEnum):
@@ -153,17 +110,12 @@ EXCLUDED: Mapping[str, str] = {
 
 _EVALUATED = frozenset({"SCANNED", "PARTIAL"})
 _WORD_PATTERN = re.compile(r"[A-Za-z_]{1,32}")
+_JAVA_TRIM = "".join(map(chr, range(0x21)))
 
 
 def _trim_java(s: str) -> str:
     """Strip characters <= U+0020 from both ends, matching Java's String.trim()."""
-    start = 0
-    end = len(s)
-    while start < end and ord(s[start]) <= 0x20:
-        start += 1
-    while end > start and ord(s[end - 1]) <= 0x20:
-        end -= 1
-    return s[start:end]
+    return s.strip(_JAVA_TRIM)
 
 
 def _parse_severity(text: str) -> Severity | None:

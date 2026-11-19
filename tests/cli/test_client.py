@@ -5,15 +5,16 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import ssl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from types import SimpleNamespace
 from urllib.error import HTTPError
 
 import pytest
 
 from sharpit.cli.client import Client, ClientError
+from sharpit.cli.options import ClientOptions
 
 
 class Server(ThreadingHTTPServer):
@@ -26,6 +27,7 @@ def endpoint():
     headers: list[dict[str, str]] = []
     routes: dict[str, tuple[int, bytes, str | None]] = {}
     delays: dict[str, float] = {}
+    header_delays: dict[str, float] = {}
     header_trickles: set[str] = set()
 
     class Handler(BaseHTTPRequestHandler):
@@ -51,6 +53,7 @@ def endpoint():
             requests.append((self.command, self.path, self.headers.get("Authorization"), body))
             headers.append(dict(self.headers.items()))
             status, payload, redirect = routes.get(self.path, (404, b"{}", None))
+            time.sleep(header_delays.get(self.path, 0))
             if redirect:
                 self.send_response(status)
                 self.send_header("Location", redirect)
@@ -71,7 +74,7 @@ def endpoint():
     thread.start()
     host, port = server.server_address
     try:
-        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles
+        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles, header_delays
     finally:
         server.shutdown()
         server.server_close()
@@ -79,7 +82,7 @@ def endpoint():
 
 
 def options(base: str, *, token: str | None = None, timeout: float = 1.0):
-    return SimpleNamespace(base_url=base, api_path="/sharpit/api", token=token, timeout=timeout)
+    return ClientOptions(base_url=base, api_path="/sharpit/api", token=token, timeout=timeout)
 
 
 def test_client_reads_catalog_and_posts_only_the_supplied_arguments(endpoint):
@@ -130,11 +133,10 @@ def test_configured_proxy_is_ignored(monkeypatch, endpoint):
     assert len(requests) == 1
 
 
-@pytest.mark.parametrize("body", [b'{"key":1,"key":2}', b'{"oversized":"' + b"x" * 1_048_577 + b'"}'])
-def test_duplicate_keys_and_oversized_bodies_are_rejected(endpoint, body):
+def test_duplicate_keys_are_rejected(endpoint):
     # ported: BootUiClientTests.boundedReadsRejectDuplicateKeysAndOversizedBodies
     base, routes, _, *_ = endpoint
-    routes["/sharpit/api/probe"] = (200, body, None)
+    routes["/sharpit/api/probe"] = (200, b'{"key":1,"key":2}', None)
     client = Client(options(base))
 
     with pytest.raises(ClientError):
@@ -332,33 +334,63 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
         assert "Authorization" not in message
 
 
-def test_connect_phase_is_capped_at_ten_seconds():
-    client = Client(options("http://127.0.0.1:1", timeout=20))
+def test_connect_cap_does_not_limit_the_response_timeout(monkeypatch, endpoint):
+    base, routes, *_rest, header_delays = endpoint
+    routes["/sharpit/api/cli/tools/slow"] = (200, b'{"answer":"ready"}', None)
+    header_delays["/sharpit/api/cli/tools/slow"] = 0.2
+    monkeypatch.setattr("sharpit.cli.client._CONNECT_TIMEOUT", 0.1, raising=False)
+
+    client = Client(options(base, timeout=60))
     observed = []
+    open_response = client._opener.open
 
-    class RefusedOpener:
-        def open(self, *_args, timeout, **_kwargs):
-            observed.append(timeout)
-            raise ConnectionRefusedError("refused")
+    def open_with_observation(request, *, timeout):
+        observed.append(timeout)
+        return open_response(request, timeout=timeout)
 
-    client._opener = RefusedOpener()
+    client._opener.open = open_with_observation
+    result = client.invoke("slow", {})
+
+    assert result.payload == {"answer": "ready"}
+    assert observed == [0.1]
+
+
+def test_normal_tool_response_has_no_one_mib_cap(endpoint):
+    base, routes, *_ = endpoint
+    payload = b'{"value":"' + b"x" * 1_048_577 + b'"}'
+    routes["/sharpit/api/cli/tools/large"] = (200, payload, None)
+
+    result = None
+    with contextlib.suppress(ClientError):
+        result = Client(options(base)).invoke("large", {})
+
+    assert result is not None
+    assert result.payload["value"] == "x" * 1_048_577
+
+
+def test_certificate_errors_are_not_reported_as_unreachable():
+    client = Client(options("https://localhost", timeout=1))
+
+    class CertificateFailure:
+        def open(self, *_args, **_kwargs):
+            raise ssl.SSLCertVerificationError("certificate verify failed")
+
+    client._opener = CertificateFailure()
     message = _client_error_message(lambda: client.get("/probe"))
 
-    assert observed == [10]
-    assert (
-        message
-        == "Cannot reach sharpit at http://127.0.0.1:1. Is the application running, and is that the right --url?"
-    )
+    assert "TLS" in message
+    assert "Cannot reach" not in message
 
 
-def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoint):
-    base, routes, *_ = endpoint
-    routes["/sharpit/api/cli/tools/example"] = (200, b'{"value":true}', None)
-    assert hasattr(Client, "invoke_bounded"), "BootUI callers supply per-call response limits"
+def test_post_is_a_public_client_operation(endpoint):
+    assert hasattr(Client, "post")
+    base, routes, requests, *_ = endpoint
+    routes["/sharpit/api/mcp-server/toggle"] = (200, b'{"enabled":true}', None)
 
-    result = Client(options(base)).invoke_bounded("example", {}, max_response_bytes=64, timeout=0.5)
+    result = Client(options(base)).post("/mcp-server/toggle", '{"enabled":true}')
 
-    assert result.payload == {"value": True}
+    assert result == {"enabled": True}
+    assert requests[0][0] == "POST"
 
 
 def _client_error_message(call, token=None):
@@ -372,35 +404,6 @@ def _client_error_message(call, token=None):
                 assert "Authorization" not in rendered
         return str(error)
     return None
-
-
-def test_bounded_timeout_uses_the_bootui_deadline_message(endpoint):
-    base, routes, *_ = endpoint
-    routes["/sharpit/api/cli/tools/slow"] = (200, b'{"ok":true}', None)
-    endpoint[4]["/sharpit/api/cli/tools/slow"] = 2.0
-    assert hasattr(Client, "invoke_bounded"), "bounded calls accept a remaining deadline"
-
-    message = _client_error_message(
-        lambda: Client(options(base, token="bounded-secret")).invoke_bounded(
-            "slow", {}, max_response_bytes=64, timeout=0.25
-        ),
-        "bounded-secret",
-    )
-
-    assert message == f"Request to {base} exceeded its response deadline."
-
-
-def test_response_limit_message_uses_the_callers_byte_cap(endpoint):
-    base, routes, *_ = endpoint
-    routes["/sharpit/api/cli/tools/large"] = (200, b'{"ok":true}', None)
-    assert hasattr(Client, "invoke_bounded"), "bounded calls accept a per-call byte cap"
-
-    message = _client_error_message(
-        lambda: Client(options(base, token="limit-secret")).invoke_bounded("large", {}, max_response_bytes=4),
-        "limit-secret",
-    )
-
-    assert message == "Response exceeded the 4 byte limit"
 
 
 def test_invalid_utf8_has_the_bootui_message(endpoint):
@@ -449,25 +452,6 @@ def test_error_details_do_not_echo_the_authorization_header(endpoint):
     assert message == "sharpit answered HTTP 500: [redacted]"
     assert "Authorization" not in message
     assert secret not in message
-
-
-def test_bounded_read_works_when_response_has_no_private_socket():
-    from sharpit.cli.client import _read_bounded
-
-    class ResponseWithoutSocket:
-        fp = SimpleNamespace(raw=SimpleNamespace())
-
-        def __init__(self):
-            self.chunks = [b'{"ok":true}', b""]
-
-        def read1(self, _size):
-            return self.chunks.pop(0)
-
-    body = None
-    with contextlib.suppress(AttributeError):
-        body = _read_bounded(ResponseWithoutSocket(), time.monotonic() + 1)
-
-    assert body == b'{"ok":true}', "bounded response reads must not require response.fp.raw._sock"
 
 
 @pytest.mark.parametrize("secret", ["a\rb", "a\nb", "a\x00b", "café-漢"])
@@ -533,6 +517,9 @@ def test_deadline_bounds_trickled_http_error_body_without_raw_stream():
             for _ in range(100):
                 time.sleep(0.02)
             return b""
+
+        def read(self):
+            return self.read1(65536)
 
         def close(self):
             self.closed = True

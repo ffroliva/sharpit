@@ -6,9 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
+import sharpit.cli.outcomes as outcomes
 from sharpit.cli.client import ClientError, ToolResult
 from sharpit.cli.exit_codes import ExitCodes
-from sharpit.cli.outcomes import OutcomeKind, classify, confirm_answered
+from sharpit.cli.outcomes import OutcomeKind, confirm_answered
+from sharpit.cli.outcomes import _classify as classify
 
 
 class FakeClient:
@@ -98,7 +100,7 @@ def test_read_only_panel_refusal_preserves_reason_without_token():
 )
 def test_http_status_maps_to_bootui_outcome(status, kind, exit_code):
     # derived: classify maps HTTP responses to CLI outcomes.
-    outcome = classify(status, {})
+    outcome = classify(status, {}, None)
 
     assert outcome.kind is kind
     assert outcome.exit_code == exit_code
@@ -198,6 +200,18 @@ def test_classify_redacts_echoed_token_and_uses_message_field():
     assert "[redacted]" in outcome.message
 
 
+def test_outcome_classifier_is_private_and_echoed_bootui_token_is_redacted_last():
+    assert not hasattr(outcomes, "classify")
+    token = "BootUI-secret"
+    client = FakeClient(token=token)
+    answer = result(400, {"error": f"BootUI rejected {token}"})
+
+    outcome = confirm_answered(client, answer)
+
+    assert token not in outcome.message
+    assert "BootUI" not in outcome.message
+
+
 def test_empty_error_body_falls_back_to_status():
     # derived: classify supplies the status fallback when the body has no message.
-    assert classify(500, {}).message == "Request failed with HTTP 500"
+    assert classify(500, {}, None).message == "Request failed with HTTP 500"

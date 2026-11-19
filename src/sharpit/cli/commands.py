@@ -11,7 +11,8 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, NoReturn, TextIO
 
 from sharpit import __version__
-from sharpit.cli.client import Client, ClientError, ToolResult, redact
+from sharpit.cli.arguments import build_tool_arguments
+from sharpit.cli.client import Client, ClientError, ToolResult, safe_text
 from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.manifest import Manifest, ManifestTool
 from sharpit.cli.options import ClientOptions, GlobalOptions, normalize_token, positive_seconds
@@ -288,7 +289,7 @@ def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] |
 
 
 def _emit_error(err: TextIO, message: str, token: str | None) -> None:
-    message = redact(message, token)
+    message = safe_text(message, token)
     err.write(message)
     if not message.endswith("\n"):
         err.write("\n")
@@ -301,7 +302,7 @@ def _emit_client_error(err: TextIO, error: ClientError, token: str | None, verbo
     if verbose and error.__cause__ is not None:
         import traceback
 
-        err.write(redact("".join(traceback.format_exception(error)), token))
+        err.write(safe_text("".join(traceback.format_exception(error)), token))
 
 
 def _emit_unexpected_error(err: TextIO, error: Exception, token: str | None, verbose: bool) -> None:
@@ -365,7 +366,7 @@ def _extract_tool_args(
     for takes, name in ((tool.takes_offset, "offset"), (tool.takes_limit, "limit"), (tool.takes_query, "query")):
         if takes and (value := getattr(namespace, name, None)) is not None:
             args_payload[name] = value
-    return args_payload
+    return build_tool_arguments(tool, args_payload)
 
 
 def _call_client(
@@ -403,6 +404,7 @@ def _emit_result(
 ) -> int:
     if 200 <= result.status < 300:
         body = result.raw_body or (json.dumps(result.payload) if result.payload is not None else "")
+        body = safe_text(body, client_options.token)
         if body:
             out.write(body if body.endswith("\n") else f"{body}\n")
         return ExitCodes.SUCCESS

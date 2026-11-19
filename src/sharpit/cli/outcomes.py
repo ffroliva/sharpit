@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, cast
+from typing import Any
 
-from sharpit.cli.client import Client, ClientError, ToolResult, nonblank, redact, sharpit_text
+from sharpit.cli.client import Client, ClientError, ToolResult, error_body, safe_text
 from sharpit.cli.exit_codes import ExitCodes
 
 
@@ -36,7 +36,7 @@ class Outcome:
         return ExitCodes.ERROR
 
 
-def classify(status: int, body: Any) -> Outcome:
+def _classify(status: int, body: Any, token: str | None) -> Outcome:
     """Port of ``ToolOutcome.fromStatus``; a 503 is never a refusal by status alone."""
     kind = (
         OutcomeKind.SUCCESS
@@ -51,24 +51,23 @@ def classify(status: int, body: Any) -> Outcome:
             504: OutcomeKind.TIMED_OUT,
         }.get(status, OutcomeKind.SERVER_ERROR)
     )
-    message = "" if 200 <= status < 300 else f"Request failed with HTTP {status}"
-    if status >= 200 and status < 300:
+    message = "" if kind is OutcomeKind.SUCCESS else f"Request failed with HTTP {status}"
+    if kind is OutcomeKind.SUCCESS:
         return Outcome(kind, "")
-    if isinstance(body, dict):
-        document = cast("dict[str, Any]", body)
-        error = nonblank(document.get("error"))
-        specific = nonblank(document.get("reason")) or nonblank(document.get("message"))
+    document = error_body(body)
+    if document:
+        error = _nonblank(document.get("error"))
+        specific = _nonblank(document.get("reason")) or _nonblank(document.get("message"))
         message = error or specific or message
         if error and specific and error != specific:
             message = f"{error}: {specific}"
-    message = sharpit_text(message)
+    message = safe_text(message, token)
     return Outcome(kind, message)
 
 
 def confirm_answered(client: Client, result: ToolResult) -> Outcome:
     """Confirm sharpit before classifying a 403/404/503 as a sharpit response."""
-    outcome = classify(result.status, result.payload)
-    outcome = Outcome(outcome.kind, redact(outcome.message, client.options.token))
+    outcome = _classify(result.status, result.raw_body or result.payload, client.options.token)
     if outcome.kind not in (OutcomeKind.REFUSED_BY_POLICY, OutcomeKind.UNKNOWN_TOOL) and result.status != 503:
         return outcome
     try:
@@ -85,3 +84,7 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
             return Outcome(OutcomeKind.ENDPOINT_DISABLED, outcome.message)
         return Outcome(outcome.kind, f"{outcome.message} (HTTP 503)")
     return outcome
+
+
+def _nonblank(value: Any) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
