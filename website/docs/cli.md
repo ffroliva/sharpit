@@ -92,11 +92,11 @@ Advisors assess application configuration, architecture, and code. Each provides
 
 | Advisor | Scan Command | Report Command | Violations Command |
 |---|---|---|---|
-| Architecture | `sharpit architecture scan` | `sharpit architecture report` | `sharpit architecture violations` |
-| Database | `sharpit db scan` | `sharpit db report` | `sharpit db violations` |
-| FastAPI | `sharpit fastapi scan` | `sharpit fastapi report` | `sharpit fastapi violations` |
-| REST API | `sharpit rest-api scan` | `sharpit rest-api report` | `sharpit rest-api violations` |
-| Security | `sharpit security scan` | `sharpit security report` | `sharpit security violations` |
+| Architecture | `sharpit architecture scan` | `sharpit architecture report` | `sharpit architecture violations --scan-id <scanId> <id>` |
+| Database | `sharpit db scan` | `sharpit db report` | `sharpit db violations --scan-id <scanId> <id>` |
+| FastAPI | `sharpit fastapi scan` | `sharpit fastapi report` | `sharpit fastapi violations --scan-id <scanId> <id>` |
+| REST API | `sharpit rest-api scan` | `sharpit rest-api report` | `sharpit rest-api violations --scan-id <scanId> <id>` |
+| Security | `sharpit security scan` | `sharpit security report` | `sharpit security violations --scan-id <scanId> <id>` |
 | Vulnerabilities | `sharpit vulnerabilities scan` | `sharpit vulnerabilities report` | (in report) |
 
 Additional database utilities:
