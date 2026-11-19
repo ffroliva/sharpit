@@ -59,6 +59,14 @@ def _classify(status: int, body: Any, token: str | None) -> Outcome:
     return Outcome(kind, message)
 
 
+def _listed(catalog: dict[str, Any], tool_name: str) -> bool:
+    tools = catalog.get("tools", [])
+    return isinstance(tools, list) and any(
+        isinstance(item, dict) and cast(dict[str, Any], item).get("name") == tool_name
+        for item in cast(list[Any], tools)
+    )
+
+
 def confirm_answered(client: Client, result: ToolResult) -> Outcome:
     """Confirm sharpit before classifying a 403/404/503 as a sharpit response."""
     outcome = _classify(result.status, result.raw_body or result.payload, client.options.token)
@@ -79,11 +87,7 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
         return outcome
     if result.status != 404:
         return outcome
-    tools = catalog.get("tools", [])
-    if isinstance(tools, list) and any(
-        isinstance(item, dict) and cast(dict[str, Any], item).get("name") == result.tool_name
-        for item in cast(list[Any], tools)
-    ):
+    if _listed(catalog, result.tool_name):
         return Outcome(
             OutcomeKind.UNKNOWN_TOOL,
             error_message(result.raw_body or result.payload, client.options.token) or outcome.message,

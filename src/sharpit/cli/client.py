@@ -468,6 +468,10 @@ def redact_payload(value: Any, token: str | None) -> Any:
     return value
 
 
+_JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+_JSON_NUMBER = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
+
+
 def redact_json(text: str, token: str | None) -> str:
     if not token:
         return text
@@ -477,16 +481,15 @@ def redact_json(text: str, token: str | None) -> str:
     except (ValueError, RecursionError):
         return _redact(token_pattern.sub(REDACTED, text), token)
 
-    lexemes = re.compile(r'"(?:\\.|[^"\\])*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?')
+    def redact_string(match: re.Match[str]) -> str:
+        return '"' + token_pattern.sub(REDACTED, match.group()[1:-1]) + '"'
 
-    def redact_lexeme(match: re.Match[str]) -> str:
-        raw = match.group()
-        if raw.startswith('"'):
-            content = raw[1:-1]
-            return '"' + token_pattern.sub(REDACTED, content) + '"'
-        return json.dumps(REDACTED) if token in raw else raw
+    def redact_number(match: re.Match[str]) -> str:
+        return json.dumps(REDACTED) if token in match.group() else match.group()
 
-    return lexemes.sub(redact_lexeme, text)
+    # the body parsed as JSON above, so these two simple passes see only well-formed literals
+    redacted = _JSON_STRING.sub(redact_string, text)
+    return _JSON_NUMBER.sub(redact_number, redacted) if any(c.isdigit() for c in token) else redacted
 
 
 def _json_character_pattern(char: str) -> str:
