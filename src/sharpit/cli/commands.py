@@ -589,9 +589,7 @@ def _usage_failure(parser: SharpitParser, message: str) -> int:
         return ExitCodes.ERROR
 
 
-def _tool_criterion(
-    tool: ManifestTool, value: str | None, parser: SharpitParser, err: TextIO, token: str | None
-) -> Criterion | int | None:
+def _tool_criterion(tool: ManifestTool, value: str | None, err: TextIO, token: str | None) -> Criterion | int | None:
     if value is None:
         return None
     try:
@@ -619,7 +617,7 @@ def _run_tool_command(
         getattr(namespace, "_group_parser", parser).print_usage(err)
         return ExitCodes.ERROR
 
-    criterion = _tool_criterion(tool, getattr(namespace, "fail_on", None), parser, err, client_options.token)
+    criterion = _tool_criterion(tool, getattr(namespace, "fail_on", None), err, client_options.token)
     if isinstance(criterion, int):
         return criterion
     try:
