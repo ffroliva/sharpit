@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from sharpit.cli.client import Client, ClientError, ToolResult, error_message
 from sharpit.cli.exit_codes import ExitCodes
-from sharpit.cli.manifest import Manifest, ManifestTool
+from sharpit.cli.manifest import Manifest
 
 
 class OutcomeKind(Enum):
@@ -84,38 +84,12 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
         isinstance(item, dict) and cast(dict[str, Any], item).get("name") == result.tool_name
         for item in cast(list[Any], tools)
     ):
-        return Outcome(OutcomeKind.UNKNOWN_TOOL, error_message(result.raw_body or result.payload) or outcome.message)
+        return Outcome(
+            OutcomeKind.UNKNOWN_TOOL,
+            error_message(result.raw_body or result.payload, client.options.token) or outcome.message,
+        )
     tool = Manifest.bundled().by_name(result.tool_name)
     message = f"This application does not expose '{result.tool_name}'."
     if tool is not None:
-        message += _unknown_tool_hint(client, tool)
+        message += " The application may be running an older sharpit version."
     return Outcome(OutcomeKind.UNKNOWN_TOOL, message)
-
-
-def _unknown_tool_hint(client: Client, tool: ManifestTool) -> str:
-    try:
-        document = client.get("/panels")
-        if isinstance(document, dict):
-            fields = cast(dict[str, Any], document)
-            advertised = fields.get("panels")
-            panels: list[Any] = (
-                cast(list[Any], advertised) if isinstance(advertised, list) and advertised else list(fields.values())
-            )
-        elif isinstance(document, list):
-            panels = cast(list[Any], document)
-        else:
-            panels = []
-        for raw_panel in panels:
-            if not isinstance(raw_panel, dict):
-                continue
-            panel = cast(dict[str, Any], raw_panel)
-            if panel.get("id") != tool.panel:
-                continue
-            if panel.get("available") is not False:
-                break
-            reason = panel.get("unavailableReason", "")
-            suffix = f": {reason}" if isinstance(reason, str) and reason.strip() else ""
-            return f" Its '{tool.panel}' panel is not available in this application{suffix}."
-    except Exception:  # noqa: S110 - a failed hint must not replace the original 404.
-        pass
-    return " The application may be running an older sharpit version."

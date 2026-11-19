@@ -21,7 +21,10 @@ def _style(text: str, code: str, color: bool) -> str:
 
 
 def safe_controls(text: str) -> str:
-    return "".join(" " if ord(char) < 32 or 0x7F <= ord(char) <= 0x9F else char for char in text)
+    return "".join(
+        char if char in "\n\t" or not (ord(char) < 32 or 0x7F <= ord(char) <= 0x9F) else f"\\x{ord(char):02x}"
+        for char in text
+    )
 
 
 _safe = safe_controls
@@ -55,7 +58,9 @@ def _render_table(
     rows: list[Mapping[str, object]], columns: list[str], lines: list[str], depth: int, color: bool
 ) -> None:
     indent = "  " * depth
-    cells = [[_scalar(row.get(column), False) for column in columns] for row in rows]
+    cells = [
+        [_scalar(row.get(column), False).replace("\n", " ").replace("\t", " ") for column in columns] for row in rows
+    ]
     for row in cells:
         for index, cell in enumerate(row):
             if len(cell) > _MAX_CELL_WIDTH:

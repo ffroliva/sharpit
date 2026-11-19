@@ -27,7 +27,7 @@ from sharpit.cli.fail_on import parse as parse_fail_on
 from sharpit.cli.manifest import Manifest, ManifestTool
 from sharpit.cli.options import ClientOptions, GlobalOptions, normalize_token, positive_seconds
 from sharpit.cli.outcomes import OutcomeKind, confirm_answered
-from sharpit.cli.render import render, write, write_json
+from sharpit.cli.render import render, safe_controls, write, write_json
 
 __all__ = ["main", "run"]
 
@@ -59,6 +59,8 @@ class _JsonNumber(str):
 def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> None:
     if options.json_output or not options.terminal:
         text = redact_json(raw_body or (json.dumps(payload) if payload is not None else ""), options.token)
+        if options.terminal:
+            text = _escape_json_controls(text)
     else:
         text = render(redact_payload(payload, options.token), color=options.color)
     if text:
@@ -75,6 +77,13 @@ def _redact_usage_error(message: str, tokens: Sequence[str] = ()) -> str:
         if token:
             msg = msg.replace(token, REDACTED)
     return msg
+
+
+def _escape_json_controls(text: str) -> str:
+    return "".join(
+        f"\\u{ord(char):04x}" if char not in "\n\t" and (ord(char) < 32 or 0x7F <= ord(char) <= 0x9F) else char
+        for char in text
+    )
 
 
 class SharpitParser(argparse.ArgumentParser):
@@ -101,7 +110,7 @@ class SharpitParser(argparse.ArgumentParser):
     def _print_message(self, message: str, file: Any = None) -> None:
         target = self.out if file is None or file is sys.stdout or file is self.out else self.err or file
         if target is not None:
-            write(target, message)
+            write(target, safe_controls(message))
             if hasattr(target, "flush"):
                 target.flush()
         else:
@@ -329,23 +338,23 @@ def _get_root_parser(
 def _usage_tokens(argv: Sequence[str], environment: Mapping[str, str]) -> tuple[str, ...]:
     raw_environment_token = environment.get("SHARPIT_TOKEN", "")
     tokens = [raw_environment_token, normalize_token(raw_environment_token) or ""]
-    for index, value in enumerate(argv[:-1]):
+    for index, value in enumerate(argv):
         option, separator, attached = value.partition("=")
-        if value.lower() == "--token":
+        if value.lower() == "--token" and index + 1 < len(argv):
             tokens.extend((argv[index + 1], normalize_token(argv[index + 1]) or ""))
         elif option.lower() == "--token" and separator:
             tokens.extend((attached, normalize_token(attached) or ""))
         elif _token_like_flag(option):
             if separator:
                 tokens.append(attached)
-            elif not argv[index + 1].startswith("-"):
+            elif index + 1 < len(argv):
                 tokens.append(argv[index + 1])
     return tuple(tokens)
 
 
 def _token_like_flag(option: str) -> bool:
     candidate = option.lower()
-    if candidate.startswith("--tok"):
+    if any(part in candidate for part in ("token", "secret", "pass", "key", "bearer", "auth", "credential")):
         return True
     target = "--token"
     if abs(len(candidate) - len(target)) > 2:

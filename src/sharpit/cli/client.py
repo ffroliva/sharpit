@@ -456,40 +456,63 @@ def safe_text(text: str, token: str | None) -> str:
 def redact_payload(value: Any, token: str | None) -> Any:
     if not token:
         return value
-    if type(value) is str:
+    if isinstance(value, str):
         return value.replace(token, REDACTED)
     if isinstance(value, list):
         return [redact_payload(item, token) for item in cast(list[Any], value)]
     if isinstance(value, dict):
-        return {key: redact_payload(item, token) for key, item in cast(JsonObject, value).items()}
+        return {
+            str(key).replace(token, REDACTED): redact_payload(item, token)
+            for key, item in cast(JsonObject, value).items()
+        }
     return value
 
 
 def redact_json(text: str, token: str | None) -> str:
     if not token:
         return text
+    token_pattern = re.compile("".join(_json_character_pattern(char) for char in token))
     try:
-        json.loads(text)
-        valid_json = True
-    except ValueError:
-        valid_json = False
+        json.loads(text, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        return _redact(token_pattern.sub(REDACTED, text), token)
 
-    def redact_value(match: re.Match[str]) -> str:
+    lexemes = re.compile(r'"(?:\\.|[^"\\])*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?')
+
+    def redact_lexeme(match: re.Match[str]) -> str:
         raw = match.group()
-        if match.group("key"):
-            return raw
-        try:
-            value = json.loads(raw)
-        except ValueError:
-            return raw
-        if isinstance(value, str) and token in value:
-            return json.dumps(value.replace(token, REDACTED), ensure_ascii="\\u" in raw.lower())
-        return raw
+        if raw.startswith('"'):
+            content = raw[1:-1]
+            return '"' + token_pattern.sub(REDACTED, content) + '"'
+        return json.dumps(REDACTED) if token in raw else raw
 
-    redacted = re.sub(r'"(?:\\.|[^"\\])*"(?P<key>\s*:)?', redact_value, text)
-    if redacted != text or valid_json:
-        return redacted
-    return _redact(text, token)
+    return lexemes.sub(redact_lexeme, text)
+
+
+def _json_character_pattern(char: str) -> str:
+    codepoint = ord(char)
+    alternatives = [re.escape(char)]
+    if char == '"':
+        alternatives = [r'\\"']
+    elif char == "\\":
+        alternatives = [r"\\\\"]
+    elif char == "/":
+        alternatives.append(r"\\/")
+    escapes = {"\b": r"\\b", "\f": r"\\f", "\n": r"\\n", "\r": r"\\r", "\t": r"\\t"}
+    if char in escapes:
+        alternatives.append(escapes[char])
+    if codepoint <= 0xFFFF:
+        alternatives.append(r"\\u" + _hex_pattern(f"{codepoint:04x}"))
+    else:
+        codepoint -= 0x10000
+        high = 0xD800 + (codepoint >> 10)
+        low = 0xDC00 + (codepoint & 0x3FF)
+        alternatives.append(r"\\u" + _hex_pattern(f"{high:04x}") + r"\\u" + _hex_pattern(f"{low:04x}"))
+    return "(?:" + "|".join(alternatives) + ")"
+
+
+def _hex_pattern(value: str) -> str:
+    return "".join(f"[{char.lower()}{char.upper()}]" if char.isalpha() else char for char in value)
 
 
 def _cannot_reach(base: str) -> str:
