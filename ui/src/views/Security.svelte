@@ -28,10 +28,10 @@
 
 <AdvisorPanel
   title={panel.title}
+  {panel}
   {report}
   {loadError}
   onretry={load}
-  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Run security checks')}
   onScan={async () => void (report = await post<SecurityReport>('security/scan'))}
   onDismiss={async (id) => { await post(rule(id)); await reload(); }}

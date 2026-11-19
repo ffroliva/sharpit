@@ -28,7 +28,9 @@ class Finding:
 
     @property
     def fingerprint(self) -> str:
-        """``<advisor>:<rule>:<16 hex>``; the hash input holds no path or timestamp, so it survives reformatting."""
+        """``<advisor>:<rule>:<16 hex>``; the hash input holds no timestamp, and its identity holds no line number (a
+        swallowed exception is keyed by path, scope, exception type and a hash of the clause), so it survives
+        reformatting."""
         material = "\x1f".join((self.rule_id, self.identity or self.target, self.test_node_id or ""))
         digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
         return f"{self.advisor}:{self.rule_id}:{digest}"

@@ -332,6 +332,16 @@ writable. Notes are stored Base64URL-encoded and returned only by `GET` (no MCP 
 `SHARPIT_READ_ONLY=true` refuses the mutations with 403; listing still works. At most 1000 dismissed findings (409
 beyond).
 
+A `sharpit.swallowed-exception` finding prints its identity at the end of its message,
+`<path>:<scope>:<ExceptionType>#<key>` (the key hashes the clause's `try` body and handler; byte-identical clauses of
+one scope end `.<n>/<m>`); paste it as the dismissal's identity. Copy it from the terminal or the JSON report: SARIF
+output is masked. It holds no line number, so a line added above the `try` or elsewhere in the function keeps the
+dismissal; an edit inside the `try` body or the handler changes the key and brings the finding back, and swapping
+clauses or moving a log call between them cannot hand the dismissal to another clause. An identity that cannot be
+stored as an entry (over 512 characters) is reported with a fingerprint to list under `dismissedRules`, which covers
+one test only. The earlier `<path>:<line>:<ExceptionType>` form no longer dismisses: the finding comes back, and the
+report warns with the key of the clause now on that line.
+
 ## Common mistakes
 
 | Mistake | Fix |

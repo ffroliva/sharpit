@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ApiError, get } from '../lib/api';
+  import { describeLoadError } from '../lib/loadError';
   import { linkable } from '../lib/links';
   import { focusRegion, scrollable } from '../lib/scrollable';
   import type { Overview } from '../lib/types';
@@ -12,7 +13,7 @@
     try {
       data = await get<Overview>('overview');
     } catch (e) {
-      error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.';
+      error = describeLoadError(e).message;
     }
   }
   load();
