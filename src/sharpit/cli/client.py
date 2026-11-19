@@ -18,6 +18,8 @@ _CONNECT_TIMEOUT = 10.0
 _PANEL_ACCESS_DENIED = "sharpit panel access denied"
 __all__ = ["Client", "ClientError", "ToolResult", "error_body", "safe_text"]
 
+JsonObject = dict[str, Any]  # a decoded JSON object
+
 
 class _NoRedirect(_request.HTTPRedirectHandler):
     def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
@@ -160,7 +162,7 @@ class Client:
             payload = _parse_json(body, endpoint, status)
         except ClientError as error:
             raise self._client_error(str(error)) from None
-        catalog = cast("dict[str, Any]", payload) if isinstance(payload, dict) else None
+        catalog = cast(JsonObject, payload) if isinstance(payload, dict) else None
         if (
             catalog is None
             or catalog.get("serverName") != "sharpit"
@@ -342,11 +344,11 @@ def _optional_json(body: str) -> Any:
 
 def error_body(body: Any) -> dict[str, Any]:
     if isinstance(body, dict):
-        return cast("dict[str, Any]", body)
+        return cast(JsonObject, body)
     if isinstance(body, str):
         try:
             parsed = _strict_json(body)
-            return cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
+            return cast(JsonObject, parsed) if isinstance(parsed, dict) else {}
         except (ValueError, ClientError):
             pass
     return {}
