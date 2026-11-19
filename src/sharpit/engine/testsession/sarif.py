@@ -19,7 +19,9 @@ from sharpit.engine.masking import Masker
 from sharpit.engine.testsession.report import write_json
 
 SCHEMA_URI = "https://json.schemastore.org/sarif-2.1.0.json"
-FINGERPRINT_KEY = "sharpitFingerprint/v1"  # the location-free ``Finding.fingerprint``; bump the suffix if it changes
+FINGERPRINT_KEY = (
+    "sharpitFingerprint/v1"  # bump the suffix when the fingerprint algorithm changes, not when a rule's identities do
+)
 INFORMATION_URI = "https://github.com/ffroliva/sharpit"
 SOURCE_ROOT = "%SRCROOT%"
 _LEVELS = {"CRITICAL": "error", "HIGH": "error", "MEDIUM": "warning", "LOW": "note", "INFO": "note"}

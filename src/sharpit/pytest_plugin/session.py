@@ -90,6 +90,9 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
             state.baseline_observed,
         )
         test.findings = [finding.to_dto() for finding in findings]
+        for warning in plugin.gates.legacy_dismissal_warnings(test, state.dismissed_pairs):
+            if warning not in state.sink.facts.warnings:
+                state.sink.facts.warnings.append(warning)
         messages = [
             f"sharpit: {finding.rule_id}: {finding.message}"
             for finding in findings

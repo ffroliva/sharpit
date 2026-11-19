@@ -112,11 +112,12 @@ it('changes render only when the read carries them (the second read)', async () 
   expect(text()).toContain('5 → 8');
 });
 
-it('read-only hides the read button and says why', async () => {
+it('read-only disables the read button with reason and says why', async () => {
   h.route((url) => (url === 'api/mysql' ? json(200, notRead) : undefined));
   h.mount(MySql, { panel: readOnly('mysql') });
   await until(() => expect(text()).toContain(NOT_READ_MESSAGE));
-  expect(button()).toBeUndefined();
+  expect(button()?.disabled).toBe(true);
+  expect(button()?.title).toContain('SHARPIT_READ_ONLY=true');
   expect(text()).toContain('Read-only: SHARPIT_READ_ONLY=true');
 });
 
