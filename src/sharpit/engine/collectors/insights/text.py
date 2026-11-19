@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 _FNV_BASIS, _FNV_PRIME, _MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
 
 
@@ -57,3 +59,8 @@ def millis(nanos: int) -> str:
 def median(values: list[int]) -> int:
     """``RouteTimeBreakdown.median``: the lower median, 0 for none."""
     return sorted(values)[(len(values) - 1) // 2] if values else 0
+
+
+def primary_call_site(sites: Sequence[str]) -> str:
+    """The most frequent call site among the executions, preserving first-seen order on ties."""
+    return max(sites, key=sites.count) if sites else ""
