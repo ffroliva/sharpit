@@ -103,18 +103,21 @@ class SharpitParser(argparse.ArgumentParser):
         self.exit(ExitCodes.ERROR, f"{self.prog}: error: {sanitized}\n")
 
 
+TEXT_METAVAR = "<text>"
+
+
 def _create_globals_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument(
         "--url",
         default=argparse.SUPPRESS,
-        metavar="<text>",
+        metavar=TEXT_METAVAR,
         help="The application's base URL (SHARPIT_URL; default: http://localhost:8000)",
     )
     parser.add_argument(
         "--api-path",
         default=argparse.SUPPRESS,
-        metavar="<text>",
+        metavar=TEXT_METAVAR,
         help="The sharpit API path (SHARPIT_API_PATH; default: /sharpit/api)",
     )
     parser.add_argument(
@@ -167,7 +170,7 @@ def _configure_leaf_arguments(leaf_parser: SharpitParser, tool: ManifestTool) ->
     leaf_parser.set_defaults(_tool=tool, _leaf_parser=leaf_parser)
 
     if tool.takes_query:
-        leaf_parser.add_argument("-q", "--query", default=None, metavar="<text>", help="Filter results")
+        leaf_parser.add_argument("-q", "--query", default=None, metavar=TEXT_METAVAR, help="Filter results")
     if tool.takes_limit or tool.ignores_limit:
         help_text = "Return at most this many results" if tool.takes_limit else argparse.SUPPRESS
         leaf_parser.add_argument("-n", "--limit", type=int, default=None, metavar="<count>", help=help_text)
@@ -284,7 +287,7 @@ def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] |
     return path
 
 
-def _emit_error(err: TextIO, message: str, token: str | None, verbose: bool) -> None:  # noqa: ARG001
+def _emit_error(err: TextIO, message: str, token: str | None) -> None:
     message = redact(message, token)
     err.write(message)
     if not message.endswith("\n"):
@@ -294,7 +297,7 @@ def _emit_error(err: TextIO, message: str, token: str | None, verbose: bool) -> 
 
 
 def _emit_client_error(err: TextIO, error: ClientError, token: str | None, verbose: bool) -> None:
-    _emit_error(err, str(error), token, verbose)
+    _emit_error(err, str(error), token)
     if verbose and error.__cause__ is not None:
         import traceback
 
@@ -308,7 +311,7 @@ def _emit_unexpected_error(err: TextIO, error: Exception, token: str | None, ver
         message = "".join(traceback.format_exception(error))
     else:
         message = " ".join(str(error).splitlines())
-    _emit_error(err, message, token, verbose)
+    _emit_error(err, message, token)
 
 
 def _extract_global_options(namespace: argparse.Namespace) -> GlobalOptions:
@@ -323,42 +326,45 @@ def _extract_global_options(namespace: argparse.Namespace) -> GlobalOptions:
     )
 
 
+def _usage_error(leaf: SharpitParser, err: TextIO, missing: str) -> None:
+    leaf.print_usage(err)
+    err.write(f"{leaf.prog}: error: the following arguments are required: {missing}\n")
+
+
+def _identifier(namespace: argparse.Namespace) -> object | None:
+    flag_id = getattr(namespace, "flag_id", None)
+    return flag_id if flag_id is not None else getattr(namespace, "pos_id", None)
+
+
 def _extract_tool_args(
     namespace: argparse.Namespace,
     tool: ManifestTool,
     root_parser: SharpitParser,
     err: TextIO,
 ) -> dict[str, Any] | None:
-    args_payload: dict[str, Any] = {}
     leaf = getattr(namespace, "_leaf_parser", root_parser)
-
-    if tool.takes_id:
-        flag_id = getattr(namespace, "flag_id", None)
-        pos_id = getattr(namespace, "pos_id", None)
-        id_val = flag_id if flag_id is not None else pos_id
-        if id_val is not None:
-            args_payload["id"] = id_val
-        elif "id" in tool.required or tool.schema in ("ID", "RULE_VIOLATIONS"):
-            leaf.print_usage(err)
-            err.write(f"{leaf.prog}: error: the following arguments are required: <id>\n")
+    args_payload: dict[str, Any] = {}
+    identifiers = (
+        (tool.takes_id, "id", _identifier(namespace), "<id>", tool.schema in ("ID", "RULE_VIOLATIONS")),
+        (
+            tool.takes_scan_id,
+            "scanId",
+            getattr(namespace, "scan_id", None),
+            "--scan-id",
+            tool.schema == "RULE_VIOLATIONS",
+        ),
+    )
+    for takes, wire, value, shown, schema_requires in identifiers:
+        if not takes:
+            continue
+        if value is not None:
+            args_payload[wire] = value
+        elif wire in tool.required or schema_requires:
+            _usage_error(leaf, err, shown)
             return None
-
-    if tool.takes_scan_id:
-        scan_id_val = getattr(namespace, "scan_id", None)
-        if scan_id_val is not None:
-            args_payload["scanId"] = scan_id_val
-        elif "scanId" in tool.required or tool.schema == "RULE_VIOLATIONS":
-            leaf.print_usage(err)
-            err.write(f"{leaf.prog}: error: the following arguments are required: --scan-id\n")
-            return None
-
-    if tool.takes_offset and (offset := getattr(namespace, "offset", None)) is not None:
-        args_payload["offset"] = offset
-    if tool.takes_limit and (limit := getattr(namespace, "limit", None)) is not None:
-        args_payload["limit"] = limit
-    if tool.takes_query and (query := getattr(namespace, "query", None)) is not None:
-        args_payload["query"] = query
-
+    for takes, name in ((tool.takes_offset, "offset"), (tool.takes_limit, "limit"), (tool.takes_query, "query")):
+        if takes and (value := getattr(namespace, name, None)) is not None:
+            args_payload[name] = value
     return args_payload
 
 
@@ -381,7 +387,7 @@ def _call_client(
         return None
 
     if type(result) is not ToolResult or not isinstance(getattr(result, "status", None), int):
-        _emit_error(err, "Client returned an invalid tool result", client_options.token, verbose)
+        _emit_error(err, "Client returned an invalid tool result", client_options.token)
         return None
     return client, result
 
@@ -421,7 +427,7 @@ def _emit_result(
         )
     elif outcome.kind is OutcomeKind.REFUSED_BY_POLICY:
         message += f" (panel '{tool.panel}')"
-    _emit_error(err, message, client_options.token, verbose)
+    _emit_error(err, message, client_options.token)
     return outcome.exit_code
 
 
@@ -444,7 +450,6 @@ def _invoke_and_handle(
 def run(
     argv: Sequence[str],
     environment: Mapping[str, str],
-    terminal: bool,  # noqa: ARG001
     out: TextIO,
     err: TextIO,
     client_factory: Callable[[ClientOptions], Client] | None = None,
@@ -484,5 +489,4 @@ def run(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else list(argv)
-    terminal = sys.stdout.isatty() if hasattr(sys.stdout, "isatty") else False
-    return run(args, os.environ, terminal, sys.stdout, sys.stderr)
+    return run(args, os.environ, sys.stdout, sys.stderr)

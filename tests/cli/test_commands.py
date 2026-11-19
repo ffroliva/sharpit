@@ -43,7 +43,6 @@ def _run_cli(
     code = run(
         argv,
         env,
-        terminal,
         out,
         err,
         client_factory=lambda opts: setattr(active_client, "options", opts) or active_client,
@@ -223,7 +222,7 @@ def test_default_client_factory_completes_an_http_call(monkeypatch):
 
     monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: Opener())
     out, err = io.StringIO(), io.StringIO()
-    code = run(["beans"], {}, False, out, err, client_factory=None)
+    code = run(["beans"], {}, out, err, client_factory=None)
     assert code == 0
     assert json.loads(out.getvalue()) == {"ok": True}
     assert err.getvalue() == ""
@@ -244,7 +243,7 @@ def test_timeout_message_keeps_fractional_seconds_readable(monkeypatch):
     monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: NoResponse())
     for timeout, expected in ((0.3, "300ms"), (1.5, "1.5s")):
         out, err = io.StringIO(), io.StringIO()
-        code = run(["--timeout", str(timeout), "beans"], {}, False, out, err)
+        code = run(["--timeout", str(timeout), "beans"], {}, out, err)
         assert code == ExitCodes.ERROR
         assert f"within {expected}." in err.getvalue()
 
@@ -260,7 +259,7 @@ def test_verbose_client_error_prints_redacted_transport_cause(monkeypatch):
 
     monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: FailedOpener())
     out, err = io.StringIO(), io.StringIO()
-    code = run(["--token", secret, "--verbose", "beans"], {}, False, out, err)
+    code = run(["--token", secret, "--verbose", "beans"], {}, out, err)
     assert code == ExitCodes.ERROR
     assert "Cannot reach sharpit" in err.getvalue()
     assert "Traceback" in err.getvalue()
@@ -386,7 +385,7 @@ def test_two_concurrent_runs_keep_their_own_streams(monkeypatch):
     codes = [None, None]
 
     def invoke(index):
-        codes[index] = run(["beans", "--help"], {}, False, outputs[index], errors[index])
+        codes[index] = run(["beans", "--help"], {}, outputs[index], errors[index])
 
     threads = [threading.Thread(target=invoke, args=(index,)) for index in range(2)]
     for thread in threads:

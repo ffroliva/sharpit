@@ -15,14 +15,18 @@ DEFAULT_API_PATH = "/sharpit/api"
 DEFAULT_TIMEOUT = 60.0
 
 
+_LOCAL_SCHEME = "http"  # a local developer console; BootUI defaults to plain HTTP on localhost too
+
+
 def normalize_base_url(url: str | None) -> str:
     value = (url or "").strip()
     if not value:
         return DEFAULT_BASE_URL
     if value.startswith(":"):
         value = "localhost" + value
-    if not (value.startswith("http://") or value.startswith("https://")):
-        value = "http://" + value
+    scheme, separator, _ = value.partition("://")
+    if not separator or scheme not in {"http", "https"}:
+        value = f"{_LOCAL_SCHEME}://{value}"
     while value.endswith("/") and len(value) > 1:
         value = value[:-1]
     return value
@@ -54,7 +58,7 @@ def positive_seconds(value: str) -> float:
         seconds = float(raw)
     except (ValueError, TypeError):
         raise argparse.ArgumentTypeError(f"'{value}' is not a number of seconds") from None
-    if seconds <= 0 or seconds != seconds or seconds == float("inf"):
+    if not 0 < seconds < float("inf"):  # NaN fails both comparisons
         raise argparse.ArgumentTypeError(f"must be a positive number of seconds, not {value}")
     return seconds
 
