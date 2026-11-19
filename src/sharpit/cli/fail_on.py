@@ -55,8 +55,24 @@ def build_tool_arguments(
     Task 7 wires this helper into the command runner.
     """
     allowed = set(tool.arguments)
-    return {k: v for k, v in options.items() if k in allowed and v is not None}
+    raw_query = options.get("query")
+    query_val = effective_query(tool.name, str(raw_query) if raw_query is not None else None, criterion)
 
+    result: dict[str, object] = {}
+    for opt_name, opt_val in options.items():
+        if opt_val is None and opt_name != "query":
+            continue
+        wire_name = _OPTION_TO_WIRE.get(opt_name, opt_name)
+        if wire_name not in allowed:
+            continue
+        if wire_name == "query":
+            if query_val is not None:
+                result["query"] = query_val
+        elif opt_val is not None:
+            result[wire_name] = opt_val
+    if "query" in allowed and "query" not in result and query_val is not None:
+        result["query"] = query_val
+    return result
 
 
 class _Labeled(enum.StrEnum):
@@ -129,7 +145,11 @@ INSUFFICIENT_TOOLS: frozenset[str] = frozenset(
 
 # Reads that grade nothing: runtime views and a heap-dump inventory have no severities to gate on,
 # or lack evidence sensors.
-EXCLUDED: Mapping[str, str] = {}
+EXCLUDED: Mapping[str, str] = {
+    "get_postgresql_report": "runtime views have no severities to gate on.",
+    "get_mysql_report": "runtime views have no severities to gate on.",
+    "get_exceptions": "sharpit records no caught-in-code evidence, so this gate cannot be evaluated.",
+}
 
 _EVALUATED = frozenset({"SCANNED", "PARTIAL"})
 _WORD_PATTERN = re.compile(r"[A-Za-z_]{1,32}")
@@ -171,19 +191,21 @@ def accepted_severities() -> str:
 
 def accepted(tool_name: str) -> str:
     """Accepted criteria for the tool."""
+    if tool_name in EXCLUDED:
+        return f"'{tool_name}' takes no --fail-on: {EXCLUDED[tool_name]}"
     if supports_severity(tool_name) and supports_insufficient(tool_name):
         return f"{accepted_severities()}, insufficient"
     if supports_insufficient(tool_name):
         return "insufficient"
     if supports_severity(tool_name):
         return accepted_severities()
-    return f"'{tool_name}' takes no --fail-on"
+    return f"'{tool_name}' takes no --fail-on."
 
 
 def parse(tool_name: str, value: str) -> Criterion:
     """Reads a --fail-on value allowed for the selected tool, ignoring case."""
-    if tool_name == "get_exceptions":
-        raise ValueError("sharpit records no caught-in-code evidence, so this gate cannot be evaluated")
+    if tool_name in EXCLUDED:
+        raise ValueError(f"'{tool_name}' takes no --fail-on: {EXCLUDED[tool_name]}")
     if not supports_severity(tool_name) and not supports_insufficient(tool_name):
         raise ValueError(f"'{tool_name}' takes no --fail-on.")
     normalized = _trim_java(value).upper()

@@ -4,10 +4,10 @@ cli:fail-on-partial-note	matched	PARTIAL scan without findings passes (exit 0) w
 cli:fail-on-query-default	matched	insights list defaults to query=all when --fail-on insufficient is active and query omitted
 cli:fail-on-tools-fastapi	adapted	fastapi_scan and get_fastapi_report added to ADVISOR_TOOLS for FastAPI framework advisor
 cli:fail-on-tools-dropped	adapted	crac, graalvm, hibernate, memory, pentest, spring advisor tools dropped as absent from sharpit
-cli:fail-on-tools-heap-dump	adapted	get_heap_dump_report dropped because sharpit provides no heap dump analysis tool
+cli:fail-on-tools-heap-dump	adapted	BootUI lists get_heap_dump_report in EXCLUDED; dropped because sharpit provides no heap dump analysis tool
 cli:fail-on-exceptions-sensor	adapted	get_exceptions removed from insufficient-criterion tools: sharpit records no caught-in-code evidence, so this gate cannot be evaluated (usage error)
-cli:fail-on-pytest-gate-comparison	adapted	CLI follows BootUI exactly (gates on INFO; scan status ERROR exits 1 unevaluable regardless of findings); differs from pytest gate where INFO is notes-only and ERROR with findings fails
-cli:fail-on-missing-value-parser	n-a	bare option missing value validation through CLI command parser is deferred to Task 7
-cli:fail-on-refused	n-a	HTTP refusal exit 2 is tested and handled in Task 3 outcomes and Task 7 CLI runner
-cli:fail-on-failed-call	n-a	HTTP 500 error exit 1 without gate processing is handled in Task 3/7
-cli:fail-on-print-before-gate	n-a	stdout payload emission before gate evaluation is handled in Task 7 render pipeline
+cli:fail-on-pytest-gate-comparison	n-a	note: CLI follows BootUI exactly (gates on INFO; scan status ERROR exits 1 unevaluable regardless of findings); the pytest gate follows the 0.4.0 ruling (INFO notes-only, ERROR with findings fails)
+cli:fail-on-missing-value-parser	gap	bare option missing value validation through CLI command parser is deferred to Task 7
+cli:fail-on-refused	gap	HTTP refusal exit 2 is tested and handled in Task 3 outcomes and Task 7 CLI runner
+cli:fail-on-failed-call	gap	HTTP 500 error exit 1 without gate processing is deferred to Task 7
+cli:fail-on-print-before-gate	gap	stdout payload emission before gate evaluation is handled in Task 7 render pipeline
