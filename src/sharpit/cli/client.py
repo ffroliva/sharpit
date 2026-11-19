@@ -15,9 +15,10 @@ from urllib.parse import quote, urlsplit
 from sharpit import __version__
 from sharpit.cli.options import ClientOptions
 
+REDACTED = "[redacted]"
 _CONNECT_TIMEOUT = 10.0
 _PANEL_ACCESS_DENIED = "sharpit panel access denied"
-__all__ = ["Client", "ClientError", "ToolResult", "error_body", "safe_text"]
+__all__ = ["Client", "ClientError", "REDACTED", "ToolResult", "error_body", "safe_text"]
 
 JsonObject = dict[str, Any]  # a decoded JSON object
 
@@ -421,25 +422,20 @@ def _sharpit_text(text: str) -> str:
 
 def _redact(text: str, token: str | None) -> str:
     if token:
-        redacted_json = False
 
         def redact_json_string(match: re.Match[str]) -> str:
-            nonlocal redacted_json
             raw = match.group()
             try:
                 value = json.loads(raw)
             except ValueError:
                 return raw
             if isinstance(value, str) and token in value:
-                redacted_json = True
-                return json.dumps(value.replace(token, "[redacted]"), ensure_ascii="\\u" in raw.lower())
+                return json.dumps(value.replace(token, REDACTED), ensure_ascii="\\u" in raw.lower())
             return raw
 
         text = re.sub(r'"(?:\\.|[^"\\])*"', redact_json_string, text)
-        if redacted_json:
-            return text
-        text = text.replace(f"Authorization: Bearer {token}", "[redacted]")
-        text = text.replace(f"Bearer {token}", "Bearer [redacted]").replace(token, "[redacted]")
+        text = text.replace(f"Authorization: Bearer {token}", REDACTED)
+        text = text.replace(f"Bearer {token}", f"Bearer {REDACTED}").replace(token, REDACTED)
     return text
 
 

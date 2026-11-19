@@ -311,21 +311,34 @@ def test_post_json_parse_error_keeps_its_body_redacted_and_does_not_parse_it_aga
     secret = 'a"b\\c'
     body = '{"secret":"a\\"b\\\\c",}'
     routes["/sharpit/api/mcp-server/toggle"] = (200, body.encode(), None)
+    client = Client(options(base, token=secret))
 
     with pytest.raises(ClientError) as caught:
-        Client(options(base, token=secret)).post_result("/mcp-server/toggle", "{}")
+        client.post_result("/mcp-server/toggle", "{}")
 
     assert secret not in caught.value.body
     assert "[redacted]" in caught.value.body
     assert not hasattr(caught.value, "payload")
 
 
+def test_redaction_continues_after_a_json_string_matches_the_token():
+    from sharpit.cli.client import safe_text
+
+    message = '{"secret":"mixed-secret"} Authorization: Bearer mixed-secret'
+    redacted = safe_text(message, "mixed-secret")
+
+    assert "mixed-secret" not in redacted
+    assert '"secret":"[redacted]"' in redacted
+    assert "Authorization:" not in redacted
+
+
 def test_post_invalid_utf8_marks_the_request_as_sent(endpoint):
     base, routes, requests, *_ = endpoint
     routes["/sharpit/api/mcp-server/toggle"] = (200, b"\xff", None)
+    client = Client(options(base))
 
     with pytest.raises(ClientError) as caught:
-        Client(options(base)).post_result("/mcp-server/toggle", "{}")
+        client.post_result("/mcp-server/toggle", "{}")
 
     assert caught.value.status == 200
     assert getattr(caught.value, "request_sent", False) is True
@@ -337,9 +350,10 @@ def test_post_read_timeout_marks_the_request_as_sent(endpoint):
     path = "/sharpit/api/mcp-server/toggle"
     routes[path] = (200, b'{"enabled":true}', None)
     delays[path] = 0.5
+    client = Client(options(base, timeout=0.1))
 
     with pytest.raises(ClientError) as caught:
-        Client(options(base, timeout=0.1)).post_result("/mcp-server/toggle", "{}")
+        client.post_result("/mcp-server/toggle", "{}")
 
     assert getattr(caught.value, "request_sent", False) is True
     assert requests[0][0:2] == ("POST", path)
@@ -350,9 +364,10 @@ def test_post_broken_connection_after_send_marks_unknown_outcome(endpoint):
     path = "/sharpit/api/mcp-server/toggle"
     routes[path] = (200, b"", None)
     broken_paths.add(path)
+    client = Client(options(base))
 
     with pytest.raises(ClientError) as caught:
-        Client(options(base)).post_result("/mcp-server/toggle", "{}")
+        client.post_result("/mcp-server/toggle", "{}")
 
     assert getattr(caught.value, "request_sent", False) is True
     assert requests[0][0:2] == ("POST", path)
