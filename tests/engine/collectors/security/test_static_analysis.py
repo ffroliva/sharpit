@@ -1201,3 +1201,25 @@ def test_build_files_scandir_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyP
     files = detector._build_files(p)
     assert len(files) == 1
     assert files[0].name == "pyproject.toml"
+
+@pytest.mark.parametrize("repo_first", [True, False])
+def test_subproject_ruff_config_precedes_repository_config(tmp_path: Path, repo_first: bool) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    repo = tmp_path / "repo"
+    _write(repo / ".git" / "HEAD", "ref: refs/heads/main\n")
+    project = repo / "svc"
+    _write(project / "pyproject.toml", '[project]\nname = "svc"\n\n[tool.ruff.lint]\nselect = ["S"]\n')
+    if repo_first:
+        _write(repo / "ruff.toml", '[lint]\nselect = ["E"]\n')
+    else:
+        _write(repo / "ruff.toml", '[lint]\nselect = ["E"]\n')
+        (project / "ruff.toml").unlink(missing_ok=True)
+    assert detector.inspect(project).state == State.CONFIGURED
+
+
+@pytest.mark.parametrize("runner", ["uv run", "uvx"])
+def test_runner_isolated_flag_is_boolean(tmp_path: Path, runner: str) -> None:
+    detector = StaticSecurityAnalysisDetector()
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "runner"\n')
+    _write(tmp_path / ".github" / "workflows" / "ci.yml", f"name: CI\njobs:\n  test:\n    steps:\n      - run: {runner} --isolated bandit -r src\n")
+    assert detector.inspect(tmp_path).state == State.CONFIGURED
