@@ -120,7 +120,7 @@ class Client:
         deadline = time.monotonic() + request_timeout
         try:
             outgoing = self._request(endpoint, method, arguments)
-        except (ValueError, UnicodeEncodeError):
+        except ValueError:
             raise self._client_error("Request could not be encoded for HTTP") from None
         outcome = self._exchange(
             outgoing, deadline, request_timeout, max_response_bytes, base, configured_timeout, timeout
@@ -233,7 +233,7 @@ class Client:
                 reason = _nonblank(document.get("reason"))
                 message = _nonblank(document.get("message"))
                 panel = _nonblank(document.get("panel"))
-        except (json.JSONDecodeError, ValueError, ClientError):
+        except (ValueError, ClientError):
             pass
 
         specific = reason or message
@@ -287,7 +287,7 @@ def _read_bounded(response: Any, deadline: float, max_response_bytes: int = _MAX
 def _parse_json(body: str, endpoint: str, status: int) -> Any:
     try:
         return _strict_json(body)
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         raise ClientError(f"Response from {endpoint} does not contain JSON (HTTP {status})") from None
 
 
@@ -301,7 +301,7 @@ def _strict_json(body: str) -> Any:
 def _optional_json(body: str) -> Any:
     try:
         return _strict_json(body)
-    except (json.JSONDecodeError, ValueError, ClientError):
+    except (ValueError, ClientError):
         return None
 
 
@@ -338,4 +338,4 @@ def _valid_timeout(value: Any) -> float:
         timeout = float(value)
     except (TypeError, ValueError):
         return 60.0
-    return timeout if timeout == timeout and timeout not in (float("inf"), -float("inf")) and timeout > 0 else 60.0
+    return timeout if 0 < timeout < float("inf") else 60.0

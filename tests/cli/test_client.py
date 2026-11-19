@@ -135,9 +135,10 @@ def test_duplicate_keys_and_oversized_bodies_are_rejected(endpoint, body):
     # ported: BootUiClientTests.boundedReadsRejectDuplicateKeysAndOversizedBodies
     base, routes, _, *_ = endpoint
     routes["/sharpit/api/probe"] = (200, body, None)
+    client = Client(options(base))
 
     with pytest.raises(ClientError):
-        Client(options(base)).get("/probe")
+        client.get("/probe")
 
 
 def test_timeout_bounds_the_whole_body_read(endpoint):
@@ -145,9 +146,10 @@ def test_timeout_bounds_the_whole_body_read(endpoint):
     base, routes, _, _, delays, *_ = endpoint
     routes["/sharpit/api/probe"] = (200, b'{"value":true}', None)
     delays["/sharpit/api/probe"] = 2.0
+    client = Client(options(base, timeout=0.25))
     started = time.monotonic()
     with pytest.raises(ClientError):
-        Client(options(base, timeout=0.25)).get("/probe")
+        client.get("/probe")
     assert time.monotonic() - started < 1.75
 
 
@@ -159,8 +161,9 @@ def test_token_header_is_conditional_and_never_appears_in_client_errors(endpoint
     secret = "a-very-private-token"
 
     assert Client(options(base, token=secret)).get("/ok") == {"ok": True}
+    client = Client(options(base, token=secret))
     with pytest.raises(ClientError) as caught:
-        Client(options(base, token=secret)).get("/probe")
+        client.get("/probe")
     assert Client(options(base)).get("/ok") == {"ok": True}
     for message in (str(caught.value), repr(caught.value)):
         assert secret not in message
@@ -305,8 +308,9 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
     messages = []
     representations = []
 
+    client = Client(options(base, token=secret, timeout=1))
     with pytest.raises(ClientError) as timeout:
-        Client(options(base, token=secret, timeout=1)).get("/probe")
+        client.get("/probe")
     messages.append(str(timeout.value))
     representations.append(repr(timeout.value))
 
@@ -468,8 +472,9 @@ def test_bounded_read_works_when_response_has_no_private_socket():
 
 @pytest.mark.parametrize("secret", ["a\rb", "a\nb", "a\x00b", "café-漢"])
 def test_invalid_header_tokens_fail_safely_before_a_request(secret, endpoint):
+    client_options = options(endpoint[0], token=secret)
     with pytest.raises(ClientError) as caught:
-        Client(options(endpoint[0], token=secret))
+        Client(client_options)
     assert str(caught.value) == "The token contains characters an HTTP header cannot carry"
     assert secret not in str(caught.value)
     assert secret not in repr(caught.value)
@@ -509,9 +514,10 @@ def test_deadline_bounds_trickled_headers(endpoint):
     path = "/slow-header"
     routes[f"/sharpit/api{path}"] = (500, b"{" + b"x" * 100 + b"}", None)
     endpoint[5].add(f"/sharpit/api{path}")
+    client = Client(options(base, timeout=0.25))
     started = time.monotonic()
     with pytest.raises(ClientError):
-        Client(options(base, timeout=0.25)).get(path)
+        client.get(path)
     assert time.monotonic() - started < 0.75
 
 
