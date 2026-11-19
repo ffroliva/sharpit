@@ -17,6 +17,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Static security analysis detector (rule SEC-STATIC-001) supports PEP 508 requirement specifications (whitespace, version markers, URL references), PEP 735 dependency groups, build tool dev dependencies (uv, pdm, hatch), pre-commit quoted IDs and local repo hooks, monorepo root-level candidate configuration, and command runners (uv run, uvx, python -m, poetry run, pipx run). Also ensures ruff.toml independence, binary mode reading for Windows 0x1A safety, and preserves introspection limitations and static advisor metadata when no FastAPI application is found.
 - `pytest --sharpit` no longer exits 1 on a run with no finding when an advisor read part of an application and met
   an opaque mounted sub-app (#65). The advisor is `PARTIAL`: the run passes with a warning that names what was not
   read and says that having no finding at or above `--sharpit-fail-on` is not proof there is none, and a finding at
