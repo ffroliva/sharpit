@@ -100,25 +100,52 @@ def test_json_redaction_preserves_scalars_and_does_not_change_keys():
     assert '"true"' in out
 
 
-def test_json_number_is_not_changed_by_short_token():
+def test_json_number_containing_token_is_redacted():
     _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "12"}, body='{"count":1234}')
 
-    assert out == '{"count":1234}\n'
-    assert json.loads(out) == {"count": 1234}
+    assert out == '{"count":"[redacted]"}\n'
+    assert json.loads(out) == {"count": "[redacted]"}
 
 
-def test_terminal_render_does_not_redact_numeric_literals():
+def test_terminal_render_redacts_numeric_literals_and_mapping_keys():
     _, out, _ = run(["health"], env={"SHARPIT_TOKEN": "12"}, body='[{"count":1234}]')
 
-    assert "1234" in out
-    assert "[redacted]34" not in out
+    assert "[redacted]" in out
+    assert "1234" not in out
+
+    _, table_out, _ = run(["health"], env={"SHARPIT_TOKEN": "s3cret"}, body='[{"s3cret": "value"}]')
+
+    assert "s3cret" not in table_out
 
 
-def test_json_short_word_token_does_not_change_boolean_keys_or_values():
+def test_json_short_word_token_redacts_keys_and_values_but_keeps_other_bytes():
     body = '{"dev":"key","environment":"dev","enabled":true}'
     _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "dev"}, body=body)
 
-    assert json.loads(out) == {"dev": "key", "environment": "[redacted]", "enabled": True}
+    assert out == '{"[redacted]":"key","environment":"[redacted]","enabled":true}\n'
+    assert json.loads(out) == {"[redacted]": "key", "environment": "[redacted]", "enabled": True}
+
+
+def test_json_redaction_preserves_unmatched_escape_and_unicode_spelling():
+    body = r'{"message":"/ \u0041 数据 s3cret"}'
+    _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "s3cret"}, body=body)
+
+    assert out == r'{"message":"/ \u0041 数据 [redacted]"}' + "\n"
+
+
+def test_json_number_containing_token_becomes_redacted_string():
+    _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "12"}, body='{"count":1234}')
+
+    assert out == '{"count":"[redacted]"}\n'
+
+
+def test_invalid_json_always_gets_plain_text_redaction():
+    _, out, _ = run(
+        ["--json", "health"], env={"SHARPIT_TOKEN": "s3cret"}, body='Bearer s3cret rejected; token="s3cret"'
+    )
+
+    assert "s3cret" not in out
+    assert 'Bearer [redacted] rejected; token="[redacted]"' in out
 
 
 def test_server_text_and_bootui_url_are_not_rewritten():
@@ -147,9 +174,48 @@ def test_server_error_controls_are_sanitized_before_stderr():
     assert "\x07" not in err
 
 
+def test_terminal_json_escapes_raw_c1_controls_but_piped_json_is_verbatim():
+    body = '{"message":"a\u009bb"}'
+    _, terminal_out, _ = run(["--json", "health"], body=body)
+    out, err = io.StringIO(), io.StringIO()
+    commands.run(["--json", "health"], {}, False, out, err, lambda options: Fake(options, 200, body))
+
+    assert "\u009b" in terminal_out
+    assert "\u009b" not in out.getvalue()
+    assert "a\u009bb" in out.getvalue()
+
+
+def test_usage_messages_escape_terminal_controls_from_argv():
+    payload = "\x1b]0;owned\x07"
+    _, _, err = run(["health", payload])
+
+    assert "\x1b" not in err
+    assert "\x07" not in err
+    assert "\\x1b]0;owned\\x07" in err
+
+
+def test_invalid_timeout_message_escapes_controls_from_argv():
+    payload = "\x1b[2J"
+    _, _, err = run(["--timeout", payload, "health"])
+
+    assert "\x1b" not in err
+    assert "\\x1b[2J" in err
+
+
+def test_verbose_traceback_keeps_line_breaks():
+    class CrashingClient(Fake):
+        def invoke(self, tool: str, arguments: dict[str, object]) -> ToolResult:
+            raise RuntimeError("boom")
+
+    out, err = io.StringIO(), io.StringIO()
+    commands.run(["-v", "health"], {}, True, out, err, lambda options: CrashingClient(options, 200, "{}"))
+
+    assert "Traceback (most recent call last):\n" in err
+
+
 # derived: CliContext.confirmBootUiAnswered, describe, and unknownToolHint
 def test_listed_tool_404_uses_bootui_unknown_tool_description():
-    _, _, err = run(
+    code, _, err = run(
         ["insights", "show", "nosuch"],
         status=404,
         body='{"message":"No observation found"}',
@@ -158,12 +224,84 @@ def test_listed_tool_404_uses_bootui_unknown_tool_description():
 
     assert "No observation found" in err
     assert "This application does not expose" not in err
+    assert code == 1
+
+
+def test_listed_tool_404_error_message_redacts_token_and_does_not_fetch_panels():
+    class CountingClient(Fake):
+        calls: list[str]
+
+        def __init__(self, options, status, body, tools=None):
+            super().__init__(options, status, body, tools)
+            self.calls = []
+
+        def invoke(self, tool, arguments):
+            self.calls.append("tool")
+            return super().invoke(tool, arguments)
+
+        def catalog(self):
+            self.calls.append("catalog")
+            return super().catalog()
+
+        def get(self, path):
+            self.calls.append(path)
+            return super().get(path)
+
+    client = None
+
+    def factory(options):
+        nonlocal client
+        client = CountingClient(options, 404, '{"message":"missing s3cret"}', [{"name": "get_runtime_insight"}])
+        return client
+
+    out, err = io.StringIO(), io.StringIO()
+    code = commands.run(["--token", "s3cret", "insights", "show", "nosuch"], {}, True, out, err, factory)
+
+    assert code == 1
+    assert "s3cret" not in err.getvalue()
+    assert client is not None
+    assert client.calls == ["tool", "catalog"]
+
+
+def test_listed_tool_404_outcome_redacts_error_message_with_client_token():
+    from sharpit.cli.outcomes import confirm_answered
+
+    client = Fake(ClientOptions(token="s3cret"), 404, '{"message":"missing s3cret"}', [{"name": "get_runtime_insight"}])
+    outcome = confirm_answered(client, client.invoke("get_runtime_insight", {}))
+
+    assert "s3cret" not in outcome.message
+    assert "missing [redacted]" in outcome.message
 
 
 def test_unlisted_tool_404_says_the_application_does_not_expose_it():
     _, _, err = run(["insights", "show", "nosuch"], status=404, body='{"message":"Unknown tool"}')
 
     assert "This application does not expose 'get_runtime_insight'." in err
+    assert "older sharpit version" in err
+
+
+def test_unlisted_tool_404_hint_uses_local_metadata_without_panel_request():
+    class CountingClient(Fake):
+        def __init__(self, options):
+            super().__init__(options, 404, '{"message":"Unknown tool"}')
+            self.paths = []
+
+        def get(self, path):
+            self.paths.append(path)
+            return super().get(path)
+
+    client = None
+
+    def factory(options):
+        nonlocal client
+        client = CountingClient(options)
+        return client
+
+    out, err = io.StringIO(), io.StringIO()
+    commands.run(["insights", "show", "nosuch"], {}, True, out, err, factory)
+
+    assert client is not None
+    assert client.paths == []
 
 
 def test_usage_errors_only_redact_token_flag_values():
@@ -182,6 +320,24 @@ def test_misspelled_and_case_insensitive_token_flags_redact_values():
         _, _, err = run([flag, "s3cret", "health"])
         assert "s3cret" not in err
         assert "[redacted]" in err
+
+
+@pytest.mark.parametrize(
+    "argv,secret",
+    [
+        (["health", "--tokn=s3cret"], "s3cret"),
+        (["health", "--TOKEN=s3cret"], "s3cret"),
+        (["health", "--access-token", "s3cret"], "s3cret"),
+        (["health", "--bearer", "s3cret"], "s3cret"),
+        (["health", "--api-key=s3cret"], "s3cret"),
+        (["health", "--tokn", "-Xy9secret"], "-Xy9secret"),
+    ],
+)
+def test_token_like_option_values_are_redacted_even_at_argv_end(argv, secret):
+    _, _, err = run(argv)
+
+    assert secret not in err
+    assert "[redacted]" in err
 
 
 def test_get_exceptions_fail_on_reports_excluded_reason():
