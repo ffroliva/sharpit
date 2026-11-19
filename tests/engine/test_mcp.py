@@ -402,7 +402,13 @@ def _guidance_texts() -> list[str]:
 def test_guidance_names_only_sharpit_tools():
     # new: review ruling (prompts and instructions name only the seven sharpit tools)
     for text in _guidance_texts():
-        named = set(re.findall(r"\bget_\w+|\b\w+_scan\b", text))
+        named = set(
+            re.findall(
+                r"\b(?:get|clear|pause|resume|enable|disable|vulnerabilities|rest_api|security|database_advisor|"
+                r"architecture|fastapi|postgresql|mysql)_[a-z0-9_]+\b",
+                text,
+            )
+        )
         assert named <= SHARPIT_TOOLS, named - SHARPIT_TOOLS
     assert "vulnerabilities_scan" in INSTRUCTIONS
     assert "CLI" in INSTRUCTIONS
@@ -416,10 +422,43 @@ def test_guidance_is_python_not_jvm():
 
 
 def test_prompts_get_unknown():
-    # adapted: BootUiMcpService.getPrompt (unknown and missing prompt name)
+    # ported: McpDispatcherTests.promptsGetValidatesName
     server = _server()
     assert _post(server, _rpc("prompts/get", 6, {"name": "nope"}))[1] == _err(6, -32602, "Unknown prompt: nope")
     assert _post(server, _rpc("prompts/get", 6, {}))[1] == _err(6, -32602, "Missing prompt name")
+
+
+def test_prompts_get_renders_declared_arguments_and_refuses_undeclared_ones():
+    # ported: McpDispatcherTests.promptsGetRendersDeclaredArgumentsAndRefusesUndeclaredOnes
+    server = _server()
+    blank = _post(server, _rpc("prompts/get", 7, {"name": "diagnose_runtime_issue", "arguments": {"route": "  "}}))[1]
+    assert blank is not None
+    blank_text = blank["result"]["messages"][0]["content"]["text"]
+    assert "Context the user supplied" not in blank_text
+    rendered = _post(
+        server,
+        _rpc("prompts/get", 8, {"name": "diagnose_runtime_issue", "arguments": {"symptom": "x" * 501}}),
+    )[1]
+    assert rendered is not None
+    rendered_text = rendered["result"]["messages"][0]["content"]["text"]
+    assert rendered_text.endswith("- The symptom the user reports: " + "x" * 500 + "...")
+    unknown = _post(
+        server,
+        _rpc("prompts/get", 9, {"name": "diagnose_runtime_issue", "arguments": {"sympton": "typo"}}),
+    )[1]
+    assert unknown == _err(9, -32602, "Unknown argument for prompt diagnose_runtime_issue: sympton. It takes route, symptom.")
+
+
+def test_prompt_argument_truncation_keeps_a_unicode_character_whole():
+    # ported: McpDispatcherTests.aBoundedPromptArgumentNeverSplitsASurrogatePair
+    value = "x" * 499 + "😀tail"
+    response = _post(
+        _server(),
+        _rpc("prompts/get", 10, {"name": "diagnose_runtime_issue", "arguments": {"symptom": value}}),
+    )[1]
+    assert response is not None
+    rendered = response["result"]["messages"][0]["content"]["text"]
+    assert rendered.endswith("- The symptom the user reports: " + "x" * 499 + "😀...")
 
 
 # --- lane D4: BootUI 2.2.0 protocol revisions and status counters ---------------------------------------------------
