@@ -235,6 +235,25 @@ def test_timeout_message_keeps_fractional_seconds_readable(monkeypatch):
         assert f"within {expected}." in err.getvalue()
 
 
+def test_verbose_client_error_prints_redacted_transport_cause(monkeypatch):
+    from sharpit.cli import client as client_module
+
+    secret = "secret-transport-value"
+
+    class FailedOpener:
+        def open(self, *_args, **_kwargs):
+            raise ConnectionError(secret)
+
+    monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: FailedOpener())
+    out, err = io.StringIO(), io.StringIO()
+    code = run(["--token", secret, "--verbose", "beans"], {}, False, out, err)
+    assert code == ExitCodes.ERROR
+    assert "Cannot reach sharpit" in err.getvalue()
+    assert "Traceback" in err.getvalue()
+    assert "ConnectionError" in err.getvalue()
+    assert secret not in err.getvalue()
+
+
 def test_284_calls_build_independent_parser_trees_under_performance_budget():
     import time
 
@@ -527,7 +546,7 @@ def test_confirmed_403_panel_access_denied_exits_refused():
     assert "Panel 'security' is read-only" in err
 
 
-# ported: CliContext.confirmBootUiAnswered
+# derived: confirm_answered verifies sharpit before trusting refusal statuses.
 def test_unconfirmed_foreign_403_exits_error():
     class Foreign403Client(FakeClient):
         def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
@@ -541,7 +560,7 @@ def test_unconfirmed_foreign_403_exits_error():
     assert "not a sharpit policy refusal" in err
 
 
-# ported: ToolOutcome.fromStatus
+# derived: classify maps HTTP responses to CLI outcomes.
 def test_confirmed_503_disabled_endpoint_exits_refused():
     class DisabledClient(FakeClient):
         def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
@@ -597,7 +616,7 @@ def test_timeout_accepts_duration_strings_and_bare_seconds():
 
 
 def test_version_flag_supported_on_subcommands():
-    # ported: BootUiCliTests (version on every command)
+    # derived: version option is installed on every parser node.
     code1, out1, _, _ = _run_cli(["--version"])
     assert code1 == 0
     assert "sharpit" in out1
