@@ -37,32 +37,59 @@ def _scratch_copy(destination: Path) -> Path:
     return copy
 
 
+@pytest.fixture(scope="module")
+def scratch_sharpit(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    destination = tmp_path_factory.mktemp("sharpit_a12")
+    return _scratch_copy(destination)
+
+
+FAST_PYTEST_FLAGS = (
+    "-p",
+    "no:cov",
+    "-p",
+    "no:xdist",
+    "-p",
+    "no:rerunfailures",
+    "-p",
+    "no:timeout",
+    "-p",
+    "no:anyio",
+    "-p",
+    "no:asyncio",
+    "-p",
+    "no:hypothesispytest",
+    "-p",
+    "no:cacheprovider",
+)
+
+
 @pytest.mark.parametrize("row_name", resolver_plants.A12_ROWS, ids=resolver_plants.A12_ROWS)
-def test_each_plant_fails_its_row(row_name: str, tmp_path: Path) -> None:
+def test_each_plant_fails_its_row(row_name: str, scratch_sharpit: Path) -> None:
     row = resolver_plants.A12_ROWS[row_name]
     plant = row.plant
-    copy = _scratch_copy(tmp_path)
-    target = copy / plant.module
+    target = scratch_sharpit / plant.module
     source = target.read_text(encoding="utf-8")
     assert source.count(plant.anchor) == 1
     target.write_text(source.replace(plant.anchor, plant.replacement, 1), encoding="utf-8")
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join((str(copy.parent), str(ROOT), env.get("PYTHONPATH", "")))
-    node = f"tests/masking/test_a12_resolver.py::test_a12_row[{row_name}]"
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", node],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    output = result.stdout + result.stderr
-    assert result.returncode != 0, output[-2000:]
-    assert "AssertionError" in output, output[-2000:]
-    assert "1 failed" in output, output[-2000:]
+    try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join((str(scratch_sharpit.parent), str(ROOT), env.get("PYTHONPATH", "")))
+        node = f"tests/masking/test_a12_resolver.py::test_a12_row[{row_name}]"
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", *FAST_PYTEST_FLAGS, node],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, output[-2000:]
+        assert "AssertionError" in output, output[-2000:]
+        assert "1 failed" in output, output[-2000:]
+    finally:
+        target.write_text(source, encoding="utf-8")
 
 
 def test_the_unseen_database_limit_is_pinned() -> None:
@@ -127,20 +154,28 @@ SURFACE_PLANTS = {
 
 @pytest.mark.timeout(300)  # its nested pytest run has its own 120 s timeout: the outer one must outlive it
 @pytest.mark.parametrize("row", SURFACE_ROWS)
-def test_the_driver_switch_put_back_fails_the_surface_row(row: str, tmp_path: Path) -> None:
+def test_the_driver_switch_put_back_fails_the_surface_row(row: str, scratch_sharpit: Path) -> None:
     plant = SURFACE_PLANTS[row]
-    target = _scratch_copy(tmp_path) / plant.module
+    target = scratch_sharpit / plant.module
     source = target.read_text(encoding="utf-8")
     assert source.count(plant.anchor) == 1
     target.write_text(source.replace(plant.anchor, plant.replacement, 1), encoding="utf-8")
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join((str(tmp_path / "src"), str(ROOT), env.get("PYTHONPATH", "")))
-    node = f"tests/masking/test_a12_resolver.py::test_a12_surface_row[exception_stacktrace-postgresql-{row}]"
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", node],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,
-    )  # fmt: skip
-    output = result.stdout + result.stderr
-    assert result.returncode == 1, output[-2000:]
-    assert "AssertionError" in output, output[-2000:]
-    assert "1 failed" in output, output[-2000:]
+    try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join((str(scratch_sharpit.parent), str(ROOT), env.get("PYTHONPATH", "")))
+        node = f"tests/masking/test_a12_resolver.py::test_a12_surface_row[exception_stacktrace-postgresql-{row}]"
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", *FAST_PYTEST_FLAGS, node],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode == 1, output[-2000:]
+        assert "AssertionError" in output, output[-2000:]
+        assert "1 failed" in output, output[-2000:]
+    finally:
+        target.write_text(source, encoding="utf-8")
