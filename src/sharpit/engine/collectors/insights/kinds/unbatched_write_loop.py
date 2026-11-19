@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
-from sharpit.engine.collectors.insights.requests import Request, project_requests
+from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests
 from sharpit.engine.collectors.insights.snapshot import Snapshot
+from sharpit.engine.collectors.insights.text import UNBATCHED_MIN_REQUESTS as MIN_REQUESTS
 from sharpit.engine.collectors.insights.text import counted, millis, stable_hash
+from sharpit.engine.sqltext.constants import MASK, UNSUPPORTED_STATEMENT
 
 KIND = "unbatched-write-loop"
 TITLE = "Unbatched write loops"
@@ -17,23 +19,32 @@ OPTIONAL_READS: frozenset[str] = frozenset({"transaction"})
 IMPLEMENTED = True
 
 MIN_STATEMENTS = 10
-MIN_REQUESTS = 2
 _WRITE = re.compile(r"\s*(insert|update|delete|merge)\b", re.IGNORECASE)
+_UNREADABLE = {MASK, UNSUPPORTED_STATEMENT}
+_SET_OPERATION = re.compile(r"\b(union|intersect|except)\b", re.IGNORECASE)
 
 
-def _request_writes(request: Request) -> tuple[dict[str, list[tuple[str, int, str]]], bool, int, int]:
-    per_request: dict[str, list[tuple[str, int, str]]] = {}
+def not_applicable(snapshot: Snapshot) -> str | None:
+    return ids_withheld(snapshot, "unbatched writes cannot be placed in a request")
+
+
+def _request_writes(request: Request) -> tuple[dict[str, list[tuple[str, int, int, str]]], bool, int]:
+    per_request: dict[str, list[tuple[str, int, int, str]]] = {}
     known_write = False
-    prepared = unknown = 0
+    unknown = 0
     for event in request.children["sql"]:
         statement = event.get("sql")
-        if not isinstance(statement, str) or not _WRITE.match(statement) or event.get("failed") is True:
+        if event.get("failed") is True or event.get("provenance") != "EXECUTION":
             continue
-        provenance = event.get("provenance")
-        if provenance == "PREPARATION":
-            prepared += 1
+        if (
+            not isinstance(statement, str)
+            or statement in _UNREADABLE
+            or statement.endswith("…")
+            or _SET_OPERATION.search(statement)
+        ):
+            unknown += 1
             continue
-        if provenance != "EXECUTION":
+        if not _WRITE.match(statement):
             continue
         batch_size = event.get("batchSize")
         if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
@@ -47,23 +58,28 @@ def _request_writes(request: Request) -> tuple[dict[str, list[tuple[str, int, st
                 (
                     request.request_id,
                     max(0, duration) if isinstance(duration, int) else 0,
+                    duration if isinstance(duration, int) and duration >= 0 else -1,
                     site if isinstance(site, str) else "",
                 )
             )
-    return per_request, known_write, prepared, unknown
+    return per_request, known_write, unknown
 
 
-def _finding(route: str, statement: str, runs: list[list[tuple[str, int, str]]], eligible: int) -> Finding:
+def _finding(route: str, statement: str, runs: list[list[tuple[str, int, int, str]]], eligible: int) -> Finding:
     runs.sort(key=len, reverse=True)
     sufficient = len(runs) >= MIN_REQUESTS
     sentence = (
         f"`{route}` ran one write statement shape {MIN_STATEMENTS} or more times, each without a JDBC batch, "
-        f"in {len(runs)} of {counted(len(runs), 'request')}, up to {len(runs[0])} times in one."
+        f"in {len(runs)} of {counted(eligible, 'request')}, up to {len(runs[0])} times in one."
         if sufficient
-        else f"`{route}`: {len(runs)} of {MIN_REQUESTS} requests needed to report one write statement shape "
-        f"run {MIN_STATEMENTS} or more times without a JDBC batch."
+        else (
+            f"`{route}`: {len(runs)} of {counted(eligible, 'request')} requests needed to report one write "
+            f"statement shape run {MIN_STATEMENTS} or more times without a JDBC batch."
+        )
     )
     rows = [row for run in runs for row in run]
+    unknown_time = any(row[2] < 0 for row in rows)
+    total = sum(row[1] for row in rows)
     return Finding(
         key=f"{route}:{stable_hash(statement)}",
         subject=route,
@@ -79,23 +95,36 @@ def _finding(route: str, statement: str, runs: list[list[tuple[str, int, str]]],
         ],
         exemplar_request_ids=list(dict.fromkeys(row[0] for row in rows))[:3],
         columns=["Request", "Statement", "Executions", "Time (ms)", "Call site"],
-        rows=[[run[0][0], statement, str(len(run)), millis(sum(row[1] for row in run)), run[0][2]] for run in runs],
+        rows=[
+            [
+                run[0][0],
+                statement,
+                str(len(run)),
+                "unknown" if any(row[2] < 0 for row in run) else millis(sum(row[1] for row in run)),
+                run[0][3],
+            ]
+            for run in runs
+        ],
         limitations=[
             "Counts executions with a batch size of one; batched writes and writes with unknown batch size "
             "are not counted.",
-            "Transactions are not recorded, so executions are counted per request, not per transaction.",
-            "Total time is measured from SQL event durations; a zero duration is unmeasured.",
+            "Total time is unknown."
+            if unknown_time
+            else (
+                f"Total time is {millis(total)} ms, summed across affected requests."
+                if total
+                else "Total time is unmeasured."
+            ),
         ],
     )
 
 
 def evaluate(snapshot: Snapshot) -> Evaluation:
-    routes: dict[str, dict[str, list[list[tuple[str, int, str]]]]] = {}
+    routes: dict[str, dict[str, list[list[tuple[str, int, int, str]]]]] = {}
     route_eligible: dict[str, int] = {}
-    prepared = unknown = eligible = 0
+    unknown = eligible = 0
     for request in project_requests(snapshot, "sql"):
-        writes, known, prepared_count, unknown_count = _request_writes(request)
-        prepared += prepared_count
+        writes, known, unknown_count = _request_writes(request)
         unknown += unknown_count
         if known:
             eligible += 1
@@ -109,13 +138,9 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
         for statement, runs in statements.items()
     ]
     reasons: list[str] = []
-    if prepared:
-        reasons.append(
-            f"{counted(prepared, 'write statement')} were only prepared, so whether they were batched is unknown "
-            "and they are not counted."
-        )
     if unknown:
         reasons.append(
-            f"{counted(unknown, 'executed write')} had no recorded batch size, so they are not counted as unbatched."
+            f"{counted(unknown, 'statement')} contained a mask marker or unsupported-database placeholder, used a set "
+            "operation, was truncated, or had no recorded batch size, so it is not counted as an unbatched write."
         )
     return Evaluation(eligible, findings, " ".join(reasons) or None)

@@ -35,6 +35,7 @@ def quoted(text: str | None) -> str:
 
 # repeated-selects' default floor (RepeatedSelects.java:44-61); the kind's lane shares these literals, not a copy
 MIN_REQUESTS, HIGH_REPEAT_KEEP = 3, 10
+UNBATCHED_MIN_REQUESTS = 2
 UNDER_DEFAULT_FLOOR = (
     f"Repeated SELECTs under 50 ms of summed measured time, seen in fewer than {MIN_REQUESTS} requests and fewer than "
     f"{HIGH_REPEAT_KEEP} times in any one, are left out of the default agent list; "
