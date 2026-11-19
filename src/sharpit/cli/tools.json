@@ -1,0 +1,968 @@
+{
+  "tools": [
+    {
+      "name": "get_live_activity",
+      "command": "activity",
+      "schema": "QUERY_LIMIT",
+      "panel": "activity",
+      "action": false,
+      "summary": "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, correlated by request id.",
+      "description": "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, correlated by request id. Use first when diagnosing one request.",
+      "example": "sharpit activity",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "disable_agent_sensor",
+      "command": "agent sensor disable",
+      "schema": "ID",
+      "panel": "java-agent",
+      "action": true,
+      "summary": "With the user's authorization, switch off one supported sharpit agent sensor for this application now; the override is not persisted.",
+      "description": "With the user's authorization, switch off one supported sharpit agent sensor for this application now; the override is not persisted. id is one of threads, files, environment, thread-activity, thread-locals, or security-sinks. The agent must be attached and armed for this application: this version ships no agent sensors, so a switchable id is refused (409, not armed) and any other id is refused (400). Returns the updated Java Agent report; ask the user before switching.",
+      "example": "sharpit agent sensor disable <id>",
+      "arguments": [
+        "id"
+      ],
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "enable_agent_sensor",
+      "command": "agent sensor enable",
+      "schema": "ID",
+      "panel": "java-agent",
+      "action": true,
+      "summary": "With the user's authorization, switch on one supported sharpit agent sensor for this application now; the override is not persisted.",
+      "description": "With the user's authorization, switch on one supported sharpit agent sensor for this application now; the override is not persisted. id is one of threads, files, environment, thread-activity, thread-locals, or security-sinks. The agent must be attached and armed for this application: this version ships no agent sensors, so a switchable id is refused (409, not armed) and any other id is refused (400). Returns the updated Java Agent report; ask the user before switching.",
+      "example": "sharpit agent sensor enable <id>",
+      "arguments": [
+        "id"
+      ],
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "get_agent_status",
+      "command": "agent status",
+      "schema": "QUERY",
+      "panel": "java-agent",
+      "action": false,
+      "summary": "Return the sharpit agent's status: NOT_ATTACHED with a reason in this version, which ships no agent sensors; versions, the current claim, sensors, and setup.",
+      "description": "Return the sharpit agent's status: NOT_ATTACHED with a reason in this version, which ships no agent sensors; versions, the current claim, sensors, and setup. This read never claims, installs, or changes anything. Query with a sensor id to list only matching sensors.",
+      "example": "sharpit agent status",
+      "arguments": [
+        "query"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_ai_overview",
+      "command": "ai overview",
+      "schema": "NONE",
+      "panel": "ai",
+      "action": false,
+      "summary": "Return token usage and counts from the GenAI spans recorded in the application's OpenTelemetry trace ring.",
+      "description": "Return token usage and counts from the GenAI spans recorded in the application's OpenTelemetry trace ring. Prompt and completion content is hidden unless SHARPIT_EXPOSE_VALUES=FULL.",
+      "example": "sharpit ai overview",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_architecture_report",
+      "command": "architecture report",
+      "schema": "NONE",
+      "panel": "architecture",
+      "action": false,
+      "summary": "Return the last completed Architecture advisor report without starting a new scan.",
+      "description": "Return the last completed Architecture advisor report without starting a new scan. Use this cached evidence before deciding whether an active architecture_scan is necessary. Inspect scan.status, scan.message and evidence before changing code or deciding whether an active architecture_scan is necessary.",
+      "example": "sharpit architecture report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "architecture_scan",
+      "command": "architecture scan",
+      "schema": "NONE",
+      "panel": "architecture",
+      "action": true,
+      "summary": "Actively inspect this application's import graph and package structure for architecture rule violations and contract failures.",
+      "description": "Actively inspect this application's import graph and package structure for architecture rule violations and contract failures. Inspect scan.status, scan.message and evidence before changing code or deciding whether an active architecture_scan is necessary.",
+      "example": "sharpit architecture scan",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_architecture_rule_violations",
+      "command": "architecture violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "architecture",
+      "action": false,
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId.",
+      "description": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page.",
+      "example": "sharpit architecture violations <id> --scan-id <scanId>",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ]
+    },
+    {
+      "name": "get_beans",
+      "command": "beans",
+      "schema": "QUERY_LIMIT",
+      "panel": "beans",
+      "action": false,
+      "summary": "Search FastAPI beans (dependency providers, middleware and the lifespan handler) by name or type and return a bounded result.",
+      "description": "Search FastAPI beans (dependency providers, middleware and the lifespan handler) by name or type and return a bounded result. Use this to verify runtime wiring, not as proof that a bean is exercised.",
+      "example": "sharpit beans",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_config",
+      "command": "config",
+      "schema": "QUERY_LIMIT",
+      "panel": "config",
+      "action": false,
+      "summary": "Search effective configuration by name or displayed value and return a bounded result.",
+      "description": "Search effective configuration by name or displayed value and return a bounded result. Name search is relaxed-binding aware: it ignores case and treats `_` and `-` as `.`, so the dotted, kebab-case, and `UPPER_SNAKE_CASE` spellings of one property all find it — `sharpit.mcp.enabled` also finds a value supplied as the environment variable `SHARPIT_MCP_ENABLED`, which is enumerated under that literal name. Values are matched literally, and each row reports the exact name and source its property source published. In `page`, `total` counts every property before filtering while `matched` counts the query hits, so `matched: 0` means this query found nothing, not that the property is absent — retry with a shorter query before concluding it is unset. Secret-like configuration values are masked; prefer a narrow query.",
+      "example": "sharpit config",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_data_repositories",
+      "command": "data repositories",
+      "schema": "NONE",
+      "panel": "data",
+      "action": false,
+      "summary": "Return the SQLAlchemy mapped classes passed to install(models=...) with their table, primary-key type and, once the application has configured its mappers, their relationships.",
+      "description": "Return the SQLAlchemy mapped classes passed to install(models=...) with their table, primary-key type and, once the application has configured its mappers, their relationships. Never configures mappers or runs SQL.",
+      "example": "sharpit data repositories",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_alembic_migrations",
+      "command": "db alembic",
+      "schema": "NONE",
+      "panel": "alembic",
+      "action": false,
+      "summary": "Return the Alembic migration history read from the revision files, oldest first, with each database's version as last read by the Alembic panel.",
+      "description": "Return the Alembic migration history read from the revision files, oldest first, with each database's version as last read by the Alembic panel. Never connects to a database, imports a migration or runs env.py; `checkedAt` null means the database was not read yet.",
+      "example": "sharpit db alembic",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "mysql_read",
+      "command": "db mysql read",
+      "schema": "NONE",
+      "panel": "mysql",
+      "action": true,
+      "summary": "Actively read MySQL's performance_schema and information_schema views for the application datasources and record what the server currently reports: the live session snapshot, the top normalized statements, index and relation activity, lock waits, replication channels, global status metrics and notable settings.",
+      "description": "Actively read MySQL's performance_schema and information_schema views for the application datasources and record what the server currently reports: the live session snapshot, the top normalized statements, index and relation activity, lock waits, replication channels, global status metrics and notable settings. This is a runtime view, not an advisor: it grades nothing and emits no findings. The read is bounded and read-only. Read every section's `reason` before trusting its rows: a section sharpit read only partly stays `AVAILABLE` and carries a non-null `reason`, so `status` alone does not mean complete, while `SKIPPED` and `FAILED` mark a section it did not read at all. A `hint` is a methodology caveat on rows that were read, not missing evidence. `truncated` means the row cap was reached, and any of these degrades the datasource and report `status` to `PARTIAL`. Budget exhaustion is reported in `reason`, not as row-cap truncation. It answers with a summary, not the rows: status, message, readAt, truncated, and each datasource's status, message and sections (id, status, reason, rowCount, truncated). Read the rows, hints and details with get_mysql_report, which returns this read without querying again.",
+      "example": "sharpit db mysql read",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_mysql_report",
+      "command": "db mysql report",
+      "schema": "NONE",
+      "panel": "mysql",
+      "action": false,
+      "summary": "Return the last completed MySQL runtime view without querying the server again.",
+      "description": "Return the last completed MySQL runtime view without querying the server again. Before any read has run its `status` is `NOT_READ` and it carries no rows, which means nothing has been looked at rather than that nothing is wrong. Its session snapshot is only as current as that read, so prefer an active mysql_read when the question is about what the database is doing right now. Check each section's `reason` for missing coverage.",
+      "example": "sharpit db mysql report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_database_connection_pools",
+      "command": "db pools",
+      "schema": "NONE",
+      "panel": "database-connection-pools",
+      "action": false,
+      "summary": "Return each registered SQLAlchemy engine's connection pool: settings and live counters (checked out, idle, total).",
+      "description": "Return each registered SQLAlchemy engine's connection pool: settings and live counters (checked out, idle, total). Reads counters only; never borrows a connection. A pool class that keeps no statistics is listed as unavailable.",
+      "example": "sharpit db pools",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "postgresql_read",
+      "command": "db postgres read",
+      "schema": "NONE",
+      "panel": "postgresql",
+      "action": true,
+      "summary": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and record what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings.",
+      "description": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and record what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings. This is a runtime view, not an advisor: it grades nothing and emits no findings. The read is bounded and read-only. Read every section's `reason` before trusting its rows: a section sharpit read only partly stays `AVAILABLE` and carries a non-null `reason`, so `status` alone does not mean complete, while `SKIPPED` and `FAILED` mark a section it did not read at all. A `hint` is a methodology caveat on rows that were read, not missing evidence. `truncated` means the row cap was reached, and any of these degrades the database and report `status` to `PARTIAL`. The usual cause is a role without pg_monitor membership, which hides other backends from the session list and the statement text and replica details from their sections. Budget exhaustion is reported in `reason`, not as row-cap truncation. An empty replica list proves absence only when `replication.replicasAvailable` is true; otherwise the list was not read. It answers with a summary, not the rows: status, message, readAt, truncated, and each database's status, message and sections (id, status, reason, rowCount, truncated). Read the rows, hints and replication details with get_postgresql_report, which returns this read without querying again.",
+      "example": "sharpit db postgres read",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_postgresql_report",
+      "command": "db postgres report",
+      "schema": "NONE",
+      "panel": "postgresql",
+      "action": false,
+      "summary": "Return the last completed PostgreSQL runtime view without querying the server again.",
+      "description": "Return the last completed PostgreSQL runtime view without querying the server again. Before any read has run its `status` is `NOT_READ` and it carries no rows, which means nothing has been looked at rather than that nothing is wrong. Its session snapshot is only as current as that read, so prefer an active postgresql_read when the question is about what the database is doing right now. Check each section's `reason` for missing coverage; an empty replica list proves absence only when `replication.replicasAvailable` is true.",
+      "example": "sharpit db postgres report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_database_advisor_report",
+      "command": "db report",
+      "schema": "NONE",
+      "panel": "database-advisor",
+      "action": false,
+      "summary": "Return the last completed Database advisor report without querying schema metadata again.",
+      "description": "Return the last completed Database advisor report without querying schema metadata again. Use this cached evidence before deciding whether an active database_advisor_scan is necessary. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_database_advisor_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit db report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "database_advisor_scan",
+      "command": "db scan",
+      "schema": "NONE",
+      "panel": "database-advisor",
+      "action": true,
+      "summary": "Actively introspect the physical database schema (tables, columns, keys, indexes) of every registered SQLAlchemy engine through a verified read-only connection, plus the engines' pool and driver configuration against PostgreSQL/MySQL/MariaDB server limits.",
+      "description": "Actively introspect the physical database schema (tables, columns, keys, indexes) of every registered SQLAlchemy engine through a verified read-only connection, plus the engines' pool and driver configuration against PostgreSQL/MySQL/MariaDB server limits. The scan is bounded; anything it could not read is reported as a diagnostic rather than as a passing check. Verify findings against the live schema before changing it. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_database_advisor_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit db scan",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_database_advisor_rule_violations",
+      "command": "db violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "database-advisor",
+      "action": false,
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId.",
+      "description": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. This never starts a scan or queries the database. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan.",
+      "example": "sharpit db violations <id> --scan-id <scanId>",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ]
+    },
+    {
+      "name": "clear_exceptions",
+      "command": "exceptions clear",
+      "schema": "NONE",
+      "panel": "exceptions",
+      "action": true,
+      "summary": "Clear sharpit's bounded in-memory exception groups and occurrences.",
+      "description": "Clear sharpit's bounded in-memory exception groups and occurrences. This does not suppress, handle, or change application exceptions.",
+      "example": "sharpit exceptions clear",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_exceptions",
+      "command": "exceptions list",
+      "schema": "NONE",
+      "panel": "exceptions",
+      "action": false,
+      "summary": "List recent exception groups, newest first.",
+      "description": "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, causes, and individual occurrences.",
+      "example": "sharpit exceptions list",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_exception_detail",
+      "command": "exceptions show",
+      "schema": "ID",
+      "panel": "exceptions",
+      "action": false,
+      "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions or get_live_activity.",
+      "description": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions or get_live_activity.",
+      "example": "sharpit exceptions show <id>",
+      "arguments": [
+        "id"
+      ],
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "get_fastapi_report",
+      "command": "fastapi report",
+      "schema": "NONE",
+      "panel": "fastapi",
+      "action": false,
+      "summary": "Return the last completed FastAPI advisor report without starting a new scan.",
+      "description": "Return the last completed FastAPI advisor report without starting a new scan. Use this cached evidence before deciding whether an active fastapi_scan is necessary. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_fastapi_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit fastapi report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "fastapi_scan",
+      "command": "fastapi scan",
+      "schema": "NONE",
+      "panel": "fastapi",
+      "action": true,
+      "summary": "Actively inspect this application's route handlers and source for FastAPI correctness and performance risks.",
+      "description": "Actively inspect this application's route handlers and source for FastAPI correctness and performance risks. Verify each finding against the application's requirements before changing code. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_fastapi_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit fastapi scan",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_fastapi_rule_violations",
+      "command": "fastapi violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "fastapi",
+      "action": false,
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId.",
+      "description": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan.",
+      "example": "sharpit fastapi violations <id> --scan-id <scanId>",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ]
+    },
+    {
+      "name": "get_fastapi_security",
+      "command": "fastapi-security",
+      "schema": "NONE",
+      "panel": "fastapi-security",
+      "action": false,
+      "summary": "Return the current FastAPI security filter-chain and authentication configuration report.",
+      "description": "Return the current FastAPI security filter-chain and authentication configuration report. This passive read does not authenticate, authorize, or send a request through a chain.",
+      "example": "sharpit fastapi-security",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_github_dashboard",
+      "command": "github",
+      "schema": "NONE",
+      "panel": "github",
+      "action": false,
+      "summary": "Return local repository identity plus the last cached GitHub dashboard report.",
+      "description": "Return local repository identity plus the last cached GitHub dashboard report. This passive read never calls GitHub; only the panel's explicit refresh action can use the network.",
+      "example": "sharpit github",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_health",
+      "command": "health",
+      "schema": "NONE",
+      "panel": "health",
+      "action": false,
+      "summary": "Return the cached health tree (database pings and the application's own checks) with each component's status and masked details.",
+      "description": "Return the cached health tree (database pings and the application's own checks) with each component's status and masked details. Never runs a check: an UNKNOWN status means the checks have not run yet.",
+      "example": "sharpit health",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_http_exchanges",
+      "command": "http exchanges",
+      "schema": "LIMIT",
+      "panel": "http-exchanges",
+      "action": false,
+      "summary": "Return a bounded, newest-first snapshot of the HTTP requests this application served: method, masked path and query, status, duration, response size and masked headers.",
+      "description": "Return a bounded, newest-first snapshot of the HTTP requests this application served: method, masked path and query, status, duration, response size and masked headers. sharpit's own requests are counted in `hiddenSelf`, not listed.",
+      "example": "sharpit http exchanges",
+      "arguments": [
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_http_routes",
+      "command": "http routes",
+      "schema": "LIMIT",
+      "panel": "http-exchanges",
+      "action": false,
+      "summary": "Return the HTTP routes this application served, grouped by method and route template, with request counts, status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time and p95 latency.",
+      "description": "Return the HTTP routes this application served, grouped by method and route template, with request counts, status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time and p95 latency. A path no route matched is grouped by its masked path; query strings are never used.",
+      "example": "sharpit http routes",
+      "arguments": [
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_runtime_insights",
+      "command": "insights list",
+      "schema": "QUERY_LIMIT",
+      "panel": "runtime-insights",
+      "action": false,
+      "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, a verify line, and whether the default list shows it.",
+      "description": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, a verify line, and whether the default list shows it. query is empty, all, new, security, diff, latency, an observation kind, or a route, table, bean, or class; past the limit, listed rows come first and every kind is listed once before any kind twice. requests counts completed HTTP exchanges only: zero is not proof nothing ran when an observation names a request or execution, a non-HTTP limitation, or eviction says otherwise. A run-level observation with no exemplar does not. The empty query is the default list, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count, and all, a kind, or a route lists them. An empty list means not exercised only when limitations say so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three follow-up calls, each a tool with its arguments and the equivalent sharpit command.",
+      "example": "sharpit insights list",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_runtime_insight",
+      "command": "insights show",
+      "schema": "ID",
+      "panel": "runtime-insights",
+      "action": false,
+      "summary": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows.",
+      "description": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows. Drill down with get_request_profile on its exemplar request. An unknown or evicted id is a tool error naming get_runtime_insights, which lists the current ids; available=false with a reason means Runtime Insights is unavailable.",
+      "example": "sharpit insights show <id>",
+      "arguments": [
+        "id"
+      ],
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "get_loggers",
+      "command": "loggers",
+      "schema": "QUERY_LIMIT",
+      "panel": "loggers",
+      "action": false,
+      "summary": "Search configured loggers by case-insensitive name and return their configured and effective levels, bounded by limit.",
+      "description": "Search configured loggers by case-insensitive name and return their configured and effective levels, bounded by limit. Use to confirm actual logging levels before or after a code or configuration change.",
+      "example": "sharpit loggers",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_log_tail",
+      "command": "logs tail",
+      "schema": "QUERY_LIMIT",
+      "panel": "log-tail",
+      "action": false,
+      "summary": "Return the latest buffered application log snapshot, oldest first.",
+      "description": "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
+      "example": "sharpit logs tail",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "disable_low_footprint",
+      "command": "low-footprint disable",
+      "schema": "NONE",
+      "panel": "live-memory",
+      "action": true,
+      "summary": "Disable low-footprint mode and release its recording hold.",
+      "description": "Disable low-footprint mode and release its recording hold. Cleared data cannot be recovered; individually paused recorders stay paused. Ask for approval first. Idempotent. Returns a compact acknowledgement with state and warnings; get_low_footprint lists component outcomes.",
+      "example": "sharpit low-footprint disable",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "enable_low_footprint",
+      "command": "low-footprint enable",
+      "schema": "NONE",
+      "panel": "live-memory",
+      "action": true,
+      "summary": "Enable low-footprint mode: pause sharpit recording, irreversibly discard buffered diagnostics, and request GC (which may not reclaim every buffer).",
+      "description": "Enable low-footprint mode: pause sharpit recording, irreversibly discard buffered diagnostics, and request GC (which may not reclaim every buffer). Ask for approval first. Idempotent: enabling again does not clear or request GC again. Returns a compact acknowledgement with offload totals and failures; get_low_footprint lists component outcomes. The Java agent keeps running.",
+      "example": "sharpit low-footprint enable",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_low_footprint",
+      "command": "low-footprint status",
+      "schema": "NONE",
+      "panel": "live-memory",
+      "action": false,
+      "summary": "Read low-footprint mode without changing recording: active, sinceEpochMillis, agentAttached, components with suspension outcomes, and warnings.",
+      "description": "Read low-footprint mode without changing recording: active, sinceEpochMillis, agentAttached, components with suspension outcomes, and warnings. The Java agent is not paused.",
+      "example": "sharpit low-footprint status",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_emails",
+      "command": "mail",
+      "schema": "NONE",
+      "panel": "email",
+      "action": false,
+      "summary": "Return the bounded local email-capture inventory with content governed by sharpit exposure policy; secret-shaped text is masked unless the exposure is FULL.",
+      "description": "Return the bounded local email-capture inventory with content governed by sharpit exposure policy; secret-shaped text is masked unless the exposure is FULL. This does not send, download, or delete any message.",
+      "example": "sharpit mail",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_mappings",
+      "command": "mappings",
+      "schema": "QUERY_LIMIT",
+      "panel": "mappings",
+      "action": false,
+      "summary": "Search request routes and handlers and return a bounded result.",
+      "description": "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler name as the query when locating an endpoint.",
+      "example": "sharpit mappings",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_metrics",
+      "command": "metrics",
+      "schema": "QUERY_LIMIT",
+      "panel": "metrics",
+      "action": false,
+      "summary": "Search the current application metrics inventory and return a bounded page of local meter values.",
+      "description": "Search the current application metrics inventory and return a bounded page of local meter values. Use a narrow metric-name query when diagnosing one runtime signal. At most limit (25) meters; page.hasMore means more matched.",
+      "example": "sharpit metrics",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_overview",
+      "command": "overview",
+      "schema": "NONE",
+      "panel": "overview",
+      "action": false,
+      "summary": "Return stable application identity and runtime context, including versions, active profiles, and sharpit status.",
+      "description": "Return stable application identity and runtime context, including versions, active profiles, and sharpit status. Use this before interpreting other results.",
+      "example": "sharpit overview",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_profile_diff",
+      "command": "profile diff",
+      "schema": "NONE",
+      "panel": "profile-diff",
+      "action": false,
+      "summary": "Return the current active-profile configuration comparison using masked local configuration data.",
+      "description": "Return the current active-profile configuration comparison using masked local configuration data. Use it to identify profile-specific differences without changing profiles.",
+      "example": "sharpit profile diff",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_request_profile",
+      "command": "request-profile",
+      "schema": "ID",
+      "panel": "activity",
+      "action": false,
+      "summary": "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL.",
+      "description": "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. An id no longer in the buffer returns available false.",
+      "example": "sharpit request-profile <id>",
+      "arguments": [
+        "id"
+      ],
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "get_rest_api_report",
+      "command": "rest-api report",
+      "schema": "NONE",
+      "panel": "rest-api",
+      "action": false,
+      "summary": "Return the last completed REST API advisor report without starting a new endpoint scan.",
+      "description": "Return the last completed REST API advisor report without starting a new endpoint scan. Use this cached evidence before deciding whether an active rest_api_scan is necessary. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_rest_api_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit rest-api report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "rest_api_scan",
+      "command": "rest-api scan",
+      "schema": "NONE",
+      "panel": "rest-api",
+      "action": true,
+      "summary": "Actively inspect this application's routes and API design for correctness and maintainability risks.",
+      "description": "Actively inspect this application's routes and API design for correctness and maintainability risks. Verify recommendations against the public API contract. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_rest_api_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit rest-api scan",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_rest_api_rule_violations",
+      "command": "rest-api violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "rest-api",
+      "action": false,
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId.",
+      "description": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page.",
+      "example": "sharpit rest-api violations <id> --scan-id <scanId>",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ]
+    },
+    {
+      "name": "get_scheduled_tasks",
+      "command": "scheduled",
+      "schema": "NONE",
+      "panel": "scheduled",
+      "action": false,
+      "summary": "Return the current scheduled task inventory: in-memory APScheduler 3 jobs, configured Celery beat entries and arq cron jobs, by function name and trigger.",
+      "description": "Return the current scheduled task inventory: in-memory APScheduler 3 jobs, configured Celery beat entries and arq cron jobs, by function name and trigger. Never reads a remote job store.",
+      "example": "sharpit scheduled",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_security_logs",
+      "command": "security logs",
+      "schema": "LIMIT",
+      "panel": "security-logs",
+      "action": false,
+      "summary": "Return a bounded, newest-first snapshot of authentication and authorization audit events.",
+      "description": "Return a bounded, newest-first snapshot of authentication and authorization audit events. Correlate timestamps and principals with live activity.",
+      "example": "sharpit security logs",
+      "arguments": [
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_security_report",
+      "command": "security report",
+      "schema": "NONE",
+      "panel": "security",
+      "action": false,
+      "summary": "Return the last completed Security advisor report without starting a new configuration scan.",
+      "description": "Return the last completed Security advisor report without starting a new configuration scan. Use this cached evidence before deciding whether an active security_scan is necessary. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_security_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit security report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "security_scan",
+      "command": "security scan",
+      "schema": "NONE",
+      "panel": "security",
+      "action": true,
+      "summary": "Actively review application security configuration and return prioritized findings.",
+      "description": "Actively review application security configuration and return prioritized findings. Treat results as review evidence and verify exploitability before proposing a fix. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_security_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "example": "sharpit security scan",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_security_rule_violations",
+      "command": "security violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "security",
+      "action": false,
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId.",
+      "description": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan.",
+      "example": "sharpit security violations <id> --scan-id <scanId>",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ]
+    },
+    {
+      "name": "get_claude_code_sessions",
+      "command": "sessions claude",
+      "schema": "QUERY_LIMIT",
+      "panel": "claude-code",
+      "action": false,
+      "summary": "Return the bounded, sanitized Claude Code session inventory parsed from local session files.",
+      "description": "Return the bounded, sanitized Claude Code session inventory parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity). The first read after startup parses the newest session files (SHARPIT_CLAUDE_CODE_MAX_PARSED_SESSIONS) and can take seconds on a large session directory; later reads answer from the cache an mtime/size check keeps current.",
+      "example": "sharpit sessions claude",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_copilot_sessions",
+      "command": "sessions copilot",
+      "schema": "QUERY_LIMIT",
+      "panel": "copilot",
+      "action": false,
+      "summary": "Return the bounded, sanitized Copilot CLI session inventory parsed from local session files.",
+      "description": "Return the bounded, sanitized Copilot CLI session inventory parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity). The first read after startup parses the newest session files (SHARPIT_COPILOT_MAX_PARSED_SESSIONS) and can take seconds on a large session directory; later reads answer from the cache an mtime/size check keeps current.",
+      "example": "sharpit sessions copilot",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "clear_sql_traces",
+      "command": "sql clear",
+      "schema": "NONE",
+      "panel": "sql-trace",
+      "action": true,
+      "summary": "Clear the bounded in-memory SQL trace buffer and return the resulting report.",
+      "description": "Clear the bounded in-memory SQL trace buffer and return the resulting report. This does not execute SQL or change whether trace recording is enabled.",
+      "example": "sharpit sql clear",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "pause_sql_trace_recording",
+      "command": "sql pause",
+      "schema": "NONE",
+      "panel": "sql-trace",
+      "action": true,
+      "summary": "Pause SQL trace recording and return the resulting report.",
+      "description": "Pause SQL trace recording and return the resulting report. Existing buffered traces remain available until explicitly cleared.",
+      "example": "sharpit sql pause",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "resume_sql_trace_recording",
+      "command": "sql resume",
+      "schema": "NONE",
+      "panel": "sql-trace",
+      "action": true,
+      "summary": "Resume SQL trace recording and return the resulting report.",
+      "description": "Resume SQL trace recording and return the resulting report. This only affects sharpit's bounded local capture and does not execute SQL.",
+      "example": "sharpit sql resume",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_sql_traces",
+      "command": "sql traces",
+      "schema": "QUERY_LIMIT",
+      "panel": "sql-trace",
+      "action": false,
+      "summary": "Return the current bounded SQL trace snapshot with statements and timings.",
+      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers.",
+      "example": "sharpit sql traces",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_sql_trace_insights",
+      "command": "sql-trace insights",
+      "schema": "NONE",
+      "panel": "sql-trace",
+      "action": false,
+      "summary": "Rank the SQL statements retained in the SQL Trace buffer by total, max, average, p95 and p99 duration, executions and errors, and attribute them to the HTTP routes that issued them.",
+      "description": "Rank the SQL statements retained in the SQL Trace buffer by total, max, average, p95 and p99 duration, executions and errors, and attribute them to the HTTP routes that issued them. Statements are normalized: no literal or bound value is shown. Figures describe the retained window, not lifetime totals.",
+      "example": "sharpit sql-trace insights",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "enable_sqlalchemy_statistics",
+      "command": "sqlalchemy-statistics enable",
+      "schema": "NONE",
+      "panel": "sqlalchemy-statistics",
+      "action": true,
+      "summary": "Acknowledge statistics collection and return the report.",
+      "description": "Acknowledge statistics collection and return the report. Statistics are always on while SQL Trace records; nothing is changed.",
+      "example": "sharpit sqlalchemy-statistics enable",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_sqlalchemy_statistics",
+      "command": "sqlalchemy-statistics list",
+      "schema": "NONE",
+      "panel": "sqlalchemy-statistics",
+      "action": false,
+      "summary": "Return SQLAlchemy statement statistics from the SQL Trace recorder: lifetime SELECT and statement counts, the slowest statement, and N+1 candidates per route.",
+      "description": "Return SQLAlchemy statement statistics from the SQL Trace recorder: lifetime SELECT and statement counts, the slowest statement, and N+1 candidates per route. ORM session and entity counters are null with a reason.",
+      "example": "sharpit sqlalchemy-statistics list",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_startup_timeline",
+      "command": "startup",
+      "schema": "QUERY_LIMIT",
+      "panel": "startup",
+      "action": false,
+      "summary": "Return the host startup timeline.",
+      "description": "Return the host startup timeline.",
+      "example": "sharpit startup",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "get_threads",
+      "command": "threads",
+      "schema": "QUERY_LIMIT",
+      "panel": "threads",
+      "action": false,
+      "summary": "Return this process's threads with inferred states (RUNNABLE or WAITING) and stacks, plus the event loop's asyncio tasks with their await chains and the request each one serves.",
+      "description": "Return this process's threads with inferred states (RUNNABLE or WAITING) and stacks, plus the event loop's asyncio tasks with their await chains and the request each one serves. `limit` caps both lists. Code names and line numbers only: no local variables or argument values.",
+      "example": "sharpit threads",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "clear_traces",
+      "command": "traces clear",
+      "schema": "NONE",
+      "panel": "traces",
+      "action": true,
+      "summary": "Clear the bounded in-memory span buffer and return the resulting empty report.",
+      "description": "Clear the bounded in-memory span buffer and return the resulting empty report. This does not change the application's tracer provider or exporters.",
+      "example": "sharpit traces clear",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_traces",
+      "command": "traces list",
+      "schema": "LIMIT",
+      "panel": "traces",
+      "action": false,
+      "summary": "Return a newest-first list of the OpenTelemetry traces this application recorded: root span, HTTP path, services, epoch-nanosecond timing, span count and error/AI flags.",
+      "description": "Return a newest-first list of the OpenTelemetry traces this application recorded: root span, HTTP path, services, epoch-nanosecond timing, span count and error/AI flags. Span attributes are masked. Requires the application's own OpenTelemetry SDK TracerProvider; sharpit never installs one.",
+      "example": "sharpit traces list",
+      "arguments": [
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "clear_transactions",
+      "command": "tx clear",
+      "schema": "NONE",
+      "panel": "transactions",
+      "action": true,
+      "summary": "Clear the retained local transaction entries without changing whether recording is enabled.",
+      "description": "Clear the retained local transaction entries without changing whether recording is enabled.",
+      "example": "sharpit tx clear",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_transactions",
+      "command": "tx list",
+      "schema": "NONE",
+      "panel": "transactions",
+      "action": false,
+      "summary": "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events.",
+      "description": "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events. This reads only local cached data.",
+      "example": "sharpit tx list",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "pause_transaction_recording",
+      "command": "tx pause",
+      "schema": "NONE",
+      "panel": "transactions",
+      "action": true,
+      "summary": "Pause local transaction recording; existing entries remain available until cleared.",
+      "description": "Pause local transaction recording; existing entries remain available until cleared.",
+      "example": "sharpit tx pause",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "resume_transaction_recording",
+      "command": "tx resume",
+      "schema": "NONE",
+      "panel": "transactions",
+      "action": true,
+      "summary": "Resume local transaction recording for new SQLAlchemy connection events.",
+      "description": "Resume local transaction recording for new SQLAlchemy connection events.",
+      "example": "sharpit tx resume",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "get_vulnerabilities_report",
+      "command": "vulnerabilities report",
+      "schema": "QUERY_LIMIT",
+      "panel": "vulnerabilities",
+      "action": false,
+      "summary": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service.",
+      "description": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the inventory provider's accounting, not shaded-library discovery or exploitability. Lists vulnerable dependencies only unless `query` is given (default limit 10), at most 5 advisories each.",
+      "example": "sharpit vulnerabilities report",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": []
+    },
+    {
+      "name": "vulnerabilities_scan",
+      "command": "vulnerabilities scan",
+      "schema": "NONE",
+      "panel": "vulnerabilities",
+      "action": true,
+      "summary": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings.",
+      "description": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings. This sends package names/versions to OSV and, when enabled, CVE ids to FIRST for optional EPSS enrichment; run only with approval. Check `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped`: partial or unknown evidence is not a clean result, and inventory coverage does not prove reachability. Fixed versions are supported affected-interval candidates, not verified installable upgrades. Verify compatibility before changing a dependency. EPSS is the highest available per-CVE probability, not a combined probability or severity; optional enrichment failure retains OSV findings.",
+      "example": "sharpit vulnerabilities scan",
+      "arguments": [],
+      "required": []
+    }
+  ]
+}

@@ -33,4 +33,4 @@ TOOLS = (
         lambda c, _a: _clear(c.ctx),
     ),
 )
-COMMANDS = {"get_traces": "traces", "clear_traces": "traces clear"}
+COMMANDS = {"get_traces": "traces list", "clear_traces": "traces clear"}
