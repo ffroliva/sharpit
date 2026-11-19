@@ -56,34 +56,36 @@ def _start(event: dict[str, object]) -> int:
     )
 
 
-def _is_repeat_select(sql: str, fingerprint: str, first: str | None) -> bool:
-    return sql.lower().startswith("select") and fingerprint != first
-
-
 def _request_repeats(request: Request) -> tuple[dict[str, list[tuple[str, int, str, str]]], int]:
     first: str | None = None
     counts: dict[str, list[tuple[str, int, str, str]]] = {}
     unread = 0
-    for event in sorted(request.children["sql"], key=_start):
+    events = request.children["sql"]
+    if len(events) > 1:
+        events = sorted(events, key=_start)
+    for event in events:
         if event.get("provenance") != "EXECUTION":
             continue
         sql = event.get("sql")
-        fingerprint = stable_hash(" ".join(sql.split())) if isinstance(sql, str) else ""
         if first is None:
-            first = fingerprint
+            first = stable_hash(" ".join(sql.split())) if isinstance(sql, str) else ""
         if event.get("failed") is True:
             continue
         if not isinstance(sql, str) or is_unreadable_or_compound(sql):
             unread += 1
             continue
-        if not _is_repeat_select(sql, fingerprint, first):
+        if not sql.lower().startswith("select"):
+            continue
+        normalized = " ".join(sql.split())
+        fingerprint = stable_hash(normalized)
+        if fingerprint == first:
             continue
         counts.setdefault(fingerprint, []).append(
             (
                 request.request_id,
                 event_duration(event),
                 event_call_site(event),
-                " ".join(sql.split()),
+                normalized,
             )
         )
     return counts, unread

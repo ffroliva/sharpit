@@ -43,11 +43,11 @@ def not_applicable(snapshot: Snapshot) -> str | None:
 
 
 def _is_candidate_write(event: dict[str, object], statement: str) -> bool:
-    if event.get("provenance") != "EXECUTION":
+    if event.get("provenance") != "EXECUTION" or event.get("failed") is True:
         return False
-    if WRITE.match(statement) is None:
+    if statement.lower().startswith("select"):
         return False
-    return event.get("failed") is not True
+    return WRITE.match(statement) is not None
 
 
 def _batch_size(event: dict[str, object]) -> int | None:
