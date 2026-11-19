@@ -43,6 +43,19 @@ class ApiRouteInfo:
     tags: tuple[str, ...] = ()
 
 
+_OPAQUE_MOUNT_HEAD = "Mounted application at "
+_OPAQUE_MOUNT_TAIL = " has no inspectable routes."
+
+
+def opaque_mount_limitation(base: str) -> str:
+    """The limitation for a mounted app whose routes cannot be read: the app's shape, not a sharpit failure."""
+    return f"{_OPAQUE_MOUNT_HEAD}{base}{_OPAQUE_MOUNT_TAIL}"
+
+
+def is_opaque_mount_limitation(limitation: str) -> bool:
+    return limitation.startswith(_OPAQUE_MOUNT_HEAD) and limitation.endswith(_OPAQUE_MOUNT_TAIL)
+
+
 @dataclass(frozen=True)
 class ApiModel:
     routes: tuple[ApiRouteInfo, ...]
@@ -113,6 +126,9 @@ class SecuredRoute:
     unchecked_dependency: bool = False
     # every enclosing mount, outermost first, as (identity, prefix pattern); pattern None: matched by host, unknown
     mounts: tuple[tuple[int, str | None], ...] = ()
+
+
+NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.advisors.findings import Finding
@@ -68,40 +68,35 @@ def _source_diagnostics(sources: Sequence[Source]) -> list[dict[str, Any]]:
     return out
 
 
-def _message(tables: int, readable: int, failed: int, truncated: bool, complete: bool, errored: int) -> str:
-    """BootUI ``DatabaseAdvisorScanner``'s completion message."""
-    text = (
-        f"Database Advisor completed against {tables} {'table' if tables == 1 else 'tables'} across {readable} "
-        f"{'datasource' if readable == 1 else 'datasources'}."
-    )
-    if failed:
-        text += f" {failed} datasource(s) could not be read."
-    if truncated:
-        text += " A scan bound was reached, so some findings may be missing."
-    elif not complete:
-        text += " Some schema or catalog metadata could not be read; see the diagnostics."
-    if errored:
-        text += f" {errored} rule(s) failed to evaluate."
-    return text
-
-
-def evaluate(request: Sequence[Source] | str) -> Evaluation:
-    """The rules over the facts; ``request`` is the sources read, or why nothing was read (``DISABLED``)."""
-    if isinstance(request, str):
-        return Evaluation("DISABLED", request, (), (), evidence(False, False, [request]), Detail())
-    sources = tuple(request)
-    if not sources:
-        unverified = ["No datasource was found, so no rule could run."]
-        return Evaluation("DISABLED", NO_ENGINES, (), (), evidence(False, False, unverified), Detail())
-    diagnostics = _source_diagnostics(sources)
-    readable = [s for s in sources if s.status != "FAILED"]
+def _orm_diagnostics(readable: Sequence[Source]) -> list[dict[str, Any]]:
     if not readable:
-        unverified = ["No physical schema could be read, so no rule could run."]
-        detail = Detail(sources, 0, 0, tuple(diagnostics))
-        return Evaluation("ERROR", NO_SCHEMA, (), (), evidence(False, False, unverified), detail)
+        return []
+    raw_orm = readable[0].catalog.get("orm")
+    if not isinstance(raw_orm, dict):
+        return []
+    orm_dict = cast("dict[str, Any]", raw_orm)
+    level = "INFO" if orm_dict.get("known_absent") else "WARNING"
+    raw_errors = orm_dict.get("errors", [])
+    return [_diagnostic("SQLAlchemy metadata", level, str(err)) for err in raw_errors]
+
+
+def _collect_limitations(diagnostics: Sequence[dict[str, Any]]) -> list[str]:
+    problems: list[str] = []
+    for d in diagnostics:
+        if d.get("level") in ("WARNING", "ERROR"):
+            msg = f"{d['source']}: {d['message']}"
+            if msg not in problems:
+                problems.append(msg)
+                if len(problems) >= 20:
+                    break
+    return problems
+
+
+def _run_rules(readable: Sequence[Source]) -> tuple[list[str], list[Finding], int, int, list[dict[str, Any]]]:
     evaluated: list[str] = []
     findings: list[Finding] = []
     skipped = errored = 0
+    diagnostics: list[dict[str, Any]] = []
     for rule in RULES:
         rule_id = rule.definition.id
         try:
@@ -119,18 +114,75 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         severity = rule.definition.severity
         hits = (hit for o in outcomes if not isinstance(o, str) for hit in o)
         findings += [Finding(rule_id, ADVISOR, severity, target, text, identity=key) for target, text, key in hits]
+    return evaluated, findings, skipped, errored, diagnostics
+
+
+def _message(
+    tables: int,
+    readable: int,
+    failed: int,
+    truncated: bool,
+    complete: bool,
+    errored: int,
+    evidence_failed: bool = False,
+) -> str:
+    """BootUI ``DatabaseAdvisorScanner``'s completion message."""
+    text = (
+        f"Database Advisor completed against {tables} {'table' if tables == 1 else 'tables'} across {readable} "
+        f"{'datasource' if readable == 1 else 'datasources'}."
+    )
+    if failed:
+        text += f" {failed} datasource(s) could not be read."
+    if truncated:
+        text += " A scan bound was reached, so some findings may be missing."
+    elif not complete:
+        text += " Some schema or catalog metadata could not be read; see the diagnostics."
+    if errored:
+        text += f" {errored} rule(s) failed to evaluate."
+    if evidence_failed and not failed and complete and errored == 0 and not truncated:
+        text += " Some advisor evidence could not be read; see the diagnostics."
+    return text
+
+
+def evaluate(request: Sequence[Source] | str) -> Evaluation:
+    """The rules over the facts; ``request`` is the sources read, or why nothing was read (``DISABLED``)."""
+    if isinstance(request, str):
+        return Evaluation("DISABLED", request, (), (), evidence(False, False, [request]), Detail())
+    sources = tuple(request)
+    if not sources:
+        unverified = ["No datasource was found, so no rule could run."]
+        return Evaluation("DISABLED", NO_ENGINES, (), (), evidence(False, False, unverified), Detail())
+    diagnostics = _source_diagnostics(sources)
+    readable = [s for s in sources if s.status != "FAILED"]
+    if not readable:
+        unverified = ["No physical schema could be read, so no rule could run."]
+        detail = Detail(sources, 0, 0, tuple(diagnostics))
+        return Evaluation("ERROR", NO_SCHEMA, (), (), evidence(False, False, unverified), detail)
+    diagnostics.extend(_orm_diagnostics(readable))
+    evaluated, findings, skipped, errored, rule_diags = _run_rules(readable)
+    diagnostics.extend(rule_diags)
     truncated = any(s.catalog.get("truncated") for s in readable)
-    catalogs_complete = all(s.catalog.get("complete") for s in readable)
-    problems = [f"{d['source']}: {d['message']}" for d in diagnostics if d["level"] in ("WARNING", "ERROR")]
-    complete = not problems and catalogs_complete and not truncated
+    catalogs_complete = all(s.catalog.get("complete", True) for s in readable)
+    has_partial = any(s.status == "PARTIAL" for s in readable)
+    evidence_failed = any(d["level"] in ("WARNING", "ERROR") for d in diagnostics)
+    problems = _collect_limitations(diagnostics)
+    complete = not evidence_failed and not has_partial and errored == 0 and len(readable) == len(sources)
     tables = sum(len(s.tables) for s in readable)
-    message = _message(tables, len(readable), len(sources) - len(readable), truncated, catalogs_complete, errored)
+    message = _message(
+        tables,
+        len(readable),
+        len(sources) - len(readable),
+        truncated,
+        catalogs_complete,
+        errored,
+        evidence_failed,
+    )
     return Evaluation(
         "SCANNED" if complete else "PARTIAL",
         message,
         tuple(evaluated),
         tuple(findings),
-        evidence(True, complete, problems),
+        evidence(bool(evaluated), complete, problems),
         Detail(sources, skipped, errored, tuple(diagnostics)),
     )
 
@@ -192,7 +244,11 @@ def _with_app_facts(ctx: SharpitContext, sources: list[Source]) -> list[Source]:
     """Each source with the declared models (ORM rules); the first with the SQL Trace window (DB-RUNTIME-001)."""
     if not sources:
         return sources
-    declared = rules_orm.facts(ctx.models)
+    try:
+        declared = rules_orm.facts(ctx.models)
+    except Exception as exc:  # noqa: BLE001
+        reason = f"Entity discovery failed ({type(exc).__name__})."
+        declared = {"skipped": reason, "known_absent": False, "errors": [reason]}
     trace = ctx.capture.sql_trace
     window = rules_runtime.facts(trace.rows() if trace is not None else [])
     first, *rest = sources

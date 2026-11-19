@@ -28,6 +28,7 @@ src/sharpit/engine/            framework-free core: activation, guard, masking, 
 src/sharpit/engine/sqla/       the SQLAlchemy gatekeeper: listeners, events, orm, inspect, readonly (sharpit's own reads)
 src/sharpit/fastapi/           the FastAPI/Starlette adapter: routes, introspection, dev-server signals
 src/sharpit/pytest_plugin/     the pytest adapter: optional plugin entry point and test-session hooks
+src/sharpit/cli/               the command-line client adapter: talks to a running app over HTTP; standard library only
 src/sharpit/ui/static/         the built UI (committed; CI checks it matches ui/ when ui/ exists)
 tests/                         mirrors src/; conftest.py has the no_side_effects fixture; golden fixtures
 scripts/sanitize_golden.py     sanitises BootUI responses into golden fixtures
@@ -64,8 +65,8 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
   fail-safe and adds a warning. Env name = `SHARPIT_` + the BootUI property without `bootui.`, `.`/`-` → `_`, upper case.
 - Every contract DTO key is emitted (nulls included), camelCase, no envelope, epoch ms.
 - Error bodies and reason strings are verbatim from the contract §1/§10 with `BootUI`→`sharpit`.
-- **Reads have no side effects:** no GET route and no read MCP or CLI tool may open a socket, write a file, change a
-  logger level or change `os.environ`.
+- **Reads have no side effects:** no GET route and no read MCP or CLI tool of the console installed in a host
+  application may open a socket, write a file, change a logger level or change `os.environ`.
 - **Actions follow BootUI** (owner, 2026-11-09: "if BootUI presses the button we do it too"). An action is a POST or
   DELETE route, or an MCP or CLI tool marked `action`, exactly where BootUI 2.3.0 has the same action. It may have the
   side effect BootUI's action has, after the gates BootUI applies: MCP or CLI enabled, the guard chain, the panel
@@ -91,6 +92,11 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
 5. **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
 6. **Network** is used only by actions that call out in BootUI too (the OSV/EPSS scan, the GitHub refresh); their
    failures are reported in the action's status and release the lock.
+   The command-line client (`sharpit/cli/`) runs only when a user starts `sharpit <command>`; no module of the console
+   installed in a host application imports it (`tests/engine/test_import_boundary.py`). It connects directly, without
+   configured proxies and without following redirects, only to the API URL the user names, and sends only
+   `GET {api}/cli`, `POST {api}/cli/tools/{tool}` and the MCP status and toggle requests of `sharpit mcp`; it makes no
+   update check.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
@@ -101,19 +107,25 @@ these on every run (a planted violation proves each rule still bites); a failing
 to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
 
 1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
-2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin` or `sharpit.ui`, not even for a type. When
-   the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
-   `CaptureHooks` in `engine/capture/`) and the adapter implements it.
+2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin` or `sharpit.ui`,
+   not even for a type. No module under `src/sharpit/` outside `sharpit/cli/` imports `sharpit.cli`; modules under
+   `sharpit/cli/` import only the standard-library modules named in `CLI_STDLIB` in
+   `tests/engine/test_import_boundary.py`, `sharpit.cli`, and `__version__` from `sharpit`, not even for a type. When
+   the engine needs
+   something from an adapter, it declares a `Protocol` port (`AppIntrospector`
+   in `engine/spi.py`, `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...). Inside `engine/collectors/insights/` the rule holds per
    kind: a module under `kinds/` never imports another kind; shared code goes in the insights package.
 4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
    `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` and `dotenv` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, `prometheus_client` only in
-   `engine/collectors/metrics/prometheus.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
-   `engine/collectors/vulns/` and the GitHub client `engine/collectors/github/client.py`, `subprocess` only in
-   `engine/collectors/github/token.py` (`gh auth token`), APScheduler, Celery and arq only in their own module under
-   `engine/collectors/scheduled/` (observed through `sys.modules`, never imported), `smtplib` and `aiosmtplib` only in `engine/capture/mail.py`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   `engine/collectors/metrics/prometheus.py`, `urllib.request` only in `engine/collectors/vulns/osv.py`,
+   `engine/collectors/vulns/epss.py`, `engine/collectors/github/client.py` and `sharpit/cli/client.py`;
+   `http.client` only in `engine/collectors/vulns/osv.py`, `engine/collectors/github/client.py` and
+   `sharpit/cli/client.py`, `subprocess` only in `engine/collectors/github/token.py` (`gh auth token`) and
+   `engine/collectors/alembic_cli.py` (`python -m alembic`), APScheduler, Celery and arq only in their own module under
+   `engine/collectors/scheduled/` (observed through `sys.modules`, never imported), `smtplib` and `aiosmtplib` only in `engine/capture/mail.py`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket`, `_socket`, `ssl` and `_ssl` are imported nowhere.
    The AST gate covers `sys.addaudithook`, `sys.monitoring.use_tool_id`, `free_tool_id`, `clear_tool_id`, `set_events`, `set_local_events`, `register_callback`, and `restart_events`, plus `os.system`, `os.spawn*`, and `os.exec*`; these calls live only under `engine/sensors/`. `sys.settrace` and mutations of `gc.callbacks` are allowed only in `pytest_plugin/` and `engine/testsession/`. `subprocess`, `os.posix_spawn`, `os.fork`, and `os.popen` are not gated.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked

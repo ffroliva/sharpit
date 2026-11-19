@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import functools
+from collections import Counter
+from collections.abc import Sequence
+
 _FNV_BASIS, _FNV_PRIME, _MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
 
 
+@functools.lru_cache(maxsize=1024)
 def stable_hash(value: str | None) -> str:
     """``InsightText.stableHash``: FNV-1a over UTF-16 code units, the first ten hex digits."""
     code = _FNV_BASIS
     data = (value or "").encode("utf-16-le")
-    for i in range(0, len(data), 2):
-        code = ((code ^ int.from_bytes(data[i : i + 2], "little")) * _FNV_PRIME) & _MASK64
+    for u16 in memoryview(data).cast("H"):
+        code = ((code ^ u16) * _FNV_PRIME) & _MASK64
     return f"{code:016x}"[:10]
 
 
@@ -57,3 +62,9 @@ def millis(nanos: int) -> str:
 def median(values: list[int]) -> int:
     """``RouteTimeBreakdown.median``: the lower median, 0 for none."""
     return sorted(values)[(len(values) - 1) // 2] if values else 0
+
+
+def primary_call_site(sites: Sequence[str]) -> str:
+    """The most frequent call site among the executions, preserving first-seen order on ties."""
+    # Counter keeps first-seen order and most_common sorts stably, so ties go to the site seen first, in one pass
+    return Counter(sites).most_common(1)[0][0] if sites else ""

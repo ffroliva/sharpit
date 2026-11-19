@@ -82,7 +82,7 @@ BASE_CLI_COMMANDS = {
     "get_rest_api_rule_violations": "rest-api violations",
     "rest_api_scan": "rest-api scan",
     "get_http_routes": "http routes",
-    "get_request_profile": "activity profile",
+    "get_request_profile": "request-profile",
     "get_low_footprint": "low-footprint status",
     "enable_low_footprint": "low-footprint enable",
     "disable_low_footprint": "low-footprint disable",

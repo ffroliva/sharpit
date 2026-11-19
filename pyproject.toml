@@ -12,6 +12,7 @@ license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 authors = [{ name = "Flavio Oliva" }]
 keywords = ["fastapi", "starlette", "developer-tools", "devtools", "debugging", "introspection", "mcp", "bootui"]
+
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Web Environment",
@@ -28,6 +29,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = ["starlette>=0.44", "packaging>=23"]
+
+[project.scripts]
+sharpit = "sharpit.cli:main"
 
 [project.entry-points.pytest11]
 sharpit = "sharpit.pytest_plugin"
@@ -102,6 +106,7 @@ exclude = [
     "/mempalace.yaml",
     "/tests/test_ui_no_html.py",  # reads ui/src, which is not shipped
     "/tests/test_agent_workflow.py",  # reads skills/ and docs/, which are not shipped
+    "/tests/cli/test_manifest_drift.py",  # imports scripts/dev/gen_cli_manifest.py, which is not shipped
     "/tests/scripts",  # tests the repo scripts/, which are not shipped
 ]
 

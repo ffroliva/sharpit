@@ -14,13 +14,11 @@ Deviations (proposed, by field):
 
 from __future__ import annotations
 
-import re
-
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.requests import Request, project_requests
 from sharpit.engine.collectors.insights.snapshot import Snapshot
+from sharpit.engine.collectors.insights.sql_readability import read_statement
 from sharpit.engine.collectors.insights.text import counted, stable_hash
-from sharpit.engine.sqltext import MASK, UNSUPPORTED_STATEMENT
 
 KIND = "safe-method-dml"
 TITLE = "Writes in GET requests"
@@ -30,9 +28,6 @@ OPTIONAL_READS: frozenset[str] = frozenset()
 IMPLEMENTED = True
 
 SAFE_METHODS = frozenset({"GET", "HEAD"})  # ``ProjectedRequest.safeMethod``
-DML = ("insert", "update", "delete", "merge")  # ``SafeMethodDml.isDml``
-UNREADABLE = frozenset({MASK, UNSUPPORTED_STATEMENT})
-FIRST_WORD = re.compile(r"\s*([A-Za-z]+)")
 IDS_WITHHELD = (
     "Request ids are withheld at METADATA_ONLY exposure, so writes cannot be placed in a request "
     "(SHARPIT_EXPOSE_VALUES)."
@@ -55,16 +50,6 @@ def not_applicable(snapshot: Snapshot) -> str | None:
     return IDS_WITHHELD if snapshot.ids_withheld else None
 
 
-def _readable(text: object) -> bool:
-    return isinstance(text, str) and bool(text.strip()) and text not in UNREADABLE
-
-
-def _verb(text: str) -> str | None:
-    """The DML verb a statement starts with, else ``None``."""
-    word = FIRST_WORD.match(text)
-    return word.group(1).lower() if word and word.group(1).lower() in DML else None
-
-
 def _writes(request: Request) -> tuple[list[tuple[str, str]], int]:
     """The request's executed writes as (verb, call site), and how many statements could not be read."""
     found: list[tuple[str, str]] = []
@@ -73,11 +58,15 @@ def _writes(request: Request) -> tuple[list[tuple[str, str]], int]:
         if event.get("provenance") != "EXECUTION" or event.get("failed") is True:
             continue
         text = event.get("sql")
-        if not _readable(text):
+        if not isinstance(text, str):
             unread += 1
-        elif verb := _verb(str(text)):
+            continue
+        stmt = read_statement(text)
+        if not stmt.readable:
+            unread += 1
+        elif stmt.dml_verb:
             site = event.get("callSite")
-            found.append((verb.upper(), site if isinstance(site, str) else ""))
+            found.append((stmt.dml_verb.upper(), site if isinstance(site, str) else ""))
     return found, unread
 
 

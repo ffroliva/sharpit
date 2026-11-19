@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 
 from sharpit import __version__
+from sharpit.engine.advisors.findings import assessed_in_part
 from sharpit.engine.testsession import baseline as baseline_io
 from sharpit.engine.testsession import outcome, report, sarif
 from sharpit.engine.testsession.facts import finding_from
@@ -84,14 +85,32 @@ def _report_parts(plugin: Any, session: Any, state: Any, facts: Any) -> list[Any
     return [facts]
 
 
+def _has_gap(advisor: dict[str, Any]) -> bool:
+    return any(app["evidence"].get("coverageComplete") is False for app in advisor["apps"])
+
+
+def _assessed_in_full(advisor: dict[str, Any]) -> bool:
+    """Only an advisor that read the whole app can say a baselined entry is gone, whatever its status."""
+    return advisor["status"] in {"PASSED", "FAILED"} and advisor["reason"] is None and not _has_gap(advisor)
+
+
+def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
+    return advisor["status"] == "PARTIAL" or any(
+        assessed_in_part(str(app["status"]), app.get("reason"), app["evidence"]) for app in advisor["apps"]
+    )
+
+
 def _apply_baseline(state: Any, data: dict[str, Any]) -> None:
     if state.baseline_data is None:
         return
-    ran = {"test-runtime"} | {
-        a["advisor"] for a in data["advisors"] if a["status"] in {"PASSED", "FAILED"} and a["reason"] is None
-    }
+    ran = {"test-runtime"} | {a["advisor"] for a in data["advisors"] if _assessed_in_full(a)}
+    in_part = {a["advisor"] for a in data["advisors"] if _assessed_only_in_part(a)}
     comparison = baseline_io.compare(
-        [finding_from(finding) for finding in data["findings"]], state.baseline_data, partial=state.partial, ran=ran
+        [finding_from(finding) for finding in data["findings"]],
+        state.baseline_data,
+        partial=state.partial,
+        ran=ran,
+        in_part=in_part,
     )
     state.baseline_carried = comparison.carried
     by_fingerprint = {finding.fingerprint: finding for finding in comparison.findings}

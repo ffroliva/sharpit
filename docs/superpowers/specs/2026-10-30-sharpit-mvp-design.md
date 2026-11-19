@@ -49,9 +49,8 @@ raises `ValueError` (the UI uses relative `api/...` URLs).
 
 ## 3. Non-goals (MVP)
 
-Django/Flask adapters (the engine is built for them; next), the `sharpit` console script (G10 keeps the endpoint;
-the CLI client comes next), gflow-cli mode, config overrides (they write config files), health, profile diff,
-conditions, every other BootUI panel, a PyPI release, Trusted Publishing.
+Django/Flask adapters (the engine is built for them; next), gflow-cli mode, config overrides (they write config
+files), health, profile diff, conditions, every other BootUI panel, a PyPI release, Trusted Publishing.
 
 ## 4. Anti-goals
 
@@ -356,7 +355,11 @@ Internal module structure, caching details, UI component structure and visuals w
 | SQLite statement `id` | opaque HMAC-SHA256 using a private key in `state_dir`; optional `SHARPIT_IDENTITY_KEY` shares identities across machines | preserves grouping without exposing guessed SQL shapes; differs from BootUI's lower-cased SQL id |
 If `identity.key` was already committed, remove it from Git manually; `.gitignore` does not untrack it.
 | MCP `vulnerabilities_scan` | CLI endpoint only | MCP read-only goal |
-| CLI client | deferred; endpoint kept | MVP scope |
+| `bootui update`, `bootui ci`, `bootui docs` | omitted; sharpit provides a single-query CLI and pytest gates | `update` performs network self-updates, `ci` runs multi-step orchestration (assess, attach, check), and `docs` serves offline JVM documentation; sharpit stays a single-query tool client |
+| BootUI CLI update check on invocation | no update check; connects directly to target API only | safety model: the CLI makes no outbound network requests (AGENTS.md safety rule 6) |
+| picocli CLI framework | `argparse` from the Python standard library | standard library only for `sharpit.cli` (AGENTS.md architecture rules 2 and 4); no extra runtime dependencies |
+| `--token` CLI option as default bearer token pattern | `--token` supported, but `SHARPIT_TOKEN` recommended in documentation | command-line arguments are visible in host process listings (`ps`, Task Manager) to other users on the host, whereas environment variables are process-private |
+| BootUI tool catalog (no Python-specific tools) | 9 sharpit-only command paths: `db alembic` (`get_alembic_migrations`), `data repositories` (`get_data_repositories`), `sqlalchemy-statistics list` (`get_sqlalchemy_statistics`), `sqlalchemy-statistics enable` (`enable_sqlalchemy_statistics`), `fastapi-security` (`get_fastapi_security`), `fastapi report` (`get_fastapi_report`), `fastapi violations` (`get_fastapi_rule_violations`), `fastapi scan` (`fastapi_scan`), `sql-trace insights` (`get_sql_trace_insights`) | Python/FastAPI- and SQLAlchemy-specific tools that have no BootUI counterpart; command paths follow consistent noun-verb naming without colliding with built-in commands |
 | `.bootui/boot-ui.yml` | `.sharpit/sharpit.yml`, created lazily | name |
 | Vue UI | Svelte UI, same contract | owner wants a new look |
 | validation errors → host 500 | `400 {"error"}` | contract ambiguity #1 |
@@ -377,7 +380,6 @@ If `identity.key` was already committed, remove it from Git manually; `.gitignor
 | A trusted-proxies peer needs no token (`ApiAuthenticationFilterTests.sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication`) | a trusted-proxies peer is admitted past the source check but must present the token | the ASGI server may have rewritten the peer from `X-Forwarded-For` (`--forwarded-allow-ips='*'`), so a spoofed header could land inside the range |
 | Vue UI look and feel (Svelte row above) | the UI is a new design (DESIGN.md), not a restyle of BootUI's | owner wants a new look; behaviour follows the contract |
 | Spring MVC, WebFlux and Quarkus adapters | FastAPI is the only adapter in the MVP | scope; the engine is framework-neutral behind the `spi` |
-| `bootui` CLI binary | no `sharpit` console script; only `/api/cli` endpoints | MVP scope (repeats the CLI client row for the binary itself) |
 | Panel copy says "beans" | panel copy says "providers"; ids and keys (`beans`) are unchanged | no IoC container in Python; the contract stays stable |
 | OSV and EPSS base URIs resolved with an absolute path (`URI.resolve("/v1/querybatch")` drops the base path) | the base URI's path is kept (`https://mirror/osv` + `v1/querybatch`) | a mirror or proxy under a path prefix works |
 | `activation.localhostOnly` = `!allow-non-localhost` | `localhostOnly` is false whenever remote access is configured: `allow_non_localhost`, `trusted_proxies` or container gateway trust | the Overview's "This machine only" must not show while proxies or the gateway are admitted; the key is unchanged |

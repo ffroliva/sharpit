@@ -36,7 +36,7 @@ Any difference outside this table is a finding and goes into `docs/reference/BOO
 
 ### Task 1: Capture and sanitizer pins
 
-**Files:** `scripts/capture_bootui_24.py` (new), `scripts/sanitize_golden.py`, `tests/golden.py`,
+**Files:** `scripts/capture_bootui.py` (versioned capture CLI), `scripts/sanitize_golden.py`, `tests/golden.py`,
 `tests/test_bootui_fixtures.py`.
 **Produces:** a capture script pinned to `v2.4.0`, and a sanitizer and golden loader that accept the `2.4.0` nested
 layout.
@@ -45,7 +45,7 @@ layout.
       `2.4.0` (expected failure: it picks flat; the docstring names only `2.2.0` and `2.3.0`), and
       `tests/golden.py` applies the 2.3.0 rules (catalog fields, non-empty list) to `fixture_version="2.4.0"`.
 - [ ] **Step 2:** Generalise the nested-layout and 2.3.0-rules checks to "2.3.0 or later"; add `META_2_4_0`.
-- [ ] **Step 3:** Copy `scripts/capture_bootui_23.py` to `capture_bootui_24.py`, changing only `PINNED_TAG = "v2.4.0"`,
+- [ ] **Step 3:** Use `scripts/capture_bootui.py --version 2.4.0` (the versioned legacy entry points remain wrappers),
       `PINNED_COMMIT = "0df7ed764688d04f83c246c9965e90158c1db488"`, the output directory, the temporary-directory
       prefix and `bootuiVersion`. Re-check each `defaultValueSource` line citation against `v2.4.0`
       (`BootUiProperties.java` is unchanged, so they should hold).
@@ -63,7 +63,7 @@ the 2.3.0 procedure (pull request #111).
       the databases that `/postgresql/read` and `/mysql/read` need and the resource lease they take
       (`multi-agent-dev`: `app-port`, `database`), and #111's scrubbed environment (throwaway home, no GitHub token,
       no `gh` on `PATH`, empty agent session directories, Actuator exposed by run argument only).
-- [ ] **Step 2:** Build BootUI 2.4.0 with `capture_bootui_24.py`; run the reference app; run
+- [ ] **Step 2:** Build BootUI 2.4.0 with `scripts/capture_bootui.py --version 2.4.0`; run the reference app; run
       `capture_bootui_live.py --raw-out <directory outside the repository>` with the unchanged `POST_ALLOW_LIST`;
       sanitize into `tests/fixtures/bootui/2.4.0/`.
 - [ ] **Step 3:** Leak gate, blocking: `scripts/ci/artifact_scan.py --values-file <machine values> --require

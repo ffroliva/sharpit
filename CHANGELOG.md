@@ -5,13 +5,89 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-19
+
 ### Added
 
-- An agent plugin, `plugins/sharpit`, for Claude Code (`/plugin marketplace add ffroliva/sharpit`), Cursor and Codex: the sharpit skill and a connection to the local read-only MCP endpoint (`SHARPIT_MCP_URL` overrides the port in Claude Code). The Claude Code plugin is validated with `claude plugin validate` and was exercised end to end against the sample app; Cursor and Codex are checked for manifest shape only. Ported from BootUI's plugin layout; `tests/test_agent_plugin.py` keeps the skill copy and the manifest versions in step.
+- Guided agent playbooks and an AI agents guide ported from BootUI 2.4.0 (`skills/sharpit/references/playbooks/` and `website/docs/ai-agents.md`): application checkup, database efficiency, slow endpoint diagnosis, errors and hidden failures, verifying changes, and Python performance/memory. The skill and shipped plugin include playbooks with side-by-side MCP tools and `sharpit` CLI commands.
+- MCP prompt guidance follows BootUI 2.4.0: all four prompts advertise optional arguments, echo masked and bounded context, and include `verify_after_change`.
+- Interactive tutorial (`website/docs/tutorial.md`): step-by-step walkthrough of application inspection, issue diagnosis, and change verification with sharpit.
+- The `sharpit` command-line client (`sharpit` console script): connects to a running sharpit application over HTTP without extra dependencies, executing any tool from the catalogue with BootUI 2.4.0 exit codes (0 success, 1 error, 2 refused, 3 threshold), global options (`--url`, `--api-path`, `--token`, `--timeout`, `--json`, `--no-color`, `-v`), `--fail-on` gates on finding severity (`critical`..`info`) or `insufficient` runtime evidence, `sharpit tools` listing, and `sharpit mcp status|enable|disable` controls.
+- Runtime Insights implements `repeated-selects` and `unbatched-write-loop` with BootUI 2.4.0 thresholds and request counts.
+- Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only on the security scan action (the Security panel and the CLI `sharpit security scan`; never over MCP, never on reads).
+
+### Changed
+
+- The CLI gives BootUI-equivalent guidance for disabled endpoints, authentication, missing tools and panel refusals. Help labels environment-backed options and required arguments; verbose failures retain redacted causes, and timeout messages preserve fractional seconds and milliseconds.
+- The CLI command paths of eight tools now follow BootUI's, in `GET {api}/cli` and in the Runtime Insights next steps: `get_request_profile` `activity profile` to `request-profile`, `get_transactions` `transactions` to `tx list`, `clear_transactions` `transactions clear` to `tx clear`, `pause_transaction_recording` `transactions pause` to `tx pause`, `resume_transaction_recording` `transactions resume` to `tx resume`, `get_traces` `traces` to `traces list`, `get_security_logs` `security-logs` to `security logs`, and `get_sqlalchemy_statistics` `sqlalchemy-statistics` to `sqlalchemy-statistics list`. The tool names and the `POST {api}/cli/tools/{tool}` route are unchanged.
+- MCP runtime-diagnosis, change-verification, application-review, and application-assessment guidance is adapted to sharpit evidence and available tools; CLI-only actions include their command, change verification checks both repeated-SQL insights, and unsupported previous-run comparisons are not promised. Prompt arguments follow Java whitespace and UTF-16 truncation semantics and are masked before appearing in replies or errors.
+- The caught-exceptions report (`GET /sharpit/api/exceptions/caught`) emits `insufficient` and `partial` integer counters (zeros when the sensor is unavailable), and the runtime insights agent view (`get_runtime_insights`) emits `insufficient` and `partial` counts covering every observation matching the query, including rows omitted by `limit`. The MCP tool descriptions for `get_exceptions`, `get_runtime_insights`, and `get_runtime_insight` adopt BootUI 2.4.0 explanations for incomplete-evidence states (BootUI 2.4.0 #1589).
+- The web UI enforces read-only panel policies across views and navigation: action buttons are disabled with their canonical refusal reasons instead of remaining interactive or hidden, panels state refusal reasons on 403 access denials without masking them as generic connection failures, and mutating actions guard execution against policy changes (BootUI 2.4.0 #1602).
+- Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL) or failed ORM model
+  discovery as WARNING diagnostics with incomplete evidence coverage (`PARTIAL` scan status, never a clean `SCANNED`),
+  while unconfigured or absent ORM models remain a neutral INFO skip (BootUI 2.4.0 #1600). BootUI's incomplete
+  PostgreSQL relation-inventory diagnostic is not reported yet: sharpit's catalog does not observe that signal.
+- Registering a capture hook twice in `HookRegistry` is idempotent: an aggregate is never counted twice (BootUI 2.4.0
+  #1598).
+- HTTP exchange recording failures never alter or disrupt streamed or committed HTTP responses, never mask host application exceptions, and log a warning naming the exception class only (BootUI 2.4.0 #1615).
+- The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
+  assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.
 
 ### Fixed
 
+- CLI output preserves server JSON bytes except where the token occurs: values and object keys are replaced, and a matching number literal becomes the string `"[redacted]"`. Invalid JSON also receives plain-text redaction. Terminal output escapes control characters while retaining multiline diagnostics; resolved and token-like argv values are redacted in usage errors. Expired deadlines never set a non-blocking socket timeout.
+- The CLI redacts tokens that appear with JSON escapes, returns exit 1 for usage errors and broken output pipes, and reports MCP action failures after sending the request as unknown outcomes.
+- The CLI redacts parser errors for built-in commands, keeps piped JSON UTF-8 and verbatim, and preserves MCP guard refusals without retrying the action.
+- The CLI limits only connection establishment to 10 seconds; a tool response can use the full `--timeout`, and read timeouts are reported separately from connection and TLS failures. Server text is preserved; normal API responses are not capped at 1 MiB.
+- A dismissed `sharpit.swallowed-exception` finding no longer comes back when a line above it moves (#66). The finding
+  is keyed by `<path>:<scope qualified name>:<ExceptionType>#<key>` instead of the line of the `except` header. The key
+  is 8 hex digits of a hash of the clause itself: its `try` body and its handler, without positions. A line added
+  above the `try` or elsewhere in the function keeps the key; an edit inside the `try` body or the handler changes it,
+  so the finding comes back. Swapping two `try` blocks, or moving a log call from one clause to another, cannot hand a
+  dismissal to another clause. Byte-identical clauses of one scope get `.<n>/<m>` after the hash (n is the place among
+  the m twins), so adding or deleting a twin changes every twin key instead of moving a dismissal. The path is
+  relative to the pytest rootdir, and the message prints the key so it can be pasted into `dismissedFindings` (copy it
+  from the terminal or the JSON report: the SARIF message is masked like every other output). A key that cannot be
+  stored as a `dismissedFindings` entry (over 512 characters, or with a control character) is reported as such, with
+  the fingerprint to list under `dismissedRules`, which covers one test only. Migration:
+  - a `dismissedFindings` entry in the earlier `<path>:<line>:<ExceptionType>` form no longer dismisses anything: the
+    finding comes back once, and the report warns naming the key of the clause now on that line, to replace the entry
+    with if that is the clause meant (the warning matches the path relative to the rootdir and to the working
+    directory);
+  - the finding fingerprint follows the new key, so a baseline needs one `--sharpit-write-baseline` rewrite, a
+    `dismissedRules` fingerprint for a swallowed exception is dismissed once more, and a code-scanning alert for a
+    swallowed exception is reopened once (the SARIF `sharpitFingerprint/v1` key is unchanged);
+  - the `FASTAPI-ERR-001` violation of the REST API advisor uses the same scope and key as its target instead of
+    `module:line`: its `dismissedFindings` entries and `dismissedRules` fingerprints must be re-dismissed once with
+    the new target (no line-keyed matching is kept for it), and its baseline entries rewritten.
+- `pytest --sharpit` no longer exits 1 on a run with no finding when an advisor read part of an application and met
+  an opaque mounted sub-app (#65). The advisor is `PARTIAL`: the run passes with a warning that names what was not
+  read and says that having no finding at or above `--sharpit-fail-on` is not proof there is none, and a finding at
+  or above it still fails. An unread router or exception handler, an errored scan, a rule that threw and an advisor
+  with no usable routes and a limitation stay `UNKNOWN`; lost capture stays `unknown`. A partly assessed advisor does
+  not count as having run for baselines: its baselined entries are neither reported fixed nor dropped.
+- The pytest plugin's report and terminal line say when the REST API advisor's application was found through the modules the selected tests imported (`evidence.detectedFrom`, with `detectedBy` workers under xdist), and the skip and `--sharpit-require-app` reasons say that no application was found among the modules the tests imported, or name the candidates. Only `--sharpit-app` makes the assessed application independent of the selection; `--sharpit-require-app` turns a missing one into `unknown`. Exit codes are unchanged (#67).
 - The skill `skills/sharpit/SKILL.md` named 0.5.0 as the current version.
+
+### Not in this release
+
+Deferred lanes from the 0.7.0 plan move to the next release:
+
+- W0 live goldens: per-panel 2.4.0 live captures deferred until BootUI 2.4.0 is deployed in the reference application with live databases (the static 2.4.0 fixtures pin tools, rules, and properties).
+- A2 (observed transaction boundaries): porting `TransactionBoundary.observed` and failed-begin reporting is deferred until transaction tracking overhead is reduced within the 30 µs budget.
+- B2 (transaction journal source and kinds): `transaction` journal events, `split-transaction-writes`, and `transaction-across-remote-call` deferred pending performance audit.
+- B3 (ORM journal source and kinds): SQLAlchemy session events as `orm` source and ORM flush/context insight kinds deferred pending overhead measurement.
+- B4 (authorization journal source and kinds): observing FastAPI security dependencies as `authorization` source deferred pending security surface review.
+- B5 (remaining insight kinds): app-event, garbage collection, and background executor insight kinds deferred pending council review and overhead evaluation.
+- B6 (missing routes): 33 unserved BootUI API routes deferred for lane-by-lane implementation by panel group.
+- B7 (partial routes): bringing the 28 partial routes to shape-identical parity deferred to panel-owning lanes.
+- D1 (SQLAlchemy listener race): class-level listener race resolution across Engine, Pool, and Mapper deferred to the SQL capture lane.
+- D2 (SQL listener per-statement path): evaluating BootUI 2.4.0 runtime event-sink capture against listener overhead deferred.
+- D3 (SQL Trace panel availability): aligning SQL Trace panel availability before a data source is wrapped deferred.
+- D4 (connection and SQL facts): connection statement count and recorded-SQL presence flag follow-ups deferred.
+- D6 (masking double pass, the `SHARPIT_EMAIL_MASK_CONTENT` fallback): masking changes need predict, council review and a base-against-branch corpus diff.
+- paged-without-order: deferred until SQL row-limit and shape analysis is ported without relying on regex approximation under masking.
+- E0 / #207: a pull request from a fork; it waits for its author and a maintainer's review (handling `--sharpit-app` naming an object with no route list).
 
 ## [0.6.0] - 2026-11-13
 
@@ -376,7 +452,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0

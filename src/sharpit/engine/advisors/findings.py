@@ -28,7 +28,9 @@ class Finding:
 
     @property
     def fingerprint(self) -> str:
-        """``<advisor>:<rule>:<16 hex>``; the hash input holds no path or timestamp, so it survives reformatting."""
+        """``<advisor>:<rule>:<16 hex>``; the hash input holds no timestamp, and its identity holds no line number (a
+        swallowed exception is keyed by path, scope, exception type and a hash of the clause), so it survives
+        reformatting."""
         material = "\x1f".join((self.rule_id, self.identity or self.target, self.test_node_id or ""))
         digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
         return f"{self.advisor}:{self.rule_id}:{digest}"
@@ -56,7 +58,7 @@ def fails(dto: Mapping[str, object]) -> bool:
 @dataclass(frozen=True)
 class AdvisorRun:
     advisor: str
-    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]
+    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     reason: str | None
@@ -72,23 +74,31 @@ class AdvisorRun:
         scan_status: str | None = None,
         fail_on: Severity = "HIGH",
         app: str | None = None,
+        reason: str | None = None,
     ) -> AdvisorRun:
-        """Derive the status (spec §5.3); it is never set by hand."""
+        """Derive the status (spec §5.3); it is never set by hand.
+
+        An advisor that could not assess (not usable, or the scan errored) is ``UNKNOWN``; one that assessed part of
+        the app and listed what it could not read is ``PARTIAL`` (BootUI ``FailOn``: a partial scan with no finding
+        passes, with a note). A finding at or above ``fail_on`` is ``FAILED`` either way. ``reason`` names the
+        failure when the caller knows a better one than the first limitation (an unusable run only).
+        """
         found = tuple(findings)
         gate = severity_rank(fail_on)
         limitations: list[str] = evidence.get("limitations") or []
-        incomplete = (
+        gap = (
             not evidence.get("coverageComplete")
             or (not evidence.get("usable") and bool(limitations))
             or scan_status in ("PARTIAL", "ERROR")
         )
+        unusable = gap and (not evidence.get("usable") or scan_status == "ERROR")
+        why = reason or (limitations[0] if limitations else _FALLBACK_REASON)
         if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
-            reason = None
-            if incomplete:
-                reason = limitations[0] if limitations else _FALLBACK_REASON
-            return cls(advisor, "FAILED", found, evidence, reason, app)
-        if incomplete:
-            return cls(advisor, "UNKNOWN", found, evidence, limitations[0] if limitations else _FALLBACK_REASON, app)
+            return cls(advisor, "FAILED", found, evidence, why if unusable else None, app)
+        if unusable:
+            return cls(advisor, "UNKNOWN", found, evidence, why, app)
+        if gap:
+            return cls(advisor, "PARTIAL", found, evidence, why, app)
         return cls(advisor, "PASSED", found, evidence, None, app)
 
     def to_dto(self) -> dict[str, Any]:
@@ -102,6 +112,25 @@ class AdvisorRun:
         }
 
 
+def assessed_in_part(status: str, reason: str | None, evidence: Mapping[str, Any]) -> bool:
+    """An advisor that read part of the app: ``PARTIAL``, or ``FAILED`` with a coverage gap and no unknown reason."""
+    return status == "PARTIAL" or (status == "FAILED" and reason is None and evidence.get("coverageComplete") is False)
+
+
+def partial_note(advisor: str, app: str | None, limitations: Iterable[str], fail_on: str) -> str:
+    """The one wording of what a partial assessment leaves open (BootUI ``FailOn``: no finding is not proof)."""
+    named = "; ".join(dict.fromkeys(x.rstrip(".") for x in limitations)) or _FALLBACK_REASON
+    return (
+        f"advisor '{advisor}' assessed part of {app or 'the application'}: {named}; "
+        f"having no finding at or above {fail_on} is not proof there is none"
+    )
+
+
 def severity_counts_of(findings: Iterable[Finding]) -> list[dict[str, Any]]:
     """BootUI's ``severityCounts`` form over the non-dismissed findings, one occurrence each."""
     return severity_counts(((f.severity, 1) for f in findings if not f.dismissed), SEVERITIES)
+
+
+def partial_notes(assessments: Iterable[tuple[str, str | None, Iterable[str], str]]) -> list[str]:
+    """Format partial-assessment notes shared by the CLI and report renderers."""
+    return [partial_note(advisor, app, limitations, fail_on) for advisor, app, limitations, fail_on in assessments]

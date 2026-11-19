@@ -77,9 +77,10 @@ export function harness() {
         Promise.resolve(route(String(input), init) ?? json(404, { error: 'unrouted' })),
       );
     },
-    mount(component: Parameters<typeof mount>[0], props: Record<string, unknown> = {}) {
+    mount<T = any>(component: Parameters<typeof mount>[0], props: Record<string, unknown> = {}): T {
       state.component = mount(component, { target: state.target, props });
       flushSync();
+      return state.component as unknown as T;
     },
     calls: (method: string) =>
       fetchMock.mock.calls.filter(([, init]) => (init?.method ?? 'GET') === method).map(([url]) => String(url)),

@@ -1,0 +1,575 @@
+/* sharpit interactive tutorial styles
+   Adheres to design/DESIGN.md tokens, light and dark themes,
+   offline-only (no external fonts/CDNs), keyboard accessible,
+   prefers-reduced-motion compliant.
+*/
+
+:root {
+  --tutorial-max-w: 960px;
+}
+
+/* Base container */
+.tutorial-walkthrough {
+  font-family: var(--ui, system-ui, -apple-system, sans-serif);
+  color: var(--ink, #1f1f1f);
+  background: var(--bg, #ffffff);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: var(--radius, 4px);
+  margin: 1.5rem 0 2.5rem;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+/* -------------------------------------------------------------
+   Progress header & navigation tabs
+   ------------------------------------------------------------- */
+.tutorial-header {
+  border-bottom: 1px solid var(--line, #e2e2e2);
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.tutorial-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--muted, #666666);
+  margin-bottom: 0.5rem;
+}
+
+.tutorial-step-counter {
+  font-weight: 600;
+  color: var(--ink, #1f1f1f);
+}
+
+.tutorial-time-estimate {
+  font-size: 0.75rem;
+}
+
+.tutorial-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--rail, #f6f6f6);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.tutorial-progress-fill {
+  height: 100%;
+  background: var(--accent, #9e7800);
+  transition: width var(--dur, 150ms) var(--ease, ease);
+}
+
+/* Step tabs navigation */
+.tutorial-nav-tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tutorial-tab {
+  flex: 1 1 0;
+  min-width: 90px;
+  background: var(--bg, #ffffff);
+  color: var(--muted, #666666);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: var(--radius, 4px);
+  padding: 0.5rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  transition: background var(--dur, 150ms) var(--ease, ease),
+              color var(--dur, 150ms) var(--ease, ease),
+              border-color var(--dur, 150ms) var(--ease, ease);
+}
+
+.tutorial-tab:hover {
+  color: var(--ink, #1f1f1f);
+  background: var(--rail, #f6f6f6);
+}
+
+.tutorial-tab.is-active,
+.tutorial-tab[aria-current="step"] {
+  color: var(--ink, #1f1f1f);
+  background: var(--sel, #faf6eb);
+  border-color: var(--accent, #9e7800);
+  font-weight: 600;
+}
+
+.tutorial-tab:focus-visible {
+  outline: 2px solid var(--accent, #9e7800);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------
+   Step content panels
+   ------------------------------------------------------------- */
+.tutorial-step {
+  animation: tutorialFadeIn var(--dur, 150ms) var(--ease, ease);
+}
+
+.tutorial-step:focus {
+  outline: none;
+}
+
+.tutorial-step-header {
+  margin-bottom: 1.25rem;
+}
+
+.tutorial-step-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent, #9e7800);
+  margin-bottom: 0.25rem;
+}
+
+.tutorial-step-title {
+  font-size: 1.375rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  color: var(--ink, #1f1f1f);
+  line-height: 1.3;
+}
+
+.tutorial-step-desc {
+  font-size: 0.9375rem;
+  color: var(--ink, #1f1f1f);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* -------------------------------------------------------------
+   Component cards and grids
+   ------------------------------------------------------------- */
+.tutorial-card {
+  background: var(--rail, #f6f6f6);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: var(--radius, 4px);
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+}
+
+.tutorial-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+@media (max-width: 720px) {
+  .tutorial-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tutorial-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.875rem;
+  margin: 1rem 0;
+}
+
+/* Callout badge */
+.tutorial-status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius, 4px);
+  border: 1px solid currentColor;
+}
+
+.tutorial-status-pass {
+  color: var(--ok, #228b22);
+}
+
+.tutorial-status-warn {
+  color: var(--warn, #996515);
+}
+
+.tutorial-status-danger {
+  color: var(--danger, #b22222);
+}
+
+/* Code blocks inside tutorial */
+.tutorial-code-block {
+  background: var(--rail, #f6f6f6);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: var(--radius, 4px);
+  padding: 0.875rem 1rem;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  color: var(--ink, #1f1f1f);
+  margin: 0.75rem 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tutorial-code-block code {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit !important;
+}
+
+/* -------------------------------------------------------------
+   Mock Console UI (Step 3)
+   ------------------------------------------------------------- */
+.tutorial-mock-console {
+  background: var(--bg, #ffffff);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: var(--radius, 4px);
+  overflow: hidden;
+  margin: 1rem 0;
+  font-size: 0.8125rem;
+}
+
+.tutorial-mock-header {
+  height: 36px;
+  background: var(--rail, #f6f6f6);
+  border-bottom: 1px solid var(--line, #e2e2e2);
+  display: flex;
+  align-items: center;
+  padding: 0 0.875rem;
+  gap: 1.25rem;
+}
+
+.tutorial-mock-brand {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--ink, #1f1f1f);
+  letter-spacing: -0.02em;
+}
+
+.tutorial-mock-nav {
+  display: flex;
+  height: 100%;
+  gap: 0.25rem;
+}
+
+.tutorial-mock-nav-item {
+  display: flex;
+  align-items: center;
+  padding: 0 0.625rem;
+  font-size: 0.75rem;
+  color: var(--muted, #666666);
+  border-bottom: 2px solid transparent;
+}
+
+.tutorial-mock-nav-item.is-selected {
+  color: var(--ink, #1f1f1f);
+  border-bottom-color: var(--accent, #9e7800);
+  background: var(--sel, #faf6eb);
+  font-weight: 600;
+}
+
+.tutorial-mock-body {
+  padding: 1rem;
+}
+
+.tutorial-mock-request-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--rail, #f6f6f6);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: var(--radius, 4px);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.875rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.78125rem;
+}
+
+.tutorial-mock-method {
+  font-weight: 600;
+  color: var(--accent, #9e7800);
+}
+
+.tutorial-mock-sql-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono, monospace);
+  font-size: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+
+.tutorial-mock-sql-table th {
+  text-align: left;
+  background: var(--rail, #f6f6f6);
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--line, #e2e2e2);
+  color: var(--muted, #666666);
+  font-weight: 600;
+}
+
+.tutorial-mock-sql-table td {
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--line, #e2e2e2);
+  color: var(--ink, #1f1f1f);
+  vertical-align: top;
+}
+
+.tutorial-mock-sql-highlight {
+  background: var(--sel, #faf6eb);
+}
+
+.tutorial-mock-insight-box {
+  border: 1px solid var(--warn, #996515);
+  background: var(--sel, #faf6eb);
+  border-radius: var(--radius, 4px);
+  padding: 0.75rem 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.tutorial-mock-insight-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+  color: var(--ink, #1f1f1f);
+}
+
+.tutorial-mock-insight-sentence {
+  font-size: 0.78125rem;
+  line-height: 1.45;
+  color: var(--ink, #1f1f1f);
+  margin-bottom: 0.5rem;
+}
+
+.tutorial-mock-insight-remediation {
+  font-size: 0.75rem;
+  color: var(--muted, #666666);
+  border-top: 1px solid var(--line, #e2e2e2);
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* -------------------------------------------------------------
+   Exit codes table (Step 5)
+   ------------------------------------------------------------- */
+.tutorial-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84375rem;
+  margin: 1rem 0;
+}
+
+.tutorial-table th {
+  text-align: left;
+  background: var(--rail, #f6f6f6);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line, #e2e2e2);
+  color: var(--ink, #1f1f1f);
+  font-weight: 600;
+}
+
+.tutorial-table td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line, #e2e2e2);
+  color: var(--ink, #1f1f1f);
+}
+
+/* -------------------------------------------------------------
+   Footer controls & Buttons
+   ------------------------------------------------------------- */
+.tutorial-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--line, #e2e2e2);
+  padding-top: 1.25rem;
+  margin-top: 1.5rem;
+  gap: 1rem;
+}
+
+.tutorial-keyboard-hint {
+  font-size: 0.75rem;
+  color: var(--muted, #666666);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tutorial-keyboard-hint kbd {
+  display: inline-block;
+  padding: 0.125rem 0.3125rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.6875rem;
+  background: var(--rail, #f6f6f6);
+  border: 1px solid var(--line, #e2e2e2);
+  border-radius: 3px;
+  color: var(--ink, #1f1f1f);
+}
+
+.tutorial-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1.125rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: var(--radius, 4px);
+  cursor: pointer;
+  text-decoration: none !important;
+  transition: background var(--dur, 150ms) var(--ease, ease),
+              opacity var(--dur, 150ms) var(--ease, ease),
+              color var(--dur, 150ms) var(--ease, ease);
+  min-height: 38px;
+  box-sizing: border-box;
+}
+
+.tutorial-btn:focus-visible {
+  outline: 2px solid var(--accent, #9e7800);
+  outline-offset: 2px;
+}
+
+.tutorial-btn-primary {
+  background: var(--accent, #9e7800);
+  color: var(--on-accent, #ffffff) !important;
+  border: 1px solid var(--accent, #9e7800);
+}
+
+.tutorial-btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.tutorial-btn-secondary {
+  background: var(--bg, #ffffff);
+  color: var(--ink, #1f1f1f) !important;
+  border: 1px solid var(--line, #e2e2e2);
+}
+
+.tutorial-btn-secondary:hover:not(:disabled) {
+  background: var(--rail, #f6f6f6);
+}
+
+.tutorial-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Call to action buttons in Step 7 */
+.tutorial-cta-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 1.25rem;
+}
+
+.tutorial-star-btn {
+  background: var(--rail, #f6f6f6);
+  border: 1px solid var(--line, #e2e2e2);
+  color: var(--ink, #1f1f1f) !important;
+  padding: 0.5rem 1.25rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius, 4px);
+  text-decoration: none !important;
+}
+
+.tutorial-star-btn:hover {
+  border-color: var(--accent, #9e7800);
+  background: var(--sel, #faf6eb);
+}
+
+/* -------------------------------------------------------------
+   No-JS Progressive Enhancement Fallback
+   ------------------------------------------------------------- */
+.tutorial-walkthrough:not(.is-interactive) .tutorial-header,
+.tutorial-walkthrough:not(.is-interactive) .tutorial-controls {
+  display: none !important;
+}
+
+.tutorial-walkthrough:not(.is-interactive) .tutorial-step {
+  display: block !important;
+  padding-bottom: 2rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--line, #e2e2e2);
+}
+
+.tutorial-walkthrough:not(.is-interactive) .tutorial-step:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+/* -------------------------------------------------------------
+   Interactive State: hide non-active steps
+   ------------------------------------------------------------- */
+.tutorial-walkthrough.is-interactive .tutorial-step {
+  display: none;
+}
+
+.tutorial-walkthrough.is-interactive .tutorial-step.is-active {
+  display: block;
+}
+
+/* -------------------------------------------------------------
+   Animations & Motion Rules
+   ------------------------------------------------------------- */
+@keyframes tutorialFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-step,
+  .tutorial-tab,
+  .tutorial-btn,
+  .tutorial-progress-fill {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Mobile responsive tuning (390px) */
+@media (max-width: 480px) {
+  .tutorial-walkthrough {
+    padding: 1rem;
+    margin: 1rem 0;
+  }
+  .tutorial-keyboard-hint {
+    display: none;
+  }
+  .tutorial-step-title {
+    font-size: 1.1875rem;
+  }
+  .tutorial-controls {
+    flex-wrap: wrap;
+  }
+  .tutorial-btn {
+    flex: 1 1 auto;
+  }
+  .tutorial-cta-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tutorial-star-btn,
+  .tutorial-btn-primary {
+    justify-content: center;
+  }
+}

@@ -58,7 +58,7 @@ installed packages for known vulnerabilities when you ask for it. Every panel in
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
 run fails closed.
 
-> **Status: alpha (0.6.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.7.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Gate CI on findings
 
@@ -137,13 +137,13 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
 
 sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, and 0.7.0 targets BootUI 2.4.0.
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | BootUI 2.3.0 | BootUI 2.4.0 |
-|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 28 | 28 |
-| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 66 | not captured |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | BootUI 2.3.0 | BootUI 2.4.0 |
+|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 28 | 28 |
+| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 66 | not captured |
 
 How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
 
@@ -192,6 +192,45 @@ Other options are keyword arguments or environment variables, see [Settings](htt
 
 If `/sharpit` answers 404, read [Activation](https://ffroliva.github.io/sharpit/activation/): sharpit stays off unless a dev signal turns it on.
 
+## Command-line client
+
+The `sharpit` package includes the `sharpit` console script, allowing a running application to be queried from a terminal or script without extra dependencies.
+
+```bash
+sharpit overview
+```
+
+Global options configure the connection and output format:
+
+- `--url <url>`: application base URL (default `http://localhost:8000`, env `SHARPIT_URL`).
+- `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
+- `--token <token>`: bearer authentication token. `--token` overrides the `SHARPIT_TOKEN` environment variable; using `SHARPIT_TOKEN` is recommended so credentials are not exposed in host process listings.
+- `--timeout <seconds>`: request timeout in seconds (default `60`).
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety.
+- `--no-color`: disable ANSI colors in terminal output (also honours `NO_COLOR`).
+- `-v`, `--verbose`: print verbose error details.
+- `--fail-on <severity>`: gate command completion against findings or evidence sufficiency.
+
+Examples:
+
+```bash
+# Read application overview
+sharpit overview
+
+# Run a security scan and fail on high or critical findings
+sharpit security scan --fail-on high
+
+# Inspect runtime insights and fail if evidence is insufficient
+sharpit insights list --fail-on insufficient
+```
+
+Exit codes follow BootUI 2.4.0 (`ExitCodes`):
+
+- `0`: success (the command completed and any gate passed).
+- `1`: error (network or HTTP error, invalid argument, gate cannot be evaluated); a refused MCP toggle exits 1.
+- `2`: refused tool action (endpoint or panel is disabled, or a tool action is rejected by read-only policy).
+- `3`: threshold (findings reached or exceeded the `--fail-on` severity, or evidence was insufficient).
+
 ## Use with an AI agent
 
 sharpit has a read-only MCP endpoint that a coding agent can query: routes, configuration, SQL, exceptions and health of the
@@ -206,7 +245,7 @@ connection in one step:
 The same `plugins/sharpit` directory is listed for Cursor (`.cursor-plugin/marketplace.json`) and Codex
 (`.agents/plugins/marketplace.json`). The plugin points at `http://127.0.0.1:8000/sharpit/api/mcp`; if your app listens on
 another port, set `SHARPIT_MCP_URL` (Claude Code). Other clients, and what was tested, are in
-[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/).
+[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/). For guided investigations, see the application-improvement playbooks in [`skills/sharpit/references/playbooks/`](skills/sharpit/references/playbooks/README.md) and the [AI agents guide](https://ffroliva.github.io/sharpit/ai-agents/).
 
 ## Documentation
 
@@ -218,6 +257,7 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 - [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
 - [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): tracing SQLAlchemy and raw `sqlite3`
 - [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its tools
+- [AI agents](https://ffroliva.github.io/sharpit/ai-agents/): improvement playbooks, CLI and MCP workflows, and runtime recipes
 - [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers
 - [How it works](https://ffroliva.github.io/sharpit/how-it-works/) and [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/)

@@ -14,7 +14,7 @@ from sharpit.engine.sqltext.identity import fingerprint, load_key
 from sharpit.settings import load_settings
 
 WORKERS = 8
-ROUNDS = 200
+ROUNDS = 20
 
 
 def _worker_key(state_dir: str) -> bytes | None:

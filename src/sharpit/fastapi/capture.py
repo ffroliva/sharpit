@@ -73,10 +73,20 @@ SEVERAL_WORKERS = (
 )
 PROBE_HEADER = b"x-sharpit-probe"
 PROBE_EXTENSION = "sharpit.probe"
+
+
+def _is_probe_header_entry(h: object) -> bool:
+    if isinstance(h, (tuple, list)):
+        seq = cast("Sequence[object]", h)
+        return len(seq) >= 1 and seq[0] == PROBE_HEADER
+    return False
+
+
 MAX_MOUNT_DEPTH = 32  # a sub-app mounted inside itself must not loop the walk
 # low-footprint registry entries: each name is spelled only here
 HOOK_CAPTURE_MIDDLEWARE = "capture-middleware"
 HOOK_SECURITY_LOG = "security-log"
+REQUEST_START = "request start"  # hook name in the one-time capture warning
 HOOK_EXCEPTION_HANDLERS = "exception-handlers"
 HOOK_LOG_HANDLER = "log-handler"
 HOOK_SQLA_LISTENERS = "sqla-listeners"
@@ -618,30 +628,57 @@ class CaptureMiddleware:
         self.ctx = ctx
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         wiring = wiring_of(self.ctx)
-        if (
-            scope["type"] != "http"
-            or wiring is None
-            or wiring.detached
-            or HOOK_CAPTURE_MIDDLEWARE in wiring.suspended_hooks
-        ):
+        # only sharpit's probe may carry the header (spec §7.11); removed before any fallible step, so no failure path
+        # passes a client's copy on to the host
+        strip_failed = False
+        try:
+            extensions: dict[str, Any] = scope.get("extensions") or {}
+            if not extensions.get(PROBE_EXTENSION) and any(k == PROBE_HEADER for k, _ in scope.get("headers", ())):
+                scope = {
+                    **scope,
+                    "headers": [h for h in scope.get("headers", ()) if not _is_probe_header_entry(h)],
+                }
+        except Exception as exc:  # noqa: BLE001
+            if wiring is not None:
+                wiring.hook_failed(REQUEST_START, exc)
+            try:
+                headers = scope.get("headers")
+                if headers:
+                    scope = {
+                        **scope,
+                        "headers": [h for h in headers if not _is_probe_header_entry(h)],
+                    }
+            except Exception:  # noqa: BLE001, S110 - best-effort defensive probe strip
+                pass
+            strip_failed = True
+        if strip_failed:
+            await self.app(scope, receive, send)
+            return
+
+        if wiring is None or wiring.detached or HOOK_CAPTURE_MIDDLEWARE in wiring.suspended_hooks:
             await self.app(scope, receive, send)
             return
         buffer = self.ctx.capture.exchanges
-        try:
-            if not wiring.started:
-                wiring.on_first_request(self.ctx)
-            if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
+        if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
+            try:
+                if not wiring.started:
+                    wiring.on_first_request(self.ctx)
                 if buffer is not None:
                     buffer.count_hidden_self()
-                await self.app(scope, receive, send)
-                return
+            except Exception as exc:  # noqa: BLE001
+                wiring.hook_failed(REQUEST_START, exc)
+            await self.app(scope, receive, send)
+            return
+
+        try:  # setup only: the application is called outside it, once, whatever happens here
+            if not wiring.started:
+                wiring.on_first_request(self.ctx)
             ensure_mail_wrapped()  # the host's traffic only: a read of sharpit's own routes patches nothing
-            extensions: dict[str, Any] = scope.get("extensions") or {}
-            if not extensions.get(PROBE_EXTENSION) and any(
-                k == PROBE_HEADER for k, _ in scope["headers"]
-            ):  # only sharpit's probe may carry the header (spec §7.11)
-                scope = {**scope, "headers": [h for h in scope["headers"] if h[0] != PROBE_HEADER]}
             started_epoch_ns = time.time_ns()
             root_path = scope.get("root_path", "")
             info = RequestInfo(
@@ -655,100 +692,107 @@ class CaptureMiddleware:
                 scope=scope,
             )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
-            wiring.hook_failed("request start", exc)
-            await self.app(scope, receive, send)
-            return
-        sqla.note_request_captured()
+            wiring.hook_failed(REQUEST_START, exc)
+        else:
+            sqla.note_request_captured()
 
-        status: int | None = None
-        response_headers: list[tuple[bytes, bytes]] = []
-        size = 0
-        end_ns: int | None = None
-        disconnected = False
+            status: int | None = None
+            response_headers: list[tuple[bytes, bytes]] = []
+            size = 0
+            end_ns: int | None = None
+            disconnected = False
 
-        async def capture_receive() -> Message:
-            nonlocal disconnected
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                disconnected = True
-            return message
+            async def capture_receive() -> Message:
+                nonlocal disconnected
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    disconnected = True
+                return message
 
-        async def capture_send(message: Message) -> None:
-            nonlocal status, response_headers, size, end_ns
-            try:
-                kind = message["type"]
-                if kind == "http.response.start":
-                    status = message["status"]
-                    response_headers = list(message.get("headers", ()))
-                elif kind == "http.response.body":
-                    size += len(message.get("body", b""))
-                    if not message.get("more_body", False):
-                        end_ns = time.perf_counter_ns()
-            except Exception as exc:  # noqa: BLE001
-                wiring.hook_failed("response", exc)
-            await send(message)  # every chunk goes out as it comes: nothing is buffered
-
-        token = REQUEST.set(info)
-        failed = cancelled = False
-        raised: Exception | None = None
-        try:
-            await self.app(scope, capture_receive, capture_send)
-        except asyncio.CancelledError:
-            cancelled = True
-            raise
-        except Exception as exc:
-            failed, raised = True, exc
-            if (sink := dispatch.session_sink()) is not None:
-                sink.on_escaped(exc)
-            raise
-        finally:
-            sent = cast("int | None", status)  # set by capture_send; pyright cannot see the closure
-            security = None if HOOK_SECURITY_LOG in wiring.suspended_hooks else wiring.on_security_event
-            if sent in (401, 403) and security is not None:  # before reset: REQUEST names it (R12)
+            async def capture_send(message: Message) -> None:
+                nonlocal status, response_headers, size, end_ns
                 try:
-                    security(scope, sent)
+                    kind = message["type"]
+                    if kind == "http.response.start":
+                        status = message["status"]
+                        response_headers = list(message.get("headers", ()))
+                    elif kind == "http.response.body":
+                        size += len(message.get("body", b""))
+                        if not message.get("more_body", False):
+                            end_ns = time.perf_counter_ns()
                 except Exception as exc:  # noqa: BLE001
-                    wiring.hook_failed("security event", exc)
-            REQUEST.reset(token)
+                    wiring.hook_failed("response", exc)
+                await send(message)  # every chunk goes out as it comes: nothing is buffered
+
+            token = REQUEST.set(info)
+            failed = cancelled = False
+            raised: Exception | None = None
             try:
-                finished = end_ns or time.perf_counter_ns()
-                info.finished_ns = finished
-                info.endpoint = _endpoint_name(scope.get("endpoint"))
-                store = self.ctx.capture.exceptions
-                if store is not None:
-                    if raised is not None:
-                        store.record(raised, "request", info, threading.current_thread().name)
-                    store.forget_request(info.id)
-                recorded, error = _outcome(status, failed, cancelled, disconnected)
-                journal = self.ctx.capture.journal
-                template = (
-                    _route_template(scope, root_path, wiring.app) if buffer is not None or journal is not None else None
-                )
-                if buffer is not None:
-                    with _request_end_guard(wiring):  # a failing row must not lose the journal event
-                        buffer.add(
-                            exchange_row(
-                                self.ctx.masker,
-                                request_id=info.id,
-                                started_epoch_ns=started_epoch_ns,
-                                method=info.method,
-                                path=scope["path"],
-                                query_string=scope.get("query_string", b""),
-                                status=recorded,
-                                duration_ms=(finished - info.started_ns) // 1_000_000,
-                                size=size,
-                                client=scope.get("client"),
-                                user=scope.get("user"),
-                                request_headers=scope["headers"],
-                                response_headers=response_headers,
-                                error=error,
-                                endpoint=info.endpoint,
-                                finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
-                                route=template,
-                            )
-                        )
-                if journal is not None:
+                await self.app(scope, capture_receive, capture_send)
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+            except Exception as exc:
+                failed, raised = True, exc
+                if (sink := dispatch.session_sink()) is not None:
+                    sink.on_escaped(exc)
+                raise
+            finally:
+                sent = cast("int | None", status)  # set by capture_send; pyright cannot see the closure
+                security = None if HOOK_SECURITY_LOG in wiring.suspended_hooks else wiring.on_security_event
+                if sent in (401, 403) and security is not None:  # before reset: REQUEST names it (R12)
+                    try:
+                        security(scope, sent)
+                    except Exception as exc:  # noqa: BLE001
+                        wiring.hook_failed("security event", exc)
+                REQUEST.reset(token)
+                try:
+                    finished = end_ns or time.perf_counter_ns()
+                    info.finished_ns = finished
                     with _request_end_guard(wiring):
-                        journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
-            except Exception as exc:  # noqa: BLE001
-                wiring.hook_failed("request end", exc)
+                        info.endpoint = _endpoint_name(scope.get("endpoint"))
+                    store = self.ctx.capture.exceptions
+                    if store is not None:
+                        try:
+                            if raised is not None:
+                                with _request_end_guard(wiring):
+                                    store.record(raised, "request", info, threading.current_thread().name)
+                        finally:
+                            with _request_end_guard(wiring):
+                                store.forget_request(info.id)
+                    recorded, error = _outcome(status, failed, cancelled, disconnected)
+                    journal = self.ctx.capture.journal
+                    template: str | None = None
+                    if buffer is not None or journal is not None:
+                        template = _route_template(scope, root_path, wiring.app)
+                    if buffer is not None:
+                        with _request_end_guard(wiring):  # a failing row must not lose the journal event
+                            buffer.add(
+                                exchange_row(
+                                    self.ctx.masker,
+                                    request_id=info.id,
+                                    started_epoch_ns=started_epoch_ns,
+                                    method=info.method,
+                                    path=scope["path"],
+                                    query_string=scope.get("query_string", b""),
+                                    status=recorded,
+                                    duration_ms=(finished - info.started_ns) // 1_000_000,
+                                    size=size,
+                                    client=scope.get("client"),
+                                    user=scope.get("user"),
+                                    request_headers=scope["headers"],
+                                    response_headers=response_headers,
+                                    error=error,
+                                    endpoint=info.endpoint,
+                                    finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
+                                    route=template,
+                                )
+                            )
+                    if journal is not None:
+                        with _request_end_guard(wiring):
+                            journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
+                except Exception as exc:  # noqa: BLE001
+                    wiring.hook_failed("request end", exc)
+            return
+
+        await self.app(scope, receive, send)

@@ -12,4 +12,4 @@ TOOLS = (
         lambda c, a: context_report(c.ctx, limit=a["limit"]),
     ),
 )
-COMMANDS = {"get_security_logs": "security-logs"}
+COMMANDS = {"get_security_logs": "security logs"}

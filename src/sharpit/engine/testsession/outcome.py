@@ -10,7 +10,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
-from sharpit.engine.advisors.findings import AdvisorRun, Finding
+from sharpit.engine.advisors.findings import AdvisorRun, Finding, assessed_in_part, partial_notes
 from sharpit.engine.advisors.rules import severity_rank
 from sharpit.engine.testsession.facts import SessionFacts, TestFacts
 
@@ -25,6 +25,7 @@ class SessionStatus(NamedTuple):
 
 SQL_SOURCES = ("sqlalchemy", "sqlite3")
 APP_ADVISORS = ("rest-api",)  # advisors that read an application: with no app seen they are UNKNOWN
+AUTODETECT = "autodetect"  # evidence key of a run autodetect made without an assessed app (a placeholder)
 NO_APPLICATION = "no application: pass --sharpit-app or call sharpit.install in the tests"
 NO_SQL_EXECUTED = "no SQL statement was executed"
 ADVISORS_DISABLED = "advisors disabled"
@@ -114,14 +115,33 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
     return list(by_name.values())
 
 
-def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]:
-    """FAILED over UNKNOWN over SKIPPED over PASSED (R14); no status at all is PASSED."""
+_WORST_FIRST: tuple[Literal["FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"], ...] = (
+    "FAILED",
+    "UNKNOWN",
+    "SKIPPED",
+    "PARTIAL",
+)
+
+
+def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]:
+    """FAILED over UNKNOWN over SKIPPED over PARTIAL over PASSED (R14); no status at all is PASSED."""
     present = set(statuses)
-    if "FAILED" in present:
-        return "FAILED"
-    if "UNKNOWN" in present:
-        return "UNKNOWN"
-    return "SKIPPED" if "SKIPPED" in present else "PASSED"
+    for status in _WORST_FIRST:
+        if status in present:
+            return status
+    return "PASSED"
+
+
+def _merged_evidence(runs: list[AdvisorRun], chosen: AdvisorRun) -> dict[str, Any]:
+    """The chosen run's evidence; a gap in any run makes the merged evidence incomplete and lists every limitation."""
+    gapped = [r for r in runs if r.evidence.get("coverageComplete") is False]
+    if not gapped:
+        return chosen.evidence
+    limitations: list[str] = []
+    for run in runs:
+        found: list[str] = run.evidence.get("limitations") or []
+        limitations += found
+    return {**chosen.evidence, "coverageComplete": False, "limitations": list(dict.fromkeys(limitations))}
 
 
 def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> AdvisorRun:
@@ -133,11 +153,11 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
     reason = next((run.reason for run in runs if run.status == status and run.reason is not None), chosen.reason)
     if status == "FAILED" and reason is None:  # an UNKNOWN worker beside a complete FAILED one stays visible
         reason = next((run.reason for run in runs if run.status == "UNKNOWN" and run.reason is not None), None)
-    return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
+    return AdvisorRun(advisor, status, tuple(findings.values()), _merged_evidence(runs, chosen), reason, app)
 
 
 def _merge_runs(parts: Sequence[SessionFacts]) -> list[AdvisorRun]:
-    """One run per (advisor, app): findings de-duplicated by fingerprint, FAILED over UNKNOWN over PASSED."""
+    """One run per (advisor, app): findings de-duplicated by fingerprint, worst status first (``_worst``)."""
     groups: dict[tuple[str, str | None], list[AdvisorRun]] = {}
     for run in (r for part in parts for r in part.advisor_runs):
         groups.setdefault((run.advisor, run.app), []).append(run)
@@ -165,7 +185,16 @@ def _flat_findings(tests: Sequence[TestFacts], runs: Sequence[AdvisorRun]) -> di
     return findings
 
 
-def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> MergedFacts:
+def _partial_notes(runs: Iterable[AdvisorRun], fail_on: str) -> list[str]:
+    """One warning per app an advisor assessed in part: a clean partial assessment passes, but it is not proof."""
+    return partial_notes(
+        (run.advisor, run.app, run.evidence.get("limitations") or [], fail_on)
+        for run in runs
+        if assessed_in_part(run.status, run.reason, run.evidence)
+    )
+
+
+def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str], *, fail_on: str) -> MergedFacts:
     tests = [t for p in parts for t in p.tests]
     untraced = {d for p in parts for d in p.untraced_drivers}
     engines = {d for p in parts for d in p.engine_drivers}
@@ -184,7 +213,8 @@ def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> Merg
     attributed = attributed_queries(tests)
     unattributed = sum(p.unattributed for p in parts)
     warnings: list[str] = []
-    for line in [*(w for p in parts for w in p.warnings), *(x for s in sources for x in s["limitations"])]:
+    notes = _partial_notes(runs, fail_on)
+    for line in [*(w for p in parts for w in p.warnings), *(x for s in sources for x in s["limitations"]), *notes]:
         if line not in warnings:
             warnings.append(line)
     if attributed + unattributed == 0:
@@ -225,7 +255,7 @@ def _advisor_summary(advisor: str, runs: list[AdvisorRun], *, advisors_enabled: 
     apps = [
         {"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence}
         for r in runs
-        if r.app is not None or r.status != "SKIPPED"  # a skipped advisor assessed no app
+        if r.app is not None or (r.status != "SKIPPED" and r.evidence.get(AUTODETECT) is not True)  # no app assessed
     ]
     return {"advisor": advisor, "status": status, "reason": reason, "apps": apps, "findings": list(found.values())}
 

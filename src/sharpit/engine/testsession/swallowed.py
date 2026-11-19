@@ -13,9 +13,10 @@ import ast
 import builtins
 import dis
 import functools
+import hashlib
 import linecache
 from types import CodeType
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
     AttributeError,
@@ -37,6 +38,15 @@ _TRACKERS = frozenset({"rollbar.report_exc_info", "bugsnag.notify"})
 _SELF = frozenset({"self", "cls"})
 
 
+class SwallowingSite(NamedTuple):
+    """A swallowing clause: its header line, its scope (the qualified name of the function or class body that holds it,
+    ``<module>`` at module level) and a key from its content that does not move with the line or the clause's place."""
+
+    line: int
+    scope: str
+    key: str
+
+
 class _Module(NamedTuple):
     loggers: frozenset[str]  # module-level names bound to a logger
     defined: frozenset[str]  # every function and method name defined in the module
@@ -44,8 +54,63 @@ class _Module(NamedTuple):
     imported: frozenset[str]  # names bound by an import
 
 
-# a try's clauses, the clause at the given line and the facts about its module
-type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, _Module]
+class _Clause(NamedTuple):
+    handler: ast.ExceptHandler
+    statement: ast.Try  # the try the clause belongs to: its body identifies the clause
+    scope: str
+
+
+class _Sites:
+    """The broad ``except`` clauses of one module by header line, each with its scope. Whether a clause swallows, and
+    its key, are worked out when asked and kept: the static check needs lines only, the runtime asks for one site."""
+
+    def __init__(self, clauses: list[_Clause], module: _Module) -> None:
+        self._by_line = {clause.handler.lineno: clause for clause in clauses}
+        self._by_scope: dict[str, list[_Clause]] = {}
+        for clause in sorted(clauses, key=lambda c: (c.handler.lineno, c.handler.col_offset)):
+            self._by_scope.setdefault(clause.scope, []).append(clause)
+        self._module = module
+        self._silent: dict[int, bool] = {}
+        self._shapes: dict[int, str] = {}  # id of a try -> the text of its body, shaped once
+        self._digests: dict[int, str] = {}
+
+    def swallows(self, line: int) -> bool:
+        """Whether the clause with its header on ``line`` is broad and silent."""
+        clause = self._by_line.get(line)
+        if clause is None:
+            return False
+        if line not in self._silent:
+            self._silent[line] = _silent(clause.handler, self._module)
+        return self._silent[line]
+
+    def lines(self) -> list[int]:
+        """The header lines of every swallowing clause, in source order."""
+        return sorted(line for line in self._by_line if self.swallows(line))
+
+    def site(self, line: int) -> SwallowingSite | None:
+        """The site of the swallowing clause on ``line``, with its key; None when the clause does not swallow."""
+        if not self.swallows(line):
+            return None
+        clause = self._by_line[line]
+        digest = self._digest(clause)
+        twins = [c for c in self._by_scope[clause.scope] if self._digest(c) == digest]
+        if len(twins) == 1:  # byte-identical clauses are indistinguishable: each carries its place among them
+            return SwallowingSite(line, clause.scope, digest)
+        return SwallowingSite(line, clause.scope, f"{digest}.{twins.index(clause) + 1}/{len(twins)}")
+
+    def _digest(self, clause: _Clause) -> str:
+        line = clause.handler.lineno
+        if line not in self._digests:
+            shaped = self._shapes.get(id(clause.statement))
+            if shaped is None:
+                shaped = self._shapes[id(clause.statement)] = "\x1f".join(_shape(s) for s in clause.statement.body)
+            material = f"{shaped}\x1f{_shape(clause.handler)}"
+            self._digests[line] = hashlib.sha256(material.encode("utf-8")).hexdigest()[:8]
+        return self._digests[line]
+
+
+# a try's clauses, the clause at the given line and the swallowing sites of its module
+type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, _Sites]
 
 
 def is_programming_error(exc: BaseException) -> bool:
@@ -55,15 +120,82 @@ def is_programming_error(exc: BaseException) -> bool:
 def _index(tree: ast.AST) -> dict[int, _Entry]:
     """Every line of every ``except`` clause header -> (that try's clauses, the clause's position)."""
     index: dict[int, _Entry] = {}
-    module = _module(tree)
+    sites = _sites(tree, _module(tree))
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
             handlers = tuple(node.handlers)
             for position, handler in enumerate(handlers):
                 last = handler.type.end_lineno if handler.type is not None else None
                 for line in range(handler.lineno, (last or handler.lineno) + 1):
-                    index.setdefault(line, (handlers, position, module))
+                    index.setdefault(line, (handlers, position, sites))
     return index
+
+
+_SCOPES = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+
+
+def _declared_global(scope: ast.AST) -> frozenset[str]:
+    """The names a ``global`` statement in this function or class body (not in a nested one) declares."""
+    names: set[str] = set()
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Global):
+            names.update(node.names)
+        elif not isinstance(node, _SCOPES):
+            pending.extend(ast.iter_child_nodes(node))
+    return frozenset(names)
+
+
+def _shape(node: ast.AST) -> str:
+    """A canonical text of a subtree: node types, field names and values, no positions. Unlike ``ast.dump`` it is the
+    same text on every supported Python (3.13 stopped printing empty fields), so a key outlives an interpreter bump."""
+    out: list[str] = []
+    pending: list[tuple[bool, object]] = [(True, node)]  # (is a value, the value or its text)
+    while pending:
+        is_value, item = pending.pop()
+        if not is_value:
+            out.append(str(item))
+        elif isinstance(item, ast.AST):
+            out.append(f"{type(item).__name__}(")
+            pending.append((False, ")"))
+            for field, value in reversed(list(ast.iter_fields(item))):
+                if value is not None and value != []:
+                    pending.extend([(True, value), (False, f"{field}=")])
+        elif isinstance(item, list):
+            out.append("[")
+            pending.append((False, "]"))
+            pending.extend((True, element) for element in reversed(cast("list[object]", item)))
+        else:
+            out.append(f"{item!r},")
+    return "".join(out)
+
+
+def _child_scope(name: str, scope: str, in_function: bool, declared: frozenset[str]) -> str:
+    """The qualified name CPython gives a def or class named ``name`` inside ``scope``."""
+    if name in declared:  # a nested def declared ``global`` is a module-level name
+        return name
+    if in_function:
+        return f"{scope}.<locals>.{name}"
+    return name if scope == "<module>" else f"{scope}.{name}"
+
+
+def _sites(tree: ast.AST, module: _Module) -> _Sites:
+    """The module's broad clauses with the scope that holds each: the qualified name CPython gives its code object. Only
+    ``ast.Try`` clauses count (not ``except*``), as for the static advisors."""
+    clauses: list[_Clause] = []
+    pending: list[tuple[ast.AST, str, bool, frozenset[str]]] = [(tree, "<module>", False, frozenset())]
+    while pending:  # node, its scope, whether that is a function, the names it declares global
+        node, scope, in_function, declared = pending.pop()
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _SCOPES):
+                name = _child_scope(child.name, scope, in_function, declared)
+                pending.append((child, name, not isinstance(child, ast.ClassDef), _declared_global(child)))
+                continue
+            if isinstance(child, ast.Try):
+                clauses.extend(_Clause(handler, child, scope) for handler in child.handlers if _broad(handler))
+            pending.append((child, scope, in_function, declared))
+    return _Sites(clauses, module)
 
 
 def _module_loggers(tree: ast.AST) -> frozenset[str]:
@@ -221,9 +353,10 @@ def _catches(handler: ast.ExceptHandler, exc_type: type[BaseException]) -> bool 
     return None if unknown else False
 
 
-def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.ExceptHandler | None:
-    """The clause that handled ``exc_type`` (the one at the entry's line without it) when it swallows, else None."""
-    handlers, position, module = entry
+def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> int | None:
+    """The header line of the clause that handled ``exc_type`` (the one at the entry's line without it) when it
+    swallows, else None."""
+    handlers, position, sites = entry
     handler = handlers[position]
     if exc_type is not None:  # CPython tries the clauses in order: find the one that handled it
         for candidate in handlers:
@@ -235,7 +368,7 @@ def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.Exce
                 break
         else:
             return None
-    return handler if _broad(handler) and _silent(handler, module) else None
+    return handler.lineno if sites.swallows(handler.lineno) else None
 
 
 def handler_swallows(source: str, handled_line: int, exc: BaseException | None = None) -> bool:
@@ -266,32 +399,37 @@ def _entry(code: CodeType, offset: int) -> _Entry | None:
 
 
 @functools.lru_cache(maxsize=4096)
-def swallowing_clause_line(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> int | None:
-    """The header line of the clause that swallowed an ``EXCEPTION_HANDLED`` event's exception, None when none did."""
+def swallowing_site(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> SwallowingSite | None:
+    """The site of the clause that swallowed an ``EXCEPTION_HANDLED`` event's exception, None when none did."""
     entry = _entry(code, offset)
-    handler = None if entry is None else _swallowing(entry, exc_type)
-    return None if handler is None else handler.lineno
+    line = None if entry is None else _swallowing(entry, exc_type)
+    return None if entry is None or line is None else entry[2].site(line)
+
+
+def site_identity(path: str, site: SwallowingSite, type_name: str) -> str:
+    """``<path>:<scope>:<Type>#<key>``: no line number and no position, so an edit elsewhere in the file keeps it and
+    no change to another clause can hand it over; an edit to the clause itself changes the key (a fail-closed match)."""
+    return f"{path}:{site.scope}:{type_name}#{site.key}"
 
 
 def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None = None) -> bool:
     """``handler_swallows`` for an ``EXCEPTION_HANDLED`` event's code object and instruction offset (cached)."""
-    return swallowing_clause_line(code, offset, None if exc is None else type(exc)) is not None
+    return swallowing_site(code, offset, None if exc is None else type(exc)) is not None
+
+
+def swallowing_sites(source: str) -> list[SwallowingSite]:
+    """Every broad, silent ``except`` clause in a module's source (the static check), in source order."""
+    tree = ast.parse(source)
+    sites = _sites(tree, _module(tree))
+    return [site for line in sites.lines() if (site := sites.site(line)) is not None]
 
 
 def swallowing_lines(source: str) -> list[int]:
-    """The header lines of every broad, silent ``except`` clause in a module's source (the static check)."""
+    """The header lines of every broad, silent ``except`` clause in a module's source (the static check): no keys."""
     tree = ast.parse(source)
-    module = _module(tree)
-    found = {
-        handler.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Try)
-        for handler in node.handlers
-        if _broad(handler) and _silent(handler, module)
-    }
-    return sorted(found)
+    return _sites(tree, _module(tree)).lines()
 
 
 def clear_cache() -> None:
-    for cached in (_file_index, _entry, swallowing_clause_line):
+    for cached in (_file_index, _entry, swallowing_site):
         cached.cache_clear()
