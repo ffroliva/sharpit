@@ -396,3 +396,24 @@ def test_find_pyproject_path_refuses_dist_packages(tmp_path: Path) -> None:
     _write(dist_pkg / "__init__.py")
     _write(tmp_path / "dist-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
     assert appsource.find_pyproject_path(dist_pkg, [str(tmp_path / "dist-packages")]) is None
+
+
+def test_find_project_root_locates_ancestor_with_build_file(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    nested = project / "a" / "b" / "myapp"
+    _write(nested / "__init__.py")
+    _write(project / "requirements.txt", "bandit\n")
+    assert appsource.find_project_root(nested) == project
+
+
+def test_find_pyproject_and_root_symlink_loop_returns_none(tmp_path: Path) -> None:
+    link_a = tmp_path / "loop_a"
+    link_b = tmp_path / "loop_b"
+    try:
+        link_a.symlink_to(link_b)
+        link_b.symlink_to(link_a)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks cannot be created in this environment")
+    assert appsource.find_pyproject_path(link_a, [str(tmp_path)]) is None
+    assert appsource.find_project_root(link_a) is None
+

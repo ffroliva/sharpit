@@ -11,6 +11,7 @@ from sharpit.engine.collectors.security.static_analysis import (
     RULE_ID,
     State,
     StaticSecurityAnalysisDetector,
+    StaticSecurityAnalysisRule,
     _split_shell_commands,
     strip_yaml_comments,
 )
@@ -624,3 +625,149 @@ def test_read_bounded_ctrl_z_binary_mode(tmp_path: Path) -> None:
 def test_split_shell_commands_handles_logical_operators() -> None:
     result = _split_shell_commands("a && b || c")
     assert result == ["a", "b", "c"]
+
+
+def test_project_root_without_pyproject_requirements_bandit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An app with only requirements.txt containing bandit -> CONFIGURED; without bandit -> NOT_CONFIGURED."""
+    import sys
+    from types import ModuleType
+    from sharpit.engine.collectors.security.report import build_inputs, scan_evaluation
+    from sharpit.engine.spi import SecurityFacts, SecurityModel
+    from sharpit.settings import SharpitSettings
+
+    proj = tmp_path / "app_req_bandit"
+    pkg = proj / "myapp"
+    pkg.mkdir(parents=True)
+    _write(pkg / "__init__.py", "")
+    _write(proj / "requirements.txt", "bandit>=1.7\n")
+
+    mod = ModuleType("myapp")
+    mod.__file__ = str(pkg / "__init__.py")
+    mod.__path__ = [str(pkg)]
+    monkeypatch.setitem(sys.modules, "myapp", mod)
+
+    settings = SharpitSettings(app_package="myapp")
+    inputs = build_inputs(
+        SecurityModel(True, (), (), (), ()),
+        SecurityFacts(False, None, (), (), ()),
+        None,
+        settings,
+    )
+    evaluation = scan_evaluation(inputs)
+    assert StaticSecurityAnalysisRule.RULE_ID in evaluation.evaluated
+    assert not any(f.rule_id == StaticSecurityAnalysisRule.RULE_ID for f in evaluation.findings)
+
+
+def test_project_root_without_pyproject_requirements_no_bandit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An app with only requirements.txt without bandit -> NOT_CONFIGURED (finding emitted)."""
+    import sys
+    from types import ModuleType
+    from sharpit.engine.collectors.security.report import build_inputs, scan_evaluation
+    from sharpit.engine.spi import SecurityFacts, SecurityModel
+    from sharpit.settings import SharpitSettings
+
+    proj = tmp_path / "app_req_no_bandit"
+    pkg = proj / "myapp2"
+    pkg.mkdir(parents=True)
+    _write(pkg / "__init__.py", "")
+    _write(proj / "requirements.txt", "fastapi>=0.100\n")
+
+    mod = ModuleType("myapp2")
+    mod.__file__ = str(pkg / "__init__.py")
+    mod.__path__ = [str(pkg)]
+    monkeypatch.setitem(sys.modules, "myapp2", mod)
+
+    settings = SharpitSettings(app_package="myapp2")
+    inputs = build_inputs(
+        SecurityModel(True, (), (), (), ()),
+        SecurityFacts(False, None, (), (), ()),
+        None,
+        settings,
+    )
+    evaluation = scan_evaluation(inputs)
+    assert StaticSecurityAnalysisRule.RULE_ID in evaluation.evaluated
+    assert any(f.rule_id == StaticSecurityAnalysisRule.RULE_ID for f in evaluation.findings)
+
+
+def test_fail_open_pre_commit_exclude_is_not_hook(tmp_path: Path) -> None:
+    """exclude: key containing semgrep/semgrep is not counted as a hook declaration."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "precommit_exclude"
+    _write(p / "pyproject.toml", '[project]\nname = "p"\n')
+    _write(
+        p / ".pre-commit-config.yaml",
+        "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n"
+        "    rev: v4.4.0\n    hooks:\n      - id: trailing-whitespace\n"
+        "        exclude: ^tests/semgrep/semgrep_rules/\n",
+    )
+    assert detector.inspect(p).state == State.NOT_CONFIGURED
+
+
+def test_ruff_toml_lint_select_s(tmp_path: Path) -> None:
+    """ruff.toml with [lint] select=['S'] -> CONFIGURED."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "ruff_lint_s"
+    _write(p / "pyproject.toml", '[project]\nname = "p"\n')
+    _write(p / "ruff.toml", '[lint]\nselect = ["S"]\n')
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+def test_ruff_top_level_s_overridden_by_lint_select_e(tmp_path: Path) -> None:
+    """top-level S overridden by lint.select=['E'] -> NOT_CONFIGURED."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "ruff_override"
+    _write(p / "pyproject.toml", '[project]\nname = "p"\n')
+    _write(p / "ruff.toml", 'select = ["S"]\n\n[lint]\nselect = ["E"]\n')
+    assert detector.inspect(p).state == State.NOT_CONFIGURED
+
+
+def test_bom_requirements_with_bandit(tmp_path: Path) -> None:
+    """requirements.txt with UTF-8 BOM containing bandit -> CONFIGURED."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "bom_req"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "requirements.txt").write_bytes(b"\xef\xbb\xbfbandit>=1.7\n")
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+def test_latin1_sonar_project_properties(tmp_path: Path) -> None:
+    """sonar-project.properties with Latin-1 bytes decoded leniently -> CONFIGURED."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "latin1_sonar"
+    p.mkdir(parents=True, exist_ok=True)
+    _write(p / "pyproject.toml", '[project]\nname = "p"\n')
+    (p / "sonar-project.properties").write_bytes(b"sonar.projectKey=proj\n# non-utf8: \xe9\n")
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "uv run --python 3.12 bandit",
+        "uv run --group dev bandit",
+        "uv run --with X bandit",
+        "uv run --extra Y bandit",
+    ],
+)
+def test_runner_command_options_skipped(tmp_path: Path, cmd: str) -> None:
+    """Runner options and their values are skipped so target command is identified."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / f"cmd_{cmd.replace(' ', '_').replace('-', '_')}"
+    _write(p / "pyproject.toml", '[project]\nname = "p"\n')
+    _write(
+        p / ".github" / "workflows" / "ci.yml",
+        f"name: CI\non: [push]\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: {cmd}\n",
+    )
+    assert detector.inspect(p).state == State.CONFIGURED
+
+
+def test_tox_envpython_bandit(tmp_path: Path) -> None:
+    """tox.ini with commands = {envpython} -m bandit -> CONFIGURED."""
+    detector = StaticSecurityAnalysisDetector()
+    p = tmp_path / "tox_envpython"
+    _write(
+        p / "tox.ini",
+        "[testenv]\ncommands = {envpython} -m bandit -r myapp\n",
+    )
+    assert detector.inspect(p).state == State.CONFIGURED
+

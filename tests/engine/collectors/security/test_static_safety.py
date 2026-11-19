@@ -439,6 +439,57 @@ def test_security_collector_never_imports_architecture() -> None:
     assert violations == []
 
 
+def test_message_no_double_period_with_limitation_text() -> None:
+    from sharpit.engine.collectors.security.report import LIMITATION_TEXT, _message
+
+    msg = _message(1, [LIMITATION_TEXT])
+    assert ".." not in msg
+    assert msg.endswith("passes.")
+
+
+def test_non_present_model_indeterminate_evidence_shape(tmp_path: Path) -> None:
+    from sharpit.engine.advisors.report import UNKNOWN_EVIDENCE
+    from sharpit.engine.collectors.security.report import (
+        LIMITATION_TEXT,
+        SecurityService,
+        build_inputs,
+    )
+    from sharpit.engine.spi import SecurityFacts, SecurityModel
+
+    p = tmp_path / "indeterminate_app"
+    _write(p / "pyproject.toml", '[project]\nname = "app"\n')
+    _write(p / "tox.ini", "malformed [ [ [")
+
+    model = SecurityModel(False, (), (), (), ())
+    inputs = build_inputs(
+        model,
+        SecurityFacts(False, None, (), (), ()),
+        None,
+        app_settings_stub(p),  # pyright: ignore[reportArgumentType]
+    )
+    inputs_with_root = inputs.__class__(
+        inputs.model, inputs.facts, inputs.source, inputs.view, inputs.limitations, project_root=p
+    )
+    service = SecurityService(
+        lambda: inputs_with_root,
+        dismissal_store_stub(tmp_path),  # pyright: ignore[reportArgumentType]
+        masker_stub(),  # pyright: ignore[reportArgumentType]
+        single_flight_stub(),  # pyright: ignore[reportArgumentType]
+        max_retained=1000,
+    )
+    report = service.scan()
+    lims = report["evidence"]["limitations"]
+    assert UNKNOWN_EVIDENCE in lims
+    assert LIMITATION_TEXT in lims
+
+
+def test_not_fastapi_constant_in_spi() -> None:
+    from sharpit.engine import spi
+
+    assert hasattr(spi, "NOT_FASTAPI")
+    assert spi.NOT_FASTAPI == "FastAPI security dependencies are not available: the app is not a FastAPI app"
+
+
 # Helpers for test stubs
 def app_settings_stub(project_root_or_package: Path | str) -> Any:
     from sharpit.settings import SharpitSettings

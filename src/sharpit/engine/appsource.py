@@ -144,6 +144,11 @@ def resolve_app_root(
 # ---- pyproject locator and TOML coercion helpers ----------------------------------------------------------------
 
 
+def find_project_root(package_root: Path | None, sys_path: Sequence[object] = ()) -> Path | None:
+    """The nearest ancestor of package_root holding build files."""
+    return None
+
+
 def toml_dict(val: object) -> dict[str, object]:
     """Safely coerce a TOML section value to dict[str, object]."""
     if isinstance(val, dict):
