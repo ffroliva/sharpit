@@ -289,11 +289,11 @@ def test_the_threshold_is_never_sent_to_the_application():
         assert forbidden not in built
 
 
-def test_build_tool_arguments_maps_scan_id_to_wire_name():
+def test_build_tool_arguments_keeps_wire_names_from_command_parser():
     manifest = Manifest.bundled()
     tool = next(t for t in manifest.tools if "scanId" in t.arguments)
     options = {
-        "scan_id": "scan-42",
+        "scanId": "scan-42",
         "limit": 10,
         "fail_on": "high",
         "json": True,

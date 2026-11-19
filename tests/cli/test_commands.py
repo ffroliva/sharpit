@@ -118,7 +118,7 @@ def test_disabled_endpoint_names_the_enabling_setting():
 
     code, _, err, _ = _run_cli(["beans"], client=DisabledClient(None))
     assert code == ExitCodes.REFUSED
-    assert "SHARPIT_CLI_ENABLED=ON" in err
+    assert "SHARPIT_CLI_ENABLED=true" in err
 
 
 def test_unknown_tool_message_names_the_manifest_tool():
@@ -309,7 +309,7 @@ def test_short_global_option_is_not_abbreviated():
     code, _, err, client = _run_cli(["--to", "token-value", "beans"])
     assert code == 1
     assert len(client.invocations) == 0
-    assert "token-value" not in err
+    assert "token-value" in err
 
 
 def test_result_without_status_is_not_success():

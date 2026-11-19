@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
-from sharpit.cli.client import Client, ClientError, ToolResult, error_body, safe_text
+from sharpit.cli.client import Client, ClientError, ToolResult, error_message
 from sharpit.cli.exit_codes import ExitCodes
+from sharpit.cli.manifest import Manifest
 
 
 class OutcomeKind(Enum):
@@ -54,15 +55,16 @@ def _classify(status: int, body: Any, token: str | None) -> Outcome:
     message = "" if kind is OutcomeKind.SUCCESS else f"Request failed with HTTP {status}"
     if kind is OutcomeKind.SUCCESS:
         return Outcome(kind, "")
-    document = error_body(body)
-    if document:
-        error = _nonblank(document.get("error"))
-        specific = _nonblank(document.get("reason")) or _nonblank(document.get("message"))
-        message = error or specific or message
-        if error and specific and error != specific:
-            message = f"{error}: {specific}"
-    message = safe_text(message, token)
+    message = error_message(body, token) or message
     return Outcome(kind, message)
+
+
+def _listed(catalog: dict[str, Any], tool_name: str) -> bool:
+    tools = catalog.get("tools", [])
+    return isinstance(tools, list) and any(
+        isinstance(item, dict) and cast(dict[str, Any], item).get("name") == tool_name
+        for item in cast(list[Any], tools)
+    )
 
 
 def confirm_answered(client: Client, result: ToolResult) -> Outcome:
@@ -82,9 +84,16 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
     if result.status == 503:
         if catalog["enabled"] is False:
             return Outcome(OutcomeKind.ENDPOINT_DISABLED, outcome.message)
-        return Outcome(outcome.kind, f"{outcome.message} (HTTP 503)")
-    return outcome
-
-
-def _nonblank(value: Any) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
+        return outcome
+    if result.status != 404:
+        return outcome
+    if _listed(catalog, result.tool_name):
+        return Outcome(
+            OutcomeKind.UNKNOWN_TOOL,
+            error_message(result.raw_body or result.payload, client.options.token) or outcome.message,
+        )
+    tool = Manifest.bundled().by_name(result.tool_name)
+    message = f"This application does not expose '{result.tool_name}'."
+    if tool is not None:
+        message += " The application may be running an older sharpit version."
+    return Outcome(OutcomeKind.UNKNOWN_TOOL, message)

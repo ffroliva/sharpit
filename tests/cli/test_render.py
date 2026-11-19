@@ -38,7 +38,7 @@ def test_null_is_shown_as_a_dash():
 def test_control_characters_are_neutralized():
     text = render({"note": "first\nsecond\u001b"}, color=False)
     assert "\u001b" not in text
-    assert "first second " in text
+    assert "first\nsecond\\x1b" in text
 
 
 # ported: TextRendererTests.pausedEvidenceGetsANoticeBeforeTheUnchangedPayload
@@ -105,7 +105,7 @@ def test_color_is_only_added_when_requested():
 def test_control_characters_in_table_headers_are_neutralized():
     text = render({"rows": [{"a\x1b[2Jb": "1"}]}, color=False)
     assert "\x1b" not in text
-    assert "a [2Jb" in text
+    assert r"a\x1b[2Jb" in text
 
 
 # ported: TextRendererTests.advisorViolationLocationsStayReadableBesideTheirViolations

@@ -631,10 +631,10 @@ def test_panel_error_constant_matches_the_server_contract():
     assert getattr(client_module, "_PANEL_ACCESS_DENIED", None) == PANEL_ACCESS_DENIED
 
 
-def test_token_is_redacted_before_bootui_text_translation(endpoint):
+def test_token_is_redacted_without_rewriting_bootui_text(endpoint):
     base, routes, *_ = endpoint
-    secret = "BootUI-secret"
-    routes["/sharpit/api/probe"] = (500, f'{{"error":"{secret}"}}'.encode(), None)
+    secret = "message-secret"
+    routes["/sharpit/api/probe"] = (500, f'{{"error":"BootUI rejected {secret}"}}'.encode(), None)
     message = _client_error_message(lambda: Client(options(base, token=secret)).get("/probe"), secret)
-    assert "BootUI-secret" not in message
-    assert "[redacted]" in message
+    assert "BootUI rejected [redacted]" in message
+    assert secret not in message
