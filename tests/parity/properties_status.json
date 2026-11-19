@@ -1,5 +1,5 @@
 {
-  "fixture": "tests/fixtures/bootui/2.3.0/properties.json",
+  "fixture": "tests/fixtures/bootui/2.4.0/properties.json",
   "panel_map_rule": "bootui.panels is the sole fixture entry for panel configuration; bootui.panels.* keys are map members, not property rows, and are not synthesized from the settings registry.",
   "properties": [
     {

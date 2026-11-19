@@ -64,7 +64,8 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
     _write_coverage(terminalreporter, state, data)
 
 
-_ASSESSED = frozenset({"PASSED", "FAILED"})  # an app SKIPPED or UNKNOWN was not assessed, so it proves nothing
+# an app SKIPPED or UNKNOWN was not assessed, so it proves nothing
+_ASSESSED = frozenset({"PASSED", "FAILED", "PARTIAL"})
 
 
 def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any]) -> None:

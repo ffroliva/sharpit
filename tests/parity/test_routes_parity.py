@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from golden import assert_parity, bootui_ids
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0"
-_STATUS_FILE = Path(__file__).with_name("routes_23_status.json")
+_STATUS_FILE = Path(__file__).with_name("routes_status.json")
 
 _STATUS_DATA = json.loads(_STATUS_FILE.read_text(encoding="utf-8"))
 _ROUTES = _STATUS_DATA["routes"]

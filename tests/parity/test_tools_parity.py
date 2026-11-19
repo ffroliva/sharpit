@@ -11,7 +11,10 @@ from sharpit import install
 from sharpit.engine.tools import COMMANDS, TOOLS
 
 ROOT = Path(__file__).parents[1]
-BOOTUI_TOOLS = json.loads((ROOT / "fixtures/bootui/2.3.0/tools.json").read_text("utf-8"))["tools"]
+FIXTURE_CURRENT = ROOT / "fixtures" / "bootui" / "2.4.0" / "tools.json"
+FIXTURE_PREVIOUS = ROOT / "fixtures" / "bootui" / "2.3.0" / "tools.json"
+BOOTUI_TOOLS = json.loads(FIXTURE_CURRENT.read_text("utf-8"))["tools"]
+BOOTUI_TOOLS_PREVIOUS = json.loads(FIXTURE_PREVIOUS.read_text("utf-8"))["tools"]
 BOOTUI = {tool["name"]: tool for tool in BOOTUI_TOOLS}
 SHARPIT = {tool.name: tool for tool in TOOLS}
 
@@ -278,7 +281,7 @@ def test_bootui_marks_equal_the_matched_rows() -> None:
 
 
 @pytest.mark.parametrize("name", MATCHED_TOOLS, ids=lambda name: f"tool:{name}")
-def test_tool_catalogue_matches_bootui_23(name: str) -> None:
+def test_tool_catalogue_matches_bootui(name: str) -> None:
     local, oracle = SHARPIT[name], BOOTUI[name]
     assert local.name == oracle["name"]
     assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
@@ -288,7 +291,7 @@ def test_tool_catalogue_matches_bootui_23(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", FLOOR_TOOLS, ids=lambda name: f"tool:{name}")
-def test_floor_tool_catalogue_matches_bootui_23(name: str) -> None:
+def test_floor_tool_catalogue_matches_bootui(name: str) -> None:
     local, oracle = SHARPIT[name], BOOTUI[name]
     assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
     assert local.default_limit == oracle.get("defaultLimit")
@@ -339,6 +342,62 @@ def test_cli_path_maps_to_bootui_tool(command: str, name: str) -> None:
     assert local["panel"] == oracle["panel"]
 
 
-def test_cli_default_limit_matches_bootui_23() -> None:
+def test_cli_default_limit_matches_bootui() -> None:
     # CliServerStatus exposes the effective CLI result limit, not each tool's input defaultLimit.
     assert _client().get("/sharpit/api/cli").json()["maxResults"] == 200
+
+
+# Tool descriptions: sharpit words most descriptions for Python, so only these tools carry BootUI's text byte for byte.
+DESCRIPTION_MATCHED = (
+    "disable_low_footprint",
+    "get_github_dashboard",
+    "get_loggers",
+    "get_low_footprint",
+    "get_mappings",
+    "get_metrics",
+    "get_postgresql_report",
+    "get_profile_diff",
+)
+# Tools whose description or summary BootUI changed from 2.3.0 to 2.4.0 and that sharpit has not adopted yet.
+# Each value is the lane that closes the gap by moving the tool into DESCRIPTION_ADOPTED.
+DESCRIPTION_GAPS = {
+    "get_exceptions": "A1",
+    "get_runtime_insight": "A1",
+    "get_runtime_insights": "A1",
+    "get_security_report": "A3",
+    "get_transactions": "A2",
+    "security_scan": "A3",
+}
+# Tools whose 2.4.0 description or summary a lane has adopted.
+DESCRIPTION_ADOPTED: tuple[str, ...] = ()
+MATCHED_TOOLS_PIN = 36  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
+
+
+@pytest.mark.parametrize("name", DESCRIPTION_MATCHED)
+def test_description_equals_bootui(name: str) -> None:
+    assert SHARPIT[name].description == BOOTUI[name]["description"]
+
+
+def test_description_matched_is_complete() -> None:
+    byte_equal = {
+        name for name, tool in SHARPIT.items() if name in BOOTUI and tool.description == BOOTUI[name]["description"]
+    }
+    assert set(DESCRIPTION_MATCHED) == byte_equal
+
+
+def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
+    previous = {tool["name"]: tool for tool in BOOTUI_TOOLS_PREVIOUS}
+    changed = {
+        name
+        for name, tool in BOOTUI.items()
+        if name not in previous
+        or (tool["description"], tool.get("summary")) != (previous[name]["description"], previous[name].get("summary"))
+    }
+    assert set(DESCRIPTION_GAPS) | set(DESCRIPTION_ADOPTED) == changed
+    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_ADOPTED))
+    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_MATCHED))
+
+
+def test_matched_tools_ratchet() -> None:
+    """Pinned count a lane raises when it closes a row; lowering a pin needs its reason in the PR body."""
+    assert len(MATCHED_TOOLS) == MATCHED_TOOLS_PIN
