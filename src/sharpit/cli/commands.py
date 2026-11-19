@@ -5,14 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, NoReturn, TextIO
 
 from sharpit import __version__
 from sharpit.cli.client import Client, ClientError, ToolResult
+from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.manifest import Manifest, ManifestTool
 from sharpit.cli.options import ClientOptions, GlobalOptions, positive_seconds
+from sharpit.cli.outcomes import confirm_answered
 
 __all__ = ["main", "run"]
 
@@ -23,6 +26,13 @@ class _CliExit(Exception):
     def __init__(self, status: int) -> None:
         self.status = status
         super().__init__(status)
+
+
+def _redact_usage_error(message: str) -> str:
+    if "invalid choice:" in message:
+        return "invalid command or option"
+    msg = re.sub(r"(--tok[a-zA-Z0-9_-]*=)[^\s]+", r"\1[redacted]", message)
+    return re.sub(r"(--tok[a-zA-Z0-9_-]*\s+)[^\s]+", r"\1[redacted]", msg)
 
 
 class SharpitParser(argparse.ArgumentParser):
@@ -38,11 +48,15 @@ class SharpitParser(argparse.ArgumentParser):
         kwargs["allow_abbrev"] = False
         kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
         super().__init__(*args, **kwargs)
-        self._out = out
-        self._err = err
+        self.out: TextIO | None = out
+        self.err: TextIO | None = err
+
+    def set_streams(self, out: TextIO | None, err: TextIO | None) -> None:
+        self.out = out
+        self.err = err
 
     def _print_message(self, message: str, file: Any = None) -> None:
-        target = self._out if file is None or file is sys.stdout or file is self._out else self._err or file
+        target = self.out if file is None or file is sys.stdout or file is self.out else self.err or file
         if target is not None:
             target.write(message)
             if hasattr(target, "flush"):
@@ -57,13 +71,12 @@ class SharpitParser(argparse.ArgumentParser):
 
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
-        if "invalid choice:" in message:
-            message = "invalid command or option"
-        self.exit(1, f"{self.prog}: error: {message}\n")
+        sanitized = _redact_usage_error(message)
+        self.exit(ExitCodes.ERROR, f"{self.prog}: error: {sanitized}\n")
 
 
 def _create_globals_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument(
         "--url",
         default=argparse.SUPPRESS,
@@ -104,6 +117,13 @@ def _create_globals_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Print verbose error details",
     )
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="version",
+        version=f"sharpit {__version__}",
+        help="Show program's version number and exit",
+    )
     return parser
 
 
@@ -111,13 +131,12 @@ def _configure_leaf_arguments(leaf_parser: SharpitParser, tool: ManifestTool) ->
     desc = f"{_ACTION_TAG} {tool.description}" if tool.action else tool.description
     leaf_parser.description = desc
     leaf_parser.formatter_class = argparse.RawDescriptionHelpFormatter
-    leaf_parser.help = tool.summary
     leaf_parser.epilog = f"Example: {tool.example}\nMCP tool: {tool.name}"
     leaf_parser.set_defaults(_tool=tool, _leaf_parser=leaf_parser)
 
     if tool.takes_query:
         leaf_parser.add_argument("-q", "--query", default=None, help="Filter results")
-    if tool.takes_limit or tool.schema == "QUERY":
+    if tool.takes_limit or tool.ignores_limit:
         help_text = "Return at most this many results" if tool.takes_limit else argparse.SUPPRESS
         leaf_parser.add_argument("-n", "--limit", type=int, default=None, help=help_text)
     if tool.takes_id:
@@ -129,84 +148,61 @@ def _configure_leaf_arguments(leaf_parser: SharpitParser, tool: ManifestTool) ->
         leaf_parser.add_argument("--offset", type=int, default=None, help="Offset")
 
 
-def _ensure_group_parser(
-    parsers: dict[tuple[str, ...], SharpitParser],
-    subparsers: dict[tuple[str, ...], Any],
-    parent_prefix: tuple[str, ...],
-    word: str,
-    out: TextIO,
-    err: TextIO,
-    globals_parser: argparse.ArgumentParser,
-) -> SharpitParser:
-    current_prefix = (*parent_prefix, word)
-    if current_prefix in parsers:
-        return parsers[current_prefix]
-    parent_parser = parsers[parent_prefix]
-    if parent_prefix not in subparsers:
-        subparsers[parent_prefix] = parent_parser.add_subparsers(
-            dest=f"_sub_{len(parent_prefix)}",
-            parser_class=lambda **kw: SharpitParser(out=out, err=err, **kw),
-        )
-    sub = subparsers[parent_prefix]
-    group_parser: SharpitParser = sub.add_parser(word, parents=[globals_parser], allow_abbrev=False)
-    group_parser.set_defaults(_group_parser=group_parser)
-    parsers[current_prefix] = group_parser
-    return group_parser
+_parser_cache: dict[int, tuple[SharpitParser, list[SharpitParser]]] = {}
 
 
-_parser_cache: dict[int, SharpitParser] = {}
-
-
-def _build_root_parser(manifest: Manifest, out: TextIO, err: TextIO) -> SharpitParser:
-    cached = _parser_cache.get(id(manifest))
-    if cached is not None:
-        pending = [cached]
-        while pending:
-            parser = pending.pop()
-            parser._out, parser._err = out, err
-            pending.extend(
-                child
-                for action in parser._actions
-                if isinstance(action, argparse._SubParsersAction)
-                for child in action.choices.values()
-            )
-        return cached
+def _build_root_parser(manifest: Manifest) -> tuple[SharpitParser, list[SharpitParser]]:
     globals_parser = _create_globals_parser()
     root = SharpitParser(
         prog="sharpit",
         description="Ask a running sharpit application a question.",
         parents=[globals_parser],
-        out=out,
-        err=err,
     )
-    root.add_argument("--version", action="version", version=f"sharpit {__version__}")
-    root.add_argument("-V", action="version", version=f"sharpit {__version__}")
-
+    all_parsers: list[SharpitParser] = [root]
     parsers_by_prefix: dict[tuple[str, ...], SharpitParser] = {(): root}
     subparsers_by_prefix: dict[tuple[str, ...], Any] = {}
+
+    def get_or_create_subparsers(prefix: tuple[str, ...]) -> Any:
+        if prefix not in subparsers_by_prefix:
+            subparsers_by_prefix[prefix] = parsers_by_prefix[prefix].add_subparsers(
+                dest=f"_sub_{len(prefix)}",
+            )
+        return subparsers_by_prefix[prefix]
 
     for tool in manifest.tools:
         path = tool.path
         for depth in range(len(path) - 1):
-            _ensure_group_parser(
-                parsers_by_prefix, subparsers_by_prefix, path[:depth], path[depth], out, err, globals_parser
-            )
+            prefix = path[:depth]
+            word = path[depth]
+            child_prefix = (*prefix, word)
+            if child_prefix not in parsers_by_prefix:
+                sub = get_or_create_subparsers(prefix)
+                group: SharpitParser = sub.add_parser(word, parents=[globals_parser], allow_abbrev=False)
+                group.set_defaults(_group_parser=group)
+                parsers_by_prefix[child_prefix] = group
+                all_parsers.append(group)
 
         parent_prefix = path[:-1]
         leaf_word = path[-1]
-        parent_parser = parsers_by_prefix[parent_prefix]
-        if parent_prefix not in subparsers_by_prefix:
-            subparsers_by_prefix[parent_prefix] = parent_parser.add_subparsers(
-                dest=f"_sub_{len(parent_prefix)}",
-                parser_class=lambda **kw: SharpitParser(out=out, err=err, **kw),
-            )
-        leaf_sub = subparsers_by_prefix[parent_prefix]
+        leaf_sub = get_or_create_subparsers(parent_prefix)
         leaf_parser: SharpitParser = leaf_sub.add_parser(
             leaf_word, parents=[globals_parser], allow_abbrev=False, help=tool.summary
         )
         _configure_leaf_arguments(leaf_parser, tool)
+        all_parsers.append(leaf_parser)
 
-    _parser_cache[id(manifest)] = root
+    return root, all_parsers
+
+
+def _get_root_parser(manifest: Manifest, out: TextIO, err: TextIO) -> SharpitParser:
+    manifest_id = id(manifest)
+    cached = _parser_cache.get(manifest_id)
+    if cached is None:
+        cached = _build_root_parser(manifest)
+        _parser_cache[manifest_id] = cached
+    root, all_parsers = cached
+    for parser in all_parsers:
+        parser.set_streams(out, err)
     return root
 
 
@@ -270,16 +266,17 @@ def _extract_tool_args(
     return args_payload
 
 
-def _invoke_client(
+def _call_client(
     factory: Callable[[ClientOptions], Client],
     client_options: ClientOptions,
     tool_name: str,
     args_payload: dict[str, Any],
     err: TextIO,
     verbose: bool,
-) -> Any | None:
+) -> tuple[Client, ToolResult] | None:
     try:
         client = factory(client_options)
+        result = client.invoke(tool_name, args_payload)
     except ClientError as exc:
         _emit_error(err, str(exc), client_options.token, verbose)
         return None
@@ -290,48 +287,51 @@ def _invoke_client(
             err.write(traceback.format_exc())
         raise
 
-    try:
-        return client.invoke(tool_name, args_payload)
-    except ClientError as exc:
-        _emit_error(err, str(exc), client_options.token, verbose)
+    if type(result) is not ToolResult or not isinstance(getattr(result, "status", None), int):
+        _emit_error(err, "Client returned an invalid tool result", client_options.token, verbose)
         return None
-    except Exception:
-        if verbose:
-            import traceback
-
-            err.write(traceback.format_exc())
-        raise
+    return client, result
 
 
-def _handle_result(
+def _emit_result(
+    client: Client,
     result: ToolResult,
     client_options: ClientOptions,
     out: TextIO,
     err: TextIO,
     verbose: bool,
 ) -> int:
-    if not isinstance(result, ToolResult):
-        _emit_error(err, "Client returned an invalid tool result", client_options.token, verbose)
-        return 1
-    status = result.status
-    raw_body = result.raw_body
-    payload = result.payload
+    if 200 <= result.status < 300:
+        body = result.raw_body or (json.dumps(result.payload) if result.payload is not None else "")
+        if body:
+            out.write(body if body.endswith("\n") else f"{body}\n")
+        return ExitCodes.SUCCESS
 
-    if 200 <= status < 300:
-        if raw_body:
-            out.write(raw_body)
-            if not raw_body.endswith("\n"):
-                out.write("\n")
-        elif payload is not None:
-            out.write(json.dumps(payload))
-            out.write("\n")
-        return 0
+    try:
+        outcome = confirm_answered(client, result)
+    except ClientError as exc:
+        _emit_error(err, str(exc), client_options.token, verbose)
+        return ExitCodes.ERROR
 
-    err_msg = raw_body or (json.dumps(payload) if payload else f"sharpit answered HTTP {status}")
-    _emit_error(err, err_msg, client_options.token, verbose)
-    if status == 403 and isinstance(payload, dict) and payload.get("error") == "sharpit panel access denied":
-        return 2
-    return 1
+    msg = outcome.message or result.raw_body or f"sharpit answered HTTP {result.status}"
+    _emit_error(err, msg, client_options.token, verbose)
+    return outcome.exit_code
+
+
+def _invoke_and_handle(
+    factory: Callable[[ClientOptions], Client],
+    client_options: ClientOptions,
+    tool_name: str,
+    args_payload: dict[str, Any],
+    out: TextIO,
+    err: TextIO,
+    verbose: bool,
+) -> int:
+    called = _call_client(factory, client_options, tool_name, args_payload, err, verbose)
+    if called is None:
+        return ExitCodes.ERROR
+    client, result = called
+    return _emit_result(client, result, client_options, out, err, verbose)
 
 
 def run(
@@ -343,7 +343,7 @@ def run(
     client_factory: Callable[[ClientOptions], Client] | None = None,
 ) -> int:
     manifest = Manifest.bundled()
-    root_parser = _build_root_parser(manifest, out, err)
+    root_parser = _get_root_parser(manifest, out, err)
 
     try:
         namespace = root_parser.parse_args(list(argv))
@@ -354,20 +354,16 @@ def run(
     if tool is None:
         active_parser = getattr(namespace, "_group_parser", root_parser)
         active_parser.print_usage(err)
-        return 1
+        return ExitCodes.ERROR
 
     global_options = _extract_global_options(namespace)
     client_options = global_options.to_client_options(environment)
     args_payload = _extract_tool_args(namespace, tool, root_parser, err)
     if args_payload is None:
-        return 1
+        return ExitCodes.ERROR
 
     factory = client_factory or Client
-    result = _invoke_client(factory, client_options, tool.name, args_payload, err, global_options.verbose)
-    if result is None:
-        return 1
-
-    return _handle_result(result, client_options, out, err, global_options.verbose)
+    return _invoke_and_handle(factory, client_options, tool.name, args_payload, out, err, global_options.verbose)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

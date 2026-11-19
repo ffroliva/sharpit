@@ -6,4 +6,6 @@ cli:argparse-picocli	adapted	Python standard library argparse used instead of JV
 cli:timeout-positive	matched	positive seconds validation rejects zero, negative and non-numeric timeout values at parse time; ported from CommandTree.java positiveSeconds
 cli:command-ci-docs-update	n-a	BootUI's ci, docs and update commands are excluded from sharpit per design decisions 2 and CLI scope
 cli:tool-compare-thread-analysis	n-a	BootUI's insights compare and thread-analysis commands have no sharpit counterparts, so CommandTreeTests cases for them are skipped
-cli:exit-codes-wire	partial	Task 3 and Task 7 wire full outcomes and rendering; Task 5 returns plain integer exit codes (0/1/2)
+cli:exit-codes-wire	matched	every tool call routes through client.invoke -> outcomes.confirm_answered -> ExitCodes
+cli:the-command-listing-tags-action	adapted	action tagging ported on individual tool help; full listing tags deferred to Task 7 HelpListing
+cli:missing-id-hint	adapted	usage error requires <id>; tools.json lacks BootUI idHelp property so detailed id source hint is omitted

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import io
+import shlex
 from typing import Any
 
-from sharpit.cli.client import ToolResult
+import pytest
+
+from sharpit.cli.client import ClientError, ToolResult
 from sharpit.cli.commands import main, run
+from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.manifest import Manifest
 from sharpit.cli.options import GlobalOptions
 
@@ -20,8 +24,8 @@ class FakeClient:
         self.invocations.append((tool, dict(arguments)))
         return ToolResult(tool_name=tool, status=200, raw_body='{"ok": true}', payload={"ok": True})
 
-    def catalog(self) -> Any:
-        return {"enabled": True, "tools": []}
+    def catalog(self) -> dict[str, Any]:
+        return {"serverName": "sharpit", "enabled": True, "tools": []}
 
     def get(self, path: str) -> Any:
         return {}
@@ -48,7 +52,7 @@ def _run_cli(
     return code, out.getvalue(), err.getvalue(), active_client
 
 
-# ported: GlobalOptionsTests.acceptsOptionsBeforeOrAfterCommand
+# derived: accepts options before or after command
 def test_global_options_accepted_before_and_after_command():
     # Before command
     code1, out1, _, client1 = _run_cli(
@@ -75,7 +79,7 @@ def test_global_options_accepted_before_and_after_command():
     assert client2.invocations[0][0] == "get_beans"
 
 
-# ported: GlobalOptionsTests.tokenPrecedence
+# derived: token flag takes precedence over environment
 def test_token_flag_takes_precedence_over_environment():
     code, _, _, client = _run_cli(
         ["--token", "flag-token", "beans"],
@@ -126,15 +130,17 @@ def test_timeout_must_be_positive_seconds():
     code1, _, err1, client1 = _run_cli(["--timeout", "0", "beans"])
     assert code1 == 1
     assert len(client1.invocations) == 0
-    assert "positive number of seconds" in err1 or "error:" in err1
+    assert "positive number of seconds" in err1
 
     code2, _, err2, client2 = _run_cli(["--timeout", "-5", "beans"])
     assert code2 == 1
     assert len(client2.invocations) == 0
+    assert "positive number of seconds" in err2
 
     code3, _, err3, client3 = _run_cli(["--timeout", "abc", "beans"])
     assert code3 == 1
     assert len(client3.invocations) == 0
+    assert "not a number of seconds" in err3
 
 
 def test_token_never_appears_in_output():
@@ -254,7 +260,7 @@ def test_every_command_accepts_exactly_the_arguments_its_schema_declares():
 
     for tool in Manifest.bundled().tools:
         check(tool, "--query", "x", tool.takes_query)
-        check(tool, "--limit", "3", tool.takes_limit or tool.name == "get_agent_status")
+        check(tool, "--limit", "3", tool.takes_limit or tool.ignores_limit)
         check(tool, "--scan-id", "scan-1", tool.takes_scan_id)
         check(tool, "--offset", "3", tool.takes_offset)
 
@@ -269,7 +275,7 @@ def test_an_id_command_refuses_to_run_without_one():
     code, _, err, client = _run_cli(list(tool.path))
     assert code == 1
     assert len(client.invocations) == 0
-    assert "error:" in err or "required" in err
+    assert "error: the following arguments are required: <id>" in err
 
 
 # ported: CommandTreeTests.aQueryCommandSendsTheFilterItWasGiven
@@ -297,7 +303,7 @@ def test_agent_status_accepts_an_older_scripts_limit_without_sending_it():
 
 
 # ported: CommandTreeTests.agentSensorCommandsSendTheSensorIdAndRequireApproval
-def test_agent_sensor_commands_send_the_sensor_id():
+def test_agent_sensor_commands_send_the_sensor_id_and_require_approval():
     for name in ("enable_agent_sensor", "disable_agent_sensor"):
         tool = Manifest.bundled().by_name(name)
         assert tool is not None
@@ -309,6 +315,10 @@ def test_agent_sensor_commands_send_the_sensor_id():
         assert len(client.invocations) == 1
         assert client.invocations[0] == (name, {"id": "security-sinks"})
 
+        code_help, out_help, _, _ = _run_cli(list(tool.path) + ["--help"])
+        assert code_help == 0
+        assert "[action - needs approval]" in out_help
+
 
 # ported: CommandTreeTests.advisorCommandsRequireTheScanIdAndForwardEveryPageArgument
 def test_advisor_commands_require_the_scan_id_and_forward_every_page_argument():
@@ -317,7 +327,7 @@ def test_advisor_commands_require_the_scan_id_and_forward_every_page_argument():
         code_fail, _, err_fail, client_fail = _run_cli([group, "violations", "RULE-1"])
         assert code_fail == 1
         assert len(client_fail.invocations) == 0
-        assert "scan-id" in err_fail or "required" in err_fail
+        assert "error: the following arguments are required: --scan-id" in err_fail
 
         # With all arguments
         code_ok, _, _, client_ok = _run_cli(
@@ -326,7 +336,12 @@ def test_advisor_commands_require_the_scan_id_and_forward_every_page_argument():
         assert code_ok == 0
         assert len(client_ok.invocations) == 1
         tool_name, args = client_ok.invocations[0]
-        assert tool_name == f"get_{group.replace('-', '_')}_rule_violations" or tool_name.endswith("_rule_violations")
+        expected_tool = (
+            "get_database_advisor_rule_violations"
+            if group == "db"
+            else f"get_{group.replace('-', '_')}_rule_violations"
+        )
+        assert tool_name == expected_tool
         assert args == {"id": "RULE-1", "scanId": "scan-1", "offset": 22, "limit": 7}
 
 
@@ -337,8 +352,8 @@ def test_advisor_help_documents_required_snapshot_and_offset():
     assert len(client.invocations) == 0
     assert "--scan-id" in out
     assert "--offset" in out
-    assert "--limit" in out or "-n" in out
-    assert "<id>" in out or "id" in out
+    assert "--limit" in out
+    assert "<id>" in out
 
 
 def test_group_command_without_subcommand_is_usage_error():
@@ -353,10 +368,129 @@ def test_missing_required_scan_id_is_usage_error_before_request():
     code, _, err, client = _run_cli(["architecture", "violations", "--id", "RULE-1"])
     assert code == 1
     assert len(client.invocations) == 0
-    assert "scan-id" in err or "required" in err
+    assert "error: the following arguments are required: --scan-id" in err
 
 
 def test_main_delegates_to_run():
     # Calling main with --help should return 0
     ret = main(["beans", "--help"])
     assert ret == 0
+
+
+# ported: BootUiCliTests.aReadOnlyPanelStillRefusesAnActionWithThePolicyExitCode
+def test_confirmed_403_panel_access_denied_exits_refused():
+    class RefusingClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(
+                tool,
+                403,
+                '{"error": "sharpit panel access denied", "reason": "Panel \'security\' is read-only"}',
+                {"error": "sharpit panel access denied", "reason": "Panel 'security' is read-only"},
+            )
+
+        def catalog(self) -> dict[str, Any]:
+            return {"serverName": "sharpit", "enabled": True, "tools": []}
+
+    code, _, err, client = _run_cli(["beans"], client=RefusingClient(None))
+    assert code == ExitCodes.REFUSED
+    assert "sharpit panel access denied" in err
+    assert "Panel 'security' is read-only" in err
+
+
+# ported: CliContext.confirmBootUiAnswered
+def test_unconfirmed_foreign_403_exits_error():
+    class Foreign403Client(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(tool, 403, '{"error": "forbidden"}', {"error": "forbidden"})
+
+        def catalog(self) -> dict[str, Any]:
+            raise ClientError("404 Not Found")
+
+    code, _, err, client = _run_cli(["beans"], client=Foreign403Client(None))
+    assert code == ExitCodes.ERROR
+    assert "not a sharpit policy refusal" in err
+
+
+# ported: ToolOutcome.fromStatus
+def test_confirmed_503_disabled_endpoint_exits_refused():
+    class DisabledClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(tool, 503, '{"error": "service unavailable"}', {"error": "service unavailable"})
+
+        def catalog(self) -> dict[str, Any]:
+            return {"serverName": "sharpit", "enabled": False, "tools": []}
+
+    code, _, _, _ = _run_cli(["beans"], client=DisabledClient(None))
+    assert code == ExitCodes.REFUSED
+
+
+def test_programming_error_without_verbose_propagates():
+    class CrashingClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            raise RuntimeError("unexpected internal bug")
+
+    with pytest.raises(RuntimeError, match="unexpected internal bug"):
+        _run_cli(["beans"], client=CrashingClient(None))
+
+
+def test_programming_error_with_verbose_prints_traceback():
+    class CrashingClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            raise RuntimeError("unexpected internal bug")
+
+    with pytest.raises(RuntimeError, match="unexpected internal bug"):
+        _run_cli(["-v", "beans"], client=CrashingClient(None))
+
+
+def test_timeout_accepts_duration_strings_and_bare_seconds():
+    # AGENTS.md: Durations accept Ns, Nms or bare seconds
+    code1, _, _, client1 = _run_cli(["--timeout", "500ms", "beans"])
+    assert code1 == 0
+    assert client1.options.timeout == 0.5
+
+    code2, _, _, client2 = _run_cli(["--timeout", "2s", "beans"])
+    assert code2 == 0
+    assert client2.options.timeout == 2.0
+
+    code3, _, _, client3 = _run_cli(["--timeout", "15", "beans"])
+    assert code3 == 0
+    assert client3.options.timeout == 15.0
+
+
+def test_version_flag_supported_on_subcommands():
+    # ported: BootUiCliTests (version on every command)
+    code1, out1, _, _ = _run_cli(["--version"])
+    assert code1 == 0
+    assert "sharpit" in out1
+
+    code2, out2, _, _ = _run_cli(["beans", "--version"])
+    assert code2 == 0
+    assert "sharpit" in out2
+
+    code3, out3, _, _ = _run_cli(["beans", "-V"])
+    assert code3 == 0
+    assert "sharpit" in out3
+
+
+# ported: CommandTreeTests.anActionsHelpPrintsItsWholeDescriptionWithTheApprovalTag
+def test_actions_help_prints_whole_description_with_the_approval_tag():
+    code_action, out_action, _, _ = _run_cli(["sql", "clear", "--help"])
+    assert code_action == 0
+    assert "[action - needs approval]" in out_action
+
+    code_read, out_read, _, _ = _run_cli(["beans", "--help"])
+    assert code_read == 0
+    assert "[action - needs approval]" not in out_read
+
+
+# ported: CommandTreeTests.everyExampleInTheHelpRunsItsToolWithExactlyTheArgumentsItShows
+def test_every_example_in_the_help_runs_its_tool_with_exactly_the_arguments_it_shows():
+    failures: dict[str, str] = {}
+    for tool in Manifest.bundled().tools:
+        words = shlex.split(tool.example)
+        assert words[0] == "sharpit"
+        client = FakeClient(None)
+        code, _, err, _ = _run_cli(words[1:], client=client)
+        if code != 0 or len(client.invocations) != 1 or client.invocations[0][0] != tool.name:
+            failures[tool.command] = f"exit {code}, err: {err.strip()}, calls: {[c[0] for c in client.invocations]}"
+    assert not failures, f"examples that did not reach their tool: {failures}"

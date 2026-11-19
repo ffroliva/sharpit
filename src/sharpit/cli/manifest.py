@@ -39,6 +39,10 @@ class ManifestTool:
         return self.schema in {"LIMIT", "QUERY_LIMIT"} or self.takes_scan_id
 
     @property
+    def ignores_limit(self) -> bool:
+        return self.schema == "QUERY"
+
+    @property
     def path(self) -> tuple[str, ...]:
         return tuple(self.command.split(" "))
 
