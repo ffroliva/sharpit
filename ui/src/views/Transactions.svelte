@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import { openStream } from '../lib/sse';
   import { clock } from '../lib/status';
   import type { Panel } from '../lib/types';
@@ -40,7 +41,7 @@
   let failure = $state<string | null>(null);
   let acting = $state(false);
   const report = loader(() => get<TransactionsReport>('transactions'));
-  const readOnly = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null);
+  const actionReason = $derived(panelActionReason(panel));
 
   $effect(() => {
     void report.reload();
@@ -49,7 +50,7 @@
   });
 
   async function act(path: string, body?: unknown) {
-    if (acting || readOnly) return;
+    if (acting || actionReason) return;
     acting = true;
     failure = null;
     try {
@@ -64,19 +65,29 @@
 </script>
 
 <PanelShell
+  {panel}
   title={panel.title}
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={readOnly}
   count={report.data?.available ? `${report.data.entries.length} of ${report.data.bufferSize} kept · ${report.data.totalCaptured} captured` : null}
 >
   {#snippet controls()}
-    {#if report.data?.available && !readOnly}
-      <button onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })} disabled={acting}>
+    {#if report.data?.available}
+      <button
+        onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })}
+        disabled={acting || !!actionReason}
+        title={actionReason ?? undefined}
+      >
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>
-      <button onclick={() => act('transactions/clear')} disabled={acting}>Clear</button>
+      <button
+        onclick={() => act('transactions/clear')}
+        disabled={acting || !!actionReason}
+        title={actionReason ?? undefined}
+      >
+        Clear
+      </button>
     {/if}
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
