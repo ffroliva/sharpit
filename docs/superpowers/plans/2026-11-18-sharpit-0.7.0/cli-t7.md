@@ -13,7 +13,8 @@ Production paths: `sharpit.cli.commands.run`, `sharpit.cli.outcomes.confirm_answ
 | Package entry | `python -m sharpit.cli`, `sharpit.cli.main`, and the installed console script work without framework imports. |
 | Request count | No update check or other unrequested request occurs. |
 
-- [ ] **Step 1:** Add assertion-level tests and see them fail for the missing Task 7 behaviour.
-- [ ] **Step 2:** Port BootUI 2.4.0 rendering and entry behavior through the existing CLI dispatch path.
-- [ ] **Step 3:** Run the lane, required common, packaging, lint, formatting and type gates; build and inspect the wheel.
-- [ ] **Step 4:** Record adaptations and commit the tests and implementation separately.
+- [x] **Step 1:** Add assertion-level tests and see them fail for the missing Task 7 behaviour.
+- [x] **Step 2:** Port BootUI 2.4.0 rendering and entry behavior through the existing CLI dispatch path.
+- [x] **Step 3:** Run the lane, required common, packaging, lint, formatting and type gates; build and inspect the wheel.
+- [x] **Step 4:** Record adaptations and commit the tests and implementation separately.
+

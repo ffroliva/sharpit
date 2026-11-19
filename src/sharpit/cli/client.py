@@ -27,6 +27,12 @@ class _NoRedirect(_request.HTTPRedirectHandler):
 class ClientError(Exception):
     """A safe-to-display CLI transport failure."""
 
+    def __init__(self, message: str, *, status: int | None = None, body: str = "") -> None:
+        self.status = status
+        self.body = body
+        self.payload = error_body(body)
+        super().__init__(message)
+
 
 class _TimeoutHTTPConnection(_http_client.HTTPConnection):
     def __init__(self, *args: Any, read_timeout: float, **kwargs: Any) -> None:
@@ -298,15 +304,19 @@ class Client:
             )
         else:
             text = f"sharpit answered HTTP {status}{detail}"
-        return self._client_error(text)
+        return self._client_error(text, status=status, body=body)
 
     def _endpoint(self, path: str) -> str:
         base = self.options.base_url.rstrip("/")
         api = self.options.api_path.rstrip("/")
         return f"{base}{api}{path if path.startswith('/') else '/' + path}"
 
-    def _client_error(self, message: str) -> ClientError:
-        return ClientError(safe_text(message, self.options.token))
+    def _client_error(self, message: str, *, status: int | None = None, body: str = "") -> ClientError:
+        return ClientError(
+            safe_text(message, self.options.token),
+            status=status,
+            body=safe_text(body, self.options.token),
+        )
 
 
 def _parse_json(body: str, endpoint: str, status: int) -> Any:
