@@ -3,3 +3,5 @@ xc:database-advisor.partitioned-tables	partial	SQLAlchemy Inspector get_table_na
 xc:database-advisor.orm-metadata-source	matched	Hibernate metadata diagnostic source adapted to SQLAlchemy metadata in Python (neutral INFO on absent models or unconfigured mappers, WARNING on discovery error)
 xc:database-advisor.driver-wording	adapted	BootUI JDBC driver diagnostic wording adapted to Python database terms (The database driver name was unavailable..., The database driver version was unavailable., The database URL could not be read..., The driver reported no database URL...)
 xc:database-advisor.limitations-parity	matched	Advisor evidence limitations follow BootUI DatabaseAdvisorScanner.doScan: distinct WARNING and ERROR diagnostics capped at 20, without duplicate datasource scope notes
+xc:database-advisor.relation-inventory-observability	partial	The dedicated relation_inventory_complete signal has no producer under src/; incomplete PostgreSQL relation inventory is not yet observable
+

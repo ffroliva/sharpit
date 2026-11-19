@@ -1,5 +1,7 @@
 """Ported human-readable output rules from BootUI's TextRendererTests."""
 
+import json
+
 from sharpit.cli.render import render
 
 
@@ -10,9 +12,9 @@ def test_scalar_members_render_as_key_value_lines():
 
 # ported: TextRendererTests.anArrayOfLikeShapedObjectsBecomesATable
 def test_array_of_objects_becomes_a_table():
-    assert render({"beans": [{"name": "a", "scope": "single"}, {"name": "bb", "scope": "proto"}]}, color=False) == (
-        "beans (2)\n  name  scope \n  ----  ------\n  a     single\n  bb    proto"
-    )
+    assert render(
+        {"beans": [{"name": "a", "scope": "singleton"}, {"name": "bb", "scope": "prototype"}]}, color=False
+    ) == ("beans (2)\n  name  scope\n  ----  ---------\n  a     singleton\n  bb    prototype")
 
 
 # ported: TextRendererTests.anArrayWithANestedObjectFallsBackToATreeRatherThanLyingInATable
@@ -44,3 +46,71 @@ def test_paused_low_footprint_mode_gets_a_notice():
     assert render({"lowFootprint": {"active": True, "paused": True}, "groups": []}, color=False).startswith(
         "PAUSED by low-footprint mode"
     )
+
+
+# ported: TextRendererTests.emptyCollectionsStayVisibleInsteadOfDisappearing
+def test_empty_collections_stay_visible():
+    assert render({"findings": [], "details": {}}, color=False) == "findings: []\ndetails: {}"
+
+
+# ported: TextRendererTests.numbersKeepTheFormTheServerSentThem
+def test_numbers_keep_their_json_spelling():
+    assert (
+        render(json.loads('{"ratio":1.50,"bytes":12345678901}', parse_float=str), color=False)
+        == "ratio: 1.50\nbytes: 12345678901"
+    )
+
+
+# ported: TextRendererTests.longCellsAreTruncatedSoATableStaysReadable
+def test_long_table_cells_are_truncated():
+    text = render({"rows": [{"trace": "a" * 200}]}, color=False)
+    assert "…" in text
+    assert all(len(line) < 80 for line in text.splitlines())
+
+
+# ported: TextRendererTests.valuesOutsideATableArePrintedWhole
+def test_values_outside_a_table_are_not_truncated():
+    reason = "repeated-selects did not run: " + "external validation is incomplete " * 3
+    text = render({"summary": reason, "checksNotRun": [reason]}, color=False)
+    assert "…" not in text
+    assert text == f"summary: {reason}\nchecksNotRun (1)\n  - {reason}"
+
+
+# ported: TextRendererTests.newlinesInsideACellDoNotBreakTheTable
+def test_newlines_inside_table_cells_are_flattened():
+    assert render({"rows": [{"message": "first\nsecond"}]}, color=False) == (
+        "rows (1)\n  message\n  ------------\n  first second"
+    )
+
+
+# ported: TextRendererTests.nestedObjectsAreIndentedUnderTheirName
+def test_nested_objects_are_indented():
+    assert (
+        render({"jvm": {"vendor": "Eclipse", "version": "21"}}, color=False) == "jvm\n  vendor: Eclipse\n  version: 21"
+    )
+
+
+# ported: TextRendererTests.aTopLevelArrayIsRenderedWithoutAWrapper
+def test_top_level_arrays_have_no_wrapper():
+    assert render([{"a": 1}, {"a": 2}], color=False) == "a\n-\n1\n2"
+
+
+# ported: TextRendererTests.colourIsOnlyAddedWhenAskedFor
+def test_color_is_only_added_when_requested():
+    assert "\x1b[" not in render({"a": 1}, color=False)
+    assert "\x1b[" in render({"a": 1}, color=True)
+
+
+# ported: TextRendererTests.controlCharactersInKeysCannotReachTheTerminalEither
+def test_control_characters_in_table_headers_are_neutralized():
+    text = render({"rows": [{"a\x1b[2Jb": "1"}]}, color=False)
+    assert "\x1b" not in text
+    assert "a [2Jb" in text
+
+
+# ported: TextRendererTests.advisorViolationLocationsStayReadableBesideTheirViolations
+def test_violation_locations_remain_readable():
+    text = render({"violations": ["Cycle a -> b"], "locations": [{"className": "a.B", "line": 42}]}, color=False)
+    assert "violations (1)" in text
+    assert "className  line" in text
+    assert "a.B        42" in text

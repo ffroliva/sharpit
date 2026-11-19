@@ -374,3 +374,136 @@ def test_file_grown_past_the_size_bound_after_stat(tmp_path: Path, monkeypatch: 
     assert "grown.small" in index.modules
     assert "grown.grown" not in index.modules
     assert any("grown.py" in reason for reason in index.limitations)
+
+
+def test_find_pyproject_path_locates_pyproject(tmp_path: Path) -> None:
+    project = tmp_path / "my_project"
+    pkg = project / "src" / "pkg"
+    _write(pkg / "__init__.py")
+    pyproject = _write(project / "pyproject.toml", "[project]\nname='pkg'\n")
+    assert appsource.find_pyproject_path(pkg, [str(project / "src")]) == pyproject
+
+
+def test_find_pyproject_path_refuses_site_packages(tmp_path: Path) -> None:
+    site_pkg = tmp_path / "site-packages" / "pkg"
+    _write(site_pkg / "__init__.py")
+    _write(tmp_path / "site-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
+    assert appsource.find_pyproject_path(site_pkg, [str(tmp_path / "site-packages")]) is None
+
+
+def test_find_pyproject_path_refuses_dist_packages(tmp_path: Path) -> None:
+    dist_pkg = tmp_path / "dist-packages" / "pkg"
+    _write(dist_pkg / "__init__.py")
+    _write(tmp_path / "dist-packages" / "pyproject.toml", "[project]\nname='pkg'\n")
+    assert appsource.find_pyproject_path(dist_pkg, [str(tmp_path / "dist-packages")]) is None
+
+
+def test_find_project_root_locates_ancestor_with_build_file(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    nested = project / "a" / "b" / "myapp"
+    _write(nested / "__init__.py")
+    _write(project / "requirements.txt", "bandit\n")
+    assert appsource.find_project_root(nested) == project
+
+
+def test_find_pyproject_and_root_symlink_loop_returns_none(tmp_path: Path) -> None:
+    link_a = tmp_path / "loop_a"
+    link_b = tmp_path / "loop_b"
+    try:
+        link_a.symlink_to(link_b)
+        link_b.symlink_to(link_a)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks cannot be created in this environment")
+    assert appsource.find_pyproject_path(link_a, [str(tmp_path)]) is None
+    assert appsource.find_project_root(link_a) is None
+
+
+def test_find_project_root_none_returns_none() -> None:
+    assert appsource.find_project_root(None) is None
+
+
+def test_find_project_root_refuses_site_and_dist_packages(tmp_path: Path) -> None:
+    site_pkg = tmp_path / "site-packages" / "pkg"
+    _write(site_pkg / "__init__.py")
+    _write(tmp_path / "site-packages" / "requirements.txt", "bandit\n")
+    assert appsource.find_project_root(site_pkg) is None
+
+    dist_pkg = tmp_path / "dist-packages" / "pkg"
+    _write(dist_pkg / "__init__.py")
+    _write(tmp_path / "dist-packages" / "requirements.txt", "bandit\n")
+    assert appsource.find_project_root(dist_pkg) is None
+
+
+def test_find_project_root_stops_at_home_and_filesystem_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "fakehome"
+    app = home / "workspace" / "sub" / "myapp"
+    _write(app / "__init__.py")
+    _write(home / "pyproject.toml", "[project]\nname='proj'\n")
+    monkeypatch.setattr(Path, "home", lambda: home)
+    assert appsource.find_project_root(app) is None
+
+
+def test_find_project_root_handles_home_resolve_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "proj"
+    app = project / "src" / "myapp"
+    _write(app / "__init__.py")
+    _write(project / "pyproject.toml", "[project]\nname='proj'\n")
+
+    def failing_home() -> Path:
+        raise OSError("Simulated home resolve failure")
+
+    monkeypatch.setattr(Path, "home", failing_home)
+    assert appsource.find_project_root(app) == project
+
+
+def test_find_project_root_handles_parent_resolve_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tmp_path / "a" / "b" / "myapp"
+    _write(app / "__init__.py")
+
+    real_resolve = Path.resolve
+    call_count = 0
+
+    def failing_resolve(self: Path, *args: Any, **kwargs: Any) -> Path:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise OSError("Simulated parent resolve failure")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", failing_resolve)
+    assert appsource.find_project_root(app) is None
+
+
+def test_find_project_root_and_pyproject_handles_package_root_resolve_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = tmp_path / "myapp"
+    _write(app / "__init__.py")
+
+    def failing_resolve(self: Path, *args: Any, **kwargs: Any) -> Path:
+        raise OSError("Cannot resolve package root")
+
+    monkeypatch.setattr(Path, "resolve", failing_resolve)
+    assert appsource.find_project_root(app) is None
+    assert appsource.find_pyproject_path(app, [str(tmp_path)]) is None
+
+
+def test_appsource_scandir_oserror_returns_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tmp_path / "myapp"
+    _write(app / "__init__.py")
+
+    def failing_scandir(path: Any) -> Any:
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(appsource.os, "scandir", failing_scandir)
+    assert not appsource._has_requirements(tmp_path)
+
+
+def test_appsource_is_file_oserror_returns_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "broken_file.txt"
+
+    def failing_is_file(self: Path) -> bool:
+        raise OSError("Stat failed")
+
+    monkeypatch.setattr(Path, "is_file", failing_is_file)
+    assert not appsource._is_file(target)

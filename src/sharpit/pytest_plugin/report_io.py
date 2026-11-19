@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 
 from sharpit import __version__
+from sharpit.engine.advisors.findings import assessed_in_part
 from sharpit.engine.testsession import baseline as baseline_io
 from sharpit.engine.testsession import outcome, report, sarif
 from sharpit.engine.testsession.facts import finding_from
@@ -94,8 +95,8 @@ def _assessed_in_full(advisor: dict[str, Any]) -> bool:
 
 
 def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
-    return advisor["status"] == "PARTIAL" or (
-        advisor["status"] in {"PASSED", "FAILED"} and advisor["reason"] is None and _has_gap(advisor)
+    return advisor["status"] == "PARTIAL" or any(
+        assessed_in_part(str(app["status"]), app.get("reason"), app["evidence"]) for app in advisor["apps"]
     )
 
 

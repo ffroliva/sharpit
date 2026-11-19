@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client as _http_client
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -29,17 +30,22 @@ class _NoRedirect(_request.HTTPRedirectHandler):
 class ClientError(Exception):
     """A safe-to-display CLI transport failure."""
 
-    def __init__(self, message: str, *, status: int | None = None, body: str = "") -> None:
+    def __init__(self, message: str, *, status: int | None = None, body: str = "", request_sent: bool = False) -> None:
         self.status = status
         self.body = body
-        self.payload = error_body(body)
+        self.request_sent = request_sent
         super().__init__(message)
 
 
 class _TimeoutHTTPConnection(_http_client.HTTPConnection):
-    def __init__(self, *args: Any, read_timeout: float, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, read_timeout: float, on_send: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._read_timeout = read_timeout
+        self._on_send = on_send
+
+    def send(self, data: Any) -> None:
+        super().send(data)
+        self._on_send()
 
     def getresponse(self) -> _http_client.HTTPResponse:
         if self.sock is not None:
@@ -48,9 +54,14 @@ class _TimeoutHTTPConnection(_http_client.HTTPConnection):
 
 
 class _TimeoutHTTPSConnection(_http_client.HTTPSConnection):
-    def __init__(self, *args: Any, read_timeout: float, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, read_timeout: float, on_send: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._read_timeout = read_timeout
+        self._on_send = on_send
+
+    def send(self, data: Any) -> None:
+        super().send(data)
+        self._on_send()
 
     def getresponse(self) -> _http_client.HTTPResponse:
         if self.sock is not None:
@@ -59,25 +70,27 @@ class _TimeoutHTTPSConnection(_http_client.HTTPSConnection):
 
 
 class _TimeoutHTTPHandler(_request.HTTPHandler):
-    def __init__(self, read_timeout: float) -> None:
+    def __init__(self, read_timeout: float, on_send: Any) -> None:
         super().__init__()
         self.read_timeout = read_timeout
+        self.on_send = on_send
 
     def http_open(self, req: Any) -> Any:
         def connection(host: str, **kwargs: Any) -> _TimeoutHTTPConnection:
-            return _TimeoutHTTPConnection(host, read_timeout=self.read_timeout, **kwargs)
+            return _TimeoutHTTPConnection(host, read_timeout=self.read_timeout, on_send=self.on_send, **kwargs)
 
         return self.do_open(cast("Any", connection), req)
 
 
 class _TimeoutHTTPSHandler(_request.HTTPSHandler):
-    def __init__(self, read_timeout: float) -> None:
+    def __init__(self, read_timeout: float, on_send: Any) -> None:
         super().__init__()
         self.read_timeout = read_timeout
+        self.on_send = on_send
 
     def https_open(self, req: Any) -> Any:
         def connection(host: str, **kwargs: Any) -> _TimeoutHTTPSConnection:
-            return _TimeoutHTTPSConnection(host, read_timeout=self.read_timeout, **kwargs)
+            return _TimeoutHTTPSConnection(host, read_timeout=self.read_timeout, on_send=self.on_send, **kwargs)
 
         return self.do_open(cast("Any", connection), req)
 
@@ -96,42 +109,53 @@ class Client:
     def __init__(self, options: ClientOptions) -> None:
         self.options = options
         self.timeout = _valid_timeout(options.timeout)
+        self._request_sent = False
         token = options.token
         if token and any(ord(char) < 32 or 127 <= ord(char) <= 159 or ord(char) > 255 for char in token):
             raise self._client_error("The token contains characters an HTTP header cannot carry")
         self._opener = _request.build_opener(
             _request.ProxyHandler({}),
             _NoRedirect(),
-            _TimeoutHTTPHandler(self.timeout),
-            _TimeoutHTTPSHandler(self.timeout),
+            _TimeoutHTTPHandler(self.timeout, self._mark_request_sent),
+            _TimeoutHTTPSHandler(self.timeout, self._mark_request_sent),
         )
 
     def get(self, path: str) -> Any:
-        return self._get(path)
+        return self.get_result(path).payload
+
+    def get_result(self, path: str) -> ToolResult:
+        return self._get_result(path)
 
     def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
         return self._invoke(tool, arguments)
 
     def catalog(self) -> dict[str, Any]:
-        return self._catalog()
+        return self.catalog_result().payload
+
+    def catalog_result(self) -> ToolResult:
+        return self._catalog_result()
 
     def post(self, path: str, body: str) -> Any:
+        return self.post_result(path, body).payload
+
+    def post_result(self, path: str, body: str) -> ToolResult:
         endpoint = self._endpoint(path)
         status, response = self._send(endpoint, "POST", body)
         if not 200 <= status < 300:
             raise self._describe_failure(status, response)
         try:
-            return _parse_json(response, endpoint, status) if response.strip() else None
+            payload = _parse_json(response, endpoint, status) if response.strip() else None
+            return ToolResult(path, status, response, payload)
         except ClientError as error:
-            raise self._client_error(str(error)) from None
+            raise self._client_error(str(error), status=status, body=response, request_sent=True) from None
 
-    def _get(self, path: str) -> Any:
+    def _get_result(self, path: str) -> ToolResult:
         endpoint = self._endpoint(path)
         status, body = self._send(endpoint, "GET", None)
         if not 200 <= status < 300:
             raise self._describe_failure(status, body)
         try:
-            return _parse_json(body, endpoint, status)
+            return ToolResult(path, status, body, _parse_json(body, endpoint, status))
         except ClientError as error:
             raise self._client_error(str(error)) from None
 
@@ -147,7 +171,7 @@ class Client:
             raise self._client_error(str(error)) from None
         return ToolResult(tool, status, body, payload)
 
-    def _catalog(self) -> dict[str, Any]:
+    def _catalog_result(self) -> ToolResult:
         path = "/cli"
         endpoint = self._endpoint(path)
         status, body = self._send(endpoint, "GET", None)
@@ -174,7 +198,7 @@ class Client:
                 "Response is not a sharpit catalog: expected serverName 'sharpit', a boolean enabled, "
                 "and a tools array that is empty while disabled."
             )
-        return catalog
+        return ToolResult(path, status, body, catalog)
 
     def _send(
         self,
@@ -193,9 +217,10 @@ class Client:
         status, body = outcome
         if not 200 <= status < 300:
             return status, body.decode("utf-8", errors="replace")
-        return status, self._decode_body(body)
+        return status, self._decode_body(body, status)
 
     def _exchange(self, outgoing: Any, deadline: float, base: str) -> tuple[int, bytes]:
+        self._request_sent = False
         result: list[tuple[int, bytes] | Exception] = []
 
         def perform() -> None:
@@ -213,21 +238,21 @@ class Client:
         worker.start()
         worker.join(max(0.0, deadline - time.monotonic()))
         if worker.is_alive():
-            raise self._timeout_error(base, self.timeout)
+            raise self._timeout_error(base, self.timeout, request_sent=self._request_sent)
         outcome = result[0]
         if isinstance(outcome, Exception):
             if isinstance(outcome, ClientError):
                 raise outcome
-            raise self._request_error(outcome, base) from outcome
+            raise self._request_error(outcome, base, request_sent=self._request_sent) from outcome
         return outcome
 
-    def _request_error(self, error: Exception, base: str) -> ClientError:
+    def _request_error(self, error: Exception, base: str, *, request_sent: bool = False) -> ClientError:
         if isinstance(error, ClientError):
             return error
         if isinstance(error, TimeoutError):
-            return self._timeout_error(base, self.timeout)
+            return self._timeout_error(base, self.timeout, request_sent=request_sent)
         if isinstance(error, (_http_client.HTTPException, OSError)):
-            return self._transport_error(error, base)
+            return self._transport_error(error, base, request_sent=request_sent)
         if isinstance(error, (ValueError, UnicodeEncodeError)):
             return self._client_error("Request could not be encoded for HTTP")
         return self._client_error("Request failed")
@@ -256,34 +281,42 @@ class Client:
         except _request.HTTPError as error:
             if error.code in (301, 302, 303, 307, 308):
                 error.close()
-                raise self._client_error(f"Request was redirected (HTTP {error.code})") from None
+                raise self._client_error(
+                    f"Request was redirected (HTTP {error.code})", request_sent=self._request_sent
+                ) from None
             return error
         except TimeoutError as error:
-            raise self._timeout_error(self.options.base_url.rstrip("/"), self.timeout) from error
+            raise self._timeout_error(
+                self.options.base_url.rstrip("/"), self.timeout, request_sent=self._request_sent
+            ) from error
         except OSError as error:
             if _is_tls_error(error):
                 raise self._client_error(
-                    f"TLS request to {self.options.base_url.rstrip('/')} failed: {error}"
+                    f"TLS request to {self.options.base_url.rstrip('/')} failed: {error}",
+                    request_sent=self._request_sent,
                 ) from error
-            raise self._client_error(_cannot_reach(self.options.base_url.rstrip("/"))) from error
+            raise self._client_error(
+                _cannot_reach(self.options.base_url.rstrip("/")), request_sent=self._request_sent
+            ) from error
 
-    def _transport_error(self, error: Exception, base: str) -> ClientError:
+    def _transport_error(self, error: Exception, base: str, *, request_sent: bool = False) -> ClientError:
         if isinstance(error, OSError):
             if _is_tls_error(error):
-                return self._client_error(f"TLS request to {base} failed: {error}")
-            return self._client_error(_cannot_reach(base))
-        return self._client_error(f"Request to {base} failed: {error}")
+                return self._client_error(f"TLS request to {base} failed: {error}", request_sent=request_sent)
+            return self._client_error(_cannot_reach(base), request_sent=request_sent)
+        return self._client_error(f"Request to {base} failed: {error}", request_sent=request_sent)
 
-    def _decode_body(self, body: bytes) -> str:
+    def _decode_body(self, body: bytes, status: int | None = None) -> str:
         try:
             return body.decode("utf-8")
         except UnicodeDecodeError:
-            raise self._client_error("Response is not valid UTF-8") from None
+            raise self._client_error("Response is not valid UTF-8", status=status, request_sent=True) from None
 
-    def _timeout_error(self, base: str, timeout: float) -> ClientError:
+    def _timeout_error(self, base: str, timeout: float, *, request_sent: bool = False) -> ClientError:
         duration = f"{timeout * 1000:g}ms" if timeout < 1 else f"{timeout:g}s"
         return self._client_error(
-            f"No response from {base} within {duration}. Raise --timeout if the tool is expected to be slow."
+            f"No response from {base} within {duration}. Raise --timeout if the tool is expected to be slow.",
+            request_sent=request_sent,
         )
 
     def _describe_failure(self, status: int, body: str) -> ClientError:
@@ -313,12 +346,23 @@ class Client:
         api = self.options.api_path.rstrip("/")
         return f"{base}{api}{path if path.startswith('/') else '/' + path}"
 
-    def _client_error(self, message: str, *, status: int | None = None, body: str = "") -> ClientError:
+    def _client_error(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        body: str = "",
+        request_sent: bool = False,
+    ) -> ClientError:
         return ClientError(
             safe_text(message, self.options.token),
             status=status,
             body=safe_text(body, self.options.token),
+            request_sent=request_sent,
         )
+
+    def _mark_request_sent(self) -> None:
+        self._request_sent = True
 
 
 def _parse_json(body: str, endpoint: str, status: int) -> Any:
@@ -377,6 +421,23 @@ def _sharpit_text(text: str) -> str:
 
 def _redact(text: str, token: str | None) -> str:
     if token:
+        redacted_json = False
+
+        def redact_json_string(match: re.Match[str]) -> str:
+            nonlocal redacted_json
+            raw = match.group()
+            try:
+                value = json.loads(raw)
+            except ValueError:
+                return raw
+            if isinstance(value, str) and token in value:
+                redacted_json = True
+                return json.dumps(value.replace(token, "[redacted]"), ensure_ascii="\\u" in raw.lower())
+            return raw
+
+        text = re.sub(r'"(?:\\.|[^"\\])*"', redact_json_string, text)
+        if redacted_json:
+            return text
         text = text.replace(f"Authorization: Bearer {token}", "[redacted]")
         text = text.replace(f"Bearer {token}", "Bearer [redacted]").replace(token, "[redacted]")
     return text

@@ -13,7 +13,7 @@
     try {
       data = await get<Overview>('overview');
     } catch (e) {
-      error = describeLoadError(e).message;
+      error = describeLoadError(e);
     }
   }
   load();

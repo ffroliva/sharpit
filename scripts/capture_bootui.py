@@ -796,8 +796,7 @@ def capture(
     bootui_root, tag_object, maven_command, java_version_output, maven_version_output, settings_override = (
         _extract_and_build(repo, tag, version)
     )
-    cmd_digits = version.replace(".", "")[:2]
-    command = f"python scripts/capture_bootui_{cmd_digits}.py"
+    command = f"python scripts/capture_bootui.py --version {version}"
     meta = {
         "bootuiVersion": version,
         "app": "tiny-ledger",
@@ -846,3 +845,38 @@ def capture(
     }
     with open(f"{output_dir}/meta.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(meta, f, indent=2)
+
+
+_CAPTURE_VERSIONS = {
+    "2.3.0": ("v2.3.0", "7c89042c6a0a47e1cb22d2df7412d2177d7416d1", "2026-11-10"),
+    "2.4.0": ("v2.4.0", "0df7ed764688d04f83c246c9965e90158c1db488", "2026-11-18"),
+}
+
+
+def main(version: str | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Capture pinned BootUI tracker fixtures")
+    parser.add_argument("--version", choices=tuple(_CAPTURE_VERSIONS), default=version)
+    args = parser.parse_args([] if version is not None else None)
+    if args.version is None:
+        parser.error("--version is required")
+    tag, commit, date = _CAPTURE_VERSIONS[args.version]
+    repo = Path(os.environ.get("BOOTUI_GIT", Path(__file__).resolve().parents[1] / "boot-ui"))
+    actual_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", f"{tag}^{{commit}}"], text=True
+    ).strip()
+    if actual_commit != commit:
+        raise RuntimeError(f"Pinned tag resolves to {actual_commit}, expected {commit}")
+    capture(
+        tag=tag,
+        commit=commit,
+        output_dir=Path(__file__).resolve().parents[1] / f"tests/fixtures/bootui/{args.version}",
+        version=args.version,
+        date=date,
+        repo=repo,
+    )
+
+
+if __name__ == "__main__":
+    main()

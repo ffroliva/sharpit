@@ -277,52 +277,6 @@ def test_models_with_no_declarative_base_or_registry_warns_and_partial() -> None
     )
 
 
-def test_postgres_relation_inventory_warning_only_on_dedicated_signal() -> None:
-    # Generic incomplete (e.g. driver version or budget) does NOT trigger PostgreSQL relation inventory warning
-    source_generic = Source(
-        "ds",
-        "postgresql",
-        "psycopg2",
-        "AVAILABLE",
-        None,
-        {
-            "dialect": "postgresql",
-            "tables": [],
-            "tableCount": 0,
-            "truncated": False,
-            "complete": False,
-            "diagnostics": [{"level": "WARNING", "message": "The database driver version was unavailable."}],
-            "server": {},
-            "orm": {"tables": []},
-        },
-    )
-    res_generic = report.evaluate([source_generic])
-    msgs = [d["message"] for d in res_generic.detail.diagnostics]
-    assert not any("PostgreSQL relation inventory is incomplete" in m for m in msgs)
-
-    # Dedicated relation_inventory_complete=False DOES trigger the warning
-    source_dedicated = Source(
-        "ds",
-        "postgresql",
-        "psycopg2",
-        "AVAILABLE",
-        None,
-        {
-            "dialect": "postgresql",
-            "tables": [],
-            "tableCount": 0,
-            "truncated": False,
-            "complete": False,
-            "relation_inventory_complete": False,
-            "diagnostics": [],
-            "server": {},
-            "orm": {"tables": []},
-        },
-    )
-    res_dedicated = report.evaluate([source_dedicated])
-    assert any("PostgreSQL relation inventory is incomplete" in d["message"] for d in res_dedicated.detail.diagnostics)
-
-
 def test_complete_empty_relation_inventory_does_not_make_an_otherwise_complete_datasource_partial() -> None:
     # ported: SchemaIntrospectorTests.completeEmptyRelationInventoryDoesNotMakeAnOtherwiseCompleteDatasourcePartial
     source = Source(

@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 MAX_FILES = 2000
 MAX_FILE_BYTES = 524_288
@@ -43,6 +44,10 @@ class SourceIndex:
 
 
 # ---- the one package-root resolver -----------------------------------------------------------------------------
+
+
+PYPROJECT = "pyproject.toml"
+BUILD_FILES = (PYPROJECT, "setup.cfg", "setup.py", "tox.ini")  # requirements*.txt is matched by name
 
 
 def _holder(app: object, modules: Mapping[str, object]) -> str | None:
@@ -138,6 +143,121 @@ def resolve_app_root(
     if root is not None and root.name == _PACKAGE_INIT:
         return root.parent
     return root
+
+
+# ---- pyproject locator and TOML coercion helpers ----------------------------------------------------------------
+
+
+def as_dict(val: object) -> dict[str, object]:
+    """Safely coerce a TOML section value to dict[str, object]."""
+    if isinstance(val, dict):
+        d = cast("dict[object, object]", val)
+        return {str(k): v for k, v in d.items()}
+    return {}
+
+
+def as_str_list(val: object) -> list[str]:
+    """Safely coerce a TOML array value to list[str]."""
+    if isinstance(val, (list, tuple)):
+        s = cast("Sequence[object]", val)
+        return [str(x) for x in s]
+    return []
+
+
+def as_str_tuple(val: object) -> tuple[str, ...]:
+    """Safely coerce a TOML array value to tuple[str, ...]."""
+    if isinstance(val, (list, tuple)):
+        s = cast("Sequence[object]", val)
+        return tuple(str(x) for x in s)
+    return ()
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def _has_requirements(directory: Path) -> bool:
+    try:
+        with os.scandir(directory) as entries:
+            names = [Path(entry.path) for entry in entries if requirements_name(entry.name)]
+    except (OSError, ValueError, RuntimeError):
+        return False
+    return any(_is_file(path) for path in names)
+
+
+def requirements_name(name: str) -> bool:
+    lowered = name.lower()
+    return lowered.startswith("requirements") and lowered.endswith(".txt")
+
+
+def _has_build_file(directory: Path) -> bool:
+    return any(_is_file(directory / name) for name in BUILD_FILES) or _has_requirements(directory)
+
+
+def _is_stopped(current: Path, home: Path | None) -> bool:
+    return (
+        (home is not None and current == home)
+        or current.parent == current
+        or any(p in ("site-packages", "dist-packages") for p in current.parts)
+    )
+
+
+def find_project_root(package_root: Path | None) -> Path | None:
+    """The nearest ancestor of the app package holding a build file (at most 5 levels up).
+
+    Never crosses site-packages/dist-packages, never returns the filesystem root or the user's home.
+    Returns None when not found or on symlink loops / errors.
+    """
+    if package_root is None:
+        return None
+    try:
+        resolved = package_root.resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if any(p in ("site-packages", "dist-packages") for p in resolved.parts):
+        return None
+    try:
+        home: Path | None = Path.home().resolve()
+    except (OSError, ValueError, RuntimeError):
+        home = None
+
+    current = resolved.parent
+    for _ in range(5):
+        if _is_stopped(current, home):
+            break
+        if _has_build_file(current):
+            return current
+        try:
+            current = current.parent.resolve()
+        except (OSError, ValueError, RuntimeError):
+            break
+    return None
+
+
+def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> Path | None:
+    """The ``pyproject.toml`` of the sys.path entry holding ``package_root``, or that entry's parent for a src/ layout.
+
+    Spec §5.5, §14: nowhere else. The holding entry is the root's own parent directory; an ancestor entry does not
+    hold the package, and nothing is read when the holding entry is not on ``sys_path`` or is under site-packages or
+    dist-packages.
+    """
+    try:
+        resolved = package_root.resolve()
+        if any(p in ("site-packages", "dist-packages") for p in resolved.parts):
+            return None
+        holder = resolved.parent
+        on_path = any(isinstance(e, str) and e and Path(e).resolve() == holder for e in sys_path)
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if not on_path:
+        return None
+    candidates = [holder / PYPROJECT]
+    if holder.name == "src":
+        candidates.append(holder.parent / PYPROJECT)
+    return next((c for c in candidates if c.is_file()), None)
 
 
 # ---- the bounded index -----------------------------------------------------------------------------------------

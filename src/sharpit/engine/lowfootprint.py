@@ -15,6 +15,11 @@ class LowFootprintService:
         self.since_epoch_millis: int | None = None
         self._lock = threading.Lock()  # suspend/resume check-then-act: two callers never toggle a hook twice
 
+    @property
+    def lock(self) -> threading.Lock:
+        """The lock that serialises every suspend and resume; the idle tracker takes it too, so the two never race."""
+        return self._lock
+
     def suspend(self) -> dict[str, object]:
         return self.suspend_with_transition()[0]
 

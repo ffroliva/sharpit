@@ -129,3 +129,8 @@ def partial_note(advisor: str, app: str | None, limitations: Iterable[str], fail
 def severity_counts_of(findings: Iterable[Finding]) -> list[dict[str, Any]]:
     """BootUI's ``severityCounts`` form over the non-dismissed findings, one occurrence each."""
     return severity_counts(((f.severity, 1) for f in findings if not f.dismissed), SEVERITIES)
+
+
+def partial_notes(assessments: Iterable[tuple[str, str | None, Iterable[str], str]]) -> list[str]:
+    """Format partial-assessment notes shared by the CLI and report renderers."""
+    return [partial_note(advisor, app, limitations, fail_on) for advisor, app, limitations, fail_on in assessments]

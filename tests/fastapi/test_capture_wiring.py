@@ -664,7 +664,7 @@ def test_forged_probe_header_stripped_when_capture_hook_suspended():
     assert resp.json() == {"probe": None}
 
 
-def test_route_template_non_attribute_error_still_records_exchange_and_journal(
+def test_route_template_internal_error_still_records_exchange_and_journal(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     app = FastAPI()
@@ -674,7 +674,7 @@ def test_route_template_non_attribute_error_still_records_exchange_and_journal(
         return {"item_id": item_id}
 
     handle = install(app, enabled="ON", show_banner=False)
-    monkeypatch.setattr(capture_mod, "_route_template", _explode("route template lookup failed"))
+    monkeypatch.setattr(capture_mod, "_mount_prefix", _explode("route template lookup failed"))
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
@@ -693,8 +693,7 @@ def test_route_template_non_attribute_error_still_records_exchange_and_journal(
     assert len(events) == 1
     assert events[0]["status"] == 200
 
-    warnings = _warnings(caplog)
-    assert any("request end" in w and "RuntimeError" in w for w in warnings)
+    assert not any("request end" in warning for warning in _warnings(caplog))
 
 
 def test_exception_store_record_failure_still_records_exchange_and_journal_and_cleans_up(

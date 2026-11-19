@@ -760,16 +760,11 @@ class CaptureMiddleware:
                         finally:
                             with _request_end_guard(wiring):
                                 store.forget_request(info.id)
-                    fallback = 500 if failed else 200
-                    recorded: int | None = status if status is not None else fallback
-                    error = failed or cancelled or disconnected
-                    with _request_end_guard(wiring):
-                        recorded, error = _outcome(status, failed, cancelled, disconnected)
+                    recorded, error = _outcome(status, failed, cancelled, disconnected)
                     journal = self.ctx.capture.journal
                     template: str | None = None
                     if buffer is not None or journal is not None:
-                        with _request_end_guard(wiring):
-                            template = _route_template(scope, root_path, wiring.app)
+                        template = _route_template(scope, root_path, wiring.app)
                     if buffer is not None:
                         with _request_end_guard(wiring):  # a failing row must not lose the journal event
                             buffer.add(

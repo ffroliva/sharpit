@@ -1,6 +1,6 @@
 <script lang="ts" generics="T">
   import { tick, untrack, type Snippet } from 'svelte';
-  import { ApiError, type Params } from '../lib/api';
+  import { type Params } from '../lib/api';
   import { describeLoadError } from '../lib/loadError';
   import { PAGE_SIZE, ServerPage } from '../lib/paging';
   import { href, parse } from '../lib/route';
@@ -63,7 +63,7 @@
           error = null;
         }
       } catch (e) {
-        if (mine === seq) error = describeLoadError(e).message;
+        if (mine === seq) error = describeLoadError(e);
       } finally {
         if (mine === seq) loading = false;
       }

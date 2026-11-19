@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import shlex
 import threading
 from typing import Any
@@ -26,8 +27,23 @@ class FakeClient:
     def catalog(self) -> dict[str, Any]:
         return {"serverName": "sharpit", "enabled": True, "tools": []}
 
+    def catalog_result(self) -> ToolResult:
+        payload = self.catalog()
+        return ToolResult("/cli", 200, json.dumps(payload), payload)
+
     def get(self, path: str) -> Any:
         return {}
+
+    def get_result(self, path: str) -> ToolResult:
+        payload = self.get(path)
+        return ToolResult(path, 200, json.dumps(payload), payload)
+
+    def post(self, path: str, body: str) -> Any:
+        return {}
+
+    def post_result(self, path: str, body: str) -> ToolResult:
+        payload = self.post(path, body)
+        return ToolResult(path, 200, json.dumps(payload) if payload is not None else "", payload)
 
 
 def _run_cli(
@@ -707,6 +723,168 @@ def test_actions_help_prints_whole_description_with_the_approval_tag():
     code_read, out_read, _, _ = _run_cli(["beans", "--help"])
     assert code_read == 0
     assert "[action - needs approval]" not in out_read
+
+
+def test_bare_builtin_help_and_root_help_list_builtin_commands():
+    code, out, err, _ = _run_cli(["mcp"])
+    assert code == ExitCodes.ERROR
+    assert "usage:" in err
+    code, out, _, _ = _run_cli(["--help"])
+    assert code == ExitCodes.SUCCESS
+    assert "tools" in out
+    assert "mcp" in out
+    assert "status" in out
+    assert "enable" in out
+    assert "disable" in out
+
+
+# ported: BootUiCliTests.directMcpCommandsAcceptTheActualStatusIncludingUnknownFields
+def test_direct_builtin_json_keeps_server_body_and_redacts_token():
+    class RawClient(FakeClient):
+        def catalog_result(self):
+            return ToolResult("/cli", 200, self.body, json.loads(self.body))
+
+        def get_result(self, path):
+            return ToolResult(path, 200, self.body, json.loads(self.body))
+
+        def post_result(self, path, body):
+            return ToolResult(path, 200, self.body, json.loads(self.body))
+
+    body = '{ "serverName": "sharpit", "enabled": true, "tools": [], "future": "s3cret-value" }'
+    client = RawClient(None)
+    client.body = body
+    code, out, _, _ = _run_cli(["--token", "s3cret-value", "tools", "--json"], client=client)
+    assert code == 0
+    assert out.strip() == body.replace("s3cret-value", "[redacted]")
+    status = '{ "serverName": "sharpit", "transport": "http", "enabled": false, "tools": [], "future": "s3cret-value" }'
+    client.body = status
+    code, out, _, _ = _run_cli(["--token", "s3cret-value", "mcp", "status", "--json"], client=client)
+    assert code == 0
+    assert out.strip() == status.replace("s3cret-value", "[redacted]")
+    code, out, _, _ = _run_cli(["--token", "s3cret-value", "mcp", "enable", "--json"], client=client)
+    assert code == 0
+    assert out.strip() == status.replace("s3cret-value", "[redacted]")
+
+
+def test_direct_mcp_toggle_guard_403_keeps_reason_and_error_exit_with_one_request():
+    for reason in ("cross-site request denied", "host is not allowed", "invalid token"):
+
+        class GuardClient(FakeClient):
+            def post(self, path, body, reason=reason):
+                self.calls = getattr(self, "calls", 0) + 1
+                raise ClientError(f"sharpit {reason}", status=403, body=json.dumps({"error": reason}))
+
+        client = GuardClient(None)
+        code, _, err, _ = _run_cli(["mcp", "enable"], client=client)
+        assert code == ExitCodes.ERROR
+        assert reason in err
+        assert getattr(client, "calls", 0) == 1
+
+
+# ported: BootUiCliTests.directMcpCommandsRejectMissingOrUnrecognizedReports
+def test_mcp_toggle_invalid_ack_reports_unknown_outcome():
+    for acknowledgement in (None, {"wrong": True}):
+
+        class BadAckClient(FakeClient):
+            def post(self, path, body, acknowledgement=acknowledgement):
+                return acknowledgement
+
+        code, _, err, _ = _run_cli(["mcp", "enable"], client=BadAckClient(None))
+        assert code == ExitCodes.ERROR
+        assert "The MCP action outcome is unknown" in err
+        assert "The action was not retried" in err
+
+
+# ported: BootUiCliTests.directMcpCommandsRejectMissingOrUnrecognizedReports
+def test_mcp_toggle_non_json_ack_reports_unknown_outcome():
+    class InvalidJsonAck(FakeClient):
+        def post(self, path, body):
+            error = ClientError("Response does not contain JSON", status=200, body="not-json")
+            error.request_sent = True
+            raise error
+
+    code, _, err, _ = _run_cli(["mcp", "enable"], client=InvalidJsonAck(None))
+    assert code == ExitCodes.ERROR
+    assert "The MCP action outcome is unknown" in err
+    assert "The action was not retried" in err
+
+
+# ported: BootUiCliTests.directMcpCommandsRejectMissingOrUnrecognizedReports
+def test_mcp_toggle_rejects_malformed_tool_acknowledgements():
+    for tool in ({"name": " ", "action": False}, {"name": "ok", "action": "false"}):
+
+        class BadToolAck(FakeClient):
+            def post(self, path, body, tool=tool):
+                return {"serverName": "sharpit", "transport": "http", "enabled": True, "tools": [tool]}
+
+        code, _, err, _ = _run_cli(["mcp", "disable"], client=BadToolAck(None))
+        assert code == ExitCodes.ERROR
+        assert "outcome is unknown" in err
+
+
+def test_tools_tolerates_malformed_catalog_entries():
+    class BrokenCatalog(FakeClient):
+        def catalog(self):
+            return {"enabled": True, "tools": [None, "bad", {"name": "future", "arguments": None}]}
+
+    code, out, _, _ = _run_cli(["tools"], terminal=True, client=BrokenCatalog(None))
+    assert code == 0
+    assert "future" in out
+
+
+def test_fail_on_verdict_flushes_answer_first(monkeypatch):
+    events = []
+
+    class Buffered(io.StringIO):
+        def write(self, value):
+            events.append("write")
+            return super().write(value)
+
+        def flush(self):
+            events.append("flush")
+
+    class BufferedErr(io.StringIO):
+        def write(self, value):
+            events.append("error")
+            return super().write(value)
+
+    from sharpit.cli import commands
+    from sharpit.cli.fail_on import Verdict
+
+    out, err = Buffered(), BufferedErr()
+    client = FakeClient(None)
+    monkeypatch.setattr(commands, "evaluate", lambda *args: Verdict(ExitCodes.THRESHOLD, "threshold reached"))
+    code = run(
+        ["--fail-on", "high", "security", "scan"],
+        {},
+        False,
+        out,
+        err,
+        client_factory=lambda options: setattr(client, "options", options) or client,
+    )
+    assert code == ExitCodes.THRESHOLD
+    assert "flush" in events
+    assert events.index("flush") < events.index("error")
+
+
+def test_terminal_text_branch_runs_for_tools_and_mcp_status():
+    class TerminalClient(FakeClient):
+        def catalog(self):
+            return {"serverName": "sharpit", "enabled": True, "tools": []}
+
+        def get(self, path):
+            return {"serverName": "sharpit", "transport": "http", "enabled": True, "tools": []}
+
+    client = TerminalClient(None)
+    code, out, _, _ = _run_cli(["tools"], terminal=True, client=client)
+    assert code == 0
+    assert "tools" in out
+    assert "[]" in out
+    client = TerminalClient(None)
+    code, out, _, _ = _run_cli(["mcp", "status"], terminal=True, client=client)
+    assert code == 0
+    assert "sharpit" in out
+    assert "transport" in out
 
 
 # ported: CommandTreeTests.everyExampleInTheHelpRunsItsToolWithExactlyTheArgumentsItShows
