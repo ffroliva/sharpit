@@ -471,7 +471,7 @@ def test_exceptions_tool_rejects_fail_on_with_usage_error():
 
 # ported: FailOnTests.insufficientCriterionIsAcceptedOnlyForEvidenceTools
 def test_insufficient_criterion_is_accepted_only_for_evidence_tools():
-    assert {"get_runtime_insight", "get_runtime_insights"} == INSUFFICIENT_TOOLS
+    assert INSUFFICIENT_TOOLS == {"get_runtime_insight", "get_runtime_insights"}
     for tool in Manifest.bundled().tools:
         if supports_insufficient(tool.name):
             assert parse(tool.name, "insufficient") == Criterion.INSUFFICIENT
