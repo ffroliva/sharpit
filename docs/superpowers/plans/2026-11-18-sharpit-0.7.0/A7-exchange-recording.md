@@ -51,3 +51,26 @@ The test scenarios from BootUI 2.4.0 (`BootUiHttpExchangesFilterTests`, `BootUiH
 - [x] **Step 3:** Fix them in `src/sharpit/fastapi/capture.py`: the probe header is removed before any fallible step, only the setup steps sit inside the fail-open `try`, and the application is called once, outside it.
 - [x] **Step 4:** Record the adapted deviation rows in `docs/reference/matrix-updates/a7-exchange-recording.tsv`.
 - [x] **Step 5:** Run the gates: `tests/fastapi` with `-n 2` (two workers keep memory use moderate), the capture overhead budget tests with `-n 0` (a timing test does not share cores), ruff check, ruff format check and pyright. On a loaded machine the capture budget test exceeds 0.2 ms with and without this change (seven paired runs: median 0.243 ms with, 0.274 ms without); the budget is unchanged.
+
+## Round 2: Review Findings and Robustness Hardening
+
+### Findings and Red Tests
+
+| Finding | Test | Red output |
+|---|---|---|
+| Malformed header entry (3-tuple) or non-dict extensions raises before application invocation when probe strip sits outside fail-open block | `tests/fastapi/test_capture_wiring.py::test_malformed_scope_probe_strip_fails_open_calling_app_once` | `RED (assertion under tests/)` |
+| Early-return path when capture hook is suspended leaves client-forged `x-sharpit-probe` header in scope | `tests/fastapi/test_capture_wiring.py::test_forged_probe_header_stripped_when_capture_hook_suspended` | `RED (assertion under tests/)` |
+| Non-AttributeError in `_route_template` aborts request-end finally block without recording exchange row or journal event | `tests/fastapi/test_capture_wiring.py::test_route_template_non_attribute_error_still_records_exchange_and_journal` | `RED (assertion under tests/)` |
+| Failure in `ExceptionStore.record` aborts request-end cleanup, losing exchange row, journal event, and `forget_request` invocation | `tests/fastapi/test_capture_wiring.py::test_exception_store_record_failure_still_records_exchange_and_journal_and_cleans_up` | `RED (assertion under tests/)` |
+
+### Source Changes
+
+- `src/sharpit/fastapi/capture.py`:
+  - Enclosed probe-header stripping in a defensive fail-open block before early-return checks, removing `PROBE_HEADER` defensively even on malformed header entries and logging `request start` without preventing single application execution.
+  - Positioned probe-header stripping so early-return paths (unwired, detached, suspended capture hook) sanitize client-forged probe headers.
+  - Wrapped each fallible request-end step (`info.endpoint`, `store.record`, `store.forget_request`, `_outcome`, `_route_template`) in `_request_end_guard(wiring)`, ensuring exchange row and journal event recording continue and `forget_request` runs in a `finally` block.
+  - Relocated `time.time_ns()` and `root_path` retrieval into the host request branch, eliminating redundant clock queries on sharpit internal routes and dropping dead `info = None` and sentinel variables.
+- `tests/fastapi/test_capture_wiring.py`:
+  - Consolidated `_serve` helper into `_run` with `fail_start` and `wrap` parameters and FIFO `pop(0)` ordering.
+  - Isolated clock failure monkeypatching via a dedicated proxy delegating all other `time` attributes to the standard module and asserting hook warning emission.
+  - Added regression test cases for malformed scope probe header stripping, suspended hook header stripping, and guarded request-end failure isolation.
