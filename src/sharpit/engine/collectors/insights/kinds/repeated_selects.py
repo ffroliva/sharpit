@@ -1,15 +1,14 @@
-"""``repeated-selects``: BootUI ``E/insights/RepeatedSelects.java:77,152-186``.
+"""``repeated-selects``: BootUI v2.4.0 ``RepeatedSelects.java`` evaluate (126-187), finding (189-330).
 
 The finding names a statement shape because SQL names and values can trigger the free-text masker.
 """
 
 from __future__ import annotations
 
-import re
-
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.requests import Request, ids_withheld, project_requests
 from sharpit.engine.collectors.insights.snapshot import Snapshot
+from sharpit.engine.collectors.insights.sql_readability import SET_OPERATION, readable
 from sharpit.engine.collectors.insights.text import (
     HIGH_REPEAT_KEEP,
     MIN_REQUESTS,
@@ -18,7 +17,7 @@ from sharpit.engine.collectors.insights.text import (
     millis,
     stable_hash,
 )
-from sharpit.engine.sqltext import MASK, UNSUPPORTED_STATEMENT
+from sharpit.engine.sqltext import MASK
 
 KIND = "repeated-selects"
 TITLE = "Repeated SELECTs"
@@ -28,8 +27,6 @@ OPTIONAL_READS: frozenset[str] = frozenset({"transaction"})
 IMPLEMENTED = True
 
 MIN_REPEATS = 5
-_UNREADABLE = {MASK, UNSUPPORTED_STATEMENT}
-_SET_OPERATION = re.compile(r"\b(union|intersect|except)\b", re.IGNORECASE)
 
 
 def not_applicable(snapshot: Snapshot) -> str | None:
@@ -45,19 +42,22 @@ def _start(event: dict[str, object]) -> int:
     )
 
 
-def _request_repeats(request: Request) -> tuple[dict[str, list[tuple[str, int, int, str]]], int]:
+def _request_repeats(request: Request) -> tuple[dict[str, list[tuple[str, int, str, str]]], int]:
     first: str | None = None
-    counts: dict[str, list[tuple[str, int, int, str]]] = {}
+    counts: dict[str, list[tuple[str, int, str, str]]] = {}
     unread = 0
     for event in sorted(request.children["sql"], key=_start):
         sql = event.get("sql")
-        if event.get("failed") is True or event.get("provenance") != "EXECUTION":
+        if event.get("provenance") != "EXECUTION":
             continue
-        if not isinstance(sql, str) or sql in _UNREADABLE or sql.endswith("…") or _SET_OPERATION.search(sql):
+        fingerprint = stable_hash(" ".join(sql.split())) if isinstance(sql, str) else ""
+        if first is None:
+            first = fingerprint
+        if event.get("failed") is True:
+            continue
+        if not isinstance(sql, str) or not readable(sql) or sql.endswith("…") or SET_OPERATION.search(sql):
             unread += 1
             continue
-        fingerprint = stable_hash(" ".join(sql.split()))
-        first = first or fingerprint
         if not sql.lower().startswith("select") or fingerprint == first:
             continue
         duration = event.get("durationNanos")
@@ -65,16 +65,16 @@ def _request_repeats(request: Request) -> tuple[dict[str, list[tuple[str, int, i
         counts.setdefault(fingerprint, []).append(
             (
                 request.request_id,
-                max(0, duration) if isinstance(duration, int) else 0,
                 duration if isinstance(duration, int) and duration >= 0 else -1,
                 site if isinstance(site, str) else "",
+                " ".join(sql.split()),
             )
         )
     return counts, unread
 
 
 def evaluate(snapshot: Snapshot) -> Evaluation:
-    groups: dict[tuple[str, str], list[tuple[str, int, int, str]]] = {}
+    groups: dict[tuple[str, str], list[tuple[str, int, str, str]]] = {}
     requests = project_requests(snapshot, "sql")
     route_counts: dict[str, int] = {}
     unread = 0
@@ -87,21 +87,22 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
                 groups.setdefault((request.route, fingerprint), []).extend(rows)
     findings: list[Finding] = []
     for (route, fingerprint), rows in groups.items():
-        by_request: dict[str, list[tuple[str, int, int, str]]] = {}
+        by_request: dict[str, list[tuple[str, int, str, str]]] = {}
         for row in rows:
             by_request.setdefault(row[0], []).append(row)
         runs = sorted(by_request.values(), key=len, reverse=True)
         sufficient = len(runs) >= MIN_REQUESTS
-        first_event_shape = "a repeated SELECT statement shape"
+        shape = rows[0][3]
+        first_event_shape = f"`{shape}`" if MASK not in shape else "a repeated SELECT statement shape"
         sentence = (
             f"`{route}` ran {first_event_shape} {MIN_REPEATS} or more times after another statement in "
             f"{len(runs)} of {counted(route_counts[route], 'request')}, up to {len(runs[0])} times in one."
             if sufficient
-            else f"`{route}`: {len(runs)} of {route_counts[route]} requests needed to report {first_event_shape} "
+            else f"`{route}`: {len(runs)} of {MIN_REQUESTS} requests needed to report {first_event_shape} "
             f"repeated {MIN_REPEATS} or more times."
         )
-        known = all(row[2] >= 0 for row in rows)
-        total = sum(row[1] for row in rows)
+        known = all(row[1] >= 0 for row in rows)
+        total = sum(max(0, row[1]) for row in rows)
         under_floor = not sufficient and 0 < total < 50_000_000 and max(map(len, runs)) < HIGH_REPEAT_KEEP and known
         limitations = [
             "Counts statements the request ran; a statement Hibernate batches counts once.",
@@ -114,7 +115,7 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
             + (
                 f"{millis(total)} ms, summed across affected requests."
                 if total and known
-                else "unmeasured."
+                else "unmeasured: every execution was recorded as 0."
                 if known
                 else "unknown."
             ),
@@ -130,17 +131,20 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
                 eligible=route_counts[route],
                 affected=len(runs),
                 what_to_check=[
-                    "Check whether the repeated SELECT loads children of rows returned by the first statement.",
-                    "If it does, load them with one statement, such as a join or an IN list.",
+                    "Open an exemplar request in Live Activity and check whether each repeat loads the children "
+                    "of one row the first statement returned.",
+                    "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site.",
                 ],
                 exemplar_request_ids=[run[0][0] for run in runs[:3]],
-                columns=["Request", "Executions", "Time (ms)", "Call site"],
+                columns=["Request", "Executions", "Time (ms)", "Call site", "Phase", "In transaction"],
                 rows=[
                     [
                         run[0][0],
                         str(len(run)),
-                        "unknown" if any(r[2] < 0 for r in run) else millis(sum(r[1] for r in run)),
-                        run[0][3],
+                        "unknown" if any(r[1] < 0 for r in run) else millis(sum(max(0, r[1]) for r in run)),
+                        max((row[2] for row in run), key=lambda site: sum(item[2] == site for item in run)),
+                        "unknown",
+                        "unknown",
                     ]
                     for run in runs
                 ],

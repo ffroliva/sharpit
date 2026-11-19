@@ -66,7 +66,7 @@ def test_repeated_selects_report_repeated_shape_and_mask_secret_literals() -> No
     assert "secret-abc" not in str(findings[0])
 
 
-# ported: RuntimeInsightsServiceTests.delayedParentQueryIsOrderedByExecutionRatherThanJournalPublication
+# derived: route denominator and all-zero timing edge cases
 
 
 def test_repeated_selects_order_events_by_monotonic_start_before_grouping() -> None:
@@ -100,7 +100,7 @@ def test_repeated_selects_zero_time_is_unmeasured_and_not_under_floor() -> None:
     run = Run(Exposure.FULL)
     run.request(sql("select id from orders"), *(sql("select id from items", duration=0) for _ in range(5)))
     finding = run.findings("repeated-selects")[0]
-    assert "Total repeat time is unmeasured." in finding["limitations"]
+    assert "Total repeat time is unmeasured: every execution was recorded as 0." in finding["limitations"]
     assert not any("left out of the default agent list" in x for x in finding["limitations"])
 
 
@@ -139,7 +139,7 @@ def test_repeated_selects_reports_unsupported_sql_as_uncounted() -> None:
     assert "unsupported-database placeholder" in check["reason"]
 
 
-# ported: RuntimeInsightsServiceTests.delayedParentQueryIsOrderedByExecutionRatherThanJournalPublication
+# derived: route denominator and all-zero timing edge cases
 def test_repeated_selects_counts_all_route_requests_and_formats_zero_time() -> None:
     run = Run(Exposure.FULL)
     for _ in range(3):
@@ -148,7 +148,103 @@ def test_repeated_selects_counts_all_route_requests_and_formats_zero_time() -> N
     assert "3 of 3 requests" in finding["sentence"]
     detail = InsightsService(run.journal).insight(str(finding["id"]))
     assert detail["rows"][0]["cells"][2] == "0.0"
-    assert "Total repeat time is unmeasured." in finding["limitations"]
+    assert detail["columns"][-2:] == ["Phase", "In transaction"]
+    assert detail["rows"][0]["cells"][-2:] == ["unknown", "unknown"]
+    assert finding["whatToCheck"] == [
+        "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the "
+        "first statement returned.",
+        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site.",
+    ]
+    assert "Total repeat time is unmeasured: every execution was recorded as 0." in finding["limitations"]
+
+
+# ported: RuntimeInsightsServiceTests.repeatedSelectsAfterAParentStatementAreObservedOnceThreeRequestsShowThem
+def test_repeated_selects_insufficient_sentence_uses_threshold_and_bootui_pluralization() -> None:
+    for extra in (0, 4):
+        run = Run()
+        run.request(sql("select id from orders"), *(sql("select id from items") for _ in range(5)))
+        for _ in range(extra):
+            run.request(sql("select id from orders"))
+        finding = run.findings("repeated-selects")[0]
+        assert finding["sentence"] == (
+            "`GET /api/orders`: 1 of 3 requests needed to report `select id from items` repeated 5 or more times."
+        )
+
+
+# derived: BootUI's insufficient threshold count is independent of the route denominator
+def test_repeated_selects_insufficient_sentence_counts_needed_requests() -> None:
+    run = Run()
+    run.request(sql("select id from orders"), *(sql("select id from items") for _ in range(5)))
+    for _ in range(4):
+        run.request(sql("select id from orders"))
+    finding = run.findings("repeated-selects")[0]
+    assert finding["sentence"] == (
+        "`GET /api/orders`: 1 of 3 requests needed to report `select id from items` repeated 5 or more times."
+    )
+
+
+# derived: every executed event takes BootUI's first slot before SQL readability and failure checks
+def test_repeated_selects_unreadable_executed_statement_can_be_parent() -> None:
+    run = Run(Exposure.FULL)
+    parent = sql("select id from orders union select id from customers")
+    parent["failed"] = True
+    run.request(parent, *(sql("select id from items") for _ in range(5)))
+    assert run.findings("repeated-selects")
+
+
+# derived: the displayed call site is the most frequent among the repeats
+def test_repeated_selects_shows_the_most_frequent_call_site() -> None:
+    run = Run(Exposure.FULL)
+    children = [sql("select id from orders")]
+    sites = ["rare.py:1", "common.py:2", "common.py:2", "common.py:2", "other.py:3", "common.py:2"]
+    for site in sites:
+        child = sql("select id from items")
+        child["callSite"] = site
+        children.append(child)
+    run.request(*children)
+    finding = run.findings("repeated-selects")[0]
+    detail = InsightsService(run.journal).insight(str(finding["id"]))
+    assert detail["rows"][0]["cells"][3] == "common.py:2"
+
+
+# derived: unbatched unknown count includes only possible writes
+def test_unbatched_unknown_count_ignores_unreadable_reads_and_batched_inserts() -> None:
+    run = Run()
+    statements = [sql("select id from users where api_token = 'secret-value'") for _ in range(20)] + [
+        sql("insert into x values (?)", batch=2) for _ in range(10)
+    ]
+    run.request(*statements)
+    report = InsightsService(run.journal).report()
+    check = next(row for row in report["checks"] if row["kind"] == "unbatched-write-loop")
+    assert "unreadable SQL" not in check["reason"]
+    assert "no recorded batch size" not in check["reason"]
+
+
+# ported: UnbatchedWriteLoopTests.aSingleQualifyingRequestIsInsufficient
+def test_unbatched_insufficient_sentence_uses_threshold_for_one_and_five_route_requests() -> None:
+    for extra in (0, 3):
+        run = Run()
+        run.request(*(sql("insert into orders values (?)") for _ in range(10)))
+        for _ in range(extra):
+            run.request(sql("insert into orders values (?)"))
+        finding = run.findings("unbatched-write-loop")[0]
+        assert finding["sentence"] == (
+            "`GET /api/orders`: 1 of 2 requests needed to report `insert into orders values (?)` run 10 or more times "
+            "without a JDBC batch."
+        )
+
+
+# ported: UnbatchedWriteLoopTests.anExecutedWriteWithUnknownBatchSizeIsNeverCountedAndTheCheckSaysSo
+def test_unbatched_unknown_reason_uses_bootui_singular_and_plural() -> None:
+    for count, phrase in (
+        (1, "1 executed write had no recorded batch size, so it is not counted as unbatched."),
+        (5, "5 executed writes had no recorded batch size, so they are not counted as unbatched."),
+    ):
+        run = Run()
+        run.request(*(sql("insert into orders values (?)", batch=0) for _ in range(count)))
+        report = InsightsService(run.journal).report()
+        check = next(row for row in report["checks"] if row["kind"] == "unbatched-write-loop")
+        assert phrase in check["reason"]
 
 
 # derived: route denominator includes requests that ran one insert

@@ -66,8 +66,16 @@ def test_unbatched_write_loop_requires_ten_single_executions_in_two_requests() -
     finding = findings[0]
     assert finding["status"] == "OBSERVED"
     assert finding["sentence"] == (
-        "`POST /api/orders` ran one write statement shape 10 or more times, "
-        "each without a JDBC batch, in 2 of 2 requests, up to 10 times in one."
+        "`POST /api/orders` ran one write statement shape 10 or more times, each without a JDBC batch, "
+        "in 2 of 2 requests, up to 10 times in one."
+    )
+    assert (
+        "Counts executions the database ran with a batch size of one: a statement sent in a JDBC batch is not counted, "
+        "and neither is one whose batch size is unknown." in finding["limitations"]
+    )
+    assert (
+        "Transactions are not recorded, so executions are counted per request, not per transaction."
+        in finding["limitations"]
     )
     assert "secret-value-12345" not in str(finding)
     assert "secret-value-98765" not in str(finding)
@@ -97,6 +105,18 @@ def test_batch_size_one_counts_as_unbatched() -> None:
         run.request(*(sql(statement, 1) for _ in range(10)))
 
     assert any(row["kind"] == KIND for row in run.report()["observations"])
+
+
+# derived: zero durations have the BootUI unmeasured-time sentence
+def test_unbatched_zero_durations_use_bootui_unmeasured_text() -> None:
+    run = Run()
+    for _ in range(2):
+        events = [sql("insert into orders values (?)") for _ in range(10)]
+        for event in events:
+            event["durationNanos"] = 0
+        run.request(*events)
+    finding = next(row for row in run.report()["observations"] if row["kind"] == KIND)
+    assert "Total time is unmeasured: every execution was recorded as 0." in finding["limitations"]
 
 
 # ported: UnbatchedWriteLoopTests.aSingleQualifyingRequestIsInsufficient

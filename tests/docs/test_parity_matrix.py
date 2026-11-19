@@ -49,7 +49,7 @@ def _matrix() -> dict[str, str]:
         "insights": f"| Runtime insight kinds that evaluate | none | 8 of 28 registered | "
         f"{len(evaluating)} of {len(KINDS)} registered | {len(KINDS)} | 28 |",
         "routes": f"| BootUI API routes served, of the {applicable} that apply to Python | not measured | "
-        f"{routes['matched'] + routes['partial']} ({routes['matched']} shape-identical, {routes['partial']} partial) | "
+        "33 (5 shape-identical, 28 partial) | "
         f"{routes['matched'] + routes['partial']} ({routes['matched']} shape-identical, {routes['partial']} partial) | "
         f"{applicable} | not captured |",
     }
