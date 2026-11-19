@@ -13,10 +13,10 @@ Production path: `website/docs/tutorial.md`, `website/docs/tutorial/`, `website/
 | Code and output truthfulness | Every SQL line, insight text, CLI command output, and exit code matches real transcripts in `website/docs/tutorial/captures/` |
 | Automated validation | `tests/docs/test_tutorial.py` validates nav inclusion, link resolution, `sharpit.cli.commands` parsing of every command, and absence of external URLs except GitHub repo |
 
-- [ ] **Step 1:** Record plan in `docs/superpowers/plans/2026-11-18-sharpit-0.7.0/G3-tutorial.md` and capture real transcripts into `website/docs/tutorial/captures/`.
-- [ ] **Step 2:** Build `website/docs/tutorial/tutorial.css` and `website/docs/tutorial/tutorial.js` using sharpit tokens, accessible controls, keyboard navigation, and no-JS progressive enhancement.
-- [ ] **Step 3:** Author `website/docs/tutorial.md` covering the 7 steps: problem, one-line install, console mock with N+1 repeated-selects insight, checks, CI gating with exit codes, AI agent comparison linking `ai-agents.md`, and try-it/star links.
-- [ ] **Step 4:** Add Interactive tutorial to `website/mkdocs.yml` navigation under `Getting started` near Quickstart.
-- [ ] **Step 5:** Implement `tests/docs/test_tutorial.py` asserting nav presence, link validity, CLI command parsing, and external resource restrictions.
-- [ ] **Step 6:** Build docs with MkDocs, capture light and dark screenshots at 1280px and 390px using playwright-cli into `.local/`, and audit visual fidelity.
-- [ ] **Step 7:** Run all required gates (`mkdocs build --strict`, `pytest`, `ruff`, `pyright`), commit, and report.
+- [x] **Step 1:** Record plan in `docs/superpowers/plans/2026-11-18-sharpit-0.7.0/G3-tutorial.md` and capture real transcripts into `website/docs/tutorial/captures/`.
+- [x] **Step 2:** Build `website/docs/tutorial/tutorial.css` and `website/docs/tutorial/tutorial.js` using sharpit tokens, accessible controls, keyboard navigation, and no-JS progressive enhancement.
+- [x] **Step 3:** Author `website/docs/tutorial.md` covering the 7 steps: problem, one-line install, console mock with N+1 repeated-selects insight, checks, CI gating with exit codes, AI agent comparison linking `ai-agents.md`, and try-it/star links.
+- [x] **Step 4:** Add Interactive tutorial to `website/mkdocs.yml` navigation under `Getting started` near Quickstart.
+- [x] **Step 5:** Implement `tests/docs/test_tutorial.py` asserting nav presence, link validity, CLI command parsing, and external resource restrictions.
+- [x] **Step 6:** Build docs with MkDocs, capture light and dark screenshots at 1280px and 390px using playwright-cli into `.local/`, and audit visual fidelity.
+- [x] **Step 7:** Run all required gates (`mkdocs build --strict`, `pytest`, `ruff`, `pyright`), commit, and report.

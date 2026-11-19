@@ -1,0 +1,105 @@
+{
+  "summary": {
+    "id": "repeated-selects:999b67bc1d",
+    "kind": "repeated-selects",
+    "subject": "GET /orders",
+    "status": "OBSERVED",
+    "sentence": "`GET /orders` ran `SELECT id, order_id, product_name, price FROM order_items WHERE order_id = ?` 5 or more times after another statement in 3 of 3 requests, up to 30 times in one.",
+    "eligible": 3,
+    "affected": 3,
+    "minimumTier": "REQUEST_ID",
+    "whatToCheck": [
+      "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+      "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+    ],
+    "exemplarRequestIds": [
+      "req_1",
+      "req_2",
+      "req_3"
+    ],
+    "evidenceRows": 3,
+    "limitations": [
+      "Counts statements the request ran; a statement Hibernate batches counts once.",
+      "JDBC row counts, when known, do not establish how many entities or response items a query produced.",
+      "SQL text in findings is named as a statement shape because secret-looking names can mask the rest of a sentence.",
+      "Total repeat time is 90 ms, summed across affected requests.",
+      "Without the transaction source, which the runtime journal does not record, its evidence is not counted."
+    ],
+    "listed": false,
+    "unlistedReason": "Its rows appear when all rows are shown, or when a search or a query names this check or its route."
+  },
+  "detail": {
+    "available": true,
+    "unavailableReason": null,
+    "observation": {
+      "id": "repeated-selects:999b67bc1d",
+      "kind": "repeated-selects",
+      "subject": "GET /orders",
+      "status": "OBSERVED",
+      "sentence": "`GET /orders` ran `SELECT id, order_id, product_name, price FROM order_items WHERE order_id = ?` 5 or more times after another statement in 3 of 3 requests, up to 30 times in one.",
+      "eligible": 3,
+      "affected": 3,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.",
+        "If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site."
+      ],
+      "exemplarRequestIds": [
+        "req_1",
+        "req_2",
+        "req_3"
+      ],
+      "evidenceRows": 3,
+      "limitations": [
+        "Counts statements the request ran; a statement Hibernate batches counts once.",
+        "JDBC row counts, when known, do not establish how many entities or response items a query produced.",
+        "SQL text in findings is named as a statement shape because secret-looking names can mask the rest of a sentence.",
+        "Total repeat time is 90 ms, summed across affected requests.",
+        "Without the transaction source, which the runtime journal does not record, its evidence is not counted."
+      ],
+      "listed": false,
+      "unlistedReason": "Its rows appear when all rows are shown, or when a search or a query names this check or its route."
+    },
+    "columns": [
+      "Request",
+      "Executions",
+      "Time (ms)",
+      "Call site",
+      "Phase",
+      "In transaction"
+    ],
+    "rows": [
+      {
+        "cells": [
+          "req_1",
+          "30",
+          "30",
+          "app/routes/orders.py:42",
+          "unknown",
+          "unknown"
+        ]
+      },
+      {
+        "cells": [
+          "req_2",
+          "30",
+          "30",
+          "app/routes/orders.py:42",
+          "unknown",
+          "unknown"
+        ]
+      },
+      {
+        "cells": [
+          "req_3",
+          "30",
+          "30",
+          "app/routes/orders.py:42",
+          "unknown",
+          "unknown"
+        ]
+      }
+    ],
+    "truncated": 0
+  }
+}
