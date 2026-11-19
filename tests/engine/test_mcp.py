@@ -22,7 +22,7 @@ import pytest
 from sharpit import __version__
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
-from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROTOCOL_VERSION, McpServer
+from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROMPTS, PROTOCOL_VERSION, McpServer
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import TOOLS, CallContext, Tool, tool_gate
 from sharpit.settings import PanelSettings, load_settings
@@ -331,7 +331,10 @@ def test_prompts_list_and_get(no_side_effects):
     assert body is not None
     prompts = body["result"]["prompts"]
     assert [p["name"] for p in prompts] == [
-        "diagnose_runtime_issue", "verify_after_change", "review_application", "assess_application"
+        "diagnose_runtime_issue",
+        "verify_after_change",
+        "review_application",
+        "assess_application",
     ]
     expected_arguments = {
         "diagnose_runtime_issue": ["symptom", "route"],
@@ -373,13 +376,21 @@ def test_prompts_list_and_get(no_side_effects):
         assert fragment in text
     contextual = _post(
         server,
-        _rpc("prompts/get", 6, {"name": "diagnose_runtime_issue", "arguments": {
-            "symptom": "sk_live_12345678901234567890", "route": "  GET /orders  "
-        }}),
+        _rpc(
+            "prompts/get",
+            6,
+            {
+                "name": "diagnose_runtime_issue",
+                "arguments": {"symptom": "sk_live_12345678901234567890", "route": "  GET /orders  "},
+            },
+        ),
     )[1]
     assert contextual is not None
     rendered = contextual["result"]["messages"][0]["content"]["text"]
-    assert "Context the user supplied; use it to focus the steps above, and verify it against sharpit evidence rather than assume it:" in rendered
+    assert (
+        "Context the user supplied; use it to focus the steps above, and verify it against sharpit "
+        "evidence rather than assume it:" in rendered
+    )
     assert "- The symptom the user reports: ******" in rendered
     assert "- The route, job, or listener involved: GET /orders" in rendered
     assert "sk_live_12345678901234567890" not in rendered
@@ -392,8 +403,8 @@ SHARPIT_TOOLS = {t.name for t in TOOLS}
 def _guidance_texts() -> list[str]:
     server = _server()
     texts = [INSTRUCTIONS]
-    for name in ("diagnose_runtime_issue", "verify_after_change", "review_application", "assess_application"):
-        got = _post(server, _rpc("prompts/get", 9, {"name": name}))[1]
+    for prompt in PROMPTS:
+        got = _post(server, _rpc("prompts/get", 9, {"name": prompt.name}))[1]
         assert got is not None
         texts.append(got["result"]["messages"][0]["content"]["text"])
     return texts
@@ -421,6 +432,20 @@ def test_guidance_is_python_not_jvm():
         assert not re.search(r"\b(Spring|JVM|GC|Quarkus|BootUI)\b", text), text
 
 
+def test_prompt_text_has_no_internal_plan_jargon():
+    # ported: UserFacingPlanJargonTests.everyMcpDescriptionInstructionAndPromptIsPlain
+    forbidden = re.compile(
+        r"PLAN(-v2)?\.md|PLAN-v2|V2-VALIDATION|\bM[0-9]+-[0-9]+\b|\bD[0-9]{2}\b|"
+        r"§\s?[0-9]|(?i:validat\w* (on|against) real applications|external(ly)? validat|"
+        r"validation (application|run)|not (yet )?validated|reviewers?\b|adjudicat|per-kind gate|seeded case|"
+        r"counterexample|judged by|not judged yet|too few facts)"
+    )
+    texts = [INSTRUCTIONS, *(tool.description for tool in TOOLS)]
+    texts.extend(prompt.description + " " + prompt.text for prompt in PROMPTS)
+    for text in texts:
+        assert forbidden.search(text) is None
+
+
 def test_prompts_get_unknown():
     # ported: McpDispatcherTests.promptsGetValidatesName
     server = _server()
@@ -446,7 +471,16 @@ def test_prompts_get_renders_declared_arguments_and_refuses_undeclared_ones():
         server,
         _rpc("prompts/get", 9, {"name": "diagnose_runtime_issue", "arguments": {"sympton": "typo"}}),
     )[1]
-    assert unknown == _err(9, -32602, "Unknown argument for prompt diagnose_runtime_issue: sympton. It takes route, symptom.")
+    assert unknown == _err(
+        9, -32602, "Unknown argument for prompt diagnose_runtime_issue: sympton. It takes route, symptom."
+    )
+    malformed = _post(server, _rpc("prompts/get", 11, {"name": "diagnose_runtime_issue", "arguments": []}))[1]
+    assert malformed == _err(11, -32602, "Prompt arguments must be an object")
+    wrong_type = _post(
+        server,
+        _rpc("prompts/get", 12, {"name": "diagnose_runtime_issue", "arguments": {"symptom": 5}}),
+    )[1]
+    assert wrong_type == _err(12, -32602, "Argument 'symptom' must be a string")
 
 
 def test_prompt_argument_truncation_keeps_a_unicode_character_whole():
@@ -556,4 +590,3 @@ def test_mcp_progress_token_in_meta_is_accepted():
     body = _post(server, request)[1] or {}
     assert body.get("result", {}).get("structuredContent") == {"ok": True}
     assert server.status().get("progressDropped") == 0
-
