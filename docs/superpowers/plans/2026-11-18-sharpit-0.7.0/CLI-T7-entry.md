@@ -9,4 +9,4 @@
 
 - [x] **Step 1:** Add a regression test for mixed JSON and plain-text token redaction.
 - [x] **Step 2:** Extract parser and catalog work into named helpers; share the redaction marker and simplify exception tests.
-- [ ] **Step 3:** Run lane and common gates, review the diff, commit, and push.
+- [x] **Step 3:** Run lane and common gates, review the diff, commit, and push.
