@@ -1,16 +1,17 @@
-# CLI Task 3: outcomes and refusal confirmation
+# CLI Task 3 — outcomes and refusal confirmation
 
-Production path: `src/sharpit/cli/client.py:Client.invoke` supplies `ToolResult`; the CLI command layer consumes
-`confirm_answered` before mapping the outcome to an exit code.
+Production path: `sharpit.cli.outcomes.confirm_answered` interprets the `ToolResult` returned by `Client.invoke`.
 
 | Scenario | Expected behaviour |
 |---|---|
-| Foreign target returns 403/404/503 | Exit 1 unless the CLI catalog confirms sharpit answered |
-| Sharpit catalog says `enabled: false` after 503 | Endpoint disabled, exit 2 |
-| Plain 503 outage | Server error, exit 1 |
-| Disabled or read-only panel | Policy refusal, exit 2, with the server reason |
-| Invalid, unknown, busy, timed out or server error | BootUI status mapping; exit 1 |
+| Invalid or foreign catalog | Refusal is an error; catalog error and HTTP status remain visible |
+| Sharpit catalog disabled after 503 | Endpoint disabled, exit 2 |
+| Sharpit outage after 503 | Server error, exit 1 |
+| Read-only panel 403 | Refusal reason is retained, exit 2 |
+| Other HTTP statuses | Match BootUI `ToolOutcome` and `ToolResult.errorMessage` |
+| Server echoes token in an error | Outcome text redacts token |
 
-- [x] **Step 1:** Add fake-client tests for status classification, refusal confirmation, reasons, and token secrecy.
-- [x] **Step 2:** Port `ExitCodes`, `ToolOutcome.fromStatus`, and `CliContext.confirmBootUiAnswered` to the CLI modules.
-- [x] **Step 3:** Run the requested CLI, architecture, lint, format, type and common gates; commit the test and feature changes.
+- [ ] **Step 1:** Add regression assertions for round 1 findings and see them fail by assertion.
+- [ ] **Step 2:** Validate catalogs in `Client.catalog`; use its validation and message helpers in refusal confirmation.
+- [ ] **Step 3:** Port BootUI outcome classification and `ToolResult.errorMessage`; run lane and common gates.
+- [ ] **Step 4:** Record adaptations in `docs/reference/matrix-updates/cli-t3.tsv` and commit the changes.
