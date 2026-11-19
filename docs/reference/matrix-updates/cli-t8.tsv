@@ -1,0 +1,14 @@
+cli:no-update-ci-docs	n-a	BootUI provides update, ci and docs commands; sharpit omits update (no self-updating network binary), ci (orchestration beyond single-query CLI scope) and docs (no offline JVM documentation server).
+cli:no-update-check	adapted	BootUI checks remote registry for updates on CLI invocations; sharpit performs no update check to prevent unexpected outbound network traffic during local tool invocations (AGENTS.md safety rule 6).
+cli:argparse-picocli	adapted	Python standard library argparse replaces JVM picocli to satisfy standard-library-only rule for the CLI package (AGENTS.md architecture rules 2 and 4).
+cli:token-env-recommendation	adapted	--token CLI option is supported and takes precedence over SHARPIT_TOKEN, but SHARPIT_TOKEN is recommended in documentation because command-line arguments are visible in host process listings to other users.
+cli:sharpit-only-commands	n-a	9 sharpit-only command paths from manifest: db alembic (get_alembic_migrations), data repositories (get_data_repositories), sqlalchemy-statistics list (get_sqlalchemy_statistics), sqlalchemy-statistics enable (enable_sqlalchemy_statistics), fastapi-security (get_fastapi_security), fastapi report (get_fastapi_report), fastapi violations (get_fastapi_rule_violations), fastapi scan (fastapi_scan), sql-trace insights (get_sql_trace_insights).
+cli:db alembic	n-a	sharpit-only tool (get_alembic_migrations); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:data repositories	n-a	sharpit-only tool (get_data_repositories); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:sqlalchemy-statistics list	n-a	sharpit-only tool (get_sqlalchemy_statistics); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:sqlalchemy-statistics enable	n-a	sharpit-only tool (enable_sqlalchemy_statistics); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi-security	n-a	sharpit-only tool (get_fastapi_security); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi report	n-a	sharpit-only tool (get_fastapi_report); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi violations	n-a	sharpit-only tool (get_fastapi_rule_violations); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:fastapi scan	n-a	sharpit-only tool (fastapi_scan); no BootUI command, path chosen in sharpit.engine.tools COMMANDS
+cli:sql-trace insights	n-a	sharpit-only tool (get_sql_trace_insights); no BootUI command, path chosen in sharpit.engine.tools COMMANDS

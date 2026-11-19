@@ -192,6 +192,43 @@ Other options are keyword arguments or environment variables, see [Settings](htt
 
 If `/sharpit` answers 404, read [Activation](https://ffroliva.github.io/sharpit/activation/): sharpit stays off unless a dev signal turns it on.
 
+## Command-line client
+
+The `sharpit` package includes the `sharpit` console script, allowing a running application to be queried from a terminal or script without extra dependencies.
+
+```bash
+sharpit overview
+```
+
+Global options configure the connection and output format:
+
+- `--url <url>`: application base URL (default `http://localhost:8000`, env `SHARPIT_URL`).
+- `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
+- `--token <token>`: bearer authentication token. `--token` overrides the `SHARPIT_TOKEN` environment variable; using `SHARPIT_TOKEN` is recommended so credentials are not exposed in host process listings.
+- `--timeout <seconds>`: request timeout in seconds (default `60`).
+- `--json`: emit raw JSON output verbatim instead of human-readable text.
+- `--fail-on <severity>`: gate command completion against findings or evidence sufficiency.
+
+Examples:
+
+```bash
+# Read application overview
+sharpit overview
+
+# Run a security scan and fail on high or critical findings
+sharpit security scan --fail-on high
+
+# Inspect runtime insights and fail if evidence is insufficient
+sharpit insights list --fail-on insufficient
+```
+
+Exit codes follow BootUI 2.4.0 (`ExitCodes`):
+
+- `0`: success (the command completed and any gate passed).
+- `1`: error (network or HTTP error, invalid argument, or gate cannot be evaluated).
+- `2`: refused (endpoint or panel is disabled, or action is rejected by read-only policy).
+- `3`: threshold (findings reached or exceeded the `--fail-on` severity, or evidence was insufficient).
+
 ## Use with an AI agent
 
 sharpit has a read-only MCP endpoint that a coding agent can query: routes, configuration, SQL, exceptions and health of the

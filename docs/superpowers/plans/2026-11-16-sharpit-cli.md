@@ -149,11 +149,11 @@ nothing under `engine/`, `fastapi/` or `pytest_plugin/` imports `sharpit.cli`.
 ### Task 8: Documentation and deviations
 **Files:** `README.md`, `skills/sharpit/SKILL.md`, `CHANGELOG.md`, `docs/reference/PARITY.md`, the MVP design's
 deviation log.
-- [ ] **Step 1:** Record the deviations: no `update`, `ci` or `docs`; no update check; `argparse` in place of picocli; the
+- [x] **Step 1:** Record the deviations: no `update`, `ci` or `docs`; no update check; `argparse` in place of picocli; the
       documented token recommendation; the nine sharpit-only command paths.
-- [ ] **Step 2:** Replace each statement that no command-line client exists (`CHANGELOG.md`, the skill, the MVP design's
+- [x] **Step 2:** Replace each statement that no command-line client exists (`CHANGELOG.md`, the skill, the MVP design's
       non-goals).
-- [ ] **Step 3:** Commit `docs: the sharpit command-line client`.
+- [x] **Step 3:** Commit `docs: the sharpit command-line client`.
 
 ### Task 9: Live verification
 - [ ] **Step 1:** Run `examples/fastapi_sample` with sharpit, then `sharpit tools`, `sharpit security scan --json`,
