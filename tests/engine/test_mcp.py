@@ -24,7 +24,7 @@ from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROMPTS, PROTOCOL_VERSION, McpServer
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
-from sharpit.engine.tools import TOOLS, CallContext, Tool, tool_gate
+from sharpit.engine.tools import COMMANDS, TOOLS, CallContext, Tool, tool_gate
 from sharpit.settings import PanelSettings, load_settings
 from surface import BASE_MCP_TOOL_NAMES, expected_mcp_tool_names
 
@@ -410,8 +410,8 @@ def _guidance_texts() -> list[str]:
     return texts
 
 
-def test_guidance_names_only_sharpit_tools():
-    # new: review ruling (prompts and instructions name only the seven sharpit tools)
+def test_guidance_names_only_sharpit_tools(no_side_effects):
+    # new: review ruling (every cited tool exists in the sharpit catalogue)
     for text in _guidance_texts():
         named = set(
             re.findall(
@@ -426,7 +426,7 @@ def test_guidance_names_only_sharpit_tools():
     assert "OSV" in INSTRUCTIONS
 
 
-def test_guidance_is_python_not_jvm():
+def test_guidance_is_python_not_jvm(no_side_effects):
     # new: review ruling (FastAPI wording, no JVM vocabulary)
     for text in _guidance_texts():
         assert not re.search(r"\b(Spring|JVM|GC|Quarkus|BootUI)\b", text), text
@@ -446,14 +446,14 @@ def test_prompt_text_has_no_internal_plan_jargon():
         assert forbidden.search(text) is None
 
 
-def test_prompts_get_unknown():
+def test_prompts_get_unknown(no_side_effects):
     # ported: McpDispatcherTests.promptsGetValidatesName
     server = _server()
     assert _post(server, _rpc("prompts/get", 6, {"name": "nope"}))[1] == _err(6, -32602, "Unknown prompt: nope")
     assert _post(server, _rpc("prompts/get", 6, {}))[1] == _err(6, -32602, "Missing prompt name")
 
 
-def test_prompts_get_renders_declared_arguments_and_refuses_undeclared_ones():
+def test_prompts_get_renders_declared_arguments_and_refuses_undeclared_ones(no_side_effects):
     # ported: McpDispatcherTests.promptsGetRendersDeclaredArgumentsAndRefusesUndeclaredOnes
     server = _server()
     blank = _post(server, _rpc("prompts/get", 7, {"name": "diagnose_runtime_issue", "arguments": {"route": "  "}}))[1]
@@ -483,7 +483,7 @@ def test_prompts_get_renders_declared_arguments_and_refuses_undeclared_ones():
     assert wrong_type == _err(12, -32602, "Argument 'symptom' must be a string")
 
 
-def test_prompt_argument_truncation_keeps_a_unicode_character_whole():
+def test_prompt_argument_truncation_keeps_a_unicode_character_whole(no_side_effects):
     # ported: McpDispatcherTests.aBoundedPromptArgumentNeverSplitsASurrogatePair
     value = "x" * 499 + "😀tail"
     response = _post(
@@ -492,7 +492,57 @@ def test_prompt_argument_truncation_keeps_a_unicode_character_whole():
     )[1]
     assert response is not None
     rendered = response["result"]["messages"][0]["content"]["text"]
-    assert rendered.endswith("- The symptom the user reports: " + "x" * 499 + "😀...")
+    assert rendered.endswith("- The symptom the user reports: " + "x" * 499 + "...")
+
+
+def test_prompt_errors_mask_prompt_and_argument_names(no_side_effects):
+    # new: sharpit safety model masks MCP error text, including caller-supplied names
+    secret_name = "sk_live_12345678901234567890"
+    unknown_prompt = _post(_server(), _rpc("prompts/get", 13, {"name": secret_name}))[1]
+    unknown_argument = _post(
+        _server(),
+        _rpc("prompts/get", 14, {"name": "diagnose_runtime_issue", "arguments": {secret_name: "x"}}),
+    )[1]
+    assert "sk_live_12345678901234567890" not in json.dumps([unknown_prompt, unknown_argument])
+    assert "******" in json.dumps([unknown_prompt, unknown_argument])
+
+
+def test_prompt_arguments_match_java_whitespace_and_mask_after_strip(no_side_effects):
+    # ported: McpDispatcherTests.promptsGetRendersDeclaredArgumentsAndRefusesUndeclaredOnes
+    server = _server()
+    for blank in ("\u00a0", "\u2007", "\u202f"):
+        response = _post(
+            server,
+            _rpc("prompts/get", 15, {"name": "diagnose_runtime_issue", "arguments": {"route": blank}}),
+        )[1]
+        assert "Context the user supplied" in response["result"]["messages"][0]["content"]["text"]
+    response = _post(
+        server,
+        _rpc("prompts/get", 16, {"name": "diagnose_runtime_issue", "arguments": {"symptom": "  sk_live_12345678901234567890  "}}),
+    )[1]
+    rendered = response["result"]["messages"][0]["content"]["text"]
+    assert "- The symptom the user reports: ******" in rendered
+    assert "  ******  " not in rendered
+
+
+def test_prompt_named_action_tools_are_cli_only_with_commands(no_side_effects):
+    # new: sharpit MCP actions remain CLI-only and prompt guidance names their command
+    action_commands = {tool.name: COMMANDS[tool.name] for tool in TOOLS if tool.action}
+    for prompt in PROMPTS:
+        for name, command in action_commands.items():
+            if name in prompt.text:
+                assert "CLI" in prompt.text
+                assert f"sharpit {command}" in prompt.text
+
+
+def test_verify_after_change_uses_available_repeat_insights_without_prior_run_claim(no_side_effects):
+    # review fix: sharpit runtime insights expose both queries but no previous-run comparison
+    prompt = next(p for p in PROMPTS if p.name == "verify_after_change")
+    assert "repeated-selects" in prompt.text
+    assert "lazy-sql-after-handler" in prompt.text
+    assert "previous run" not in prompt.description.lower()
+    assert "previous one" not in prompt.description.lower()
+    assert "route or test the change should affect" not in next(a for a in prompt.arguments if a.name == "route").description
 
 
 # --- lane D4: BootUI 2.2.0 protocol revisions and status counters ---------------------------------------------------
