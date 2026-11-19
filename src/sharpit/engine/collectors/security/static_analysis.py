@@ -13,7 +13,6 @@ import configparser
 import enum
 import os
 import re
-import stat
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +21,12 @@ from typing import Any, cast
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.appsource import as_dict, as_str_list
+from sharpit.engine.collectors.security.static_analysis_files import (
+    contains_symbolic_link,
+    read_bounded,
+    read_text,
+    strip_yaml_comments,
+)
 
 RULE_ID = "SEC-STATIC-001"
 TITLE = "No local static security analysis declared"
@@ -41,9 +46,15 @@ RECOMMENDATION = (
 LEARN_MORE_URL = "https://bandit.readthedocs.io/"
 LIMITATION_TEXT = "Static analyzer configuration could not be assessed from bounded local files."
 
-MAX_FILE_BYTES = 1_048_576  # 1 MiB
 MAX_WORKFLOW_FILES = 64
 MAX_PARENT_DEPTH = 5
+
+PYPROJECT_TOML = "pyproject.toml"
+SETUP_CFG = "setup.cfg"
+TOX_INI = "tox.ini"
+PRE_COMMIT_CONFIG_YAML = ".pre-commit-config.yaml"
+RUFF_TOML = "ruff.toml"
+DOT_RUFF_TOML = ".ruff.toml"
 
 KNOWN_WORKFLOW_ACTION = re.compile(
     r"(?i)^(?:github/codeql-action/(?:init|analyze)@\S+|"
@@ -51,8 +62,8 @@ KNOWN_WORKFLOW_ACTION = re.compile(
     r"sonarsource/(?:sonarqube-scan-action|sonarcloud-github-action)\S*|"
     r"pycqa/bandit-action\S*)$"
 )
-ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
-REQUIREMENT_NAME_PATTERN = re.compile(r"^(?:bandit|semgrep)(?:\s*\[[^\]]*\])?(?:\s*(?:[<>=!~;@\(].*))?$", re.IGNORECASE)
+ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=.*$", re.ASCII)
+REQUIREMENT_NAME_PATTERN = re.compile(r"^(?:bandit|semgrep)(?:\s*\[[^\]]*\])?(?:\s*[<>=!~;@\(].*)?$", re.IGNORECASE)
 
 SEMGREP_CONFIG_RELPATHS = (
     Path(".semgrep.yml"),
@@ -80,130 +91,18 @@ class Inspection:
         return self.state in (State.CONFIGURED, State.NOT_CONFIGURED)
 
 
-def contains_symbolic_link(trusted_root: Path, candidate: Path) -> bool:
-    """True if candidate climbs outside trusted_root or any segment along the path is a symlink/junction."""
-    root = Path(os.path.abspath(trusted_root))
-    target = Path(os.path.abspath(candidate))
-
-    root_norm = os.path.normcase(str(root))
-    target_norm = os.path.normcase(str(target))
-    try:
-        if os.path.commonpath([root_norm, target_norm]) != root_norm:
-            return True
-    except ValueError:
-        return True
-
-    current = root
-    try:
-        rel = target.relative_to(root)
-    except ValueError:
-        return True
-
-    for segment in rel.parts:
-        current = current / segment
-        try:
-            lst = os.lstat(current)
-            if stat.S_ISLNK(lst.st_mode):
-                return True
-            if hasattr(os.path, "isjunction") and os.path.isjunction(current):
-                return True
-        except FileNotFoundError:
-            return False
-        except OSError:
-            return True
-    return False
+def _update_shell_quote(c: str, quote: str, escaped: bool) -> tuple[str | None, bool]:
+    if c == "\\" and quote == '"' and not escaped:
+        return quote, True
+    if c == quote and not escaped:
+        return None, False
+    return quote, False
 
 
-def _validate_lstat(trusted_root: Path, path: Path) -> os.stat_result:
-    if contains_symbolic_link(trusted_root, path):
-        raise ValueError("Symlink or junction detected")
-    try:
-        lst = os.lstat(path)
-    except OSError as exc:
-        raise ValueError("Cannot stat file") from exc
-
-    if stat.S_ISLNK(lst.st_mode) or (hasattr(os.path, "isjunction") and os.path.isjunction(path)):
-        raise ValueError("File is symlink or junction")
-    if not stat.S_ISREG(lst.st_mode):
-        raise ValueError("File is not a regular file")
-    if lst.st_size > MAX_FILE_BYTES:
-        raise ValueError("File size exceeds inspection limit")
-    return lst
-
-
-def _read_fd_bounded(fd: int, lst: os.stat_result) -> bytes:
-    fst = os.fstat(fd)
-    if not stat.S_ISREG(fst.st_mode) or not os.path.samestat(lst, fst):
-        raise ValueError("File changed or is not regular")
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = os.read(fd, min(65536, MAX_FILE_BYTES + 1 - total))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > MAX_FILE_BYTES:
-            raise ValueError("File size exceeds inspection limit")
-    return b"".join(chunks)
-
-
-def read_bounded(trusted_root: Path, path: Path) -> bytes:
-    """Read a regular file under trusted_root safely within MAX_FILE_BYTES without following symlinks/junctions."""
-    lst = _validate_lstat(trusted_root, path)
-    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise ValueError("Cannot open file") from exc
-    try:
-        return _read_fd_bounded(fd, lst)
-    finally:
-        os.close(fd)
-
-
-def read_text(trusted_root: Path, path: Path, errors: str = "strict") -> str:
-    """Read bounded text as UTF-8 (BOM stripped); any decode error raises ValueError when errors='strict'."""
-    data = read_bounded(trusted_root, path)
-    try:
-        return data.decode("utf-8-sig", errors=errors)
-    except UnicodeDecodeError as exc:
-        raise ValueError("File is not valid UTF-8") from exc
-
-
-def strip_yaml_comments(text: str) -> str:
-    """Strip YAML comments preserving line counts and quoted content (port of BootUI stripYamlComments)."""
-    out: list[str] = []
-    quote: str | None = None
-    escaped = False
-    i = 0
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if quote is not None:
-            out.append(c)
-            if quote == '"' and c == "\\" and not escaped:
-                escaped = True
-            elif c == quote and not escaped:
-                if quote == "'" and i + 1 < n and text[i + 1] == "'":
-                    i += 1
-                    out.append(text[i])
-                else:
-                    quote = None
-            else:
-                escaped = False
-        elif (c == '"' or c == "'") and (i == 0 or text[i - 1] != "\\"):
-            quote = c
-            out.append(c)
-        elif c == "#" and (i == 0 or text[i - 1].isspace()):
-            while i < n and text[i] != "\n":
-                i += 1
-            if i < n:
-                out.append("\n")
-        else:
-            out.append(c)
-        i += 1
-    return "".join(out)
+def _skip_compound_operator(command: str, i: int, c: str) -> int:
+    if i + 1 < len(command) and (c == "|" or c == "&") and command[i + 1] == c:
+        return i + 1
+    return i
 
 
 def _split_shell_commands(command: str) -> list[str]:
@@ -216,22 +115,31 @@ def _split_shell_commands(command: str) -> list[str]:
     while i < n:
         c = command[i]
         if quote is not None:
-            if c == "\\" and quote == '"' and not escaped:
-                escaped = True
-            else:
-                if c == quote and not escaped:
-                    quote = None
-                escaped = False
+            quote, escaped = _update_shell_quote(c, quote, escaped)
         elif c in ('"', "'"):
             quote = c
         elif c in (";", "|", "&"):
             statements.append(command[start:i])
-            if i + 1 < n and ((c == "|" and command[i + 1] == "|") or (c == "&" and command[i + 1] == "&")):
-                i += 1
+            i = _skip_compound_operator(command, i, c)
             start = i + 1
         i += 1
     statements.append(command[start:])
     return [s.strip() for s in statements if s.strip()]
+
+
+def _process_quoted_token_char(c: str, quote: str, escaped: bool, token: list[str]) -> tuple[str | None, bool]:
+    if c == "\\" and quote == '"' and not escaped:
+        return quote, True
+    if c == quote and not escaped:
+        return None, False
+    token.append(c)
+    return quote, False
+
+
+def _flush_token(token: list[str], tokens: list[str]) -> None:
+    if token:
+        tokens.append("".join(token))
+        token.clear()
 
 
 def _shell_tokens(statement: str) -> list[str]:
@@ -241,38 +149,29 @@ def _shell_tokens(statement: str) -> list[str]:
     escaped = False
     for c in statement:
         if quote is not None:
-            if c == "\\" and quote == '"' and not escaped:
-                escaped = True
-            elif c == quote and not escaped:
-                quote = None
-                escaped = False
-            else:
-                token.append(c)
-                escaped = False
+            quote, escaped = _process_quoted_token_char(c, quote, escaped, token)
         elif c in ('"', "'"):
             quote = c
         elif c.isspace():
-            if token:
-                tokens.append("".join(token))
-                token.clear()
+            _flush_token(token, tokens)
         else:
             token.append(c)
-    if token:
-        tokens.append("".join(token))
+    _flush_token(token, tokens)
     return tokens
+
+
+def _is_semgrep_config_arg(args: Sequence[str], idx: int, arg: str) -> bool:
+    if arg.startswith("--config=") and len(arg) > len("--config="):
+        return True
+    if arg in ("--config", "-f") and idx + 1 < len(args) and args[idx + 1].strip():
+        return True
+    return arg.startswith("-f") and len(arg) > 2
 
 
 def _is_semgrep_invocation(args: Sequence[str]) -> bool:
     if args and args[0] in ("scan", "ci"):
         return True
-    for idx, arg in enumerate(args):
-        if arg.startswith("--config=") and len(arg) > len("--config="):
-            return True
-        if arg in ("--config", "-f") and idx + 1 < len(args) and args[idx + 1].strip():
-            return True
-        if arg.startswith("-f") and len(arg) > 2:
-            return True
-    return False
+    return any(_is_semgrep_config_arg(args, idx, arg) for idx, arg in enumerate(args))
 
 
 _RUNNER_VALUE_OPTIONS = frozenset(
@@ -296,6 +195,8 @@ _RUNNER_VALUE_OPTIONS = frozenset(
     }
 )
 
+_WRAPPER_COMMANDS = frozenset({"env", "sudo", "time", "command", "exec"})
+
 
 def _skip_runner_options(args: list[str]) -> list[str]:
     pos = 0
@@ -314,55 +215,76 @@ def _skip_runner_options(args: list[str]) -> list[str]:
     return args[pos:]
 
 
-def _unwrap_runner_tokens(tokens: list[str]) -> tuple[str, list[str]]:
-    """Unwrap execution runners like uv, uvx, python -m, poetry, pipx, tox to find target command and args."""
+def _strip_wrapper_tokens(tokens: list[str]) -> int:
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
-        if tok in ("env", "sudo", "time", "command", "exec") or ENVIRONMENT_ASSIGNMENT.match(tok):
-            idx += 1
-        else:
+        if tok not in _WRAPPER_COMMANDS and not ENVIRONMENT_ASSIGNMENT.match(tok):
             break
+        idx += 1
+    return idx
+
+
+def _basename_lower(token: str) -> str:
+    return token.rpartition("/")[2].rpartition("\\")[2].lower()
+
+
+def _is_python_executable(executable: str) -> bool:
+    if executable in ("python", "python3", "py", "{envpython}"):
+        return True
+    return bool(re.match(r"^python3\.\d+$", executable))
+
+
+def _unwrap_python_runner(executable: str, args: list[str]) -> tuple[str, list[str]] | None:
+    if not _is_python_executable(executable) or "-m" not in args:
+        return None
+    m_idx = args.index("-m")
+    if m_idx + 1 < len(args):
+        return args[m_idx + 1].lower(), args[m_idx + 2 :]
+    return None
+
+
+def _unwrap_package_runner(executable: str, args: list[str]) -> tuple[str, list[str]] | None:
+    if executable in ("uv", "poetry", "pipx") and args and args[0] == "run":
+        rem = _skip_runner_options(args[1:])
+        return (_basename_lower(rem[0]), rem[1:]) if rem else ("", [])
+    if executable == "uvx":
+        rem = _skip_runner_options(args)
+        return (_basename_lower(rem[0]), rem[1:]) if rem else ("", [])
+    return None
+
+
+def _unwrap_runner_tokens(tokens: list[str]) -> tuple[str, list[str]]:
+    """Unwrap execution runners like uv, uvx, python -m, poetry, pipx, tox to find target command and args."""
+    idx = _strip_wrapper_tokens(tokens)
     if idx >= len(tokens):
         return "", []
 
-    executable = tokens[idx].rpartition("/")[2].rpartition("\\")[2].lower()
+    executable = _basename_lower(tokens[idx])
     args = tokens[idx + 1 :]
 
-    # Python runner: python -m bandit ... or tox {envpython} -m bandit ...
-    if (
-        executable in ("python", "python3", "py", "{envpython}") or re.match(r"^python3\.\d+$", executable)
-    ) and "-m" in args:
-        m_idx = args.index("-m")
-        if m_idx + 1 < len(args):
-            return args[m_idx + 1].lower(), args[m_idx + 2 :]
-
-    # uv run ... / poetry run ... / pipx run ...
-    if executable in ("uv", "poetry", "pipx") and args and args[0] == "run":
-        rem = _skip_runner_options(args[1:])
-        return (rem[0].rpartition("/")[2].rpartition("\\")[2].lower(), rem[1:]) if rem else ("", [])
-
-    # uvx ...
-    if executable == "uvx":
-        rem = _skip_runner_options(args)
-        return (rem[0].rpartition("/")[2].rpartition("\\")[2].lower(), rem[1:]) if rem else ("", [])
-
+    if (py_res := _unwrap_python_runner(executable, args)) is not None:
+        return py_res
+    if (pkg_res := _unwrap_package_runner(executable, args)) is not None:
+        return pkg_res
     return executable, args
+
+
+def _is_known_analyzer_command(name: str, args: list[str]) -> bool:
+    if name == "bandit":
+        return not args or not args[0].startswith("--version")
+    if name == "semgrep":
+        return _is_semgrep_invocation(args)
+    if name == "codeql":
+        return bool(args) and args[0] in ("database", "analyze")
+    return name == "sonar-scanner"
 
 
 def _has_known_workflow_command(command: str) -> bool:
     for stmt in _split_shell_commands(command):
         tokens = _shell_tokens(stmt)
         name, args = _unwrap_runner_tokens(tokens)
-        if not name:
-            continue
-        if name == "bandit" and (not args or not args[0].startswith("--version")):
-            return True
-        if name == "semgrep" and _is_semgrep_invocation(args):
-            return True
-        if name == "codeql" and args and args[0] in ("database", "analyze"):
-            return True
-        if name == "sonar-scanner":
+        if name and _is_known_analyzer_command(name, args):
             return True
     return False
 
@@ -471,8 +393,8 @@ def _inspect_workflow_entry(repository_root: Path, entry: os.DirEntry[str]) -> t
         return False, True
 
 
-def _inspect_workflows(repository_root: Path, directory: Path) -> tuple[bool, bool]:
-    """(configured, indeterminate) for .github/workflows directory."""
+def _is_valid_workflow_dir(repository_root: Path, directory: Path) -> tuple[bool, bool]:
+    """Return (is_dir, indeterminate). If not is_dir and not indeterminate, dir does not exist."""
     if contains_symbolic_link(repository_root, directory):
         return False, True
     try:
@@ -482,25 +404,35 @@ def _inspect_workflows(repository_root: Path, directory: Path) -> tuple[bool, bo
             return False, True
     except OSError:
         return False, True
+    return True, False
 
+
+def _scan_workflow_entries(repository_root: Path, directory: Path) -> tuple[bool, bool]:
     visited = 0
     indeterminate = False
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if not entry.name.lower().endswith((".yml", ".yaml")):
+                continue
+            visited += 1
+            if visited > MAX_WORKFLOW_FILES:
+                return False, True
+            conf, ind = _inspect_workflow_entry(repository_root, entry)
+            if conf:
+                return True, False
+            indeterminate |= ind
+    return False, indeterminate
+
+
+def _inspect_workflows(repository_root: Path, directory: Path) -> tuple[bool, bool]:
+    """(configured, indeterminate) for .github/workflows directory."""
+    valid_dir, indeterminate = _is_valid_workflow_dir(repository_root, directory)
+    if not valid_dir:
+        return False, indeterminate
     try:
-        with os.scandir(directory) as entries:
-            for entry in entries:
-                name = entry.name.lower()
-                if not (name.endswith(".yml") or name.endswith(".yaml")):
-                    continue
-                visited += 1
-                if visited > MAX_WORKFLOW_FILES:
-                    return False, True
-                conf, ind = _inspect_workflow_entry(repository_root, entry)
-                if conf:
-                    return True, False
-                indeterminate |= ind
+        return _scan_workflow_entries(repository_root, directory)
     except OSError:
         return False, True
-    return False, indeterminate
 
 
 def _inspect_sonar_properties(repository_root: Path, path: Path) -> tuple[bool, bool]:
@@ -518,45 +450,57 @@ def _inspect_sonar_properties(repository_root: Path, path: Path) -> tuple[bool, 
         return False, True
 
 
+def _inspect_single_semgrep_file(repository_root: Path, cfg: Path) -> tuple[bool, bool]:
+    """Return (configured, indeterminate) for a single semgrep config file."""
+    if contains_symbolic_link(repository_root, cfg):
+        return False, True
+    try:
+        if not cfg.exists():
+            return False, False
+        if not cfg.is_file():
+            return False, True
+        content = read_text(repository_root, cfg)
+        return (True, False) if content.strip() else (False, False)
+    except Exception:  # noqa: BLE001
+        return False, True
+
+
 def _inspect_semgrep_configs(repository_root: Path, candidate_roots: Sequence[Path]) -> tuple[bool, bool]:
     """(configured, indeterminate) for recognized Semgrep config files."""
     indeterminate = False
     for root in candidate_roots:
         for rel in SEMGREP_CONFIG_RELPATHS:
-            cfg = root / rel
-            if contains_symbolic_link(repository_root, cfg):
-                indeterminate = True
-                continue
-            try:
-                if not cfg.exists():
-                    continue
-                if not cfg.is_file():
-                    indeterminate = True
-                    continue
-                content = read_text(repository_root, cfg)
-                if content.strip():
-                    return True, False
-            except Exception:  # noqa: BLE001
-                indeterminate = True
+            conf, ind = _inspect_single_semgrep_file(repository_root, root / rel)
+            if conf:
+                return True, False
+            indeterminate |= ind
     return False, indeterminate
 
 
+def _is_pre_commit_repo(lower: str) -> bool:
+    repo_val = lower.partition("repo:")[2].strip().strip("\"'")
+    return "pycqa/bandit" in repo_val or "semgrep/semgrep" in repo_val
+
+
+def _is_pre_commit_id(lower: str) -> bool:
+    val = lower.partition("id:")[2].strip().strip("\"'")
+    return val in ("bandit", "semgrep")
+
+
+def _is_pre_commit_entry(item: str) -> bool:
+    cmd = item.partition("entry:")[2].strip().strip("\"'")
+    return _has_known_workflow_command(cmd)
+
+
 def _inspect_pre_commit_line(line: str) -> bool:
-    trimmed = line.strip()
-    item = trimmed.removeprefix("-").strip()
+    item = line.strip().removeprefix("-").strip()
     lower = item.lower()
     if lower.startswith("repo:"):
-        repo_val = lower.partition("repo:")[2].strip().strip("\"'")
-        if "pycqa/bandit" in repo_val or "semgrep/semgrep" in repo_val:
-            return True
-    elif lower.startswith("id:"):
-        val = lower.partition("id:")[2].strip().strip("\"'")
-        if val in ("bandit", "semgrep"):
-            return True
-    elif lower.startswith("entry:"):
-        cmd = item.partition("entry:")[2].strip().strip("\"'")
-        if _has_known_workflow_command(cmd):
-            return True
+        return _is_pre_commit_repo(lower)
+    if lower.startswith("id:"):
+        return _is_pre_commit_id(lower)
+    if lower.startswith("entry:"):
+        return _is_pre_commit_entry(item)
     return False
 
 
@@ -623,6 +567,14 @@ def _inspect_setup_cfg(repository_root: Path, path: Path) -> tuple[bool, bool]:
         return False, True
 
 
+def _tox_section_has_analyzer(parser: configparser.ConfigParser, sec: str) -> bool:
+    deps = parser.get(sec, "deps", fallback="").splitlines()
+    if any(REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()) for line in deps):
+        return True
+    cmds = parser.get(sec, "commands", fallback="").splitlines()
+    return any(_has_known_workflow_command(line.strip()) for line in cmds)
+
+
 def _inspect_tox_ini(repository_root: Path, path: Path) -> tuple[bool, bool]:
     """(configured, indeterminate) for tox.ini."""
     if contains_symbolic_link(repository_root, path):
@@ -634,14 +586,7 @@ def _inspect_tox_ini(repository_root: Path, path: Path) -> tuple[bool, bool]:
             return False, True
         parser = configparser.ConfigParser(interpolation=None)
         parser.read_string(read_text(repository_root, path))
-        for sec in parser.sections():
-            deps = parser.get(sec, "deps", fallback="").splitlines()
-            if any(REQUIREMENT_NAME_PATTERN.match(line.partition("#")[0].strip()) for line in deps):
-                return True, False
-            cmds = parser.get(sec, "commands", fallback="").splitlines()
-            if any(_has_known_workflow_command(line.strip()) for line in cmds):
-                return True, False
-        return False, False
+        return (True, False) if any(_tox_section_has_analyzer(parser, s) for s in parser.sections()) else (False, False)
     except Exception:  # noqa: BLE001
         return False, True
 
@@ -692,7 +637,7 @@ def _check_ruff_section(data: dict[str, object], project_root: Path, repository_
     Returns (configured, indeterminate).
     """
     for candidate_root in (project_root, repository_root):
-        for name in (".ruff.toml", "ruff.toml"):
+        for name in (DOT_RUFF_TOML, RUFF_TOML):
             candidate = candidate_root / name
             result = _inspect_ruff_file(candidate_root, candidate)
             if result is not None:
@@ -706,15 +651,15 @@ def _check_ruff_section(data: dict[str, object], project_root: Path, repository_
     return _resolve_ruff_dict(ruff)
 
 
+def _is_matching_requirement(item: object) -> bool:
+    return isinstance(item, str) and bool(REQUIREMENT_NAME_PATTERN.match(item.strip()))
+
+
 def _check_deps_list(deps: object) -> bool:
     if isinstance(deps, (list, tuple)):
-        for x in cast(Sequence[object], deps):
-            if isinstance(x, str) and REQUIREMENT_NAME_PATTERN.match(x.strip()):
-                return True
-    elif isinstance(deps, dict):
-        for k in cast(dict[object, object], deps):
-            if isinstance(k, str) and REQUIREMENT_NAME_PATTERN.match(k.strip()):
-                return True
+        return any(_is_matching_requirement(x) for x in cast(Sequence[object], deps))
+    if isinstance(deps, dict):
+        return any(_is_matching_requirement(k) for k in cast(dict[object, object], deps))
     return False
 
 
@@ -786,18 +731,18 @@ def _inspect_pyproject(
 
 def _inspect_single_build_file(root: Path, bf: Path, repo_root: Path) -> tuple[bool, bool]:
     name = bf.name.lower()
-    if name == "pyproject.toml":
+    if name == PYPROJECT_TOML:
         return _inspect_pyproject(root, bf, repo_root)
-    if name in ("ruff.toml", ".ruff.toml"):
+    if name in (RUFF_TOML, DOT_RUFF_TOML):
         res = _inspect_ruff_file(root, bf)
         return res if res is not None else (False, False)
-    if name == "setup.cfg":
+    if name == SETUP_CFG:
         return _inspect_setup_cfg(root, bf)
-    if name == "tox.ini":
+    if name == TOX_INI:
         return _inspect_tox_ini(root, bf)
     if name.startswith("requirements") and name.endswith(".txt"):
         return _inspect_requirements(root, bf)
-    if name == ".pre-commit-config.yaml":
+    if name == PRE_COMMIT_CONFIG_YAML:
         return _inspect_pre_commit(root, bf)
     return False, False
 
@@ -813,7 +758,7 @@ def _inspect_build_files(root: Path, build_files: list[Path], repo_root: Path) -
 
 
 def _inspect_parent_pyproject(cand: Path, repo_root: Path) -> tuple[bool, bool]:
-    cand_build = cand / "pyproject.toml"
+    cand_build = cand / PYPROJECT_TOML
     try:
         if not cand_build.exists():
             return False, False
@@ -843,16 +788,16 @@ def _inspect_candidate_requirements(cand: Path, repo_root: Path) -> tuple[bool, 
 def _inspect_candidate_files(cand: Path, repo_root: Path) -> tuple[bool, bool]:
     indeterminate = False
     for checker, path in (
-        (_inspect_pre_commit, cand / ".pre-commit-config.yaml"),
-        (_inspect_setup_cfg, cand / "setup.cfg"),
-        (_inspect_tox_ini, cand / "tox.ini"),
+        (_inspect_pre_commit, cand / PRE_COMMIT_CONFIG_YAML),
+        (_inspect_setup_cfg, cand / SETUP_CFG),
+        (_inspect_tox_ini, cand / TOX_INI),
     ):
         conf, ind = checker(repo_root, path)
         if conf:
             return True, False
         indeterminate |= ind
 
-    for ruff_name in (".ruff.toml", "ruff.toml"):
+    for ruff_name in (DOT_RUFF_TOML, RUFF_TOML):
         if (res := _inspect_ruff_file(repo_root, cand / ruff_name)) is not None:
             if res[0]:
                 return True, False
@@ -927,13 +872,13 @@ class StaticSecurityAnalysisDetector:
 
     def _build_files(self, root: Path) -> list[Path]:
         names = (
-            "pyproject.toml",
-            "setup.cfg",
+            PYPROJECT_TOML,
+            SETUP_CFG,
             "setup.py",
-            "tox.ini",
-            ".pre-commit-config.yaml",
-            "ruff.toml",
-            ".ruff.toml",
+            TOX_INI,
+            PRE_COMMIT_CONFIG_YAML,
+            RUFF_TOML,
+            DOT_RUFF_TOML,
         )
         files: list[Path] = []
         for name in names:
