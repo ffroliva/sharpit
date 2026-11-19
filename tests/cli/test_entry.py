@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from sharpit import __version__
 from sharpit.cli.client import ToolResult
 from sharpit.cli.commands import run
@@ -39,15 +41,33 @@ class FakeClient:
             ],
         }
 
+    def catalog_result(self):
+        from sharpit.cli.client import ToolResult
+
+        payload = self.catalog()
+        return ToolResult("/cli", 200, json.dumps(payload), payload)
+
     def get(self, path):
         self.requests.append(("get", path))
         if path == "/cli":
             return self.catalog()
         return {"serverName": "sharpit", "transport": "http", "enabled": False, "tools": []}
 
+    def get_result(self, path):
+        from sharpit.cli.client import ToolResult
+
+        payload = self.get(path)
+        return ToolResult(path, 200, json.dumps(payload), payload)
+
     def post(self, path, body):
         self.requests.append(("post", path, body))
         return {"serverName": "sharpit", "transport": "http", "enabled": True, "tools": []}
+
+    def post_result(self, path, body):
+        from sharpit.cli.client import ToolResult
+
+        payload = self.post(path, body)
+        return ToolResult(path, 200, json.dumps(payload), payload)
 
 
 def execute(argv, *, client=None, output=None):
@@ -230,9 +250,122 @@ def test_unknown_command_lists_groups_with_readable_metavars():
 def test_fail_on_is_rejected_for_builtin_commands():
     for argv in (["tools", "--fail-on", "high"], ["mcp", "status", "--fail-on", "critical"]):
         code, _, _, client = execute(argv)
-        assert code == 2
+        assert code == ExitCodes.ERROR
         assert client.requests == []
-    assert run(["--fail-on", "high", "beans"], {}, False, io.StringIO(), io.StringIO()) == 2
+    assert run(["--fail-on", "high", "beans"], {}, False, io.StringIO(), io.StringIO()) == ExitCodes.ERROR
+
+
+@pytest.mark.parametrize("argv", [["--fail-on", "high", "beans"], ["--fail-on=high", "beans"]])
+def test_fail_on_usage_forms_have_the_same_error_exit(argv):
+    assert run(argv, {}, False, io.StringIO(), io.StringIO()) == ExitCodes.ERROR
+
+
+def test_invalid_fail_on_value_has_usage_error_exit():
+    assert run(["--fail-on", "not-a-severity", "security", "scan"], {}, False, io.StringIO(), io.StringIO()) == 1
+
+
+def test_help_and_version_win_over_invalid_fail_on():
+    out, err = io.StringIO(), io.StringIO()
+    assert run(["--fail-on", "nonsense", "--help"], {}, False, out, err) == ExitCodes.SUCCESS
+    assert "usage:" in out.getvalue()
+    out, err = io.StringIO(), io.StringIO()
+    assert run(["--fail-on", "nonsense", "--version"], {}, False, out, err) == ExitCodes.SUCCESS
+    assert out.getvalue() == f"sharpit {__version__}\n"
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("token,encoded", [(r'ab"c\d', r'ab\"c\\d'), ("é", r"\u00e9"), ("/", r"\/")])
+def test_token_escapes_are_redacted_in_final_json_and_terminal_text(json_output, token, encoded):
+    body = '{"secret":"' + encoded + '"}'
+
+    class SecretClient(FakeClient):
+        def invoke(self, tool, arguments):
+            return ToolResult(tool, 200, body, {"secret": token})
+
+    out, err = io.StringIO(), io.StringIO()
+    argv = (["--json"] if json_output else []) + ["beans"]
+    code = run(argv, {"SHARPIT_TOKEN": token}, True, out, err, client_factory=SecretClient)
+    assert code == ExitCodes.SUCCESS
+    expected = 'secret: [redacted]\n' if not json_output else '{"secret":"[redacted]"}\n'
+    assert out.getvalue() == expected
+
+
+def test_mcp_status_does_not_construct_manifest_leaf_parsers(monkeypatch):
+    from sharpit.cli import commands
+
+    built = []
+    configure = commands._configure_leaf_arguments
+    monkeypatch.setattr(commands, "_configure_leaf_arguments", lambda parser, tool: built.append(tool.name))
+    execute(["mcp", "status"])
+    monkeypatch.setattr(commands, "_configure_leaf_arguments", configure)
+    assert built == []
+
+
+def test_mcp_action_hides_transport_error_after_request_was_sent():
+    from sharpit.cli.client import ClientError
+
+    class FailingMcpClient(FakeClient):
+        def post_result(self, path, body):
+            error = ClientError("Cannot reach sharpit")
+            error.request_sent = True
+            raise error
+
+    code, _, err, _ = execute(["mcp", "enable"], client=FailingMcpClient(None))
+    assert code == ExitCodes.ERROR
+    assert "outcome is unknown" in err
+    assert "Cannot reach" not in err
+
+
+def test_mcp_action_preserves_transport_error_before_request_was_sent():
+    from sharpit.cli.client import ClientError
+
+    class FailedBeforeSendClient(FakeClient):
+        def post_result(self, path, body):
+            raise ClientError("Cannot reach sharpit", request_sent=False)
+
+    code, _, err, _ = execute(["mcp", "enable"], client=FailedBeforeSendClient(None))
+    assert code == ExitCodes.ERROR
+    assert "Cannot reach" in err
+
+
+@pytest.mark.parametrize("command", ["beans", "tools", "mcp status"])
+def test_builtin_json_redacts_escaped_token_from_verbatim_body(command):
+    from sharpit.cli.client import ToolResult
+
+    token = 'a"b\\c'
+    if command == "beans":
+        name, body, payload = "get_beans", json.dumps({"secret": token}), {"secret": token}
+    elif command == "tools":
+        name, payload = "/cli", {"serverName": "sharpit", "enabled": True, "tools": [], "secret": token}
+        body = json.dumps(payload)
+    else:
+        name = "/mcp-server"
+        payload = {"serverName": "sharpit", "transport": "http", "enabled": False, "tools": [], "secret": token}
+        body = json.dumps(payload)
+
+    class RawClient(FakeClient):
+        def invoke(self, tool, arguments):
+            return ToolResult(tool, 200, body, payload)
+
+        def catalog_result(self):
+            return ToolResult(name, 200, body, payload)
+
+        def get_result(self, path):
+            return ToolResult(name, 200, body, payload)
+
+    argv = ["--json", *command.split()]
+    out, err, client = io.StringIO(), io.StringIO(), RawClient(None)
+    code = run(
+        argv,
+        {"SHARPIT_TOKEN": token},
+        False,
+        out,
+        err,
+        client_factory=lambda options: setattr(client, "options", options) or client,
+    )
+    assert code == ExitCodes.SUCCESS
+    assert token not in out.getvalue()
+    assert "[redacted]" in out.getvalue()
 
 
 def test_main_utf8_piped_json_preserves_unicode_bytes(monkeypatch):
@@ -255,7 +388,7 @@ def test_main_utf8_piped_json_preserves_unicode_bytes(monkeypatch):
     assert raw.getvalue().rstrip(b"\r\n") == '{"message": "数据 😀"}'.encode()
 
 
-def test_main_handles_broken_pipe_quietly(monkeypatch):
+def test_main_broken_pipe_cannot_turn_a_threshold_verdict_into_success(monkeypatch):
     from sharpit.cli import commands
 
     class Broken:
@@ -267,6 +400,9 @@ def test_main_handles_broken_pipe_quietly(monkeypatch):
         def reconfigure(self, **kwargs):
             pass
 
+        def fileno(self):
+            return 1
+
         def write(self, value):
             raise BrokenPipeError()
 
@@ -274,17 +410,21 @@ def test_main_handles_broken_pipe_quietly(monkeypatch):
             pass
 
     monkeypatch.setattr(commands.sys, "stdout", Broken())
+    monkeypatch.setattr(commands.os, "open", lambda *_args, **_kwargs: 123)
+    dup_calls = []
+    monkeypatch.setattr(commands.os, "dup2", lambda *args: dup_calls.append(args))
 
     class SuccessClient(FakeClient):
         def invoke(self, tool, arguments):
-            return ToolResult(tool, 200, "{}", {})
+            return ToolResult(tool, 200, '{"scan":{"status":"SCANNED"},"severityCounts":[{"severity":"HIGH","count":1}]}', {"scan": {"status": "SCANNED"}, "severityCounts": [{"severity": "HIGH", "count": 1}]})
 
     monkeypatch.setattr(commands, "Client", SuccessClient)
     try:
-        code = commands.main(["beans"])
+        code = commands.main(["--fail-on", "high", "security", "scan"])
     except BrokenPipeError:
         code = None
-    assert code == 0
+    assert code == ExitCodes.ERROR
+    assert dup_calls
 
 
 def test_main_maps_keyboard_interrupt_to_130(monkeypatch):

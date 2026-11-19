@@ -302,6 +302,20 @@ def test_invoke_rejects_non_json_with_the_endpoint_and_http_status(endpoint):
     assert "Authorization" not in repr(ClientError(error))
 
 
+def test_post_json_parse_error_keeps_its_body_redacted_and_does_not_parse_it_again(endpoint):
+    base, routes, *_ = endpoint
+    secret = 'a"b\\c'
+    body = '{"secret":"a\\"b\\\\c",}'
+    routes["/sharpit/api/mcp-server/toggle"] = (200, body.encode(), None)
+
+    with pytest.raises(ClientError) as caught:
+        Client(options(base, token=secret)).post_result("/mcp-server/toggle", "{}")
+
+    assert secret not in caught.value.body
+    assert "[redacted]" in caught.value.body
+    assert not hasattr(caught.value, "payload")
+
+
 def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
     base, routes, _, _, delays, *_ = endpoint
     secret = "message-secret"

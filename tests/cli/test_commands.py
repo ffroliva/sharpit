@@ -27,8 +27,23 @@ class FakeClient:
     def catalog(self) -> dict[str, Any]:
         return {"serverName": "sharpit", "enabled": True, "tools": []}
 
+    def catalog_result(self) -> ToolResult:
+        payload = self.catalog()
+        return ToolResult("/cli", 200, json.dumps(payload), payload)
+
     def get(self, path: str) -> Any:
         return {}
+
+    def get_result(self, path: str) -> ToolResult:
+        payload = self.get(path)
+        return ToolResult(path, 200, json.dumps(payload), payload)
+
+    def post(self, path: str, body: str) -> Any:
+        return {}
+
+    def post_result(self, path: str, body: str) -> ToolResult:
+        payload = self.post(path, body)
+        return ToolResult(path, 200, json.dumps(payload) if payload is not None else "", payload)
 
 
 def _run_cli(
@@ -784,7 +799,9 @@ def test_mcp_toggle_invalid_ack_reports_unknown_outcome():
 def test_mcp_toggle_non_json_ack_reports_unknown_outcome():
     class InvalidJsonAck(FakeClient):
         def post(self, path, body):
-            raise ClientError("Response does not contain JSON", status=200, body="not-json")
+            error = ClientError("Response does not contain JSON", status=200, body="not-json")
+            error.request_sent = True
+            raise error
 
     code, _, err, _ = _run_cli(["mcp", "enable"], client=InvalidJsonAck(None))
     assert code == ExitCodes.ERROR
