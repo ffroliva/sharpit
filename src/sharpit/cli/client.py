@@ -107,31 +107,41 @@ class Client:
         )
 
     def get(self, path: str) -> Any:
-        return self._get(path)
+        return self.get_result(path).payload
+
+    def get_result(self, path: str) -> ToolResult:
+        return self._get_result(path)
 
     def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
         return self._invoke(tool, arguments)
 
     def catalog(self) -> dict[str, Any]:
-        return self._catalog()
+        return self.catalog_result().payload
+
+    def catalog_result(self) -> ToolResult:
+        return self._catalog_result()
 
     def post(self, path: str, body: str) -> Any:
+        return self.post_result(path, body).payload
+
+    def post_result(self, path: str, body: str) -> ToolResult:
         endpoint = self._endpoint(path)
         status, response = self._send(endpoint, "POST", body)
         if not 200 <= status < 300:
             raise self._describe_failure(status, response)
         try:
-            return _parse_json(response, endpoint, status) if response.strip() else None
+            payload = _parse_json(response, endpoint, status) if response.strip() else None
+            return ToolResult(path, status, response, payload)
         except ClientError as error:
-            raise self._client_error(str(error)) from None
+            raise ClientError(str(error), status=status, body=response) from None
 
-    def _get(self, path: str) -> Any:
+    def _get_result(self, path: str) -> ToolResult:
         endpoint = self._endpoint(path)
         status, body = self._send(endpoint, "GET", None)
         if not 200 <= status < 300:
             raise self._describe_failure(status, body)
         try:
-            return _parse_json(body, endpoint, status)
+            return ToolResult(path, status, body, _parse_json(body, endpoint, status))
         except ClientError as error:
             raise self._client_error(str(error)) from None
 
@@ -147,7 +157,7 @@ class Client:
             raise self._client_error(str(error)) from None
         return ToolResult(tool, status, body, payload)
 
-    def _catalog(self) -> dict[str, Any]:
+    def _catalog_result(self) -> ToolResult:
         path = "/cli"
         endpoint = self._endpoint(path)
         status, body = self._send(endpoint, "GET", None)
@@ -174,7 +184,7 @@ class Client:
                 "Response is not a sharpit catalog: expected serverName 'sharpit', a boolean enabled, "
                 "and a tools array that is empty while disabled."
             )
-        return catalog
+        return ToolResult(path, status, body, catalog)
 
     def _send(
         self,

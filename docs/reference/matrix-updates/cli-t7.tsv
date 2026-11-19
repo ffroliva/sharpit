@@ -1,2 +1,2 @@
-cli-t7-render	adapted	Python text streams replace unencodable console characters; BootUI writes through UTF-8 PrintWriter.
+cli-t7-render	adapted	Machine output preserves UTF-8 bytes; terminal text replaces unencodable characters; BootUI writes through UTF-8 PrintWriter.
 cli-t7-entry	adapted	Python package and console-script entry points replace BootUI's JVM main entry.

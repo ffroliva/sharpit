@@ -21,6 +21,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The CLI redacts parser errors for built-in commands, keeps piped JSON UTF-8 and verbatim, and preserves MCP guard refusals without retrying the action.
 - The CLI limits only connection establishment to 10 seconds; a tool response can use the full `--timeout`, and read timeouts are reported separately from connection and TLS failures. CLI output rewrites BootUI text before redacting echoed tokens, and normal API responses are no longer capped at 1 MiB.
 - A dismissed `sharpit.swallowed-exception` finding no longer comes back when a line above it moves (#66). The finding
   is keyed by `<path>:<scope qualified name>:<ExceptionType>#<key>` instead of the line of the `except` header. The key

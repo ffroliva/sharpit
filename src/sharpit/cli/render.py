@@ -57,10 +57,20 @@ def _render_table(
         for index, cell in enumerate(row):
             if len(cell) > _MAX_CELL_WIDTH:
                 row[index] = cell[: _MAX_CELL_WIDTH - 1] + "…"
-    widths = [max(len(column), *(len(row[index]) for row in cells)) for index, column in enumerate(columns)]
-    lines.append(indent + "  ".join(_style(column.ljust(widths[i]), "1", color) for i, column in enumerate(columns)))
+    headers = [_safe(column) for column in columns]
+    widths = [max(len(headers[i]), *(len(row[i]) for row in cells)) for i in range(len(columns))]
+    lines.append(
+        indent
+        + "  ".join(
+            _style(headers[i].ljust(widths[i]) if i < len(columns) - 1 else headers[i], "1", color)
+            for i in range(len(columns))
+        )
+    )
     lines.append(indent + "  ".join(_style("-" * width, "2", color) for width in widths))
-    lines.extend(indent + "  ".join(row[i].ljust(widths[i]) for i in range(len(columns))).rstrip() for row in cells)
+    lines.extend(
+        indent + "  ".join(row[i].ljust(widths[i]) if i < len(columns) - 1 else row[i] for i in range(len(columns)))
+        for row in cells
+    )
 
 
 def _render_mapping(value: Mapping[str, object], lines: list[str], depth: int, color: bool) -> None:
@@ -127,3 +137,12 @@ def write(stream: TextIO, text: str) -> None:
         encoding = getattr(stream, "encoding", None) or "utf-8"
         replacement = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
         stream.write(replacement)
+
+
+def write_json(stream: TextIO, text: str) -> None:
+    """Keep machine-readable output UTF-8 even when an injected stream has another encoding."""
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        buffer.write(text.encode("utf-8"))
+    else:
+        stream.write(text)
