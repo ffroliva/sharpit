@@ -4,7 +4,8 @@ Verifies:
 - Tutorial page exists and is present in the navigation of website/mkdocs.yml.
 - Every `sharpit ...` command cited in tutorial.md parses cleanly with sharpit.cli.commands,
   including inline code blocks with custom styles.
-- Built site links resolve to valid built files/anchors (via temporary mkdocs build).
+- Every link resolves without building the site: raw-HTML links use built URLs (`../page/`) that map to a page under
+  `website/docs/`, Markdown links point at existing files, and same-page anchors exist.
 - No external URLs are loaded or linked except the GitHub repository link.
 """
 
@@ -12,8 +13,6 @@ from __future__ import annotations
 
 import re
 import shlex
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -26,29 +25,19 @@ DOCS_DIR = ROOT / "website" / "docs"
 MKDOCS_YML = ROOT / "website" / "mkdocs.yml"
 TUTORIAL_MD = DOCS_DIR / "tutorial.md"
 
-ALLOWED_EXTERNAL_URLS = {
+ALLOWED_EXTERNAL_URLS = (
     "https://github.com/ffroliva/sharpit",
     "https://ffroliva.github.io/sharpit",
-}
+)
 
 LOCAL_URL_PREFIXES = (
     "http://127.0.0.1:",
     "http://localhost:",
 )
 
-
-@pytest.fixture(scope="module")
-def built_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    site_dir = tmp_path_factory.mktemp("built_site")
-    mkdocs_bin = shutil.which("mkdocs") or "mkdocs"
-    res = subprocess.run(
-        [mkdocs_bin, "build", "-f", str(MKDOCS_YML), "-d", str(site_dir)],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 0, f"mkdocs build failed (rc={res.returncode}):\n{res.stderr}\n{res.stdout}"
-    return site_dir
+HREF = re.compile(r'href="([^"]+)"')
+MARKDOWN_LINK = re.compile(r"\]\(([^)\s]+)\)")
+EXTERNAL_RESOURCE = re.compile(r"""(?:src|href)=["'](https?://[^"']+)["']""")
 
 
 def test_tutorial_page_exists_and_in_nav() -> None:
@@ -91,66 +80,60 @@ def test_all_sharpit_commands_in_tutorial_parse() -> None:
             pytest.fail(f"CLI command in tutorial failed to parse: '{cmd}' (exit {exc.code})")
 
 
-def _tutorial_content(built_html: str) -> str:
-    """Extract tutorial article content to validate tutorial links and resources."""
-    match = re.search(r"<article\b[^>]*>(.*?)</article>", built_html, re.DOTALL)
-    return match.group(1) if match else built_html
+def _is_allowed_external(url: str) -> bool:
+    if url.startswith(LOCAL_URL_PREFIXES):
+        return True
+    return any(url == allowed or url.startswith((allowed + "/", allowed + "#")) for allowed in ALLOWED_EXTERNAL_URLS)
 
 
-def test_built_tutorial_links_resolve_and_no_unapproved_external_urls(built_site: Path) -> None:
-    built_tutorial = built_site / "tutorial" / "index.html"
-    assert built_tutorial.is_file(), f"Missing built tutorial page at {built_tutorial}"
-
-    full_html = built_tutorial.read_text(encoding="utf-8")
-    content = _tutorial_content(full_html)
-
-    # Match href attributes in the tutorial content
-    html_links = re.findall(r'href="([^"]+)"', content)
-    assert html_links, "No links found in built tutorial content"
-
-    tutorial_dir = built_tutorial.parent
-
-    for link in html_links:
-        if link.startswith("#"):
-            # Anchor on the same page
-            anchor = link[1:]
-            assert re.search(rf'id=["\']{re.escape(anchor)}["\']', full_html), (
-                f"Anchor '{link}' not found in built tutorial"
-            )
-            continue
-
-        if link.startswith("http://") or link.startswith("https://"):
-            if any(link.startswith(prefix) for prefix in LOCAL_URL_PREFIXES):
-                continue
-            is_allowed = any(
-                link == allowed or link.startswith(allowed + "/") or link.startswith(allowed + "#")
-                for allowed in ALLOWED_EXTERNAL_URLS
-            )
-            assert is_allowed, f"Unapproved external URL found in built tutorial: {link}"
-        else:
-            # Relative link: resolve relative to built tutorial directory
-            clean_path = link.split("#")[0].split("?")[0]
-            if not clean_path:
-                continue
-            target = (tutorial_dir / clean_path).resolve()
-            if target.is_dir():
-                index_target = target / "index.html"
-                assert index_target.is_file(), (
-                    f"Relative link '{link}' resolves to directory {target} without index.html"
-                )
-            else:
-                assert target.exists(), f"Relative link '{link}' does not resolve to an existing file in built site"
+def _built_url_page(link: str) -> Path:
+    """`../quickstart/` on the built tutorial page (served at /tutorial/) is the page `quickstart.md`."""
+    page = link.split("#")[0].removeprefix("../").strip("/")
+    return DOCS_DIR / f"{page}.md" if page else DOCS_DIR / "index.md"
 
 
-def test_built_tutorial_loads_no_external_resources(built_site: Path) -> None:
-    built_tutorial = built_site / "tutorial" / "index.html"
-    assert built_tutorial.is_file(), f"Missing built tutorial page at {built_tutorial}"
+def link_problems(text: str) -> list[str]:
+    """Every link in the tutorial source that would not resolve on the built site."""
+    problems: list[str] = []
+    html_links = HREF.findall(text)
+    for link in html_links + MARKDOWN_LINK.findall(text):
+        path = link.split("#")[0]
+        if link.startswith(("http://", "https://")):
+            if not _is_allowed_external(link):
+                problems.append(f"unapproved external URL {link}")
+        elif link.startswith("#"):
+            if not re.search(rf"""id=["']{re.escape(link[1:])}["']""", text):
+                problems.append(f"anchor {link} not found")
+        elif link in html_links and path.endswith(".md"):
+            problems.append(f"raw-HTML link {link} is not rewritten by MkDocs: use the built URL (../page/)")
+        elif link in html_links:
+            page = _built_url_page(link)
+            if not (page.is_file() or (page.with_suffix("") / "index.md").is_file()):
+                problems.append(f"{link} has no page {page.name}")
+        elif not (TUTORIAL_MD.parent / path).is_file():
+            problems.append(f"Markdown link {link} does not resolve")
+    return problems
 
-    content = _tutorial_content(built_tutorial.read_text(encoding="utf-8"))
 
-    sources = re.findall(r'(?:src|href)=["\'](https?://[^"\']+)["\']', content)
-    for src in sources:
-        if any(src.startswith(prefix) for prefix in LOCAL_URL_PREFIXES):
-            continue
-        is_allowed_gh = any(src.startswith(allowed) for allowed in ALLOWED_EXTERNAL_URLS)
-        assert is_allowed_gh, f"External resource loaded in built tutorial: {src}"
+def test_tutorial_links_resolve_without_building_the_site() -> None:
+    text = TUTORIAL_MD.read_text(encoding="utf-8")
+    assert HREF.findall(text), "No links found in tutorial.md"
+    assert link_problems(text) == []
+
+
+def test_a_raw_html_md_link_a_missing_page_and_a_missing_anchor_are_refused() -> None:
+    planted = '<a href="quickstart.md">x</a> <a href="../no-such-page/">y</a> <a href="#nowhere">z</a>'
+    problems = link_problems(planted)
+    assert len(problems) == 3, problems
+
+
+def test_tutorial_loads_no_external_resources() -> None:
+    text = TUTORIAL_MD.read_text(encoding="utf-8")
+    assets = "".join(
+        path.read_text(encoding="utf-8")
+        for path in (DOCS_DIR / "tutorial").glob("*.*")
+        if path.suffix in {".js", ".css", ".html"}
+    )
+    for url in EXTERNAL_RESOURCE.findall(text + assets):
+        assert _is_allowed_external(url), f"External resource in the tutorial: {url}"
+    assert "url(http" not in assets.replace(" ", ""), "A stylesheet loads an external resource"
