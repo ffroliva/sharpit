@@ -104,7 +104,7 @@ def test_the_list_and_detail_carry_every_key_of_bootui_agent_dtos() -> None:
     assert list(listed["next"][0]) == ["command", "tool", "arguments", "why"]
 
 
-# ported: RuntimeInsightsAgentViewTests (BootUI 2.4.0 RuntimeInsightsAgentView:185-190)
+# derived: RuntimeInsightsAgentViewTests (incomplete evidence counters cover all matching rows past limit)
 def test_agent_list_incomplete_evidence_counters_cover_all_matching_rows_past_limit() -> None:
     obs = [
         _observation(0, "repeated-selects", "GET /api/orders", "sentence 0", status="INSUFFICIENT"),
@@ -134,13 +134,63 @@ def test_agent_list_incomplete_evidence_counters_cover_all_matching_rows_past_li
     assert all_rows.get("omitted") == 2
 
 
-# ported: RuntimeInsightsAgentViewTests.unavailableReportEmitsZeroCounters
+# derived: RuntimeInsightsAgentViewTests.anUnavailableReportOrObservationSaysWhyInsteadOfReturningAnEmptySuccess
+# (unavailable report emits zero counters)
 def test_agent_list_unavailable_emits_zero_counters() -> None:
     off = _report([], available=False, unavailableReason="journal off", window=None)
     listed = agent_list(off, None, None, STEPS)
     assert listed["available"] is False
     assert listed.get("insufficient") == 0
     assert listed.get("partial") == 0
+
+
+# ported: RuntimeInsightsAgentViewTests.aRouteQueryListsThatRoutesRowsFirstAndFollowsOneOfThemUp
+def test_a_route_query_lists_that_routes_rows_first_and_follows_one_of_them_up() -> None:
+    observations = [
+        _observation(1, "repeated-selects", "GET /api/orders/{id}", "repeated a SELECT"),
+        _observation(2, "route-time-breakdown", "GET /api/orders/joined", "warm median 120 ms"),
+        _observation(3, "repeated-selects", "GET /api/orders", "repeated a SELECT 20 times"),
+        _observation(4, "exception-hotspots", "POST /api/orders", "recorded `X`"),
+    ]
+    report = _report(observations)
+
+    listed = agent_list(report, "get /api/orders", 20, STEPS)
+    assert [o["subject"] for o in listed["observations"]] == [
+        "GET /api/orders",
+        "GET /api/orders/{id}",
+        "GET /api/orders/joined",
+    ]
+    insight_steps = [s for s in listed["next"] if s["tool"] == "get_runtime_insight"]
+    assert len(insight_steps) == 1
+    assert insight_steps[0]["arguments"] == {"id": "repeated-selects:3"}
+    profile_steps = [s for s in listed["next"] if s["tool"] == "get_request_profile"]
+    assert len(profile_steps) == 1
+    assert profile_steps[0]["arguments"] == {"id": "r-3"}
+
+    insufficient_obs = list(observations)
+    exact = dict(observations[2])
+    exact["status"] = "INSUFFICIENT"
+    insufficient_obs[2] = exact
+    thin = _report(insufficient_obs)
+    thin_list = agent_list(thin, "GET /api/orders", 1, STEPS)
+    assert thin_list["insufficient"] == 1
+    assert thin_list["partial"] == 0
+    assert thin_list["omitted"] == 2
+    thin_insight = [s for s in thin_list["next"] if s["tool"] == "get_runtime_insight"]
+    assert len(thin_insight) == 1
+    assert thin_insight[0]["arguments"] == {"id": "repeated-selects:3"}
+
+    partial_obs = list(insufficient_obs)
+    exact_partial = dict(exact)
+    exact_partial["status"] = "PARTIAL"
+    partial_obs[2] = exact_partial
+    partial_report = _report(partial_obs)
+    partial_list = agent_list(partial_report, None, 1, STEPS)
+    assert partial_list["partial"] == 1
+    assert partial_list["insufficient"] == 0
+
+    orders_only = agent_list(report, "GET /api/orders", 1, STEPS)["observations"]
+    assert [o["subject"] for o in orders_only] == ["GET /api/orders"]
 
 
 def test_an_unlisted_row_is_left_out_of_the_default_list_and_the_list_says_how_to_ask_for_it() -> None:

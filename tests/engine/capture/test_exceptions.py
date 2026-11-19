@@ -605,12 +605,14 @@ def test_marks_are_per_store():
 
 def test_exceptions_report_includes_caught_in_code_null():
     # ported: ExceptionsControllerTests.reportCarriesNullCaughtInCodeWithoutSensor (BootUI 2.2.0 ExceptionsReport)
+    # ported: AbstractBootUiApiConformanceTest.caughtInApplicationCodeIsUnavailableWithoutTheAgent
     from sharpit.engine.capture.exceptions import caught_report
 
     report = _store().report()
     assert "caughtInCode" in report, "the 2.2.0 report carries caughtInCode"
     assert report["caughtInCode"] is None
-    assert caught_report() == {
+    caught = caught_report()
+    assert caught == {
         "available": False,
         "unavailableReason": "Caught exceptions are recorded by the sharpit agent's caught-exceptions sensor.",
         "limitations": [],
@@ -621,19 +623,9 @@ def test_exceptions_report_includes_caught_in_code_null():
         "partial": 0,
         "rows": [],
     }
-
-
-# ported: CaughtExceptionsReportTests (BootUI 2.4.0 CaughtExceptionsReport:27-28,46-48)
-# ported: AbstractBootUiApiConformanceTest.caughtInApplicationCodeIsUnavailableWithoutTheAgent
-def test_caught_report_emits_insufficient_and_partial_zero():
-    from sharpit.engine.capture.exceptions import caught_report
-
-    report = caught_report()
-    assert "insufficient" in report
-    assert report["insufficient"] == 0
-    assert "partial" in report
-    assert report["partial"] == 0
-    assert list(report.keys()) == [
+    assert caught["insufficient"] == 0
+    assert caught["partial"] == 0
+    assert list(caught.keys()) == [
         "available",
         "unavailableReason",
         "limitations",
