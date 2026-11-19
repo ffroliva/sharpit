@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from sharpit.engine.advisors.rules import RuleDefinition, Severity
 from sharpit.engine.appsource import ModuleInfo, SourceIndex
@@ -33,6 +34,7 @@ class Inputs:
     source: SourceIndex | None  # None: the app's source could not be resolved (a limitation says why)
     view: View = View()
     limitations: tuple[str, ...] = ()  # source resolution notes
+    project_root: Path | None = None
 
 
 @dataclass(frozen=True)
