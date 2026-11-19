@@ -11,6 +11,7 @@ Verifies:
 
 from __future__ import annotations
 
+import argparse
 import re
 import shlex
 from pathlib import Path
@@ -70,14 +71,16 @@ def test_all_sharpit_commands_in_tutorial_parse() -> None:
 
     assert candidates, "No sharpit commands found to validate in tutorial.md"
 
-    for cmd in sorted(candidates):
-        tokens = shlex.split(cmd)
-        assert tokens[0] == "sharpit"
-        try:
-            parsed = parser.parse_args(tokens[1:])
-            assert parsed is not None, f"Failed to parse: {cmd}"
-        except SystemExit as exc:
-            pytest.fail(f"CLI command in tutorial failed to parse: '{cmd}' (exit {exc.code})")
+    assert {shlex.split(cmd)[0] for cmd in candidates} == {"sharpit"}
+    assert [cmd for cmd in sorted(candidates) if not _parses(parser, shlex.split(cmd)[1:])] == []
+
+
+def _parses(parser: argparse.ArgumentParser, arguments: list[str]) -> bool:
+    try:
+        parser.parse_args(arguments)
+    except SystemExit:
+        return False
+    return True
 
 
 def _is_allowed_external(url: str) -> bool:
