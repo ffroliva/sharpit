@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-19
+
 ### Added
 
 - Guided agent playbooks and an AI agents guide ported from BootUI 2.4.0 (`skills/sharpit/references/playbooks/` and `website/docs/ai-agents.md`): application checkup, database efficiency, slow endpoint diagnosis, errors and hidden failures, verifying changes, and Python performance/memory. The skill and shipped plugin include playbooks with side-by-side MCP tools and `sharpit` CLI commands.
@@ -450,7 +452,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0
