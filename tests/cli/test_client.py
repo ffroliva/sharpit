@@ -86,12 +86,12 @@ def test_client_reads_catalog_and_posts_only_the_supplied_arguments(endpoint):
     # ported: BootUiClientTests.readsTheCatalogFromTheCommandLineEndpoint
     # ported: BootUiClientTests.sendsOnlyTheArgumentsSuppliedSoUnusedOnesAreNotRejected
     base, routes, requests, *_ = endpoint
-    routes["/sharpit/api/cli"] = (200, b'{"enabled":true,"tools":[]}', None)
+    routes["/sharpit/api/cli"] = (200, b'{"serverName":"sharpit","enabled":true,"tools":[]}', None)
     routes["/sharpit/api/cli/tools/example"] = (200, b'{"ok":true}', None)
 
     client = Client(options(base))
 
-    assert client.catalog() == {"enabled": True, "tools": []}
+    assert client.catalog() == {"serverName": "sharpit", "enabled": True, "tools": []}
     result = client.invoke("example", {"query": "abc", "limit": 2})
     assert getattr(result, "payload", None) == {"ok": True}
     assert requests[0][:2] == ("GET", "/sharpit/api/cli")
