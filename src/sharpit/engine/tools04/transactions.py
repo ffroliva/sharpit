@@ -29,8 +29,12 @@ def _recording(ctx: Any, enabled: bool) -> dict[str, Any]:
 TOOLS = (
     Tool(
         "get_transactions",
-        "Return the newest bounded transaction snapshot captured from SQLAlchemy connection events. "
-        "This reads only local cached data.",
+        "Return the current bounded transaction snapshot captured from SQLAlchemy connection events. "
+        "propagation describes observed boundaries: NEW (physical begin without a known parent), REQUIRES_NEW "
+        "(child physical begin), NESTED (savepoint), or UNKNOWN (begin failed or ownership unverified), not "
+        "declared annotation values. A joining method adds no boundary. Use it to verify which local operations "
+        "actually ran in a transaction. totalCaptured counts transactions recorded since startup; stats and "
+        "entries cover the retained window only.",
         _NONE,
         "transactions",
         False,

@@ -365,11 +365,23 @@ DESCRIPTION_GAPS = {
     "get_runtime_insight": "A1",
     "get_runtime_insights": "A1",
     "get_security_report": "A3",
-    "get_transactions": "A2",
     "security_scan": "A3",
 }
 # Tools whose 2.4.0 description or summary a lane has adopted.
-DESCRIPTION_ADOPTED: tuple[str, ...] = ()
+DESCRIPTION_ADOPTED: tuple[str, ...] = ("get_transactions",)
+
+
+def test_transactions_description_pins_observed_boundaries() -> None:
+    assert SHARPIT["get_transactions"].description == (
+        "Return the current bounded transaction snapshot captured from SQLAlchemy connection events. "
+        "propagation describes observed boundaries: NEW (physical begin without a known parent), REQUIRES_NEW "
+        "(child physical begin), NESTED (savepoint), or UNKNOWN (begin failed or ownership unverified), not "
+        "declared annotation values. A joining method adds no boundary. Use it to verify which local operations "
+        "actually ran in a transaction. totalCaptured counts transactions recorded since startup; stats and "
+        "entries cover the retained window only."
+    )
+
+
 MATCHED_TOOLS_PIN = 36  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
 
 
