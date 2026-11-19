@@ -16,7 +16,7 @@ from sharpit import __version__
 # Default response cap for ordinary calls; bounded calls accept the caller's limit.
 _MAX_RESPONSE_BYTES = 1_048_576
 _PANEL_ACCESS_DENIED = "sharpit panel access denied"
-__all__ = ["Client", "ClientError", "ToolResult"]
+__all__ = ["Client", "ClientError", "ToolResult", "nonblank", "redact", "sharpit_text"]
 
 
 class _NoRedirect(_request.HTTPRedirectHandler):

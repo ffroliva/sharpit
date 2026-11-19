@@ -70,7 +70,7 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
     outcome = classify(result.status, result.payload)
     outcome = Outcome(outcome.kind, redact(outcome.message, client.options.token))
     if outcome.kind not in (OutcomeKind.REFUSED_BY_POLICY, OutcomeKind.UNKNOWN_TOOL) and result.status != 503:
-        return Outcome(outcome.kind, f"{outcome.message} (HTTP 503)")
+        return outcome
     try:
         catalog = client.catalog()
     except ClientError as error:
@@ -83,5 +83,5 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
     if result.status == 503:
         if catalog["enabled"] is False:
             return Outcome(OutcomeKind.ENDPOINT_DISABLED, outcome.message)
-        return outcome
+        return Outcome(outcome.kind, f"{outcome.message} (HTTP 503)")
     return outcome
