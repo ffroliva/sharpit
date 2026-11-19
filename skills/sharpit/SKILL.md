@@ -195,7 +195,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - AI Framework: `get_ai_overview` (CLI: `ai overview`).
 - Email: `get_emails` (CLI: `mail`).
 - Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which has no agent; the
-  `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. The sensor tools (`get_code_inventory`, `get_code_paths`, `get_method_probe`, `get_side_effects`) are not
+  `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. BootUI's code inventory, method probe, and side-effect sensor tools are not
   advertised and answer "Tool not available in this application".
 - Advisors and security (a report tool and a per-rule violations tool each, neither starts a scan):
   `get_vulnerabilities_report`; `get_rest_api_report`, `get_rest_api_rule_violations`; `get_security_report`,
@@ -320,7 +320,7 @@ is confirmed empty and passes. Lost capture stays `unknown`.
 For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
 
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
-  `sharpit report-only: N tests would fail, status <status>`. Report-only relaxes findings, never blindness: any unknown
+  a summary of failing tests and status. Report-only relaxes findings, never blindness: any unknown
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
 - With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
   gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a

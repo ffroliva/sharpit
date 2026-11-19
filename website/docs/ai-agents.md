@@ -124,14 +124,13 @@ Configure your client to connect via HTTP to `/sharpit/api/mcp` on the applicati
 Verify that the endpoint responds:
 
 ```bash
-curl -fsS http://127.0.0.1:8000/sharpit/api/mcp
+curl -fsS http://127.0.0.1:8000/sharpit/api/mcp-server
 ```
 
 ### Low-footprint mode
 
 When the application is placed in low-footprint mode (`sharpit low-footprint enable` or `enable_low_footprint`),
-in-memory recording buffers are cleared to conserve memory. Diagnostic reads return a 409 status indicating that
-recording is suspended. To resume collection, call `disable_low_footprint` (`sharpit low-footprint disable`).
+in-memory recording buffers are cleared to conserve memory. Diagnostic reads return paused evidence; only resume actions return 409. To resume collection, call `disable_low_footprint` (`sharpit low-footprint disable`).
 
 ### Investigate one request
 
@@ -163,8 +162,8 @@ After editing source code and reloading the development application (`fastapi de
    probes. sharpit ships no Python bytecode profiler or code-path sensors in this version (`get_agent_status` reports
    `NOT_ATTACHED`).
 2. Verify execution at the route level: replay the target request and inspect `get_request_profile` (`sharpit request-profile <id> --json`).
-3. Check `get_profile_diff` (`sharpit profile diff --json`) to compare request metrics against the pre-edit baseline.
-4. Run an authorized re-scan (`database_advisor_scan`, `fastapi_scan`, or `architecture_scan`) and verify that targeted
+3. sharpit has no previous-run comparison. Re-read the request profile, SQL Trace, and runtime insights for the specific query after the change.
+4. Run an authorized re-scan (`sharpit db scan` (CLI only, after the user's approval), `sharpit fastapi scan` (CLI only, after the user's approval), or `sharpit architecture scan` (CLI only, after the user's approval)) and verify that targeted
    violation IDs were resolved in the updated report.
 
 ### Where does the handler's time go?
@@ -193,14 +192,14 @@ Advisor scans provide rule-level summaries and sample violations. To inspect all
    - `get_architecture_rule_violations` (`sharpit architecture violations <id> --scan-id <scan-id> --json`)
    - `get_rest_api_rule_violations` (`sharpit rest-api violations <id> --scan-id <scan-id> --json`)
    - `get_security_rule_violations` (`sharpit security violations <id> --scan-id <scan-id> --json`)
-3. Pass `id` (the rule identifier, e.g. `DB-IDX-001`), `scanId`, and optional `offset` and `limit`.
-4. Inspect `locations` for structured source code coordinates (`sourcePath`, `line`, `className`, `memberName`).
+3. Pass `id` (the rule identifier, e.g. `DB-SCHEMA-002`), `scanId`, and optional `offset` and `limit`; only `*_violations` tools accept `offset`.
+4. Inspect the retained page fields `ruleId`, `scanId`, `violations`, `total`, `retained`, and `truncated`; this response does not contain source locations.
 
 ### Checking what a fix changed
 
 After applying a code modification:
 
-1. Run an authorized advisor re-scan: `database_advisor_scan`, `fastapi_scan`, or `architecture_scan`.
+1. Run an authorized advisor re-scan: `sharpit db scan` (CLI only, after the user's approval), `sharpit fastapi scan` (CLI only, after the user's approval), or `sharpit architecture scan` (CLI only, after the user's approval).
 2. Inspect the report summary and `results`: compare `violationCount` and verify that the specific finding was resolved.
 3. Check `sharpit.yml` dismissals: dismissed findings are marked as suppressed and are not counted in active totals,
    but remain preserved in detail listings.
@@ -209,7 +208,7 @@ After applying a code modification:
 
 All collection tools return bounded, paginated results to protect memory and agent context windows:
 
-- Paginated endpoints accept `limit` and `offset` arguments.
+- Only `*_violations` tools accept `offset`; other bounded reads use `limit`. Default limits include 8 for insights and 25 for metrics.
 - Check `page.hasMore` in the response envelope. If `true`, advance `offset` by `page.returned` to retrieve the next
   slice.
 - Never assume an initial page contains the full dataset.
@@ -239,21 +238,21 @@ sharpit enforces strict boundaries to ensure safety in development environments:
 - **Loopback only:** Remote connections are rejected by default. Allowing remote callers requires setting
   `SHARPIT_ALLOW_NON_LOCALHOST=true` and presenting a valid bearer token.
 - **Read-only vs. Action tools:** Read tools have no side effects on the host. Action tools (such as
-  `database_advisor_scan`, `fastapi_scan`, `architecture_scan`, `security_scan`, and `vulnerabilities_scan`) require
+  `sharpit db scan` (CLI only, after the user's approval), `sharpit fastapi scan` (CLI only, after the user's approval), `sharpit architecture scan` (CLI only, after the user's approval), `sharpit security scan` (CLI only, after the user's approval), and `sharpit vulnerabilities scan` (CLI only, after the user's approval)) require
   writable permissions (`SHARPIT_READ_ONLY=false`) and explicit user approval before execution.
 - **Secret masking:** Sensitive values in configuration, request headers, query parameters, SQL literals, and logs are
   masked unless explicitly configured otherwise (`SHARPIT_EXPOSE_VALUES=FULL`, which generates a startup warning).
 
 ## Assess an application and approve an action plan
 
-The MCP server advertises an `assess_application` prompt that coordinates a review-first evaluation:
+The MCP server advertises an `assess_application` prompt (see the prompt for its current tool list) that coordinates a review-first evaluation:
 
 1. **Review first:** The agent reads existing cached reports and runtime telemetry (`get_overview`, `get_health`,
    `get_runtime_insights`, `get_fastapi_report`, `get_database_advisor_report`, `get_architecture_report`).
 2. **Action plan:** The agent produces a structured markdown plan with four required sections: Context, Coverage,
    Actions, and Approval.
 3. **Approved execution:** The user reviews the plan and grants explicit permission for specific actions. The agent
-   executes only approved actions, runs focused tests, re-scans to verify, and reports before/after results.
+   executes only approved actions, runs focused tests, re-scans to verify, and reports the evidence re-read after the change.
 
 ## Workshop: fix a real database finding with an agent
 
@@ -280,17 +279,17 @@ Instruct the agent:
 
 ### 4. What the agent sees
 
-The agent reads cached findings or asks permission to run `database_advisor_scan` (`sharpit db scan --json`). The scan
+The agent reads cached findings or asks permission to run `sharpit db scan` (CLI only, after the user's approval) (`sharpit db scan --json`). The scan
 identifies a missing foreign key index on the `items.order_id` column:
 
-- Rule ID: `DB-IDX-002`
+- Rule ID: `DB-SCHEMA-002`
 - Severity: `MEDIUM`
 - Target: `table:items, column:order_id`
 - Remediation: Add an index on foreign key column `order_id` in SQLAlchemy model `Item`.
 
 ### 5. What the agent changes
 
-With the user's approval, the agent locates the SQLAlchemy model in source code and adds `index=True` to the column
+With the user's approval, review the query plan and the foreign-key access path before proposing an index; DB-SCHEMA-002 does not prescribe `index=True`.
 definition:
 
 ```python
@@ -303,8 +302,8 @@ class Item(Base):
 
 ### 6. Verify
 
-The agent reloads the application and runs an authorized re-scan (`database_advisor_scan`). The updated report
-confirms that the violation count for `DB-IDX-002` decreased and the `items.order_id` finding is resolved.
+The agent reloads the application and, after explicit approval, runs CLI-only `sharpit db scan --json`. The updated report
+is re-read for the `items.order_id` target and remaining access-path concerns.
 
 ## The same tools from a terminal
 

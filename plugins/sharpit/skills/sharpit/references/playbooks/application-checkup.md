@@ -13,14 +13,12 @@ Do not assume dependency upgrades or major framework refactors are the goal.
 
 ## Investigation
 
-Start with existing evidence and permitted low-impact reads. `get_health` invokes live health indicators, which may
-query databases or contact external services. Prefer a supplied prior health result; if indicator behavior is unknown
-or its external work is outside the authorized scope, obtain approval before calling it. It is not a cached report.
+Start with existing evidence and permitted reads. `get_health` returns a cached health tree and never runs checks; `UNKNOWN` means a check has not run yet. Name and obtain approval for any fresh scan action.
 
 | MCP tool | CLI equivalent | Read for |
 | --- | --- | --- |
 | `get_overview` | `sharpit overview --json` | Application identity, Python version, FastAPI runtime, and activation status |
-| `get_health` | `sharpit health --json` | Live component checks, only within scope; distinguish intentionally absent local services |
+| `get_health` | `sharpit health --json` | Cached health tree; UNKNOWN means not run yet |
 | `get_runtime_insights` | `sharpit insights list --json` | Coverage, checks not run, limitations, observations, and suggested next calls |
 | `get_architecture_report` | `sharpit architecture report --json` | Existing architecture structure findings |
 | `get_fastapi_report` | `sharpit fastapi report --json` | FastAPI application advisor (routes, dependencies, middleware) |

@@ -15,6 +15,8 @@ BootUI provides JVM-specific tools (such as HotSpot heap dumps, JFR profiling, a
 and FastAPI and does not have those JVM diagnostic mechanisms. Obtain process-level memory (RSS) and CPU metrics from
 the operating system or host environment where permitted.
 
+BootUI’s escalation table and capture discipline apply: begin with existing in-process evidence, then request OS/process evidence if needed. Keep profiler output local; never upload it.
+
 ## Investigation
 
 ### Start with sharpit evidence
@@ -42,6 +44,8 @@ Record these limitations explicitly in the assessment plan rather than treating 
 
 ### Ordered diagnostic steps
 
+Read `get_runtime_insights` (`sharpit insights list --query all --json`) for `route-time-breakdown` when route timing applies.
+
 1. Read `get_threads` (`sharpit threads --json`):
    - Inspect Python OS threads and their states (`RUNNABLE` vs `WAITING`).
    - Inspect active asyncio event-loop tasks, their current coroutines, and await chains.
@@ -62,7 +66,8 @@ Record these limitations explicitly in the assessment plan rather than treating 
    - Since sharpit does not capture Python heap dumps, inspect application source code for unbounded in-memory caches,
      global dictionaries without TTL or eviction, unclosed connections, or database queries that load entire tables into
      memory without pagination or chunking.
-5. Reading PARTIAL / INSUFFICIENT / UNKNOWN evidence:
+5. **PARTIAL** means incomplete coverage; **INSUFFICIENT** means evidence cannot support a conclusion; **UNKNOWN** means a check has not run or status is unavailable. Low-footprint diagnostic reads return paused evidence, not fresh measurements.
+6. Reading PARTIAL / INSUFFICIENT / UNKNOWN evidence:
    - **Thread paging:** `get_threads` returns a bounded page; check `page.hasMore` before concluding that unlisted
      threads are absent.
    - **Masking:** Under `METADATA_ONLY` or default secret masking, thread names or arguments containing sensitive
@@ -71,6 +76,8 @@ Record these limitations explicitly in the assessment plan rather than treating 
      this reflects application instrumentation, not zero resource consumption.
 
 ### What needs the user's approval
+
+Low-footprint controls are actions; obtain approval before `sharpit low-footprint enable` or `sharpit low-footprint disable`. Enabling discards buffered diagnostics.
 
 Obtain explicit user approval before:
 - Attaching external OS profilers or debuggers (e.g., `py-spy`, `cProfile`).

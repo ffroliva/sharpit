@@ -39,7 +39,7 @@ Identify whether the symptom includes startup, downstream dependencies, streamin
 4. Note on method-level code paths: BootUI provides a Java bytecode agent with code paths and method probes.
    sharpit ships no Python bytecode profiler or code-path sensor in this version; `get_agent_status` reports
    `NOT_ATTACHED`. Handler timing is determined by subtracting recorded SQL time from overall request duration in
-   `get_request_profile`, combined with thread and task inspection. Report this limitation rather than assuming method
+   `get_request_profile` and the `route-time-breakdown` runtime insight, combined with thread and task inspection. Keep BootUI’s outbound/downstream category in the investigation; sharpit evidence may not attribute external call timing. Report this limitation rather than assuming method
    profiling is available.
 5. If request evidence leaves CPU utilization or thread contention unexplained, hand off to
    [Python performance and memory](python-performance-and-memory.md), retaining the same budget.

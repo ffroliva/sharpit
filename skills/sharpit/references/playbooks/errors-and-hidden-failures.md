@@ -33,8 +33,7 @@ Do not generate requests that write production data or contact external services
 3. Inspect FastAPI exception handlers (`@app.exception_handler`), Pydantic validation errors (`RequestValidationError`),
    HTTPException instances, try/except blocks, response serialization, and background task execution. Distinguish
    expected client validation errors (HTTP 4xx) from unexpected internal server crashes (HTTP 500).
-4. Swallowed exceptions and caught-in-code evidence: sharpit identifies swallowed exceptions via AST analysis during
-   testing and inspection (flagging `try` blocks that catch without re-raising or logging adequately). Runtime bytecode
+4. Swallowed exceptions come from the FastAPI advisor (`get_fastapi_report`), REST API advisor (`get_rest_api_report`), and pytest session evidence. sharpit identifies swallowed exceptions via AST analysis during testing and inspection (flagging `try` blocks that catch without re-raising or logging adequately). Runtime bytecode
    interception of arbitrary internal caught exceptions is not supported without an active agent sensor; `get_agent_status`
    reports `NOT_ATTACHED` in this version. Treat absent caught-exception sensors as unmeasured rather than concluding
    code is defect-free.

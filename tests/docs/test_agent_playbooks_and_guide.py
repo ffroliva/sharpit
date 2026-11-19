@@ -25,6 +25,8 @@ VALID_TOOLS = {t.name for t in TOOLS}
 
 def get_playbook_and_doc_files() -> list[Path]:
     files = sorted(REFERENCES_DIR.rglob("*.md"))
+    files.extend(sorted((ROOT / "plugins" / "sharpit" / "skills" / "sharpit").rglob("*.md")))
+    files.append(ROOT / "skills" / "sharpit" / "SKILL.md")
     if AI_AGENTS_DOC.is_file():
         files.append(AI_AGENTS_DOC)
     return files
@@ -40,7 +42,7 @@ def extract_cited_mcp_tools(path: Path) -> set[str]:
 
     # 2. Extract explicitly backticked tool-style identifiers that match tool naming conventions
     candidate_matches = re.findall(
-        r"`(get_[a-z0-9_]+|[a-z0-9_]+_scan|clear_[a-z0-9_]+|pause_[a-z0-9_]+|resume_[a-z0-9_]+|enable_[a-z0-9_]+|disable_[a-z0-9_]+|mysql_read|postgresql_read)`",
+        r"`(get_[a-z0-9_]+|[a-z0-9_]+_scan|[a-z0-9_]+_report|[a-z0-9_]+_read|enable_[a-z0-9_]+|disable_[a-z0-9_]+)`",
         text,
     )
     tools.update(candidate_matches)

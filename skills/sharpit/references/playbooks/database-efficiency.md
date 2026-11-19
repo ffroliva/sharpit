@@ -32,18 +32,16 @@ connections provide partial evidence. Do not enable statistics or change SQL cap
    For repeats, narrow to query `repeated-selects`, open the observation ID, then its exemplar request ID in
    `get_request_profile`. Inspect profile source, truncation, and notes; approximate time-window correlation is
    weaker than exact ownership.
-3. Locate source code from call sites and structured locations. Check SQLAlchemy relationship loading strategies
+3. Locate source code from call sites and structured locations. Review query plans before adding an index. The DB-SCHEMA-002 rule is “Foreign-key access-path review”; it does not prescribe `index=True`. Check SQLAlchemy relationship loading strategies
    (`lazy="select"` vs `selectinload` or `joinedload`), unbatched write loops, sequential queries inside loops,
    column projections, pagination limits, and session lifecycle. Repetition alone does not prescribe a single fix.
 4. For transaction observations, inspect actual session boundaries: `async with session.begin():` blocks, explicit
    commits, rollback triggers, and autocommit behavior. Never infer absence of work solely from the HTTP request counter.
-5. If cached findings are stale or insufficient, propose `database_advisor_scan` (`sharpit db scan --json`). A named
-   delegation covers only its named scan: `database_advisor_scan` contacts the database for schema and index metadata
+5. If cached findings are stale or insufficient, propose `sharpit db scan` (CLI only, after the user's approval) (`sharpit db scan --json`). A named
+   delegation covers only its named scan: `sharpit db scan` (CLI only, after the user's approval) contacts the database for schema and index metadata
    and needs that separate explicit approval. Rescan only within the approved scope.
-6. If the hypothesis needs operational database evidence, use `get_mysql_report` (`sharpit db mysql report --json`) /
-   `mysql_read` (`sharpit db mysql read --json`) for MySQL, or `get_postgresql_report` (`sharpit db postgres report --json`) /
-   `postgresql_read` (`sharpit db postgres read --json`) for PostgreSQL, not arbitrary SQL. Server-wide counters include
-   other clients; absent observed index activity never authorizes dropping an index.
+6. If the hypothesis needs operational evidence, read `get_mysql_report` or `get_postgresql_report`. Raw live reads (`sharpit db mysql read --json`, `sharpit db postgres read --json`) are CLI-only actions and require explicit user approval first. Server-wide counters include other clients.
+7. BootUI’s lazy-SQL-after-handler check is not applicable: sharpit reports this insight kind as `NOT_APPLICABLE` (`lazy_sql_after_handler.py`), so it cannot establish that behavior.
 
 ## Fix and verify
 

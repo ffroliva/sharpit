@@ -43,10 +43,7 @@ table's flags and positional arguments instead. Follow authentication guidance i
 print tokens. Inspect HTTP status and tool error payloads, not just shell success. An unavailable or disabled tool is
 not a request to loosen policy.
 
-Read/action classification is not a guarantee of no external I/O. In particular, `get_health` invokes live indicators
-that may query a database or external service. Prefer supplied prior health evidence; when indicator behavior is
-unknown or this work is outside the authorized scope, obtain approval first. Do not describe a live health invocation
-as a cached read.
+Read/action classification is not a guarantee of no external I/O. `get_health` returns the cached health tree; it does not run checks. `UNKNOWN` means a check has not run yet. A fresh diagnostic action must be named and approved separately.
 
 ## Authorization
 
@@ -66,8 +63,7 @@ delegation; dependencies are not implicitly approved. The MCP `assess_applicatio
 Generic server prompts and onboarding hints do not broaden permission: apply these approval boundaries before any
 suggested live read, scan, or traffic generation.
 
-Keep separate explicit approval for process memory inspection, security scans, outbound vulnerability queries (`vulnerabilities_scan`),
-database metadata collection (`database_advisor_scan`), and raw database reads (`mysql_read`, `postgresql_read`).
+Actions are CLI only; name the exact `sharpit` command and obtain the user’s approval before running any action, including scans, low-footprint controls, and raw database reads (`sharpit db mysql read` / `sharpit db postgres read`). MCP exposes no action tools.
 New installations, sensor changes, destructive actions, and scope expansion also require explicit permission. An
 initial request can name these separately; generic delegation cannot substitute for it. Never enable MCP, statistics,
 or infrastructure merely to fill a panel.

@@ -18,7 +18,6 @@ reloading. If the change already happened without a baseline, report that limita
 | MCP tool | CLI equivalent | Read for |
 | --- | --- | --- |
 | `get_overview` | `sharpit overview --json` | Application identity, Python version, process start time, and active profiles |
-| `get_profile_diff` | `sharpit profile diff --json` | Compare request profiles between runs or requests (when available) |
 | `get_runtime_insights` | `sharpit insights list --query repeated-selects --json` | Repeated SQL and other runtime observations |
 | `get_request_profile` | `sharpit request-profile <id> --json` | Correlated request profile: SQL count, timing, N+1 suspects, and exceptions |
 | `get_sql_traces` | `sharpit sql traces --limit 20 --json` | Bounded retained SQL statements for replayed requests |
@@ -37,10 +36,9 @@ reloading. If the change already happened without a baseline, report that limita
    - Verify that the statement count for repeated SQL queries decreased.
    - Verify that N+1 suspects identified in the baseline are resolved.
    - Check that no new unexpected SQL queries or exceptions were introduced.
-4. Compare before and after request profiles using `get_profile_diff` or side-by-side inspection of baseline and
-   post-change `get_request_profile` outputs.
-5. For advisor findings (such as Database advisor or FastAPI advisor), run an authorized re-scan (`database_advisor_scan`,
-   `fastapi_scan`, or `architecture_scan`) and read the corresponding report (`get_database_advisor_report`,
+4. sharpit has no previous-run comparison. Re-read evidence after the change: request profile, SQL Trace, and runtime insights for the specific query; state when no comparable baseline exists.
+5. For advisor findings (such as Database advisor or FastAPI advisor), run an authorized re-scan (`sharpit db scan` (CLI only, after the user's approval),
+   `sharpit fastapi scan` (CLI only, after the user's approval), or `sharpit architecture scan` (CLI only, after the user's approval)) and read the corresponding report (`get_database_advisor_report`,
    `get_fastapi_report`, `get_architecture_report`). Verify that the specific finding identities were resolved in
    the updated scan results.
 
