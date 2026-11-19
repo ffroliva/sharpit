@@ -86,6 +86,7 @@ MAX_MOUNT_DEPTH = 32  # a sub-app mounted inside itself must not loop the walk
 # low-footprint registry entries: each name is spelled only here
 HOOK_CAPTURE_MIDDLEWARE = "capture-middleware"
 HOOK_SECURITY_LOG = "security-log"
+REQUEST_START = "request start"  # hook name in the one-time capture warning
 HOOK_EXCEPTION_HANDLERS = "exception-handlers"
 HOOK_LOG_HANDLER = "log-handler"
 HOOK_SQLA_LISTENERS = "sqla-listeners"
@@ -644,7 +645,7 @@ class CaptureMiddleware:
                 }
         except Exception as exc:  # noqa: BLE001
             if wiring is not None:
-                wiring.hook_failed("request start", exc)
+                wiring.hook_failed(REQUEST_START, exc)
             try:
                 headers = scope.get("headers")
                 if headers:
@@ -670,7 +671,7 @@ class CaptureMiddleware:
                 if buffer is not None:
                     buffer.count_hidden_self()
             except Exception as exc:  # noqa: BLE001
-                wiring.hook_failed("request start", exc)
+                wiring.hook_failed(REQUEST_START, exc)
             await self.app(scope, receive, send)
             return
 
@@ -691,7 +692,7 @@ class CaptureMiddleware:
                 scope=scope,
             )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
-            wiring.hook_failed("request start", exc)
+            wiring.hook_failed(REQUEST_START, exc)
         else:
             sqla.note_request_captured()
 
@@ -759,7 +760,8 @@ class CaptureMiddleware:
                         finally:
                             with _request_end_guard(wiring):
                                 store.forget_request(info.id)
-                    recorded: int | None = status if status is not None else (500 if failed else 200)
+                    fallback = 500 if failed else 200
+                    recorded: int | None = status if status is not None else fallback
                     error = failed or cancelled or disconnected
                     with _request_end_guard(wiring):
                         recorded, error = _outcome(status, failed, cancelled, disconnected)
