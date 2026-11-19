@@ -1,0 +1,2 @@
+proxy-bypass	n-a	sharpit SQL events do not record application frames, so annotated proxy boundaries cannot be resolved.
+event-loop-blocking	n-a	sharpit SQL events do not classify threads as event-loop threads; a thread name cannot prove that JDBC blocked an event loop.
