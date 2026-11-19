@@ -1,6 +1,7 @@
 """Task 7 CLI commands and executable entry points."""
 
 import io
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -85,7 +86,7 @@ def test_terminal_output_uses_readable_renderer_and_honors_no_color():
 
 
 def test_answer_is_printed_before_fail_on_gate_reads_payload(monkeypatch):
-    from sharpit.cli import fail_on
+    from sharpit.cli import commands
 
     class GateClient(FakeClient):
         def invoke(self, tool, arguments):
@@ -100,13 +101,13 @@ def test_answer_is_printed_before_fail_on_gate_reads_payload(monkeypatch):
 
     out, err = io.StringIO(), io.StringIO()
     client = GateClient(None)
-    evaluate = fail_on.evaluate
+    evaluate = commands.evaluate
 
     def evaluate_after_output(payload, criterion, tool_name):
         assert out.getvalue() == '{"scan":{"status":"SCANNED"},"severityCounts":[{"severity":"HIGH","count":1}]}\n'
         return evaluate(payload, criterion, tool_name)
 
-    monkeypatch.setattr(fail_on, "evaluate", evaluate_after_output)
+    monkeypatch.setattr(commands, "evaluate", evaluate_after_output)
     code = run(
         ["--fail-on", "high", "security", "scan"],
         {},
@@ -146,9 +147,19 @@ def test_mcp_status_and_toggle_use_server_routes():
     assert client.requests[0] == ("post", "/mcp-server/toggle", '{"enabled": true}')
 
 
+# ported: BootUiCliTests.directMcpPanelRefusalsPreserveTheirReasonAndExistingErrorExit
 def test_readonly_mcp_toggle_returns_refusal_exit_code():
     class ReadOnlyClient(FakeClient):
+        def catalog(self):
+            self.requests.append(("catalog",))
+            return {
+                "serverName": "sharpit",
+                "enabled": True,
+                "tools": [{"name": "mcp_toggle", "panel": "mcp-server", "action": True, "panelReadOnly": True}],
+            }
+
         def post(self, path, body):
+            self.requests.append(("post", path, body))
             from sharpit.cli.client import ClientError
 
             raise ClientError(
@@ -157,9 +168,11 @@ def test_readonly_mcp_toggle_returns_refusal_exit_code():
                 body='{"error":"sharpit panel access denied","reason":"mcp-server is read-only","panel":"mcp-server"}',
             )
 
-    code, _, err, _ = execute(["mcp", "enable"], client=ReadOnlyClient(None))
-    assert code == ExitCodes.REFUSED
+    code, _, err, client = execute(["mcp", "enable"], client=ReadOnlyClient(None))
+    assert code == ExitCodes.ERROR
     assert "read-only" in err
+    assert "(panel 'mcp-server')" not in err
+    assert client.requests == [("post", "/mcp-server/toggle", '{"enabled": true}')]
 
 
 def test_cli_imports_without_frameworks():
@@ -191,6 +204,110 @@ def test_cli_makes_no_update_check_request():
     code, _, _, client = execute(["beans"])
     assert code == 0
     assert client.requests == [("invoke", "get_beans", {})]
+
+
+# ported: BootUiCliTests.helpNeedsNoRunningApplication
+def test_builtin_parser_redacts_token_and_writes_help_to_injected_streams(capsys):
+    out, err = io.StringIO(), io.StringIO()
+    assert run(["mcp", "--tokn", "s3cret-value"], {}, False, out, err) == ExitCodes.ERROR
+    assert "s3cret-value" not in err.getvalue()
+    assert "s3cret-value" not in capsys.readouterr().err
+    out, err = io.StringIO(), io.StringIO()
+    assert run(["mcp", "--help"], {}, False, out, err) == ExitCodes.SUCCESS
+    assert "usage:" in out.getvalue()
+
+
+def test_unknown_command_lists_groups_with_readable_metavars():
+    out, err = io.StringIO(), io.StringIO()
+    assert run(["bogus"], {}, False, out, err) == ExitCodes.ERROR
+    assert "tools" in err.getvalue()
+    assert "mcp" in err.getvalue()
+    assert "_sub_0" not in err.getvalue()
+    assert "_mcp_action" not in err.getvalue()
+
+
+# derived: built-in commands do not accept the tool-only severity gate.
+def test_fail_on_is_rejected_for_builtin_commands():
+    for argv in (["tools", "--fail-on", "high"], ["mcp", "status", "--fail-on", "critical"]):
+        code, _, _, client = execute(argv)
+        assert code == 2
+        assert client.requests == []
+    assert run(["--fail-on", "high", "beans"], {}, False, io.StringIO(), io.StringIO()) == 2
+
+
+def test_main_utf8_piped_json_preserves_unicode_bytes(monkeypatch):
+    from sharpit.cli import commands
+
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="cp1252")
+    err = io.StringIO()
+
+    class UnicodeClient(FakeClient):
+        def invoke(self, tool, arguments):
+            body = json.dumps({"message": "数据 😀"}, ensure_ascii=False)
+            return ToolResult(tool, 200, body, {"message": "数据 😀"})
+
+    monkeypatch.setattr(commands.sys, "stdout", out)
+    monkeypatch.setattr(commands.sys, "stderr", err)
+    monkeypatch.setattr(commands, "Client", UnicodeClient)
+    assert commands.main(["--json", "beans"]) == ExitCodes.SUCCESS
+    out.flush()
+    assert raw.getvalue().rstrip(b"\r\n") == '{"message": "数据 😀"}'.encode()
+
+
+def test_main_handles_broken_pipe_quietly(monkeypatch):
+    from sharpit.cli import commands
+
+    class Broken:
+        encoding = "utf-8"
+
+        def isatty(self):
+            return False
+
+        def reconfigure(self, **kwargs):
+            pass
+
+        def write(self, value):
+            raise BrokenPipeError()
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(commands.sys, "stdout", Broken())
+
+    class SuccessClient(FakeClient):
+        def invoke(self, tool, arguments):
+            return ToolResult(tool, 200, "{}", {})
+
+    monkeypatch.setattr(commands, "Client", SuccessClient)
+    try:
+        code = commands.main(["beans"])
+    except BrokenPipeError:
+        code = None
+    assert code == 0
+
+
+def test_main_maps_keyboard_interrupt_to_130(monkeypatch):
+    from sharpit.cli import commands
+
+    class Interrupted:
+        encoding = "utf-8"
+
+        def isatty(self):
+            return False
+
+        def reconfigure(self, **kwargs):
+            pass
+
+        def write(self, value):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(commands.sys, "stdout", Interrupted())
+    try:
+        code = commands.main(["--help"])
+    except KeyboardInterrupt:
+        code = None
+    assert code == 130
 
 
 def test_python_module_entrypoint_is_available():
