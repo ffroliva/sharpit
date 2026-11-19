@@ -639,7 +639,7 @@ def test_malformed_scope_probe_strip_fails_open_calling_app_once(
     assert len(_starts(sent)) == 1
     assert passed_scope is not None
     assert not any(
-        isinstance(h, (tuple, list)) and len(h) >= 1 and h[0] == PROBE_HEADER
+        isinstance(h, (tuple, list)) and len(h) >= 1 and h[0] == capture_mod.PROBE_HEADER
         for h in passed_scope.get("headers", ())
     )
     warnings = _warnings(caplog)
@@ -690,7 +690,7 @@ def test_route_template_non_attribute_error_still_records_exchange_and_journal(
 
     journal = handle.context.capture.journal
     assert journal is not None
-    events = [e for e in journal.tail(10) if e["type"] == "http"]
+    events = [e for e in journal.records("http") if e.get("type") == "http" or "status" in e]
     assert len(events) == 1
     assert events[0]["status"] == 200
 
@@ -732,7 +732,7 @@ def test_exception_store_record_failure_still_records_exchange_and_journal_and_c
 
     journal = handle.context.capture.journal
     assert journal is not None
-    events = [e for e in journal.tail(10) if e["type"] == "http"]
+    events = [e for e in journal.records("http") if e.get("type") == "http" or "status" in e]
     assert len(events) == 1
     assert events[0]["status"] == 500
 

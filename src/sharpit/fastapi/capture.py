@@ -618,33 +618,67 @@ class CaptureMiddleware:
         self.ctx = ctx
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         wiring = wiring_of(self.ctx)
+        # only sharpit's probe may carry the header (spec §7.11); removed before any fallible step, so no failure path
+        # passes a client's copy on to the host
+        strip_failed = False
+        try:
+            extensions: dict[str, Any] = scope.get("extensions") or {}
+            if not extensions.get(PROBE_EXTENSION) and any(k == PROBE_HEADER for k, _ in scope.get("headers", ())):
+                scope = {
+                    **scope,
+                    "headers": [
+                        h
+                        for h in scope.get("headers", ())
+                        if not (isinstance(h, (tuple, list)) and len(h) >= 1 and h[0] == PROBE_HEADER)
+                    ],
+                }
+        except Exception as exc:  # noqa: BLE001
+            if wiring is not None:
+                wiring.hook_failed("request start", exc)
+            try:
+                headers = scope.get("headers")
+                if headers:
+                    scope = {
+                        **scope,
+                        "headers": [
+                            h
+                            for h in headers
+                            if not (isinstance(h, (tuple, list)) and len(h) >= 1 and h[0] == PROBE_HEADER)
+                        ],
+                    }
+            except Exception:  # noqa: BLE001
+                pass
+            strip_failed = True
+        if strip_failed:
+            await self.app(scope, receive, send)
+            return
+
         if (
-            scope["type"] != "http"
-            or wiring is None
+            wiring is None
             or wiring.detached
             or HOOK_CAPTURE_MIDDLEWARE in wiring.suspended_hooks
         ):
             await self.app(scope, receive, send)
             return
         buffer = self.ctx.capture.exchanges
-        extensions: dict[str, Any] = scope.get("extensions") or {}
-        # only sharpit's probe may carry the header (spec §7.11); removed before any fallible step, so no failure path
-        # passes a client's copy on to the host
-        if not extensions.get(PROBE_EXTENSION) and any(k == PROBE_HEADER for k, _ in scope.get("headers", ())):
-            scope = {**scope, "headers": [h for h in scope["headers"] if h[0] != PROBE_HEADER]}
-        info: RequestInfo | None = None
-        started_epoch_ns, root_path = 0, ""  # set in the setup below; read only once ``info`` exists
+        is_own_traffic = False
+        setup_failed = False
         try:  # setup only: the application is called outside it, once, whatever happens here
             if not wiring.started:
                 wiring.on_first_request(self.ctx)
-            started_epoch_ns = time.time_ns()
-            root_path = scope.get("root_path", "")
             if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
                 if buffer is not None:
                     buffer.count_hidden_self()
+                is_own_traffic = True
             else:
                 ensure_mail_wrapped()  # the host's traffic only: a read of sharpit's own routes patches nothing
+                started_epoch_ns = time.time_ns()
+                root_path = scope.get("root_path", "")
                 info = RequestInfo(
                     new_request_id(),
                     self.ctx.context_id,
@@ -657,8 +691,8 @@ class CaptureMiddleware:
                 )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
             wiring.hook_failed("request start", exc)
-            info = None  # the application runs below, outside the handler: its exceptions are not chained to this one
-        if info is None:  # sharpit's own traffic, or a setup failure
+            setup_failed = True
+        if setup_failed or is_own_traffic:
             await self.app(scope, receive, send)
             return
         sqla.note_request_captured()
@@ -716,17 +750,26 @@ class CaptureMiddleware:
             try:
                 finished = end_ns or time.perf_counter_ns()
                 info.finished_ns = finished
-                info.endpoint = _endpoint_name(scope.get("endpoint"))
+                with _request_end_guard(wiring):
+                    info.endpoint = _endpoint_name(scope.get("endpoint"))
                 store = self.ctx.capture.exceptions
                 if store is not None:
-                    if raised is not None:
-                        store.record(raised, "request", info, threading.current_thread().name)
-                    store.forget_request(info.id)
-                recorded, error = _outcome(status, failed, cancelled, disconnected)
+                    try:
+                        if raised is not None:
+                            with _request_end_guard(wiring):
+                                store.record(raised, "request", info, threading.current_thread().name)
+                    finally:
+                        with _request_end_guard(wiring):
+                            store.forget_request(info.id)
+                recorded: int | None = status if status is not None else (500 if failed else 200)
+                error = failed or cancelled or disconnected
+                with _request_end_guard(wiring):
+                    recorded, error = _outcome(status, failed, cancelled, disconnected)
                 journal = self.ctx.capture.journal
-                template = (
-                    _route_template(scope, root_path, wiring.app) if buffer is not None or journal is not None else None
-                )
+                template: str | None = None
+                if buffer is not None or journal is not None:
+                    with _request_end_guard(wiring):
+                        template = _route_template(scope, root_path, wiring.app)
                 if buffer is not None:
                     with _request_end_guard(wiring):  # a failing row must not lose the journal event
                         buffer.add(
