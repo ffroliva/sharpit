@@ -7,20 +7,27 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any, NoReturn, TextIO
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any, NoReturn, TextIO, cast
 
 from sharpit import __version__
 from sharpit.cli.arguments import build_tool_arguments
-from sharpit.cli.client import Client, ClientError, ToolResult, safe_text
+from sharpit.cli.client import REDACTED, Client, ClientError, ToolResult, safe_text
 from sharpit.cli.exit_codes import ExitCodes
+from sharpit.cli.fail_on import Criterion, evaluate, supports_insufficient, supports_severity
+from sharpit.cli.fail_on import parse as parse_fail_on
 from sharpit.cli.manifest import Manifest, ManifestTool
 from sharpit.cli.options import ClientOptions, GlobalOptions, normalize_token, positive_seconds
 from sharpit.cli.outcomes import OutcomeKind, confirm_answered
+from sharpit.cli.render import render, write, write_json
 
 __all__ = ["main", "run"]
 
 _ACTION_TAG = "[action - needs approval]"
+_UNKNOWN_MCP_OUTCOME = (
+    "The MCP action outcome is unknown: no valid sharpit MCP server status acknowledgement was received. "
+    "The action was not retried."
+)
 _KNOWN_OPTIONS = frozenset(
     {
         "--url",
@@ -28,6 +35,7 @@ _KNOWN_OPTIONS = frozenset(
         "--token",
         "--timeout",
         "--json",
+        "--fail-on",
         "--no-color",
         "--verbose",
         "-v",
@@ -52,14 +60,33 @@ class _CliExit(Exception):
         super().__init__(status)
 
 
+class _Emission:
+    def __init__(self, token: str | None, json_output: bool, terminal: bool, color: bool) -> None:
+        self.token = token
+        self.json_output = json_output
+        self.terminal = terminal
+        self.color = color
+
+
+def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> None:
+    text = raw_body if options.json_output or not options.terminal else render(payload, color=options.color)
+    text = safe_text(text, options.token)
+    if text:
+        (write_json if options.json_output or not options.terminal else write)(
+            out, text if text.endswith("\n") else f"{text}\n"
+        )
+    if hasattr(out, "flush"):
+        out.flush()
+
+
 def _redact_usage_error(message: str, tokens: Sequence[str] = ()) -> str:
     msg = message
     if "unrecognized arguments:" in message:
-        msg = re.sub(r"(?i)(-{1,2}[^\s=]+\s+)[^\s]+", r"\1[redacted]", msg)
-        msg = re.sub(r"(?i)(-{1,2}[^\s=]+=)[^\s]+", r"\1[redacted]", msg)
+        msg = re.sub(r"(?i)(-{1,2}[^\s=]+\s+)[^\s]+", rf"\1{REDACTED}", msg)
+        msg = re.sub(r"(?i)(-{1,2}[^\s=]+=)[^\s]+", rf"\1{REDACTED}", msg)
     for token in tokens:
         if token:
-            msg = msg.replace(token, "[redacted]")
+            msg = msg.replace(token, REDACTED)
     return msg
 
 
@@ -87,7 +114,7 @@ class SharpitParser(argparse.ArgumentParser):
     def _print_message(self, message: str, file: Any = None) -> None:
         target = self.out if file is None or file is sys.stdout or file is self.out else self.err or file
         if target is not None:
-            target.write(message)
+            write(target, message)
             if hasattr(target, "flush"):
                 target.flush()
         else:
@@ -170,6 +197,11 @@ def _configure_leaf_arguments(leaf_parser: SharpitParser, tool: ManifestTool) ->
     leaf_parser.epilog = f"Example: {tool.example}\nMCP tool: {tool.name}"
     leaf_parser.set_defaults(_tool=tool, _leaf_parser=leaf_parser)
 
+    if supports_severity(tool.name) or supports_insufficient(tool.name):
+        leaf_parser.add_argument(
+            "--fail-on", default=argparse.SUPPRESS, metavar="<severity>", help="Exit 3 at or above this severity"
+        )
+
     if tool.takes_query:
         leaf_parser.add_argument("-q", "--query", default=None, metavar=TEXT_METAVAR, help="Filter results")
     if tool.takes_limit or tool.ignores_limit:
@@ -198,46 +230,99 @@ def _build_root_parser(
         description="Ask a running sharpit application a question.",
         parents=[globals_parser],
     )
+    # Root placement supports the conventional ``sharpit --fail-on high tool`` form;
+    # built-in commands still reject it after parsing.
+    root.add_argument("--fail-on", default=argparse.SUPPRESS, metavar="<severity>", help=argparse.SUPPRESS)
     all_parsers: list[SharpitParser] = [root]
     parsers_by_prefix: dict[tuple[str, ...], SharpitParser] = {(): root}
     subparsers_by_prefix: dict[tuple[str, ...], Any] = {}
 
-    def get_or_create_subparsers(prefix: tuple[str, ...]) -> Any:
-        if prefix not in subparsers_by_prefix:
-            subparsers_by_prefix[prefix] = parsers_by_prefix[prefix].add_subparsers(
-                dest=f"_sub_{len(prefix)}",
-            )
-        return subparsers_by_prefix[prefix]
+    for tool in _selected_tools(manifest, selected_path):
+        _add_tool_parser(tool, globals_parser, parsers_by_prefix, subparsers_by_prefix, all_parsers)
 
-    specs = manifest.command_specs
-    selected = (
-        (tool for path, tool in specs if path[: len(selected_path)] == selected_path)
-        if selected_path is not None
-        else (tool for _, tool in specs)
+    root_sub = _get_or_create_subparsers((), parsers_by_prefix, subparsers_by_prefix)
+    tools_parser: SharpitParser = root_sub.add_parser(
+        "tools",
+        parents=[globals_parser],
+        allow_abbrev=False,
+        help="List tools advertised by the running application.",
+        description="List the tools this application exposes, and whether its panels allow each one.",
     )
-    for tool in selected:
-        path = tool.path
-        for depth in range(len(path) - 1):
-            prefix = path[:depth]
-            word = path[depth]
-            child_prefix = (*prefix, word)
-            if child_prefix not in parsers_by_prefix:
-                sub = get_or_create_subparsers(prefix)
-                group: SharpitParser = sub.add_parser(word, parents=[globals_parser], allow_abbrev=False)
-                group.set_defaults(_group_parser=group)
-                parsers_by_prefix[child_prefix] = group
-                all_parsers.append(group)
-
-        parent_prefix = path[:-1]
-        leaf_word = path[-1]
-        leaf_sub = get_or_create_subparsers(parent_prefix)
-        leaf_parser: SharpitParser = leaf_sub.add_parser(
-            leaf_word, parents=[globals_parser], allow_abbrev=False, help=tool.summary
+    tools_parser.set_defaults(_builtin="tools")
+    all_parsers.append(tools_parser)
+    mcp_parser: SharpitParser = root_sub.add_parser(
+        "mcp",
+        parents=[globals_parser],
+        allow_abbrev=False,
+        help="Inspect and toggle the application's MCP server (status, enable, disable).",
+        description="Inspect and toggle the application's MCP server.",
+    )
+    mcp_parser.set_defaults(_group_parser=mcp_parser)
+    all_parsers.append(mcp_parser)
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_action", metavar="<command>")
+    for action, description in (
+        ("status", "Show the MCP server state and advertised tools."),
+        ("enable", "Turn the MCP server on for this running application."),
+        ("disable", "Turn the MCP server off for this running application."),
+    ):
+        leaf: SharpitParser = mcp_sub.add_parser(
+            action,
+            parents=[cast(Any, globals_parser)],
+            allow_abbrev=False,
+            help=description,
+            description=description,
         )
-        _configure_leaf_arguments(leaf_parser, tool)
-        all_parsers.append(leaf_parser)
+        leaf.set_defaults(_builtin=f"mcp:{action}")
+        all_parsers.append(leaf)
 
     return root, all_parsers
+
+
+def _selected_tools(manifest: Manifest, selected_path: tuple[str, ...] | None) -> Iterable[ManifestTool]:
+    if selected_path is None:
+        return (tool for _, tool in manifest.command_specs)
+    if selected_path:
+        return (tool for path, tool in manifest.command_specs if path[: len(selected_path)] == selected_path)
+    return iter(())
+
+
+def _get_or_create_subparsers(
+    prefix: tuple[str, ...],
+    parsers_by_prefix: dict[tuple[str, ...], SharpitParser],
+    subparsers_by_prefix: dict[tuple[str, ...], Any],
+) -> Any:
+    if prefix not in subparsers_by_prefix:
+        subparsers_by_prefix[prefix] = parsers_by_prefix[prefix].add_subparsers(
+            dest="command" if not prefix else "subcommand",
+            metavar="<command>" if not prefix else None,
+        )
+    return subparsers_by_prefix[prefix]
+
+
+def _add_tool_parser(
+    tool: ManifestTool,
+    globals_parser: argparse.ArgumentParser,
+    parsers_by_prefix: dict[tuple[str, ...], SharpitParser],
+    subparsers_by_prefix: dict[tuple[str, ...], Any],
+    all_parsers: list[SharpitParser],
+) -> None:
+    for depth in range(len(tool.path) - 1):
+        prefix = tool.path[:depth]
+        word = tool.path[depth]
+        child_prefix = (*prefix, word)
+        if child_prefix not in parsers_by_prefix:
+            sub = _get_or_create_subparsers(prefix, parsers_by_prefix, subparsers_by_prefix)
+            group: SharpitParser = sub.add_parser(word, parents=[globals_parser], allow_abbrev=False)
+            group.set_defaults(_group_parser=group)
+            parsers_by_prefix[child_prefix] = group
+            all_parsers.append(group)
+
+    leaf_sub = _get_or_create_subparsers(tool.path[:-1], parsers_by_prefix, subparsers_by_prefix)
+    leaf_parser: SharpitParser = leaf_sub.add_parser(
+        tool.path[-1], parents=[globals_parser], allow_abbrev=False, help=tool.summary
+    )
+    _configure_leaf_arguments(leaf_parser, tool)
+    all_parsers.append(leaf_parser)
 
 
 def _get_root_parser(
@@ -276,23 +361,23 @@ def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] |
         value
         for index, value in enumerate(argv)
         if not value.startswith("-")
-        and (index == 0 or argv[index - 1] not in {"--url", "--api-path", "--token", "--timeout"})
+        and (index == 0 or argv[index - 1] not in {"--url", "--api-path", "--token", "--timeout", "--fail-on"})
     )
     known_paths = {path for path, _ in manifest.command_specs}
+    if candidates and candidates[0] in {"tools", "mcp"}:
+        return ()
     path = next(
         (candidates[:length] for length in range(len(candidates), 0, -1) if candidates[:length] in known_paths),
         None,
     )
-    if path is None and candidates and "--help" not in argv and "-h" not in argv:
-        return candidates[:1]
     return path
 
 
 def _emit_error(err: TextIO, message: str, token: str | None) -> None:
     message = safe_text(message, token)
-    err.write(message)
+    write(err, message)
     if not message.endswith("\n"):
-        err.write("\n")
+        write(err, "\n")
     if hasattr(err, "flush"):
         err.flush()
 
@@ -302,7 +387,7 @@ def _emit_client_error(err: TextIO, error: ClientError, token: str | None, verbo
     if verbose and error.__cause__ is not None:
         import traceback
 
-        err.write(safe_text("".join(traceback.format_exception(error)), token))
+        write(err, safe_text("".join(traceback.format_exception(error)), token))
 
 
 def _emit_unexpected_error(err: TextIO, error: Exception, token: str | None, verbose: bool) -> None:
@@ -342,6 +427,7 @@ def _extract_tool_args(
     tool: ManifestTool,
     root_parser: SharpitParser,
     err: TextIO,
+    criterion: Criterion | None = None,
 ) -> dict[str, Any] | None:
     leaf = getattr(namespace, "_leaf_parser", root_parser)
     args_payload: dict[str, Any] = {}
@@ -366,7 +452,7 @@ def _extract_tool_args(
     for takes, name in ((tool.takes_offset, "offset"), (tool.takes_limit, "limit"), (tool.takes_query, "query")):
         if takes and (value := getattr(namespace, name, None)) is not None:
             args_payload[name] = value
-    return build_tool_arguments(tool, args_payload)
+    return build_tool_arguments(tool, args_payload, criterion)
 
 
 def _call_client(
@@ -401,19 +487,19 @@ def _emit_result(
     out: TextIO,
     err: TextIO,
     verbose: bool,
+    json_output: bool,
+    terminal: bool,
+    color: bool,
+    criterion: Criterion | None,
 ) -> int:
-    if 200 <= result.status < 300:
-        body = result.raw_body or (json.dumps(result.payload) if result.payload is not None else "")
-        body = safe_text(body, client_options.token)
-        if body:
-            out.write(body if body.endswith("\n") else f"{body}\n")
-        return ExitCodes.SUCCESS
-
     try:
         outcome = confirm_answered(client, result)
     except ClientError as exc:
         _emit_client_error(err, exc, client_options.token, verbose)
         return ExitCodes.ERROR
+
+    if outcome.kind is OutcomeKind.SUCCESS:
+        return _emit_success_result(result, client_options, tool, out, err, json_output, terminal, color, criterion)
 
     message = outcome.message
     if outcome.kind is OutcomeKind.ENDPOINT_DISABLED:
@@ -433,6 +519,30 @@ def _emit_result(
     return outcome.exit_code
 
 
+def _emit_success_result(
+    result: ToolResult,
+    client_options: ClientOptions,
+    tool: ManifestTool,
+    out: TextIO,
+    err: TextIO,
+    json_output: bool,
+    terminal: bool,
+    color: bool,
+    criterion: Criterion | None,
+) -> int:
+    body = result.raw_body or (json.dumps(result.payload) if result.payload is not None else "")
+    payload = result.payload
+    if not json_output and terminal and body:
+        payload = json.loads(body, parse_int=str, parse_float=str)
+    _emit(out, body, payload, _Emission(client_options.token, json_output, terminal, color))
+    if criterion is None:
+        return ExitCodes.SUCCESS
+    verdict = evaluate(result.payload, criterion, tool.name)
+    if verdict.message:
+        write(err, safe_text(verdict.message, client_options.token) + "\n")
+    return verdict.exit_code
+
+
 def _invoke_and_handle(
     factory: Callable[[ClientOptions], Client],
     client_options: ClientOptions,
@@ -441,17 +551,100 @@ def _invoke_and_handle(
     out: TextIO,
     err: TextIO,
     verbose: bool,
+    json_output: bool,
+    terminal: bool,
+    color: bool,
+    criterion: Criterion | None,
 ) -> int:
     called = _call_client(factory, client_options, tool.name, args_payload, err, verbose)
     if called is None:
         return ExitCodes.ERROR
     client, result = called
-    return _emit_result(client, result, client_options, tool, out, err, verbose)
+    return _emit_result(
+        client, result, client_options, tool, out, err, verbose, json_output, terminal, color, criterion
+    )
+
+
+def _parse_command(parser: SharpitParser, argv: Sequence[str]) -> argparse.Namespace | int:
+    try:
+        return parser.parse_args(list(argv))
+    except _CliExit as exc:
+        return exc.status
+
+
+def _usage_failure(parser: SharpitParser, message: str) -> int:
+    try:
+        parser.error(message)
+    except _CliExit:
+        return ExitCodes.ERROR
+
+
+def _tool_criterion(
+    tool: ManifestTool, value: str | None, parser: SharpitParser, err: TextIO, token: str | None
+) -> Criterion | int | None:
+    if value is None:
+        return None
+    if not supports_severity(tool.name) and not supports_insufficient(tool.name):
+        return _usage_failure(parser, "--fail-on is not supported for this tool")
+    try:
+        return parse_fail_on(tool.name, value)
+    except ValueError as exc:
+        _emit_error(err, str(exc), token)
+        return ExitCodes.ERROR
+
+
+def _run_tool_command(
+    namespace: argparse.Namespace,
+    parser: SharpitParser,
+    factory: Callable[[ClientOptions], Client],
+    client_options: ClientOptions,
+    global_options: GlobalOptions,
+    terminal: bool,
+    out: TextIO,
+    err: TextIO,
+    environment: Mapping[str, str],
+) -> int:
+    tool: ManifestTool | None = getattr(namespace, "_tool", None)
+    if tool is None:
+        if getattr(namespace, "fail_on", None) is not None:
+            return _usage_failure(parser, "--fail-on requires a supported tool command")
+        getattr(namespace, "_group_parser", parser).print_usage(err)
+        return ExitCodes.ERROR
+
+    criterion = _tool_criterion(tool, getattr(namespace, "fail_on", None), parser, err, client_options.token)
+    if isinstance(criterion, int):
+        return criterion
+    try:
+        args_payload = _extract_tool_args(namespace, tool, parser, err, criterion)
+    except _CliExit as exc:
+        return exc.status
+    if args_payload is None:
+        return ExitCodes.ERROR
+    try:
+        return _invoke_and_handle(
+            factory,
+            client_options,
+            tool,
+            args_payload,
+            out,
+            err,
+            global_options.verbose,
+            global_options.json,
+            terminal,
+            global_options.color_output(terminal, environment),
+            criterion,
+        )
+    except BrokenPipeError:
+        raise
+    except Exception as exc:
+        _emit_unexpected_error(err, exc, client_options.token, global_options.verbose)
+        return ExitCodes.ERROR
 
 
 def run(
     argv: Sequence[str],
     environment: Mapping[str, str],
+    terminal: bool,
     out: TextIO,
     err: TextIO,
     client_factory: Callable[[ClientOptions], Client] | None = None,
@@ -461,34 +654,206 @@ def run(
     selected_path = _selected_path(argv, manifest)
     root_parser = _get_root_parser(manifest, out, err, tokens, selected_path)
 
-    try:
-        namespace = root_parser.parse_args(list(argv))
-    except _CliExit as exc:
-        return exc.status
+    parsed = _parse_command(root_parser, argv)
+    if isinstance(parsed, int):
+        return parsed
+    namespace = parsed
 
-    tool: ManifestTool | None = getattr(namespace, "_tool", None)
-    if tool is None:
-        active_parser = getattr(namespace, "_group_parser", root_parser)
-        active_parser.print_usage(err)
-        return ExitCodes.ERROR
-
+    builtin = getattr(namespace, "_builtin", None)
     global_options = _extract_global_options(namespace)
     client_options = global_options.to_client_options(environment)
-    try:
-        args_payload = _extract_tool_args(namespace, tool, root_parser, err)
-    except _CliExit as exc:
-        return exc.status
-    if args_payload is None:
-        return ExitCodes.ERROR
-
     factory = client_factory or Client
-    try:
-        return _invoke_and_handle(factory, client_options, tool, args_payload, out, err, global_options.verbose)
-    except Exception as exc:
-        _emit_unexpected_error(err, exc, client_options.token, global_options.verbose)
-        return ExitCodes.ERROR
+    if builtin is not None:
+        if getattr(namespace, "fail_on", None) is not None:
+            return _usage_failure(root_parser, "--fail-on is only supported by tool commands")
+        return _run_builtin(builtin, factory, client_options, out, err, terminal, global_options, environment)
+
+    return _run_tool_command(
+        namespace, root_parser, factory, client_options, global_options, terminal, out, err, environment
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else list(argv)
-    return run(args, os.environ, sys.stdout, sys.stderr)
+    terminal = bool(sys.stdout.isatty())
+    if not terminal:
+        for stream in (sys.stdout, sys.stderr):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                reconfigure(encoding="utf-8")
+    try:
+        return run(args, os.environ, terminal, sys.stdout, sys.stderr)
+    except BrokenPipeError:
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(devnull, sys.stdout.fileno())
+            finally:
+                os.close(devnull)
+        except OSError:  # noqa: SIM105 - preserve the non-success result if stdout cannot be redirected.
+            pass
+        return ExitCodes.ERROR
+    except KeyboardInterrupt:
+        return 130
+
+
+def _catalog_listing(catalog: dict[str, object]) -> dict[str, object]:
+    raw_tools = catalog.get("tools", [])
+    tools = cast(list[object], raw_tools) if isinstance(raw_tools, list) else []
+    manifest = Manifest.bundled()
+    rows = [_catalog_tool_row(item, manifest) for item in tools]
+    return {
+        "endpoint": catalog.get("endpoint"),
+        "serverVersion": catalog.get("serverVersion"),
+        "enabled": catalog.get("enabled"),
+        "maxResults": catalog.get("maxResults"),
+        "tools": rows,
+    }
+
+
+def _catalog_tool_row(item: object, manifest: Manifest) -> dict[str, object]:
+    tool = cast(dict[str, object], item) if isinstance(item, dict) else {}
+    raw_name = tool.get("name")
+    name = raw_name if isinstance(raw_name, str) else ""
+    known = manifest.by_name(name)
+    raw_arguments = tool.get("arguments")
+    arguments = (
+        [value for value in cast(list[object], raw_arguments) if isinstance(value, str) and value]
+        if isinstance(raw_arguments, list)
+        else []
+    )
+    return {
+        "command": known.command if known is not None else "-",
+        "tool": name,
+        "panel": tool.get("panel") if isinstance(tool.get("panel"), str) else "",
+        "arguments": ", ".join(arguments) or "-",
+        "status": _catalog_status(tool),
+    }
+
+
+def _catalog_status(tool: dict[str, object]) -> str:
+    action = tool.get("action") is True
+    if tool.get("panelEnabled") is False:
+        return "panel disabled"
+    if action and tool.get("panelReadOnly") is True:
+        return "read-only"
+    if action:
+        return "action"
+    return "ready"
+
+
+def _run_builtin(
+    builtin: str,
+    factory: Callable[[ClientOptions], Client],
+    client_options: ClientOptions,
+    out: TextIO,
+    err: TextIO,
+    terminal: bool,
+    options: GlobalOptions,
+    environment: Mapping[str, str],
+) -> int:
+    client: Client | None = None
+    try:
+        client = factory(client_options)
+        if builtin == "tools":
+            return _run_tools(client, out, terminal, options, environment)
+        return _run_mcp(client, builtin.partition(":")[2], out, err, client_options, terminal, options, environment)
+    except ClientError as exc:
+        _emit_client_error(err, exc, client_options.token, options.verbose)
+        return ExitCodes.ERROR
+    except BrokenPipeError:
+        raise
+    except Exception as exc:
+        _emit_unexpected_error(err, exc, client_options.token, options.verbose)
+        return ExitCodes.ERROR
+
+
+def _run_tools(
+    client: Client,
+    out: TextIO,
+    terminal: bool,
+    options: GlobalOptions,
+    environment: Mapping[str, str],
+) -> int:
+    response = client.catalog_result()
+    payload: object = response.payload
+    if not isinstance(payload, dict):
+        raise ClientError("The target did not return a valid sharpit catalog.")
+    catalog = cast(dict[str, object], payload)
+    if options.json_output(terminal):
+        displayed: object = cast(dict[str, object], payload)
+    else:
+        displayed = _catalog_listing(catalog)
+    _emit(
+        out,
+        response.raw_body,
+        displayed,
+        _Emission(
+            client.options.token, options.json_output(terminal), terminal, options.color_output(terminal, environment)
+        ),
+    )
+    return ExitCodes.SUCCESS
+
+
+def _valid_mcp_report(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    status = cast(dict[str, object], payload)
+    tools = status.get("tools")
+    if not isinstance(tools, list):
+        return False
+    for entry in cast(list[object], tools):
+        tool = cast(dict[str, object], entry) if isinstance(entry, dict) else {}
+        name = tool.get("name")
+        if not isinstance(name, str) or not name.strip() or not isinstance(tool.get("action"), bool):
+            return False
+    return (
+        status.get("serverName") == "sharpit"
+        and status.get("transport") == "http"
+        and isinstance(status.get("enabled"), bool)
+    )
+
+
+def _invalid_mcp_message(action: str) -> str:
+    return (
+        _UNKNOWN_MCP_OUTCOME
+        if action != "status"
+        else "The target did not return a valid sharpit MCP server status report."
+    )
+
+
+def _run_mcp(
+    client: Client,
+    action: str,
+    out: TextIO,
+    err: TextIO,
+    client_options: ClientOptions,
+    terminal: bool,
+    options: GlobalOptions,
+    environment: Mapping[str, str],
+) -> int:
+    response: ToolResult | None = None
+    try:
+        if action == "status":
+            response = client.get_result("/mcp-server")
+        else:
+            response = client.post_result("/mcp-server/toggle", json.dumps({"enabled": action == "enable"}))
+        payload = response.payload
+    except ClientError as error:
+        if action != "status" and error.request_sent:
+            _emit_error(err, _UNKNOWN_MCP_OUTCOME, client_options.token)
+            return ExitCodes.ERROR
+        raise
+    if not _valid_mcp_report(payload):
+        _emit_error(err, _invalid_mcp_message(action), client_options.token)
+        return ExitCodes.ERROR
+    status = cast(dict[str, object], payload)
+    _emit(
+        out,
+        response.raw_body,
+        status,
+        _Emission(
+            client_options.token, options.json_output(terminal), terminal, options.color_output(terminal, environment)
+        ),
+    )
+    return ExitCodes.SUCCESS
