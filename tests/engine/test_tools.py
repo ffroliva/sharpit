@@ -257,6 +257,27 @@ def test_descriptions_ported_with_names_substituted():
     assert all("BootUI" not in d and "bootui" not in d and "Spring" not in d for d in by_name.values())
 
 
+# ported: McpToolDescriptionsTests.runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates (BootUI 2.4.0)
+def test_runtime_and_caught_exception_descriptions_name_incomplete_evidence_states() -> None:
+    by_name = {t.name: t.description for t in TOOLS}
+
+    sentence_insights = (
+        "The insufficient and partial counts cover every observation matching this query, "
+        "including rows omitted by the limit."
+    )
+    assert sentence_insights in by_name["get_runtime_insights"]
+
+    sentence_insight = (
+        "The observation status is explicit: insufficient evidence and partial source coverage are not a clean result."
+    )
+    assert sentence_insight in by_name["get_runtime_insight"]
+
+    assert "below the finding threshold (insufficient)" in by_name["get_exceptions"]
+    assert "counted only (partial)" in by_name["get_exceptions"]
+    assert "clear_exceptions resets it" in by_name["get_exceptions"]
+
+
+
 @pytest.mark.parametrize("name", RELEASE_TOOLS)
 def test_mcp_schema_matches_bootui(name: str):
     # BootUI bootui-tools.json names, commands, panels and schema kinds; BootUiMcpService.schema renders inputSchema

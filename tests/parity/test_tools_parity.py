@@ -361,15 +361,16 @@ DESCRIPTION_MATCHED = (
 # Tools whose description or summary BootUI changed from 2.3.0 to 2.4.0 and that sharpit has not adopted yet.
 # Each value is the lane that closes the gap by moving the tool into DESCRIPTION_ADOPTED.
 DESCRIPTION_GAPS = {
-    "get_exceptions": "A1",
-    "get_runtime_insight": "A1",
-    "get_runtime_insights": "A1",
     "get_security_report": "A3",
     "get_transactions": "A2",
     "security_scan": "A3",
 }
 # Tools whose 2.4.0 description or summary a lane has adopted.
-DESCRIPTION_ADOPTED: tuple[str, ...] = ()
+DESCRIPTION_ADOPTED: tuple[str, ...] = (
+    "get_exceptions",
+    "get_runtime_insight",
+    "get_runtime_insights",
+)
 MATCHED_TOOLS_PIN = 36  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
 
 
@@ -401,3 +402,22 @@ def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
 def test_matched_tools_ratchet() -> None:
     """Pinned count a lane raises when it closes a row; lowering a pin needs its reason in the PR body."""
     assert len(MATCHED_TOOLS) == MATCHED_TOOLS_PIN
+
+
+# ported: McpToolDescriptionsTests.runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates (BootUI 2.4.0)
+def test_a1_adopted_descriptions_name_incomplete_evidence_states() -> None:
+    sentence_insights = (
+        "The insufficient and partial counts cover every observation matching this query, "
+        "including rows omitted by the limit."
+    )
+    assert sentence_insights in SHARPIT["get_runtime_insights"].description
+
+    sentence_insight = (
+        "The observation status is explicit: insufficient evidence and partial source coverage are not a clean result."
+    )
+    assert sentence_insight in SHARPIT["get_runtime_insight"].description
+
+    assert "below the finding threshold (insufficient)" in SHARPIT["get_exceptions"].description
+    assert "counted only (partial)" in SHARPIT["get_exceptions"].description
+    assert "clear_exceptions resets it" in SHARPIT["get_exceptions"].description
+
