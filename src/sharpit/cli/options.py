@@ -58,9 +58,13 @@ def positive_seconds(value: str) -> float:
         seconds = float(raw)
     except (ValueError, TypeError):
         raise argparse.ArgumentTypeError(f"'{value}' is not a number of seconds") from None
-    if not 0 < seconds < float("inf"):  # NaN fails both comparisons
+    if not _valid_seconds(seconds):
         raise argparse.ArgumentTypeError(f"must be a positive number of seconds, not {value}")
     return seconds
+
+
+def _valid_seconds(seconds: float) -> bool:
+    return 0 < seconds < float("inf")
 
 
 def first(*candidates: str | None) -> str | None:
@@ -79,6 +83,13 @@ class ClientOptions:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "token", normalize_token(self.token))
+        try:
+            timeout = float(self.timeout)
+        except (TypeError, ValueError, OverflowError):
+            timeout = DEFAULT_TIMEOUT
+        if not _valid_seconds(timeout):
+            timeout = DEFAULT_TIMEOUT
+        object.__setattr__(self, "timeout", timeout)
 
     def __repr__(self) -> str:
         redacted = "******" if self.token else None
@@ -118,11 +129,11 @@ class GlobalOptions:
     def to_client_options(self, environment: Mapping[str, str]) -> ClientOptions:
         raw_url = first(self.url, environment.get(URL_ENV), DEFAULT_BASE_URL)
         raw_api = first(self.api_path, environment.get(API_PATH_ENV), DEFAULT_API_PATH)
-        raw_token = first(self.token, environment.get(TOKEN_ENV), None)
-        raw_timeout = self.timeout if self.timeout is not None and self.timeout > 0 else DEFAULT_TIMEOUT
+        raw_token = self.token if self.token is not None and self.token.strip() else environment.get(TOKEN_ENV)
+        raw_timeout = self.timeout if self.timeout is not None else DEFAULT_TIMEOUT
         return ClientOptions(
             base_url=normalize_base_url(raw_url),
             api_path=normalize_api_path(raw_api),
-            token=normalize_token(raw_token),
+            token=raw_token,
             timeout=raw_timeout,
         )

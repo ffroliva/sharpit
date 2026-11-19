@@ -5,16 +5,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, NoReturn, TextIO, cast
 
 from sharpit import __version__
 from sharpit.cli.arguments import build_tool_arguments
-from sharpit.cli.client import REDACTED, Client, ClientError, ToolResult, safe_text
+from sharpit.cli.client import (
+    AUTHENTICATION_HINT,
+    REDACTED,
+    Client,
+    ClientError,
+    ToolResult,
+    redact_json,
+    redact_payload,
+    safe_text,
+)
 from sharpit.cli.exit_codes import ExitCodes
-from sharpit.cli.fail_on import Criterion, evaluate, supports_insufficient, supports_severity
+from sharpit.cli.fail_on import EXCLUDED, Criterion, evaluate, supports_insufficient, supports_severity
 from sharpit.cli.fail_on import parse as parse_fail_on
 from sharpit.cli.manifest import Manifest, ManifestTool
 from sharpit.cli.options import ClientOptions, GlobalOptions, normalize_token, positive_seconds
@@ -27,30 +35,6 @@ _ACTION_TAG = "[action - needs approval]"
 _UNKNOWN_MCP_OUTCOME = (
     "The MCP action outcome is unknown: no valid sharpit MCP server status acknowledgement was received. "
     "The action was not retried."
-)
-_KNOWN_OPTIONS = frozenset(
-    {
-        "--url",
-        "--api-path",
-        "--token",
-        "--timeout",
-        "--json",
-        "--fail-on",
-        "--no-color",
-        "--verbose",
-        "-v",
-        "--version",
-        "-V",
-        "--help",
-        "-h",
-        "--query",
-        "-q",
-        "--limit",
-        "-n",
-        "--id",
-        "--scan-id",
-        "--offset",
-    }
 )
 
 
@@ -68,9 +52,15 @@ class _Emission:
         self.color = color
 
 
+class _JsonNumber(str):
+    pass
+
+
 def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> None:
-    text = raw_body if options.json_output or not options.terminal else render(payload, color=options.color)
-    text = safe_text(text, options.token)
+    if options.json_output or not options.terminal:
+        text = redact_json(raw_body or (json.dumps(payload) if payload is not None else ""), options.token)
+    else:
+        text = render(redact_payload(payload, options.token), color=options.color)
     if text:
         (write_json if options.json_output or not options.terminal else write)(
             out, text if text.endswith("\n") else f"{text}\n"
@@ -81,9 +71,6 @@ def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> No
 
 def _redact_usage_error(message: str, tokens: Sequence[str] = ()) -> str:
     msg = message
-    if "unrecognized arguments:" in message:
-        msg = re.sub(r"(?i)(-{1,2}[^\s=]+\s+)[^\s]+", rf"\1{REDACTED}", msg)
-        msg = re.sub(r"(?i)(-{1,2}[^\s=]+=)[^\s]+", rf"\1{REDACTED}", msg)
     for token in tokens:
         if token:
             msg = msg.replace(token, REDACTED)
@@ -197,7 +184,7 @@ def _configure_leaf_arguments(leaf_parser: SharpitParser, tool: ManifestTool) ->
     leaf_parser.epilog = f"Example: {tool.example}\nMCP tool: {tool.name}"
     leaf_parser.set_defaults(_tool=tool, _leaf_parser=leaf_parser)
 
-    if supports_severity(tool.name) or supports_insufficient(tool.name):
+    if tool.name in EXCLUDED or supports_severity(tool.name) or supports_insufficient(tool.name):
         leaf_parser.add_argument(
             "--fail-on", default=argparse.SUPPRESS, metavar="<severity>", help="Exit 3 at or above this severity"
         )
@@ -344,16 +331,32 @@ def _usage_tokens(argv: Sequence[str], environment: Mapping[str, str]) -> tuple[
     tokens = [raw_environment_token, normalize_token(raw_environment_token) or ""]
     for index, value in enumerate(argv[:-1]):
         option, separator, attached = value.partition("=")
-        if value == "--token":
+        if value.lower() == "--token":
             tokens.extend((argv[index + 1], normalize_token(argv[index + 1]) or ""))
-        elif option == "--token" and separator:
+        elif option.lower() == "--token" and separator:
             tokens.extend((attached, normalize_token(attached) or ""))
-        elif value.startswith("-") and value not in _KNOWN_OPTIONS:
+        elif _token_like_flag(option):
             if separator:
                 tokens.append(attached)
             elif not argv[index + 1].startswith("-"):
                 tokens.append(argv[index + 1])
     return tuple(tokens)
+
+
+def _token_like_flag(option: str) -> bool:
+    candidate = option.lower()
+    if candidate.startswith("--tok"):
+        return True
+    target = "--token"
+    if abs(len(candidate) - len(target)) > 2:
+        return False
+    previous = list(range(len(candidate) + 1))
+    for row, char in enumerate(target, 1):
+        current = [row]
+        for column, other in enumerate(candidate, 1):
+            current.append(min(current[-1] + 1, previous[column] + 1, previous[column - 1] + (char != other)))
+        previous = current
+    return previous[-1] <= 2
 
 
 def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] | None:
@@ -387,7 +390,7 @@ def _emit_client_error(err: TextIO, error: ClientError, token: str | None, verbo
     if verbose and error.__cause__ is not None:
         import traceback
 
-        write(err, safe_text("".join(traceback.format_exception(error)), token))
+        _emit_error(err, "".join(traceback.format_exception(error)), token)
 
 
 def _emit_unexpected_error(err: TextIO, error: Exception, token: str | None, verbose: bool) -> None:
@@ -504,15 +507,13 @@ def _emit_result(
     message = outcome.message
     if outcome.kind is OutcomeKind.ENDPOINT_DISABLED:
         message = (
-            "The sharpit command-line endpoint is disabled on this application. Set SHARPIT_CLI_ENABLED=ON to allow it."
+            "The sharpit command-line endpoint is disabled on this application. "
+            "Set SHARPIT_CLI_ENABLED=true to allow it."
         )
     elif outcome.kind is OutcomeKind.UNKNOWN_TOOL:
-        message = f"This application does not expose '{tool.name}'."
+        message = outcome.message
     elif outcome.kind is OutcomeKind.UNAUTHENTICATED:
-        message += (
-            ". A non-loopback --url needs --token or SHARPIT_TOKEN, "
-            "and sharpit only answers requests it considers local."
-        )
+        message += ". " + AUTHENTICATION_HINT
     elif outcome.kind is OutcomeKind.REFUSED_BY_POLICY:
         message += f" (panel '{tool.panel}')"
     _emit_error(err, message, client_options.token)
@@ -533,13 +534,13 @@ def _emit_success_result(
     body = result.raw_body or (json.dumps(result.payload) if result.payload is not None else "")
     payload = result.payload
     if not json_output and terminal and body:
-        payload = json.loads(body, parse_int=str, parse_float=str)
+        payload = json.loads(body, parse_int=_JsonNumber, parse_float=_JsonNumber)
     _emit(out, body, payload, _Emission(client_options.token, json_output, terminal, color))
     if criterion is None:
         return ExitCodes.SUCCESS
     verdict = evaluate(result.payload, criterion, tool.name)
     if verdict.message:
-        write(err, safe_text(verdict.message, client_options.token) + "\n")
+        _emit_error(err, verdict.message, client_options.token)
     return verdict.exit_code
 
 
@@ -584,8 +585,6 @@ def _tool_criterion(
 ) -> Criterion | int | None:
     if value is None:
         return None
-    if not supports_severity(tool.name) and not supports_insufficient(tool.name):
-        return _usage_failure(parser, "--fail-on is not supported for this tool")
     try:
         return parse_fail_on(tool.name, value)
     except ValueError as exc:

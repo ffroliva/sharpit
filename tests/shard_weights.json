@@ -1,6 +1,7 @@
 {
  "linux": {
   "tests/action/test_action_definition.py": 0.4,
+  "tests/cli/test_cross_task_review.py": 0.8,
   "tests/design/test_tokens.py": 0.0,
   "tests/design/test_ui_rules.py": 0.0,
   "tests/docs/test_parity_matrix.py": 0.3,
@@ -430,6 +431,7 @@
  },
  "win32": {
   "tests/action/test_action_definition.py": 1.5,
+  "tests/cli/test_cross_task_review.py": 0.8,
   "tests/design/test_tokens.py": 0.2,
   "tests/design/test_ui_rules.py": 0.1,
   "tests/docs/test_parity_matrix.py": 0.4,

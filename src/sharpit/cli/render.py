@@ -20,8 +20,11 @@ def _style(text: str, code: str, color: bool) -> str:
     return f"\x1b[{code}m{text}\x1b[0m" if color else text
 
 
-def _safe(text: str) -> str:
+def safe_controls(text: str) -> str:
     return "".join(" " if ord(char) < 32 or 0x7F <= ord(char) <= 0x9F else char for char in text)
+
+
+_safe = safe_controls
 
 
 def _scalar(value: object, color: bool) -> str:
@@ -35,7 +38,7 @@ def _scalar(value: object, color: bool) -> str:
         return "{}"
     if _is_list(value):
         return "[]"
-    return _safe(str(value))
+    return safe_controls(str(value))
 
 
 def _table_columns(items: list[object]) -> tuple[list[Mapping[str, object]], list[str]]:
@@ -57,7 +60,7 @@ def _render_table(
         for index, cell in enumerate(row):
             if len(cell) > _MAX_CELL_WIDTH:
                 row[index] = cell[: _MAX_CELL_WIDTH - 1] + "…"
-    headers = [_safe(column) for column in columns]
+    headers = [safe_controls(column) for column in columns]
     widths = [max(len(headers[i]), *(len(row[i]) for row in cells)) for i in range(len(columns))]
     lines.append(
         indent
@@ -76,7 +79,7 @@ def _render_table(
 def _render_mapping(value: Mapping[str, object], lines: list[str], depth: int, color: bool) -> None:
     indent = "  " * depth
     for raw_name, member in value.items():
-        name = _safe(str(raw_name))
+        name = safe_controls(str(raw_name))
         if _is_mapping(member) and member:
             lines.append(indent + _style(name, "1", color))
             _render_mapping(member, lines, depth + 1, color)

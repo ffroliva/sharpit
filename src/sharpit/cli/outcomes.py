@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
-from sharpit.cli.client import Client, ClientError, ToolResult, error_body, safe_text
+from sharpit.cli.client import Client, ClientError, ToolResult, error_message
 from sharpit.cli.exit_codes import ExitCodes
+from sharpit.cli.manifest import Manifest, ManifestTool
 
 
 class OutcomeKind(Enum):
@@ -54,14 +55,7 @@ def _classify(status: int, body: Any, token: str | None) -> Outcome:
     message = "" if kind is OutcomeKind.SUCCESS else f"Request failed with HTTP {status}"
     if kind is OutcomeKind.SUCCESS:
         return Outcome(kind, "")
-    document = error_body(body)
-    if document:
-        error = _nonblank(document.get("error"))
-        specific = _nonblank(document.get("reason")) or _nonblank(document.get("message"))
-        message = error or specific or message
-        if error and specific and error != specific:
-            message = f"{error}: {specific}"
-    message = safe_text(message, token)
+    message = error_message(body, token) or message
     return Outcome(kind, message)
 
 
@@ -82,9 +76,46 @@ def confirm_answered(client: Client, result: ToolResult) -> Outcome:
     if result.status == 503:
         if catalog["enabled"] is False:
             return Outcome(OutcomeKind.ENDPOINT_DISABLED, outcome.message)
-        return Outcome(outcome.kind, f"{outcome.message} (HTTP 503)")
-    return outcome
+        return outcome
+    if result.status != 404:
+        return outcome
+    tools = catalog.get("tools", [])
+    if isinstance(tools, list) and any(
+        isinstance(item, dict) and cast(dict[str, Any], item).get("name") == result.tool_name
+        for item in cast(list[Any], tools)
+    ):
+        return Outcome(OutcomeKind.UNKNOWN_TOOL, error_message(result.raw_body or result.payload) or outcome.message)
+    tool = Manifest.bundled().by_name(result.tool_name)
+    message = f"This application does not expose '{result.tool_name}'."
+    if tool is not None:
+        message += _unknown_tool_hint(client, tool)
+    return Outcome(OutcomeKind.UNKNOWN_TOOL, message)
 
 
-def _nonblank(value: Any) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
+def _unknown_tool_hint(client: Client, tool: ManifestTool) -> str:
+    try:
+        document = client.get("/panels")
+        if isinstance(document, dict):
+            fields = cast(dict[str, Any], document)
+            advertised = fields.get("panels")
+            panels: list[Any] = (
+                cast(list[Any], advertised) if isinstance(advertised, list) and advertised else list(fields.values())
+            )
+        elif isinstance(document, list):
+            panels = cast(list[Any], document)
+        else:
+            panels = []
+        for raw_panel in panels:
+            if not isinstance(raw_panel, dict):
+                continue
+            panel = cast(dict[str, Any], raw_panel)
+            if panel.get("id") != tool.panel:
+                continue
+            if panel.get("available") is not False:
+                break
+            reason = panel.get("unavailableReason", "")
+            suffix = f": {reason}" if isinstance(reason, str) and reason.strip() else ""
+            return f" Its '{tool.panel}' panel is not available in this application{suffix}."
+    except Exception:  # noqa: S110 - a failed hint must not replace the original 404.
+        pass
+    return " The application may be running an older sharpit version."

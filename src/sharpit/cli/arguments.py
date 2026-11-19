@@ -7,8 +7,6 @@ from collections.abc import Mapping
 from sharpit.cli.fail_on import Criterion, effective_query
 from sharpit.cli.manifest import ManifestTool
 
-_WIRE_NAMES = {"scan_id": "scanId"}
-
 
 def build_tool_arguments(
     tool: ManifestTool,
@@ -18,11 +16,9 @@ def build_tool_arguments(
     allowed = set(tool.arguments)
     query = options.get("query")
     effective = effective_query(tool.name, str(query) if query is not None else None, criterion)
-    result: dict[str, object] = {}
-    for name, value in options.items():
-        wire_name = _WIRE_NAMES.get(name, name)
-        if wire_name in allowed and value is not None and wire_name != "query":
-            result[wire_name] = value
+    result = {
+        name: value for name, value in options.items() if name in allowed and value is not None and name != "query"
+    }
     if "query" in allowed and effective is not None:
         result["query"] = effective
     return result

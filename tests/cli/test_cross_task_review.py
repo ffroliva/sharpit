@@ -3,16 +3,57 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
+
 from sharpit.cli import commands
 from sharpit.cli.client import Client, ClientError, ToolResult
 from sharpit.cli.options import ClientOptions
 
 
+class _DeadlineSocket:
+    def __init__(self) -> None:
+        self.timeouts: list[float] = []
+
+    def settimeout(self, value: float) -> None:
+        self.timeouts.append(value)
+
+
+class _DeadlineResponse:
+    status = 200
+
+    def __init__(self, sock: _DeadlineSocket) -> None:
+        self.fp = type("FP", (), {"raw": type("Raw", (), {"_sock": sock})()})()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def read(self):
+        return b"{}"
+
+
+class _ImmediateThread:
+    def __init__(self, *, target, daemon):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+    def join(self, timeout=None):
+        return None
+
+    def is_alive(self):
+        return False
+
+
 class Fake(Client):
-    def __init__(self, options: ClientOptions, status: int, body: str):
+    def __init__(self, options: ClientOptions, status: int, body: str, tools: list[dict[str, str]] | None = None):
         super().__init__(options)
         self.status = status
         self.body = body
+        self.tools = tools or []
 
     def invoke(self, tool: str, arguments: dict[str, object]) -> ToolResult:
         try:
@@ -22,12 +63,22 @@ class Fake(Client):
         return ToolResult(tool, self.status, self.body, payload)
 
     def catalog(self) -> dict[str, object]:
-        return {"serverName": "sharpit", "enabled": True, "tools": []}
+        return {"serverName": "sharpit", "enabled": True, "tools": self.tools}
+
+    def get(self, path: str) -> object:
+        return {"panels": []}
 
 
-def run(argv: list[str], *, env: dict[str, str] | None = None, status: int = 200, body: str = "{}"):
+def run(
+    argv: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    status: int = 200,
+    body: str = "{}",
+    tools: list[dict[str, str]] | None = None,
+):
     out, err = io.StringIO(), io.StringIO()
-    code = commands.run(argv, env or {}, True, out, err, lambda options: Fake(options, status, body))
+    code = commands.run(argv, env or {}, True, out, err, lambda options: Fake(options, status, body, tools))
     return code, out.getvalue(), err.getvalue()
 
 
@@ -56,6 +107,20 @@ def test_json_number_is_not_changed_by_short_token():
     assert json.loads(out) == {"count": 1234}
 
 
+def test_terminal_render_does_not_redact_numeric_literals():
+    _, out, _ = run(["health"], env={"SHARPIT_TOKEN": "12"}, body='[{"count":1234}]')
+
+    assert "1234" in out
+    assert "[redacted]34" not in out
+
+
+def test_json_short_word_token_does_not_change_boolean_keys_or_values():
+    body = '{"dev":"key","environment":"dev","enabled":true}'
+    _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "dev"}, body=body)
+
+    assert json.loads(out) == {"dev": "key", "environment": "[redacted]", "enabled": True}
+
+
 def test_server_text_and_bootui_url_are_not_rewritten():
     _, out, _ = run(["--json", "health"], body='{"message":"loaded bootui.yml from BootUI"}')
 
@@ -82,12 +147,23 @@ def test_server_error_controls_are_sanitized_before_stderr():
     assert "\x07" not in err
 
 
+# derived: CliContext.confirmBootUiAnswered, describe, and unknownToolHint
 def test_listed_tool_404_uses_bootui_unknown_tool_description():
-    _, _, err = run(["insights", "show", "nosuch"], status=404, body='{"message":"No observation found"}')
+    _, _, err = run(
+        ["insights", "show", "nosuch"],
+        status=404,
+        body='{"message":"No observation found"}',
+        tools=[{"name": "get_runtime_insight"}],
+    )
+
+    assert "No observation found" in err
+    assert "This application does not expose" not in err
+
+
+def test_unlisted_tool_404_says_the_application_does_not_expose_it():
+    _, _, err = run(["insights", "show", "nosuch"], status=404, body='{"message":"Unknown tool"}')
 
     assert "This application does not expose 'get_runtime_insight'." in err
-    assert "Only " in err
-    assert "No observation found" not in err
 
 
 def test_usage_errors_only_redact_token_flag_values():
@@ -117,66 +193,30 @@ def test_get_exceptions_fail_on_reports_excluded_reason():
 
 def test_expired_deadline_never_sets_socket_nonblocking(monkeypatch):
     client = Client(ClientOptions(timeout=1))
-    calls: list[float] = []
-
-    class Sock:
-        def settimeout(self, value: float) -> None:
-            calls.append(value)
-
-    class Response:
-        status = 200
-        fp = type("FP", (), {"raw": type("Raw", (), {"_sock": Sock()})()})()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def read(self):
-            return b"{}"
-
-    monkeypatch.setattr(client, "_open_response", lambda *args: Response())
-    class Thread:
-        def __init__(self, *, target, daemon):
-            self.target = target
-
-        def start(self):
-            self.target()
-
-        def join(self, timeout=None):
-            return None
-
-        def is_alive(self):
-            return False
-
-    monkeypatch.setattr("sharpit.cli.client.threading.Thread", Thread)
+    sock = _DeadlineSocket()
+    monkeypatch.setattr(client, "_open_response", lambda *args: _DeadlineResponse(sock))
+    monkeypatch.setattr("sharpit.cli.client.threading.Thread", _ImmediateThread)
     monkeypatch.setattr("sharpit.cli.client.time.monotonic", lambda: 1.0)
 
-    try:
+    with pytest.raises(ClientError, match="within 1s"):
         client._exchange(object(), 0.5, "http://localhost:8000")
-    except ClientError as error:
-        assert "within 1s" in str(error)
-    else:
-        raise AssertionError("expected the expired deadline to time out")
 
-    assert 0.0 not in calls
+    assert 0.0 not in sock.timeouts
 
 
 def test_latin1_token_is_redacted_from_error_body(monkeypatch):
     token = "secrét123456"
     client = Client(ClientOptions(token=token))
-    monkeypatch.setattr(client, "_exchange", lambda *args: (500, token.encode("latin-1")))
+    body = f'{{"message":"{token}"}}'.encode("latin-1")
+    monkeypatch.setattr(client, "_exchange", lambda *args: (500, body))
+    status, body = client._send("http://localhost:8000/sharpit/api/health", "GET", None)
+    error = client._describe_failure(status, body)
 
-    try:
-        client._send("http://localhost:8000/sharpit/api/health", "GET", None)
-    except ClientError as error:
-        assert token not in error.body
-        assert "[redacted]" in error.body
-    else:
-        raise AssertionError("expected the error response")
+    assert token not in error.body
+    assert "[redacted]" in error.body
 
 
+# ported: BootUiCliTests.anUnrelatedUnavailableServerIsAnErrorNotAConfigurationSkip
 def test_503_message_has_no_duplicate_status_suffix():
     _, _, err = run(["health"], status=503, body='{"message":"Service unavailable (HTTP 503)"}')
 
@@ -192,8 +232,7 @@ def test_action_and_mcp_refusal_exit_codes_are_documented():
     plugin_skill = (root / "plugins/sharpit/skills/sharpit/SKILL.md").read_bytes()
 
     assert "`2`: refused tool action" in readme
-    assert "`1`: refused MCP toggle" in readme
-    assert b"`2`: refused tool action" in skill
-    assert b"`1`: refused MCP toggle" in skill
+    assert "refused MCP toggle exits 1" in readme
+    assert b"`2` (`REFUSED`): refused tool action" in skill
+    assert b"refused MCP toggle exits 1" in skill
     assert skill == plugin_skill
-

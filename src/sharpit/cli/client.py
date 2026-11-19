@@ -14,11 +14,26 @@ from urllib.parse import quote, urlsplit
 
 from sharpit import __version__
 from sharpit.cli.options import ClientOptions
+from sharpit.cli.render import safe_controls
 
 REDACTED = "[redacted]"
 _CONNECT_TIMEOUT = 10.0
 _PANEL_ACCESS_DENIED = "sharpit panel access denied"
-__all__ = ["Client", "ClientError", "REDACTED", "ToolResult", "error_body", "safe_text"]
+AUTHENTICATION_HINT = (
+    "A non-loopback --url needs --token or SHARPIT_TOKEN, and sharpit only answers requests it considers local."
+)
+__all__ = [
+    "AUTHENTICATION_HINT",
+    "Client",
+    "ClientError",
+    "REDACTED",
+    "ToolResult",
+    "error_body",
+    "error_message",
+    "redact_json",
+    "redact_payload",
+    "safe_text",
+]
 
 JsonObject = dict[str, Any]  # a decoded JSON object
 
@@ -109,7 +124,7 @@ class ToolResult:
 class Client:
     def __init__(self, options: ClientOptions) -> None:
         self.options = options
-        self.timeout = _valid_timeout(options.timeout)
+        self.timeout = options.timeout
         self._request_sent = False
         token = options.token
         if token and any(ord(char) < 32 or 127 <= ord(char) <= 159 or ord(char) > 255 for char in token):
@@ -217,7 +232,11 @@ class Client:
         outcome = self._exchange(outgoing, deadline, base)
         status, body = outcome
         if not 200 <= status < 300:
-            return status, body.decode("utf-8", errors="replace")
+            try:
+                text = body.decode("utf-8")
+            except UnicodeDecodeError:
+                text = body.decode("latin-1")
+            return status, redact_json(text, self.options.token)
         return status, self._decode_body(body, status)
 
     def _exchange(self, outgoing: Any, deadline: float, base: str) -> tuple[int, bytes]:
@@ -230,7 +249,10 @@ class Client:
                     status = cast(int, getattr(response, "status", getattr(response, "code", 0)))
                     sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
                     if sock is not None:
-                        sock.settimeout(max(0.0, deadline - time.monotonic()))
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError
+                        sock.settimeout(remaining)
                     result.append((status, response.read()))
             except Exception as error:
                 result.append(error)
@@ -322,22 +344,14 @@ class Client:
 
     def _describe_failure(self, status: int, body: str) -> ClientError:
         document = error_body(body)
+        panel = _nonblank(document.get("panel"))
+        detail = error_message(body, self.options.token)
+        detail = f": {detail}" if detail else ""
         error = _nonblank(document.get("error"))
         reason = _nonblank(document.get("reason"))
-        message = _nonblank(document.get("message"))
-        panel = _nonblank(document.get("panel"))
-
-        specific = reason or message
-        detail = f": {error}" if error else ""
-        if specific and specific != error:
-            detail += f": {specific}"
         panel_refusal = status == 403 and panel is not None and reason is not None and error == _PANEL_ACCESS_DENIED
         if status == 401 or (status == 403 and not panel_refusal):
-            text = (
-                f"sharpit refused the request (HTTP {status}){detail}. A non-loopback --url needs --token "
-                "or SHARPIT_TOKEN, "
-                "and sharpit only answers requests it considers local."
-            )
+            text = f"sharpit refused the request (HTTP {status}){detail}. {AUTHENTICATION_HINT}"
         else:
             text = f"sharpit answered HTTP {status}{detail}"
         return self._client_error(text, status=status, body=body)
@@ -358,7 +372,7 @@ class Client:
         return ClientError(
             safe_text(message, self.options.token),
             status=status,
-            body=safe_text(body, self.options.token),
+            body=redact_json(body, self.options.token),
             request_sent=request_sent,
         )
 
@@ -416,31 +430,66 @@ def _nonblank(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _sharpit_text(text: str) -> str:
-    return text.replace("BootUI", "sharpit").replace("bootui.", "sharpit.")
+def error_message(body: Any, token: str | None = None) -> str | None:
+    document = error_body(body)
+    error = _nonblank(document.get("error"))
+    specific = _nonblank(document.get("reason")) or _nonblank(document.get("message"))
+    message = f"{error}: {specific}" if error and specific and error != specific else error or specific
+    return safe_text(message, token) if message else None
 
 
 def _redact(text: str, token: str | None) -> str:
+    text = text.replace(f"Authorization: Bearer {REDACTED}", REDACTED)
     if token:
-
-        def redact_json_string(match: re.Match[str]) -> str:
-            raw = match.group()
-            try:
-                value = json.loads(raw)
-            except ValueError:
-                return raw
-            if isinstance(value, str) and token in value:
-                return json.dumps(value.replace(token, REDACTED), ensure_ascii="\\u" in raw.lower())
-            return raw
-
-        text = re.sub(r'"(?:\\.|[^"\\])*"', redact_json_string, text)
         text = text.replace(f"Authorization: Bearer {token}", REDACTED)
-        text = text.replace(f"Bearer {token}", f"Bearer {REDACTED}").replace(token, REDACTED)
+        text = REDACTED.join(
+            part.replace(f"Bearer {token}", f"Bearer {REDACTED}").replace(token, REDACTED)
+            for part in text.split(REDACTED)
+        )
     return text
 
 
 def safe_text(text: str, token: str | None) -> str:
-    return _redact(_sharpit_text(text), _sharpit_text(token) if token else None)
+    return safe_controls(_redact(text, token))
+
+
+def redact_payload(value: Any, token: str | None) -> Any:
+    if not token:
+        return value
+    if type(value) is str:
+        return value.replace(token, REDACTED)
+    if isinstance(value, list):
+        return [redact_payload(item, token) for item in cast(list[Any], value)]
+    if isinstance(value, dict):
+        return {key: redact_payload(item, token) for key, item in cast(JsonObject, value).items()}
+    return value
+
+
+def redact_json(text: str, token: str | None) -> str:
+    if not token:
+        return text
+    try:
+        json.loads(text)
+        valid_json = True
+    except ValueError:
+        valid_json = False
+
+    def redact_value(match: re.Match[str]) -> str:
+        raw = match.group()
+        if match.group("key"):
+            return raw
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            return raw
+        if isinstance(value, str) and token in value:
+            return json.dumps(value.replace(token, REDACTED), ensure_ascii="\\u" in raw.lower())
+        return raw
+
+    redacted = re.sub(r'"(?:\\.|[^"\\])*"(?P<key>\s*:)?', redact_value, text)
+    if redacted != text or valid_json:
+        return redacted
+    return _redact(text, token)
 
 
 def _cannot_reach(base: str) -> str:
@@ -455,11 +504,3 @@ def _is_tls_error(error: BaseException) -> bool:
         or type(reason).__module__ in {"ssl", "_ssl"}
         or type(reason).__name__.startswith("SSL")
     )
-
-
-def _valid_timeout(value: Any) -> float:
-    try:
-        timeout = float(value)
-    except (TypeError, ValueError):
-        return 60.0
-    return timeout if 0 < timeout < float("inf") else 60.0
