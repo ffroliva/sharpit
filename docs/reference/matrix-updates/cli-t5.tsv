@@ -1,0 +1,9 @@
+cli:global-options	matched	--url, --api-path, --token, --timeout, --json, --no-color, --verbose work before or after command; ported from GlobalOptions.java
+cli:env-precedence	matched	--token takes precedence over SHARPIT_TOKEN; SHARPIT_URL and SHARPIT_API_PATH fill unset options; ported from GlobalOptions.java
+cli:bare-url	matched	bare host:port is normalized with http:// prefix and default :port falls back to localhost; ported from BootUiClientOptions.java
+cli:command-tree	matched	argparse tree built mechanically from Manifest.bundled() with flags declared by schema; ported from CommandTree.java
+cli:argparse-picocli	adapted	Python standard library argparse used instead of JVM picocli to satisfy standard-library-only rule (AGENTS.md rule 4)
+cli:timeout-positive	matched	positive seconds validation rejects zero, negative and non-numeric timeout values at parse time; ported from CommandTree.java positiveSeconds
+cli:command-ci-docs-update	n-a	BootUI's ci, docs and update commands are excluded from sharpit per design decisions 2 and CLI scope
+cli:tool-compare-thread-analysis	n-a	BootUI's insights compare and thread-analysis commands have no sharpit counterparts, so CommandTreeTests cases for them are skipped
+cli:exit-codes-wire	partial	Task 3 and Task 7 wire full outcomes and rendering; Task 5 returns plain integer exit codes (0/1/2)

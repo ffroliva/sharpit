@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -15,19 +16,50 @@ DEFAULT_TIMEOUT = 60.0
 
 
 def normalize_base_url(url: str | None) -> str:
-    return "stub-url"
+    value = (url or "").strip()
+    if not value:
+        return DEFAULT_BASE_URL
+    if value.startswith(":"):
+        value = "localhost" + value
+    if not (value.startswith("http://") or value.startswith("https://")):
+        value = "http://" + value
+    while value.endswith("/") and len(value) > 1:
+        value = value[:-1]
+    return value
 
 
 def normalize_api_path(path: str | None) -> str:
-    return "stub-api"
+    value = (path or "").strip()
+    if not value:
+        return DEFAULT_API_PATH
+    if not value.startswith("/"):
+        value = "/" + value
+    while len(value) > 1 and value.endswith("/"):
+        value = value[:-1]
+    return value or DEFAULT_API_PATH
 
 
 def normalize_token(token: str | None) -> str | None:
-    return "stub-token"
+    if token is None or not token.strip():
+        return None
+    return token.strip()
 
 
 def positive_seconds(value: str) -> float:
-    return -1.0
+    try:
+        seconds = float(value.strip())
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError(f"'{value}' is not a number of seconds") from None
+    if seconds <= 0 or seconds != seconds or seconds == float("inf"):
+        raise argparse.ArgumentTypeError(f"must be a positive number of seconds, not {value}")
+    return seconds
+
+
+def first(*candidates: str | None) -> str | None:
+    for candidate in candidates:
+        if candidate is not None and candidate.strip():
+            return candidate.strip()
+    return None
 
 
 @dataclass(frozen=True)
@@ -59,10 +91,19 @@ class GlobalOptions:
     verbose: bool = False
 
     def json_output(self, terminal: bool) -> bool:
-        return False
+        return self.json or not terminal
 
     def color_output(self, terminal: bool, environment: Mapping[str, str]) -> bool:
-        return False
+        return terminal and not self.no_color and "NO_COLOR" not in environment
 
     def to_client_options(self, environment: Mapping[str, str]) -> ClientOptions:
-        return ClientOptions()
+        raw_url = first(self.url, environment.get(URL_ENV), DEFAULT_BASE_URL)
+        raw_api = first(self.api_path, environment.get(API_PATH_ENV), DEFAULT_API_PATH)
+        raw_token = first(self.token, environment.get(TOKEN_ENV), None)
+        raw_timeout = self.timeout if self.timeout is not None and self.timeout > 0 else DEFAULT_TIMEOUT
+        return ClientOptions(
+            base_url=normalize_base_url(raw_url),
+            api_path=normalize_api_path(raw_api),
+            token=normalize_token(raw_token),
+            timeout=raw_timeout,
+        )
