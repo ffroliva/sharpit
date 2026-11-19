@@ -1,0 +1,18 @@
+mcp:prompt-diagnose_runtime_issue	partial	Replaces BootUI-only code-path inventory and request-input sink evidence with available request profiles, traces, SQL traces, logs, and an explicit unavailable-evidence statement.
+mcp:prompt-diagnose_runtime_issue	partial	Changes Java-agent wording and BootUI evidence references to sharpit runtime evidence; sharpit does not collect the named code-path or sink signals.
+mcp:prompt-diagnose_runtime_issue	partial	Omits JDK-only deserialization filters, weak-algorithm and trust-manager checks because sharpit has no matching runtime sensor; security findings remain source/configuration checks.
+mcp:prompt-diagnose_runtime_issue	partial	Applies sharpit's text masker to supplied argument values before rendering, as required by sharpit's MCP secret-masking invariant.
+mcp:prompt-verify_after_change	partial	Sharpit has no changed-code inventory, method probes, runtime-impact query, or previous-run comparison; the prompt directs users to runtime/SQL evidence and states these limits.
+mcp:prompt-verify_after_change	partial	Changes Java-agent and Java method-signature examples to Python/FastAPI-neutral change, dependency, and route wording.
+mcp:prompt-verify_after_change	partial	Replaces BootUI runtime-run comparison and probe-based invocation claims with available runtime insights, SQL traces, and request profiles; no equivalence is claimed.
+mcp:prompt-verify_after_change	partial	Applies sharpit's text masker to supplied argument values before rendering, as required by sharpit's MCP secret-masking invariant.
+mcp:prompt-review_application	partial	Sharpit has no memory scan or penetration probe; the prompt names these as unavailable and points to enabled sharpit advisors.
+mcp:prompt-review_application	partial	Changes BootUI advisor terminology to sharpit advisor terminology and removes Java-only full-GC wording.
+mcp:prompt-review_application	partial	Keeps BootUI's bounded-context and relevant-advisor workflow while omitting Java-specific scan side effects unavailable in sharpit.
+mcp:prompt-review_application	partial	Applies sharpit's text masker to supplied argument values before rendering, as required by sharpit's MCP secret-masking invariant.
+mcp:prompt-assess_application	partial	Replaces BootUI-only memory scan, penetration probe, and method probe actions with sharpit's vulnerability, database-advisor, and enabled advisor scans; each remains subject to approval.
+mcp:prompt-assess_application	partial	Replaces BootUI agent security-sinks sensor settings with an explicit unavailable-evidence note because sharpit has no matching sensor.
+mcp:prompt-assess_application	partial	Adapts JVM identity, snapshot, and tracing wording to Python/FastAPI runtime identity, process snapshots, and sharpit's available exception, trace, request, and SQL evidence.
+mcp:prompt-assess_application	partial	Limits application identity to sharpit's FastAPI adapter and marks Spring MVC, WebFlux, Quarkus, native-image, and CRaC readiness as outside this lane's observed capabilities.
+mcp:prompt-assess_application	partial	Replaces BootUI agent-only code inventory and advisor detail with sharpit's bounded reports, identifiers, and enabled advisor scans.
+mcp:prompt-assess_application	partial	Applies sharpit's text masker to supplied argument values before rendering, as required by sharpit's MCP secret-masking invariant.

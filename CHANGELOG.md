@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- MCP prompt guidance follows BootUI 2.4.0: all four prompts advertise optional arguments, echo masked and bounded context, and include `verify_after_change`.
 - The `sharpit` command-line client (see below).
 - Runtime Insights implements `repeated-selects` and `unbatched-write-loop` with BootUI 2.4.0 thresholds and request counts.
 - Rule SEC-STATIC-001 (BootUI 2.4.0 #1597): detects local static security analyzer declarations (Bandit, Semgrep, CodeQL, a `sonar-project.properties` file, or Ruff with `S` selected) without running them; bounded to 1 MiB per file and at most 64 workflow files, refuses symlinks and special files, evaluating to INDETERMINATE on error or oversize. Evaluated only on the security scan action (panel, MCP and CLI `security scan`), never on reads.
@@ -14,6 +15,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- MCP runtime-diagnosis, change-verification, application-review, and application-assessment guidance is adapted to sharpit evidence and available tools; unsupported BootUI-only observations are identified as unavailable.
 - The caught-exceptions report (`GET /sharpit/api/exceptions/caught`) emits `insufficient` and `partial` integer counters (zeros when the sensor is unavailable), and the runtime insights agent view (`get_runtime_insights`) emits `insufficient` and `partial` counts covering every observation matching the query, including rows omitted by `limit`. The MCP tool descriptions for `get_exceptions`, `get_runtime_insights`, and `get_runtime_insight` adopt BootUI 2.4.0 explanations for incomplete-evidence states (BootUI 2.4.0 #1589).
 - The web UI enforces read-only panel policies across views and navigation: action buttons are disabled with their canonical refusal reasons instead of remaining interactive or hidden, panels state refusal reasons on 403 access denials without masking them as generic connection failures, and mutating actions guard execution against policy changes (BootUI 2.4.0 #1602).
 - Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL) or failed ORM model
