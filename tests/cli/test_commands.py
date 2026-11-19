@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import shlex
+import threading
 from typing import Any
 
 import pytest
@@ -54,6 +55,7 @@ def _run_cli(
 
 # derived: accepts options before or after command
 def test_global_options_accepted_before_and_after_command():
+    # ported: BootUiCliTests.aGlobalFlagWorksAfterTheCommandToo
     # Before command
     code1, out1, _, client1 = _run_cli(
         ["--url", "http://127.0.0.1:9000", "--api-path", "/my/api", "--token", "tok1", "--timeout", "30", "beans"]
@@ -79,6 +81,32 @@ def test_global_options_accepted_before_and_after_command():
     assert client2.invocations[0][0] == "get_beans"
 
 
+def test_rejected_token_is_a_failed_request_with_token_guidance():
+    # ported: BootUiCliTests.aRejectedTokenIsAFailedRequestRatherThanAPolicyRefusal
+    class RejectedClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(tool, 401, '{"error":"Authentication required"}', {"error": "Authentication required"})
+
+    code, _, err, _ = _run_cli(["beans"], client=RejectedClient(None))
+    assert code == ExitCodes.ERROR
+    assert "--token" in err
+    assert "SHARPIT_TOKEN" in err
+
+
+def test_disabled_endpoint_names_the_enabling_setting():
+    # ported: BootUiCliTests.aDisabledEndpointSaysWhichPropertyTurnsItOn
+    class DisabledClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(tool, 503, "{}", {})
+
+        def catalog(self) -> dict[str, Any]:
+            return {"serverName": "sharpit", "enabled": False, "tools": []}
+
+    code, _, err, _ = _run_cli(["beans"], client=DisabledClient(None))
+    assert code == ExitCodes.REFUSED
+    assert "SHARPIT_CLI_ENABLED=ON" in err
+
+
 # derived: token flag takes precedence over environment
 def test_token_flag_takes_precedence_over_environment():
     code, _, _, client = _run_cli(
@@ -90,6 +118,7 @@ def test_token_flag_takes_precedence_over_environment():
 
 
 def test_environment_variables_fill_unset_options():
+    # ported: BootUiCliTests.theEnvironmentSuppliesTheTokenWhenTheFlagIsAbsent
     code, _, _, client = _run_cli(
         ["beans"],
         environment={
@@ -126,6 +155,7 @@ def test_no_color_environment_honoured():
 
 
 def test_timeout_must_be_positive_seconds():
+    # ported: BootUiCliTests.aNonPositiveTimeoutIsRejectedRatherThanInterpreted
     # <= 0 or not numeric must result in usage error (exit code 1) before any client request
     code1, _, err1, client1 = _run_cli(["--timeout", "0", "beans"])
     assert code1 == 1
@@ -141,6 +171,10 @@ def test_timeout_must_be_positive_seconds():
     assert code3 == 1
     assert len(client3.invocations) == 0
     assert "not a number of seconds" in err3
+
+    code4, _, err4, _ = _run_cli(["--timeout", "xms", "beans"])
+    assert code4 == 1
+    assert "'xms' is not a number of seconds" in err4
 
 
 def test_token_never_appears_in_output():
@@ -177,13 +211,38 @@ def test_default_client_factory_completes_an_http_call(monkeypatch):
     monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: Opener())
     code, out, err, _ = _run_cli(["beans"])
     assert code == 0
-    assert '"ok": true' in out
+    assert out.strip() == '{"ok":true}'
     assert err == ""
 
 
 def test_global_options_repr_redacts_token():
     secret = "private-token-239"
     assert secret not in repr(GlobalOptions(token=secret))
+
+
+def test_timeout_message_keeps_fractional_seconds_readable(monkeypatch):
+    from sharpit.cli import client as client_module
+
+    class NoResponse:
+        def open(self, *_args, **_kwargs):
+            raise TimeoutError()
+
+    monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: NoResponse())
+    for timeout, expected in ((0.3, "300ms"), (1.5, "1.5s")):
+        out, err = io.StringIO(), io.StringIO()
+        code = run(["--timeout", str(timeout), "beans"], {}, False, out, err)
+        assert code == ExitCodes.ERROR
+        assert f"within {expected}." in err.getvalue()
+
+
+def test_284_calls_build_independent_parser_trees_under_performance_budget():
+    import time
+
+    started = time.perf_counter()
+    for _ in range(284):
+        code, _, _, _ = _run_cli(["beans"])
+        assert code == ExitCodes.SUCCESS
+    assert time.perf_counter() - started < 1.5
 
 
 def test_ambiguous_global_option_is_not_abbreviated_or_echoed():
@@ -218,6 +277,77 @@ def test_usage_errors_do_not_print_token_value():
     assert code == 1
     assert secret not in err
     assert len(client.invocations) == 0
+
+
+def test_usage_error_redacts_after_any_unknown_option():
+    for option, secret in (("--tken", "SECRETX"), ("--Token", "s3cret")):
+        code, _, err, _ = _run_cli(["beans", option, secret])
+        assert code == ExitCodes.ERROR
+        assert secret not in err
+
+
+def test_usage_error_keeps_the_invalid_command_word():
+    code, _, err, _ = _run_cli(["beanz"])
+    assert code == ExitCodes.ERROR
+    assert "beanz" in err
+
+
+def test_usage_error_hides_a_stray_positional_token_from_environment():
+    secret = "env-secret"
+    code, _, err, _ = _run_cli(["beans", secret], {"SHARPIT_TOKEN": secret})
+    assert code == ExitCodes.ERROR
+    assert secret not in err
+
+
+def test_conflicting_positional_and_flag_ids_are_usage_error():
+    code, _, err, client = _run_cli(["exceptions", "detail", "pos-id", "--id", "flag-id"])
+    assert code == ExitCodes.ERROR
+    assert "cannot be combined" in err
+    assert client.invocations == []
+
+
+def test_help_uses_readable_required_metavars_and_environment_names():
+    code, out, _, _ = _run_cli(["--help"])
+    assert code == 0
+    assert "SHARPIT_URL" in out
+    assert "SHARPIT_API_PATH" in out
+    assert "SHARPIT_TOKEN" in out
+    assert "FLAG_ID" not in out
+
+    _, id_help, _, _ = _run_cli(["exceptions", "detail", "--help"])
+    assert "<id>" in id_help
+    _, scan_help, _, _ = _run_cli(["architecture", "violations", "--help"])
+    assert "--scan-id <scanId>" in scan_help
+
+
+def test_two_concurrent_runs_keep_their_own_streams(monkeypatch):
+    from sharpit.cli.commands import SharpitParser
+
+    barrier = threading.Barrier(2)
+    original = SharpitParser.parse_args
+
+    def synchronized_parse(parser, args=None, namespace=None):
+        barrier.wait(timeout=2)
+        return original(parser, args, namespace)
+
+    monkeypatch.setattr(SharpitParser, "parse_args", synchronized_parse)
+    outputs = [io.StringIO(), io.StringIO()]
+    errors = [io.StringIO(), io.StringIO()]
+    codes = [None, None]
+
+    def invoke(index):
+        codes[index] = run(["beans", "--help"], {}, False, outputs[index], errors[index])
+
+    threads = [threading.Thread(target=invoke, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert codes == [0, 0]
+    assert "usage: sharpit" in outputs[0].getvalue()
+    assert "usage: sharpit" in outputs[1].getvalue()
+    assert errors == [io.StringIO(), io.StringIO()]
 
 
 # ported: CommandTreeTests.everyCommandInTheManifestInvokesTheToolItProjects
@@ -424,22 +554,31 @@ def test_confirmed_503_disabled_endpoint_exits_refused():
     assert code == ExitCodes.REFUSED
 
 
-def test_programming_error_without_verbose_propagates():
+def test_unexpected_error_without_verbose_returns_error_and_prints_one_line():
     class CrashingClient(FakeClient):
         def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
             raise RuntimeError("unexpected internal bug")
 
-    with pytest.raises(RuntimeError, match="unexpected internal bug"):
-        _run_cli(["beans"], client=CrashingClient(None))
+    try:
+        code, _, err, _ = _run_cli(["beans"], client=CrashingClient(None))
+    except RuntimeError as exc:
+        code, err = None, str(exc)
+    assert code == ExitCodes.ERROR
+    assert err.strip() == "unexpected internal bug"
 
 
-def test_programming_error_with_verbose_prints_traceback():
+def test_unexpected_error_with_verbose_returns_error_and_prints_traceback():
     class CrashingClient(FakeClient):
         def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
             raise RuntimeError("unexpected internal bug")
 
-    with pytest.raises(RuntimeError, match="unexpected internal bug"):
-        _run_cli(["-v", "beans"], client=CrashingClient(None))
+    try:
+        code, _, err, _ = _run_cli(["-v", "beans"], client=CrashingClient(None))
+    except RuntimeError as exc:
+        code, err = None, str(exc)
+    assert code == ExitCodes.ERROR
+    assert "Traceback" in err
+    assert "unexpected internal bug" in err
 
 
 def test_timeout_accepts_duration_strings_and_bare_seconds():
