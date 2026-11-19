@@ -180,7 +180,7 @@ def test_terminal_json_escapes_raw_c1_controls_but_piped_json_is_verbatim():
     commands.run(["--json", "health"], {}, False, out, err, lambda options: Fake(options, 200, body))
 
     assert r"\u009b" in terminal_out
-    assert "\u009b" not in out.getvalue()
+    assert "\u009b" in out.getvalue()
     assert "a\u009bb" in out.getvalue()
     assert json.loads(terminal_out) == {"message": "a\u009bb"}
 
