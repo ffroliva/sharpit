@@ -7,12 +7,12 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, NoReturn, TextIO, cast
 
 from sharpit import __version__
 from sharpit.cli.arguments import build_tool_arguments
-from sharpit.cli.client import Client, ClientError, ToolResult, safe_text
+from sharpit.cli.client import REDACTED, Client, ClientError, ToolResult, safe_text
 from sharpit.cli.exit_codes import ExitCodes
 from sharpit.cli.fail_on import Criterion, evaluate, supports_insufficient, supports_severity
 from sharpit.cli.fail_on import parse as parse_fail_on
@@ -82,11 +82,11 @@ def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> No
 def _redact_usage_error(message: str, tokens: Sequence[str] = ()) -> str:
     msg = message
     if "unrecognized arguments:" in message:
-        msg = re.sub(r"(?i)(-{1,2}[^\s=]+\s+)[^\s]+", r"\1[redacted]", msg)
-        msg = re.sub(r"(?i)(-{1,2}[^\s=]+=)[^\s]+", r"\1[redacted]", msg)
+        msg = re.sub(r"(?i)(-{1,2}[^\s=]+\s+)[^\s]+", rf"\1{REDACTED}", msg)
+        msg = re.sub(r"(?i)(-{1,2}[^\s=]+=)[^\s]+", rf"\1{REDACTED}", msg)
     for token in tokens:
         if token:
-            msg = msg.replace(token, "[redacted]")
+            msg = msg.replace(token, REDACTED)
     return msg
 
 
@@ -237,44 +237,10 @@ def _build_root_parser(
     parsers_by_prefix: dict[tuple[str, ...], SharpitParser] = {(): root}
     subparsers_by_prefix: dict[tuple[str, ...], Any] = {}
 
-    def get_or_create_subparsers(prefix: tuple[str, ...]) -> Any:
-        if prefix not in subparsers_by_prefix:
-            subparsers_by_prefix[prefix] = parsers_by_prefix[prefix].add_subparsers(
-                dest="command" if not prefix else "subcommand",
-                metavar="<command>" if not prefix else None,
-            )
-        return subparsers_by_prefix[prefix]
+    for tool in _selected_tools(manifest, selected_path):
+        _add_tool_parser(tool, globals_parser, parsers_by_prefix, subparsers_by_prefix, all_parsers)
 
-    specs = manifest.command_specs
-    if selected_path is None:
-        selected = (tool for _, tool in specs)
-    elif selected_path:
-        selected = (tool for path, tool in specs if path[: len(selected_path)] == selected_path)
-    else:
-        selected = iter(())
-    for tool in selected:
-        path = tool.path
-        for depth in range(len(path) - 1):
-            prefix = path[:depth]
-            word = path[depth]
-            child_prefix = (*prefix, word)
-            if child_prefix not in parsers_by_prefix:
-                sub = get_or_create_subparsers(prefix)
-                group: SharpitParser = sub.add_parser(word, parents=[globals_parser], allow_abbrev=False)
-                group.set_defaults(_group_parser=group)
-                parsers_by_prefix[child_prefix] = group
-                all_parsers.append(group)
-
-        parent_prefix = path[:-1]
-        leaf_word = path[-1]
-        leaf_sub = get_or_create_subparsers(parent_prefix)
-        leaf_parser: SharpitParser = leaf_sub.add_parser(
-            leaf_word, parents=[globals_parser], allow_abbrev=False, help=tool.summary
-        )
-        _configure_leaf_arguments(leaf_parser, tool)
-        all_parsers.append(leaf_parser)
-
-    root_sub = get_or_create_subparsers(())
+    root_sub = _get_or_create_subparsers((), parsers_by_prefix, subparsers_by_prefix)
     tools_parser: SharpitParser = root_sub.add_parser(
         "tools",
         parents=[globals_parser],
@@ -310,6 +276,53 @@ def _build_root_parser(
         all_parsers.append(leaf)
 
     return root, all_parsers
+
+
+def _selected_tools(manifest: Manifest, selected_path: tuple[str, ...] | None) -> Iterable[ManifestTool]:
+    if selected_path is None:
+        return (tool for _, tool in manifest.command_specs)
+    if selected_path:
+        return (tool for path, tool in manifest.command_specs if path[: len(selected_path)] == selected_path)
+    return iter(())
+
+
+def _get_or_create_subparsers(
+    prefix: tuple[str, ...],
+    parsers_by_prefix: dict[tuple[str, ...], SharpitParser],
+    subparsers_by_prefix: dict[tuple[str, ...], Any],
+) -> Any:
+    if prefix not in subparsers_by_prefix:
+        subparsers_by_prefix[prefix] = parsers_by_prefix[prefix].add_subparsers(
+            dest="command" if not prefix else "subcommand",
+            metavar="<command>" if not prefix else None,
+        )
+    return subparsers_by_prefix[prefix]
+
+
+def _add_tool_parser(
+    tool: ManifestTool,
+    globals_parser: argparse.ArgumentParser,
+    parsers_by_prefix: dict[tuple[str, ...], SharpitParser],
+    subparsers_by_prefix: dict[tuple[str, ...], Any],
+    all_parsers: list[SharpitParser],
+) -> None:
+    for depth in range(len(tool.path) - 1):
+        prefix = tool.path[:depth]
+        word = tool.path[depth]
+        child_prefix = (*prefix, word)
+        if child_prefix not in parsers_by_prefix:
+            sub = _get_or_create_subparsers(prefix, parsers_by_prefix, subparsers_by_prefix)
+            group: SharpitParser = sub.add_parser(word, parents=[globals_parser], allow_abbrev=False)
+            group.set_defaults(_group_parser=group)
+            parsers_by_prefix[child_prefix] = group
+            all_parsers.append(group)
+
+    leaf_sub = _get_or_create_subparsers(tool.path[:-1], parsers_by_prefix, subparsers_by_prefix)
+    leaf_parser: SharpitParser = leaf_sub.add_parser(
+        tool.path[-1], parents=[globals_parser], allow_abbrev=False, help=tool.summary
+    )
+    _configure_leaf_arguments(leaf_parser, tool)
+    all_parsers.append(leaf_parser)
 
 
 def _get_root_parser(
@@ -687,40 +700,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _catalog_listing(catalog: dict[str, object]) -> dict[str, object]:
     raw_tools = catalog.get("tools", [])
     tools = cast(list[object], raw_tools) if isinstance(raw_tools, list) else []
-    rows: list[dict[str, object]] = []
     manifest = Manifest.bundled()
-    for item in tools:
-        tool = cast(dict[str, object], item) if isinstance(item, dict) else {}
-        raw_name = tool.get("name")
-        name = raw_name if isinstance(raw_name, str) else ""
-        known = manifest.by_name(name)
-        action = tool.get("action") is True
-        panel_enabled = tool.get("panelEnabled") is not False
-        panel_read_only = tool.get("panelReadOnly") is True
-        raw_arguments = tool.get("arguments")
-        arguments = (
-            [value for value in cast(list[object], raw_arguments) if isinstance(value, str) and value]
-            if isinstance(raw_arguments, list)
-            else []
-        )
-        status = (
-            "panel disabled"
-            if not panel_enabled
-            else "read-only"
-            if action and panel_read_only
-            else "action"
-            if action
-            else "ready"
-        )
-        rows.append(
-            {
-                "command": known.command if known is not None else "-",
-                "tool": name,
-                "panel": tool.get("panel") if isinstance(tool.get("panel"), str) else "",
-                "arguments": ", ".join(arguments) or "-",
-                "status": status,
-            }
-        )
+    rows = [_catalog_tool_row(item, manifest) for item in tools]
     return {
         "endpoint": catalog.get("endpoint"),
         "serverVersion": catalog.get("serverVersion"),
@@ -728,6 +709,37 @@ def _catalog_listing(catalog: dict[str, object]) -> dict[str, object]:
         "maxResults": catalog.get("maxResults"),
         "tools": rows,
     }
+
+
+def _catalog_tool_row(item: object, manifest: Manifest) -> dict[str, object]:
+    tool = cast(dict[str, object], item) if isinstance(item, dict) else {}
+    raw_name = tool.get("name")
+    name = raw_name if isinstance(raw_name, str) else ""
+    known = manifest.by_name(name)
+    raw_arguments = tool.get("arguments")
+    arguments = (
+        [value for value in cast(list[object], raw_arguments) if isinstance(value, str) and value]
+        if isinstance(raw_arguments, list)
+        else []
+    )
+    return {
+        "command": known.command if known is not None else "-",
+        "tool": name,
+        "panel": tool.get("panel") if isinstance(tool.get("panel"), str) else "",
+        "arguments": ", ".join(arguments) or "-",
+        "status": _catalog_status(tool),
+    }
+
+
+def _catalog_status(tool: dict[str, object]) -> str:
+    action = tool.get("action") is True
+    if tool.get("panelEnabled") is False:
+        return "panel disabled"
+    if action and tool.get("panelReadOnly") is True:
+        return "read-only"
+    if action:
+        return "action"
+    return "ready"
 
 
 def _run_builtin(
