@@ -283,7 +283,7 @@ def test_token_escapes_are_redacted_in_final_json_and_terminal_text(json_output,
             return ToolResult(tool, 200, body, {"secret": token})
 
     out, err = io.StringIO(), io.StringIO()
-    argv = (["--json"] if json_output else []) + ["beans"]
+    argv = (["--json"] if json_output else ["--no-color"]) + ["beans"]
     code = run(argv, {"SHARPIT_TOKEN": token}, True, out, err, client_factory=SecretClient)
     assert code == ExitCodes.SUCCESS
     expected = "secret: [redacted]\n" if not json_output else '{"secret":"[redacted]"}\n'

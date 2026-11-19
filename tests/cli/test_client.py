@@ -391,7 +391,7 @@ def test_client_transport_messages_match_bootui_and_redact_the_token(endpoint):
 
 
 def test_connect_cap_does_not_limit_the_response_timeout(monkeypatch, endpoint):
-    base, routes, *_rest, header_delays = endpoint
+    base, routes, *_rest, header_delays, _broken_paths = endpoint
     routes["/sharpit/api/cli/tools/slow"] = (200, b'{"answer":"ready"}', None)
     header_delays["/sharpit/api/cli/tools/slow"] = 0.2
     monkeypatch.setattr("sharpit.cli.client._CONNECT_TIMEOUT", 0.1, raising=False)
