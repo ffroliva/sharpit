@@ -274,7 +274,7 @@ def test_help_and_version_win_over_invalid_fail_on():
 
 
 @pytest.mark.parametrize("json_output", [False, True])
-@pytest.mark.parametrize("token,encoded", [(r'ab"c\d', r'ab\"c\\d'), ("é", r"\u00e9"), ("/", r"\/")])
+@pytest.mark.parametrize("token,encoded", [(r'ab"c\d', r"ab\"c\\d"), ("é", r"\u00e9"), ("/", r"\/")])
 def test_token_escapes_are_redacted_in_final_json_and_terminal_text(json_output, token, encoded):
     body = '{"secret":"' + encoded + '"}'
 
@@ -286,7 +286,7 @@ def test_token_escapes_are_redacted_in_final_json_and_terminal_text(json_output,
     argv = (["--json"] if json_output else []) + ["beans"]
     code = run(argv, {"SHARPIT_TOKEN": token}, True, out, err, client_factory=SecretClient)
     assert code == ExitCodes.SUCCESS
-    expected = 'secret: [redacted]\n' if not json_output else '{"secret":"[redacted]"}\n'
+    expected = "secret: [redacted]\n" if not json_output else '{"secret":"[redacted]"}\n'
     assert out.getvalue() == expected
 
 
@@ -416,7 +416,12 @@ def test_main_broken_pipe_cannot_turn_a_threshold_verdict_into_success(monkeypat
 
     class SuccessClient(FakeClient):
         def invoke(self, tool, arguments):
-            return ToolResult(tool, 200, '{"scan":{"status":"SCANNED"},"severityCounts":[{"severity":"HIGH","count":1}]}', {"scan": {"status": "SCANNED"}, "severityCounts": [{"severity": "HIGH", "count": 1}]})
+            return ToolResult(
+                tool,
+                200,
+                '{"scan":{"status":"SCANNED"},"severityCounts":[{"severity":"HIGH","count":1}]}',
+                {"scan": {"status": "SCANNED"}, "severityCounts": [{"severity": "HIGH", "count": 1}]},
+            )
 
     monkeypatch.setattr(commands, "Client", SuccessClient)
     try:
