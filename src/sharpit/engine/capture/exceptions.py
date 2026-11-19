@@ -226,6 +226,8 @@ def caught_report() -> dict[str, Any]:
         "settling": 0,
         "occurrences": 0,
         "findings": 0,
+        "insufficient": 0,
+        "partial": 0,
         "rows": [],
     }
 
