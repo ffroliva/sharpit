@@ -518,7 +518,11 @@ def test_prompt_arguments_match_java_whitespace_and_mask_after_strip(no_side_eff
         assert "Context the user supplied" in response["result"]["messages"][0]["content"]["text"]
     response = _post(
         server,
-        _rpc("prompts/get", 16, {"name": "diagnose_runtime_issue", "arguments": {"symptom": "  sk_live_12345678901234567890  "}}),
+        _rpc(
+            "prompts/get",
+            16,
+            {"name": "diagnose_runtime_issue", "arguments": {"symptom": "  sk_live_12345678901234567890  "}},
+        ),
     )[1]
     rendered = response["result"]["messages"][0]["content"]["text"]
     assert "- The symptom the user reports: ******" in rendered
@@ -542,7 +546,17 @@ def test_verify_after_change_uses_available_repeat_insights_without_prior_run_cl
     assert "lazy-sql-after-handler" in prompt.text
     assert "previous run" not in prompt.description.lower()
     assert "previous one" not in prompt.description.lower()
-    assert "route or test the change should affect" not in next(a for a in prompt.arguments if a.name == "route").description
+    assert (
+        "route or test the change should affect"
+        not in next(a for a in prompt.arguments if a.name == "route").description
+    )
+
+
+def test_diagnosis_checks_low_footprint_before_interpreting_results(no_side_effects):
+    # new: sharpit exposes low-footprint state through a tool call, not result fields
+    prompt = next(p for p in PROMPTS if p.name == "diagnose_runtime_issue")
+    assert "Call get_low_footprint first" in prompt.text
+    assert "lowFootprint on results" not in prompt.text
 
 
 # --- lane D4: BootUI 2.2.0 protocol revisions and status counters ---------------------------------------------------
