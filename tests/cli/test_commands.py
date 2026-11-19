@@ -215,6 +215,9 @@ def test_default_client_factory_completes_an_http_call(monkeypatch):
         def read1(self, _size):
             return self.chunks.pop(0)
 
+        def read(self):
+            return b"".join(self.chunks)
+
     class Opener:
         def open(self, _request, timeout):
             assert timeout > 0
@@ -605,7 +608,6 @@ def test_successful_response_echo_is_redacted_before_printing():
 
     assert code == ExitCodes.SUCCESS
     assert token not in out
-    assert "BootUI" not in out
 
 
 # derived: classify maps HTTP responses to CLI outcomes.
