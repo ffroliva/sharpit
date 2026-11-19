@@ -36,7 +36,7 @@ def _listed_panels() -> int:
 def _matrix() -> dict[str, str]:
     bootui_tools = {t["name"] for t in json.loads((BOOTUI / "tools.json").read_text("utf-8"))["tools"]}
     ours = {t.name for t in TOOLS}
-    routes = json.loads((ROOT / "tests" / "parity" / "routes_23_status.json").read_text("utf-8"))["counts"]
+    routes = json.loads((ROOT / "tests" / "parity" / "routes_status.json").read_text("utf-8"))["counts"]
     implemented = [k for k in KINDS if k.module.IMPLEMENTED]
     evaluating = [k for k in implemented if k.reads <= PRODUCED_SOURCES]
     applicable = routes["total"] - routes["n-a"]
