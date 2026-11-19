@@ -10,7 +10,7 @@ Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, and 0.7
 | MCP/CLI tools | 54 | 71 | 116 | 116 |
 | Tools under BootUI's exact names | 45 | 62 | - | - |
 | Panels | 31 | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 9 of 28 registered | 28 | 28 |
+| Runtime insight kinds that evaluate | none | 11 of 28 registered | 28 | 28 |
 | BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 66 | not captured |
 
 `tests/docs/test_parity_matrix.py` recomputes the sharpit 0.6.0 and BootUI 2.3.0 columns from the code and the BootUI
@@ -26,16 +26,16 @@ How each row is counted:
   sample app's (the live 2.3.0 capture, `tests/fixtures/bootui/2.3.0/panels.json`; at BootUI's tags,
   `bootui-conformance/.../expected-panels-spring.json`). Some BootUI panels are Java-only, so 48 of 65 is not a
   percentage of the work left.
-- **Runtime insights:** sharpit registers all 28 of BootUI's insight kinds; 8 are implemented and 20 are not yet. A
+- **Runtime insights:** sharpit registers all 28 of BootUI's insight kinds; 11 are implemented and 17 are not yet. A
   kind evaluates when it is implemented and every journal source it requires is one sharpit produces (all 8 do).
   BootUI counts the classes implementing `Observation`.
 - **Routes:** the BootUI 2.3.0 live goldens (`tests/parity/routes_status.json`): 96 routes, of which 30 are
   Java-only; of the other 66, 5 match BootUI's shape, 28 are served with known differences and 33 are not built yet.
 
-## The 8 insight kinds that evaluate in 0.6.0
+## The 10 insight kinds that evaluate in 0.6.0 and the current 0.7.0 branch
 
 `ai-usage-by-route`, `connections-per-request`, `errors-behind-2xx`, `exception-hotspots`,
-`framework-warnings-by-route`, `lazy-sql-after-handler`, `route-time-breakdown`, `safe-method-dml`.
+`framework-warnings-by-route`, `lazy-sql-after-handler`, `route-time-breakdown`, `safe-method-dml`, `unbatched-write-loop`, `repeated-selects`, `paged-without-order`.
 
 ## What is next (0.7.0, BootUI 2.4.0)
 
