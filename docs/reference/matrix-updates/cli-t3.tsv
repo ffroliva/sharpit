@@ -1,0 +1,1 @@
+cli-t3-catalog-confirmation	adapted	Validates parsed Python catalog serverName before trusting enabled; transport failures use ClientError.

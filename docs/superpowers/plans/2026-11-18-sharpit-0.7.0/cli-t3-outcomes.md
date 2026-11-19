@@ -11,6 +11,6 @@ Production path: `src/sharpit/cli/client.py:Client.invoke` supplies `ToolResult`
 | Disabled or read-only panel | Policy refusal, exit 2, with the server reason |
 | Invalid, unknown, busy, timed out or server error | BootUI status mapping; exit 1 |
 
-- [ ] **Step 1:** Add fake-client tests for status classification, refusal confirmation, reasons, and token secrecy.
-- [ ] **Step 2:** Port `ExitCodes`, `ToolOutcome.fromStatus`, and `CliContext.confirmBootUiAnswered` to the CLI modules.
-- [ ] **Step 3:** Run the requested CLI, architecture, lint, format, type and common gates; commit the test and feature changes.
+- [x] **Step 1:** Add fake-client tests for status classification, refusal confirmation, reasons, and token secrecy.
+- [x] **Step 2:** Port `ExitCodes`, `ToolOutcome.fromStatus`, and `CliContext.confirmBootUiAnswered` to the CLI modules.
+- [x] **Step 3:** Run the requested CLI, architecture, lint, format, type and common gates; commit the test and feature changes.

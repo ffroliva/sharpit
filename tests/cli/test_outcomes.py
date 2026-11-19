@@ -33,10 +33,8 @@ def test_foreign_403_is_an_error_not_a_refusal():
     # ported: CliContext.confirmBootUiAnswered
     client = FakeClient(catalog={"serverName": "other"})
 
-    outcome = confirm_answered(client, result(403, {"error": "forbidden"}))
-
-    assert outcome.exit_code == ExitCodes.ERROR
-    assert "not confirmed" in outcome.message
+    with pytest.raises(ClientError, match="not confirmed"):
+        confirm_answered(client, result(403, {"error": "forbidden"}))
 
 
 def test_503_is_disabled_only_when_sharpit_catalog_says_disabled():
@@ -57,7 +55,7 @@ def test_catalog_outage_does_not_confirm_a_503_refusal():
 
 def test_read_only_panel_refusal_preserves_reason_without_token():
     # ported: BootUiClientTests.aToolIsReportedRefusedWhenItsPanelIsOffOrTheActionIsReadOnly
-    reason = "This panel is read-only."
+    reason = "This panel is read-only. secret-token"
     outcome = confirm_answered(
         FakeClient(catalog={"serverName": "sharpit", "enabled": True}),
         result(403, {"error": "sharpit panel access denied", "panel": "security", "reason": reason}),
@@ -65,7 +63,7 @@ def test_read_only_panel_refusal_preserves_reason_without_token():
 
     assert outcome.exit_code == ExitCodes.REFUSED
     assert "sharpit panel access denied" in outcome.message
-    assert reason in outcome.message
+    assert reason.removesuffix(" secret-token") in outcome.message
     assert "secret-token" not in outcome.message
     assert "[redacted]" in outcome.message
 
