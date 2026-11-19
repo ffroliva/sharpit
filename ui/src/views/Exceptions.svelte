@@ -3,6 +3,7 @@
   import { del, errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
   import { href } from '../lib/route';
+  import { panelActionReason } from '../lib/panelState';
   import { openStream } from '../lib/sse';
   import { clock, isApplicationFrame } from '../lib/status';
   import type { ExceptionDetail, ExceptionFrame, ExceptionGroup, Panel } from '../lib/types';
@@ -37,7 +38,8 @@
     detail = null;
     if (selected) void loadDetail(id);
   }
-  async function act(run: () => Promise<unknown>) {
+  export async function act(run: () => Promise<unknown>) {
+    if (why) return;
     failure = null;
     try {
       await run();
@@ -46,14 +48,14 @@
       failure = errorText(e, 'The change failed.');
     }
   }
-  const setStatus = (g: ExceptionGroup, status: string) => act(() => post(`exceptions/${encodeURIComponent(g.id)}/status`, { status }));
-  const clear = () =>
+  export const setStatus = (g: ExceptionGroup, status: string) => act(() => post(`exceptions/${encodeURIComponent(g.id)}/status`, { status }));
+  export const clear = () =>
     act(async () => {
       selected = null;
       detail = null;
       await del('exceptions');
     });
-  const why = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined);
+  const why = $derived(panelActionReason(panel));
   const frameText = (f: ExceptionFrame) => `${f.declaringClass}.${f.methodName} (${f.fileName ?? '?'}:${f.lineNumber})`;
   const statusClass = { OPEN: 'danger', ACKNOWLEDGED: 'warn', RESOLVED: 'ok' } as const;
 </script>
@@ -65,15 +67,15 @@
 {/snippet}
 
 <PanelShell
+  {panel}
   title="Exceptions"
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={panel.readOnly ? why : null}
   count={report.data ? `${report.data.groups.length} groups, ${report.data.totalExceptions} total` : null}
 >
   {#snippet controls()}
-    <button onclick={clear} disabled={panel.readOnly} title={why}>Clear all</button>
+    <button onclick={clear} disabled={!!why} title={why ?? undefined}>Clear all</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if report.data && report.data.groups.length === 0}
@@ -92,8 +94,8 @@
           </div>
           <div class="sm muted wrap">{g.message ?? ''}{g.lastRequestPath ? ` — ${g.lastRequestMethod} ${g.lastRequestPath}` : ''}</div>
           <div class="actions">
-            <button disabled={panel.readOnly || g.status === 'ACKNOWLEDGED'} title={why} onclick={() => setStatus(g, 'ACKNOWLEDGED')}>Acknowledge</button>
-            <button disabled={panel.readOnly || g.status === 'RESOLVED'} title={why} onclick={() => setStatus(g, 'RESOLVED')}>Resolve</button>
+            <button disabled={!!why || g.status === 'ACKNOWLEDGED'} title={why ?? undefined} onclick={() => setStatus(g, 'ACKNOWLEDGED')}>Acknowledge</button>
+            <button disabled={!!why || g.status === 'RESOLVED'} title={why ?? undefined} onclick={() => setStatus(g, 'RESOLVED')}>Resolve</button>
           </div>
           {#if selected === g.id}
             <section class="detail" aria-label="Detail for {g.exceptionClassName}">

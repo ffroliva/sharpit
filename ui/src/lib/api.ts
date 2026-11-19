@@ -5,13 +5,38 @@ export const authRequired = writable(false);
 
 export type Params = Record<string, string | number | boolean | null | undefined>;
 
+export const PANEL_ACCESS_DENIED = 'sharpit panel access denied';
+
+export interface PanelAccessDeniedBody {
+  error: typeof PANEL_ACCESS_DENIED;
+  panel?: string;
+  reason: string;
+}
+
+export interface PanelAccessError extends ApiError {
+  body: PanelAccessDeniedBody;
+}
+
+export function isPanelAccessDenied(status: number, body: unknown): body is PanelAccessDeniedBody {
+  if (status !== 403 || typeof body !== 'object' || body === null) return false;
+  const b = body as Record<string, unknown>;
+  return b.error === PANEL_ACCESS_DENIED && typeof b.reason === 'string' && b.reason.trim().length > 0;
+}
+
+export function isPanelAccessError(error: unknown): error is PanelAccessError {
+  return error instanceof ApiError && isPanelAccessDenied(error.status, error.body);
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly body: unknown,
-    message = `HTTP ${status}`,
+    readonly body: unknown = null,
+    message?: string,
   ) {
-    super(message);
+    const defaultMsg = isPanelAccessDenied(status, body)
+      ? `${body.reason.trim()} (HTTP ${status})`
+      : `HTTP ${status}`;
+    super(message ?? defaultMsg);
     this.name = 'ApiError';
   }
 }
@@ -73,12 +98,14 @@ async function readJson(res: Response): Promise<unknown> {
 
 /** A string field of an error body, else undefined. */
 export function field(data: unknown, key: string): string | undefined {
-  const value = typeof data === 'object' && data !== null ? (data as Record<string, unknown>)[key] : undefined;
+  if (typeof data !== 'object' || data === null) return undefined;
+  const value = (data as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : undefined;
 }
 
 /** The server's `error` text for a failed request, else `fallback`, else the status line or "not responding". */
 export function errorText(e: unknown, fallback?: string): string {
   if (!(e instanceof ApiError)) return fallback ?? 'The application is not responding.';
+  if (isPanelAccessError(e)) return e.message;
   return field(e.body, 'error') ?? fallback ?? e.message;
 }

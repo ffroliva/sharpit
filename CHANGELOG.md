@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The web UI enforces read-only panel policies across views and navigation: action buttons are disabled with their canonical refusal reasons instead of remaining interactive or hidden, panels state refusal reasons on 403 access denials without masking them as generic connection failures, and mutating actions guard execution against policy changes (BootUI 2.4.0 #1602).
 - Database advisor discovery reports missing driver metadata (driver name, DBAPI version, or URL), failed ORM model discovery, or incomplete PostgreSQL relation inventories as WARNING diagnostics with incomplete evidence coverage (`PARTIAL` scan status, never clean `SCANNED`), while unconfigured/absent ORM models remain a neutral INFO skip and complete empty relation inventories remain clean (BootUI 2.4.0 #1600).
 - The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
   assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.

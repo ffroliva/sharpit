@@ -1,9 +1,12 @@
 <script lang="ts">
   import ServerTable from '../components/ServerTable.svelte';
   import { errorText, get, post } from '../lib/api';
+  import { panelActionReason } from '../lib/panelState';
   import type { Logger, Panel } from '../lib/types';
 
   let { panel, q = '' }: { panel: Panel; q?: string } = $props();
+
+  const actionReason = $derived(panelActionReason(panel));
 
   // svelte-ignore state_referenced_locally (the view is remounted when the route's q changes)
   let query = $state(q);
@@ -23,7 +26,7 @@
   async function setLevel(logger: Logger, select: HTMLSelectElement) {
     const value = select.value;
     // busy is aria-disabled, not disabled: a disabled select would drop keyboard focus to <body>
-    if (pending || panel.readOnly) {
+    if (pending || actionReason) {
       select.value = logger.configuredLevel ?? '';
       return;
     }
@@ -52,7 +55,7 @@
   bind:q={query}
   placeholder="Filter by logger name"
   noun="loggers"
-  notice={panel.readOnly ? panel.readOnlyReason : null}
+  notice={actionReason}
   columns={3}
   cols={['', '7rem', '15rem']}
 >
@@ -74,9 +77,9 @@
           <select
             id="level-{l.name}"
             value={l.configuredLevel ?? ''}
-            disabled={panel.readOnly}
+            disabled={!!actionReason}
             aria-disabled={pending === l.name || undefined}
-            title={panel.readOnly ? (panel.readOnlyReason ?? undefined) : undefined}
+            title={actionReason ?? undefined}
             onchange={(e) => setLevel(l, e.currentTarget)}
           >
             <option value="">{explicit ? 'inherit from parent' : `inherit (${l.effectiveLevel ?? 'NOTSET'})`}</option>
