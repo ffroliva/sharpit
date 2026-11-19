@@ -1,12 +1,12 @@
 Exit code: 1
 ============================= test session starts =============================
 platform win32 -- Python 3.13.7, pytest-9.2.0, pluggy-1.7.0
-rootdir: C:\Users\<user>\AppData\Local\Temp\tmprzza_04_
+rootdir: <tmp>\tmprzza_04_
 plugins: anyio-4.15.1, hypothesis-6.170.15, asyncio-1.4.1.post1, cov-7.1.0, rerunfailures-16.7, timeout-2.4.0, xdist-3.8.0, sharpit-0.6.0
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
 collected 1 item
 
-..\..\..\..\Users\<user>\AppData\Local\Temp\tmprzza_04_\test_sample.py F  [100%]
+<tmp>\test_sample.py F  [100%]
 
 ================================== FAILURES ===================================
 ______________________________ test_orders_route ______________________________
@@ -23,10 +23,10 @@ report: sharpit-report.json
 sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception)
 sharpit did not check: REST API, vulnerabilities, database-advisor, security, architecture, fastapi; routes and SQL your tests did not exercise; security testing (sharpit does no attack or penetration testing)
 =========================== short test summary info ===========================
-FAILED ..\..\..\..\Users\<user>\AppData\Local\Temp\tmprzza_04_\test_sample.py::test_orders_route
+FAILED <tmp>\test_sample.py::test_orders_route
 ============================== 1 failed in 3.04s ==============================
 
-C:\development\github\sharpit-wt\g3-tutorial\.venv\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+<site-packages>\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
 The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
 
   warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
