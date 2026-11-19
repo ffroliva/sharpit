@@ -163,5 +163,4 @@ Smithery and Glama's checks expect a server they can start themselves.
 ## Agent skill
 
 An agent skill that teaches an AI assistant to install and use sharpit is in
-[`skills/sharpit`](https://github.com/ffroliva/sharpit/tree/main/skills/sharpit). There is no `sharpit` command-line tool yet.
-The HTTP endpoint above is what a future command would call.
+[`skills/sharpit`](https://github.com/ffroliva/sharpit/tree/main/skills/sharpit). The [`sharpit` command-line client](cli.md) calls this endpoint.

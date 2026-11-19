@@ -26,9 +26,8 @@ evidence rather than raw internals.
 
 ## MCP server or CLI?
 
-Both surfaces give the agent identical data: the same tool registry, the same panel policy, and the same masked DTOs.
-The CLI can neither offer a diagnostic the MCP server lacks nor miss one it has, because its command tree is generated
-from the tool catalog.
+Both surfaces share the same tool catalog, the same panel policy, and the same masked DTOs.
+The CLI provides every MCP read tool plus the 21 action tools (scans, clears, toggles) that MCP hides, because MCP endpoints serve read tools only.
 
 Use the [MCP server](#connect-an-agent-to-the-sharpit-mcp-server) when your agent or IDE speaks MCP natively. The agent
 discovers tools, schemas, and descriptions automatically and calls them as native tool calls, with no shell commands

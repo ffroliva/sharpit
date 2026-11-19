@@ -64,9 +64,18 @@ sharpit 0.7.0 targets BootUI 2.4.0 behaviour and engine robustness across existi
   responses or mask host exceptions (BootUI 2.4.0 #1615).
 - **Runtime insights kinds (B1):** ports `unbatched-write-loop` and `repeated-selects` using BootUI 2.4.0 thresholds
   and request correlation.
-- **Bug fixes and plugin packaging:** stable swallowed-exception identity hashing (#66 / E2), non-failing exit code for
-  partial advisor coverage (#65 / E1), explicit import-basis reporting for REST API app detection (#67 / E3), and an
-  agent plugin for Claude Code, Cursor, and Codex (`plugins/sharpit`).
+- **`sharpit` command-line client (#60 / Track C):** standalone console script connecting over HTTP without extra
+  dependencies, executing any tool from the catalogue with BootUI 2.4.0 exit codes (0 success, 1 error, 2 refused,
+  3 threshold), global options (`--url`, `--api-path`, `--token`, `--timeout`, `--json`, `--no-color`, `-v`),
+  `--fail-on` gates on finding severity or insufficient evidence, and MCP status/toggle commands.
+- **Agent playbooks and AI-agents guide (G1):** six guided agent playbooks (`skills/sharpit/references/playbooks/`) with
+  side-by-side MCP and CLI commands, plus an AI agents guide (`website/docs/ai-agents.md`).
+- **MCP prompt arguments and verification (G2):** optional prompt arguments with Java whitespace and UTF-16 truncation
+  semantics, masked context echoing, and the `verify_after_change` prompt.
+- **Interactive tutorial (G3):** hands-on guided walkthrough (`website/docs/tutorial.md`) stepping through inspection,
+  diagnosing issues, and verifying fixes with sharpit.
+- **Bug fixes:** stable swallowed-exception identity hashing (#66 / E2), non-failing exit code for
+  partial advisor coverage (#65 / E1), and explicit import-basis reporting for REST API app detection (#67 / E3).
 
 ## What is next (0.8.0)
 
