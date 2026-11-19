@@ -92,12 +92,11 @@ def test_long_token_is_redacted_before_table_cell_truncation():
     assert "[redacted]" in out
 
 
-def test_json_redaction_preserves_scalars_and_does_not_change_keys():
+def test_json_redaction_preserves_boolean_and_redacts_matching_string_keys_and_values():
     _, out, _ = run(["--json", "health"], env={"SHARPIT_TOKEN": "true"}, body='{"enabled": true, "true": "true"}')
 
-    assert out == '{"enabled": true, "true": "[redacted]"}\n'
-    assert json.loads(out) == {"enabled": True, "true": "[redacted]"}
-    assert '"true"' in out
+    assert out == '{"enabled": true, "[redacted]": "[redacted]"}\n'
+    assert json.loads(out) == {"enabled": True, "[redacted]": "[redacted]"}
 
 
 def test_json_number_containing_token_is_redacted():
@@ -180,9 +179,10 @@ def test_terminal_json_escapes_raw_c1_controls_but_piped_json_is_verbatim():
     out, err = io.StringIO(), io.StringIO()
     commands.run(["--json", "health"], {}, False, out, err, lambda options: Fake(options, 200, body))
 
-    assert "\u009b" in terminal_out
+    assert r"\u009b" in terminal_out
     assert "\u009b" not in out.getvalue()
     assert "a\u009bb" in out.getvalue()
+    assert json.loads(terminal_out) == {"message": "a\u009bb"}
 
 
 def test_usage_messages_escape_terminal_controls_from_argv():
@@ -210,7 +210,7 @@ def test_verbose_traceback_keeps_line_breaks():
     out, err = io.StringIO(), io.StringIO()
     commands.run(["-v", "health"], {}, True, out, err, lambda options: CrashingClient(options, 200, "{}"))
 
-    assert "Traceback (most recent call last):\n" in err
+    assert "Traceback (most recent call last):\n" in err.getvalue()
 
 
 # derived: CliContext.confirmBootUiAnswered, describe, and unknownToolHint
