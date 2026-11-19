@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from engine.testsession.tsfakes import part
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.testsession.facts import SessionFacts
@@ -34,3 +36,17 @@ def test_finish_reports_unknown_without_an_application() -> None:
         in reasons
     )
     assert data["advisors"][0]["apps"] == []
+
+
+def test_finish_names_the_threshold_in_the_partial_note() -> None:
+    limits = {"usable": True, "coverageComplete": False, "limitations": ["a mount has no routes"]}
+    facts = part(advisor_runs=[AdvisorRun.of("rest-api", [], limits, app="app")])
+    data, status, reasons = finish(
+        [facts], [], options=replace(OPTIONS, fail_on="MEDIUM"), version="0.3.0", now_ms=1, warnings=[]
+    )
+    assert (status, reasons) == ("pass", [])
+    assert data["advisors"][0]["status"] == "PARTIAL"
+    assert data["warnings"] == [
+        "advisor 'rest-api' assessed part of app: a mount has no routes; "
+        "having no finding at or above MEDIUM is not proof there is none"
+    ]

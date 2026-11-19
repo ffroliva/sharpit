@@ -195,7 +195,7 @@ def test_write_action_panels_are_action_capable():
     import json
     from pathlib import Path
 
-    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "panels.json"
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.4.0" / "panels.json"
     bootui = {p["id"]: p["actionCapable"] for p in json.loads(fixture.read_text(encoding="utf-8"))["panels"]}
     ours = {p.id: p.action_capable for p in PANELS}
     for sharpit_id, bootui_id in W8_ACTION_PANELS.items():

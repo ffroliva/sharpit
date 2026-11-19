@@ -10,10 +10,11 @@ The flat 1.17.0 layout keeps every item (no truncation, so ``page`` stays consis
 goldens: each list keeps one item per DISTINCT SHAPE (key set + per-key JSON kind, null its own kind), so real nulls and
 type variants survive, and a list of scalars keeps its first 3. Epoch/duration fields are normalised only when set.
 The nested layout also refuses an error body at the root (any ``error`` key) and checks secrets before and after
-shaping. BootUI 2.3.0+ captures add ``enums.raw.json`` from pre-shaped values. Both layouts replace only an enumerated
-list of volatile values, then abort on anything that looks like a secret.
+shaping. BootUI 2.3.0+ captures (2.3.0, 2.4.0) add ``enums.raw.json`` from pre-shaped values. Both layouts replace
+only an enumerated list of volatile values, then abort on anything that looks like a secret.
 
-Layout: nested for source folders named ``2.2.0`` or ``2.3.0``, else flat; force it with the third argument.
+Layout: nested for source folders named ``2.2.0`` or a version from ``2.3.0`` on, else flat; force it with the third
+argument.
 The nested target version comes from ``--version`` or the source folder name. ``meta.json`` keeps existing keys and
 takes ``uncaptured`` from ``<src>/uncaptured.json``.
 """
@@ -24,6 +25,21 @@ import sys
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+KNOWN_VERSIONS: frozenset[str] = frozenset({"2.2.0", "2.3.0", "2.4.0"})
+
+
+def parse_version(name: str) -> tuple[int, int, int] | None:
+    """Parse a three-part version string like '2.3.0' into a tuple of ints."""
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", name)
+    return tuple(map(int, match.groups())) if match is not None else None  # type: ignore[return-value]
+
+
+def _nested_version(name: str) -> bool:
+    """``2.2.0``, or a three-part version from ``2.3.0`` on (the nested layouts)."""
+    parsed = parse_version(name)
+    return parsed is not None and (parsed == (2, 2, 0) or parsed >= (2, 3, 0))
+
 
 SKIP = {"mcp.json", "beans_view_graph.json"}  # empty / duplicate of beans.json
 META_2_2_0 = {"bootuiVersion": "2.2.0", "app": "tiny-ledger", "profile": "full", "captured": "2026-11-02"}
@@ -279,7 +295,7 @@ def _resolve(src: Path, dst: Path, repo: Path, layout: str | None) -> tuple[Path
     allowed_dst = (repo / "tests" / "fixtures" / "bootui").resolve()
     if not src.is_relative_to(allowed_src) or not dst.is_relative_to(allowed_dst):
         raise ValueError("source must be under replica/evidence and destination under tests/fixtures/bootui")
-    layout = layout or ("nested" if src.name in {"2.2.0", "2.3.0"} else "flat")
+    layout = layout or ("nested" if _nested_version(src.name) else "flat")
     if layout not in ("nested", "flat"):
         raise ValueError(f"layout must be 'nested' or 'flat', got {layout!r}")
     return src, dst, layout == "nested", src.name
@@ -287,7 +303,7 @@ def _resolve(src: Path, dst: Path, repo: Path, layout: str | None) -> tuple[Path
 
 def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None, version: str | None = None) -> None:
     """``layout`` is ``"nested"`` (2.2.0+: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
-    Default: nested for source folders named ``2.2.0`` or ``2.3.0``, else flat.
+    Default: nested for source folders named ``2.2.0`` or ``2.3.0`` or later, else flat.
     ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui``
     (default: this repository; tests pass a temporary one)."""
     src, dst, nested, target_version = _resolve(src, dst, repo or Path(__file__).resolve().parents[1], layout)
@@ -295,12 +311,12 @@ def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = No
     if (
         nested
         and version is None
-        and target_version not in {"2.2.0", "2.3.0"}
+        and not _nested_version(target_version)
         and not re.fullmatch(r"\d+(?:\.\d+)+", target_version)
     ):
         target_version = "2.2.0"
-    if nested and target_version not in {"2.2.0", "2.3.0"}:
-        raise ValueError("version must be '2.2.0' or '2.3.0'")
+    if nested and target_version not in KNOWN_VERSIONS:
+        raise ValueError(f"version must be one of {sorted(KNOWN_VERSIONS)}, got {target_version!r}")
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     enums_by_id: dict[str, dict[str, set[str]]] = {}

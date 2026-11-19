@@ -29,6 +29,15 @@ class Pet:
     pass
 
 
+class _Meta(type):
+    def __getattr__(cls, name: str) -> object:
+        raise RuntimeError("lazy proxy")
+
+
+class _Lazy(metaclass=_Meta):
+    pass
+
+
 class PetTable:
     __table__ = object()
 
@@ -218,10 +227,26 @@ def test_no_routes_is_confirmed_empty():
     assert run.findings == ()
 
 
-def test_partial_scan_is_unknown():
-    run = assess(_model([route()], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
+def test_scan_with_no_usable_route_and_a_limitation_is_unknown():
+    run = assess(_model([], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
     assert run.status == "UNKNOWN"
     assert run.reason == LIMITATION
+
+
+def test_partial_scan_is_partial():
+    # issue 65: an app with readable routes and one opaque mount passes with a note
+    run = assess(_model([route()], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
+    assert run.status == "PARTIAL"
+    assert run.reason == LIMITATION
+
+
+def test_rule_error_stays_unknown():
+    # BootUI reports a rule that throws as a PARTIAL scan; sharpit's gate cannot tell a clean run from the rule that
+    # would have found the problem, so the advisor stays UNKNOWN
+    broken = route(response_model=_Lazy)
+    run = assess(_model([broken]), _masker())
+    assert run.status == "UNKNOWN"
+    assert run.reason == "rule evaluation: required REST API evidence was unavailable."
 
 
 def test_partial_scan_with_gate_finding_still_fails():
@@ -367,3 +392,29 @@ def test_duplicate_route_violations_have_distinct_fingerprints():
     found = [f.fingerprint for f in assess(_model(routes), _masker()).findings if f.rule_id == "RAPI-NAME-001"]
     assert len(found) == 2
     assert len(set(found)) == 2
+
+
+@pytest.mark.parametrize(
+    "limitation",
+    [
+        "Included router at /v1 could not be expanded.",
+        "An exception handler at /v1 could not be inspected.",
+        "Route /v1/pets could not be inspected (TypeError).",
+        "Mounted routes at /v1 could not be inspected.",
+    ],
+)
+def test_introspection_failure_stays_unknown(limitation: str):
+    # safety model 5: sharpit failing to read the app is not the app's shape, so the gate cannot pass on it
+    run = assess(_model([route()], limitations=[limitation]), _masker())
+    assert (run.status, run.reason) == ("UNKNOWN", limitation)
+
+
+def test_introspection_failure_beside_an_opaque_mount_names_the_failure():
+    failure = "Included router at /v1 could not be expanded."
+    run = assess(_model([route()], limitations=[LIMITATION, failure]), _masker())
+    assert (run.status, run.reason) == ("UNKNOWN", failure)
+
+
+def test_rule_error_reason_names_the_rule_error_not_the_first_limitation():
+    run = assess(_model([route(response_model=_Lazy)], limitations=[LIMITATION]), _masker())
+    assert (run.status, run.reason) == ("UNKNOWN", "rule evaluation: required REST API evidence was unavailable.")
