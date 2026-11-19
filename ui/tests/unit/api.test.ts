@@ -1,6 +1,6 @@
 import { get as read } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, authRequired, del, errorText, get, post, session } from '../../src/lib/api';
+import { ApiError, authRequired, del, errorText, get, isPanelAccessError, post, session } from '../../src/lib/api';
 import apiSource from '../../src/lib/api.ts?raw';
 import overview from '../../../tests/fixtures/bootui/overview.json';
 
@@ -86,6 +86,49 @@ describe('errors', () => {
   it('a non-JSON error body becomes ApiError with body null', async () => {
     fetchMock.mockResolvedValue(new Response('<html>oops</html>', { status: 500, headers: { 'content-type': 'text/html' } }));
     await expect(get('overview')).rejects.toMatchObject({ status: 500, body: null });
+  });
+
+  // ported: api.test.js::getJson keeps canonical panel denial details and HTTP status in the error message
+  it('keeps canonical panel denial details and HTTP status in the error message', () => {
+    const body = { error: 'sharpit panel access denied', panel: 'memory', reason: 'Memory is read-only.' };
+    const error = new ApiError(403, body);
+    expect(error.message).toBe('Memory is read-only. (HTTP 403)');
+    expect(error.body).toEqual(body);
+    expect(error.status).toBe(403);
+    expect(isPanelAccessError(error)).toBe(true);
+  });
+
+  // ported: api.test.js::getJson does not expose unrecognized or invalid response details
+  it.each([
+    null,
+    {},
+    { reason: 'Do not expose an arbitrary reason' },
+    { error: 'Other error', reason: 'Do not expose this either' },
+    { error: 'sharpit panel access denied', reason: {} },
+    { error: 'sharpit panel access denied', reason: ' ' },
+    { error: 'sharpit panel access denied', reason: ['not a string'] },
+  ])('does not expose unrecognized or invalid response details: %j', (body) => {
+    const error = new ApiError(403, body);
+    expect(error.message).toBe('HTTP 403');
+    expect(isPanelAccessError(error)).toBe(false);
+  });
+
+  // ported: api.test.js::getJson uses the HTTP fallback for %s responses
+  it.each([
+    ['text/html', '<html>Private server error</html>'],
+    ['application/json', '{not valid JSON'],
+  ])('uses the HTTP fallback for %s responses', async (contentType, body) => {
+    fetchMock.mockResolvedValue(new Response(body, { status: 403, headers: { 'content-type': contentType } }));
+    const error = await get('overview').catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(403);
+    expect((error as ApiError).message).toBe('HTTP 403');
+  });
+
+  it('errorText surfaces canonical panel denial reason and status', () => {
+    const body = { error: 'sharpit panel access denied', panel: 'memory', reason: 'Memory is read-only.' };
+    const error = new ApiError(403, body);
+    expect(errorText(error, 'The change failed.')).toBe('Memory is read-only. (HTTP 403)');
   });
 });
 

@@ -2,6 +2,7 @@
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
+  import { panelActionReason } from '../lib/panelState';
   import { href } from '../lib/route';
   import { openStream } from '../lib/sse';
   import { clock } from '../lib/status';
@@ -52,10 +53,10 @@
     return () => stream.close();
   });
 
-  const readOnly = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null);
+  const actionReason = $derived(panelActionReason(panel));
   /** Pause/Resume and Clear answer the new report; the next reload shows it. */
   async function act(path: string, body?: unknown) {
-    if (acting || readOnly) return;
+    if (acting || actionReason) return;
     acting = true;
     failure = null;
     try {
@@ -73,19 +74,19 @@
 </script>
 
 <PanelShell
+  {panel}
   title="SQL Trace"
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
-  notice={readOnly}
   count={report.data?.available ? `${report.data.entries.length} of ${report.data.bufferSize} kept · ${report.data.totalCaptured} captured` : null}
 >
   {#snippet controls()}
     {#if report.data?.available}
-      <button onclick={() => act('sql-trace/recording', { enabled: !report.data!.capturing })} disabled={!!readOnly || acting} title={readOnly ?? undefined}>
+      <button onclick={() => act('sql-trace/recording', { enabled: !report.data!.capturing })} disabled={!!actionReason || acting} title={actionReason ?? undefined}>
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>
-      <button onclick={() => act('sql-trace/clear')} disabled={!!readOnly || acting} title={readOnly ?? undefined}>Clear</button>
+      <button onclick={() => act('sql-trace/clear')} disabled={!!actionReason || acting} title={actionReason ?? undefined}>Clear</button>
     {/if}
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}

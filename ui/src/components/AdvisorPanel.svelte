@@ -5,9 +5,10 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { ApiError, errorText, field } from '../lib/api';
+  import { panelActionReason } from '../lib/panelState';
   import { advisorAssessment, scoreBandTone } from '../lib/score';
   import { focusRegion, scrollable } from '../lib/scrollable';
-  import type { AdvisorReport, AdvisorRule, ViolationsPage } from '../lib/types';
+  import type { AdvisorReport, AdvisorRule, Panel, ViolationsPage } from '../lib/types';
 
   /**
    * The shared advisor layout (spec 8): scan button with busy and failed states, score ring, severity counts, and a rule
@@ -15,10 +16,11 @@
    * renders its own body through `children` and reuses the rest.
    */
   let {
-    title, report, loadError = null, onScan, onDismiss, onRestore, onDismissFinding, loadViolations, readOnlyReason = null,
+    title, panel = null, report, loadError = null, onScan, onDismiss, onRestore, onDismissFinding, loadViolations,
     scanDisabledReason = null, vulnerabilities = false, loadDismissed, scanLabel, status, onretry, children, after,
   }: {
     title: string;
+    panel?: Panel | Partial<Panel> | null;
     report: AdvisorReport | null;
     loadError?: string | null;
     /** Runs the scan and stores the new report; a thrown 409 shows as busy, anything else as a failed scan. */
@@ -31,8 +33,6 @@
     loadViolations?: (ruleId: string, offset: number) => Promise<ViolationsPage>;
     /** The dismissed ids; read when a drawer opens so its rows remember earlier dismissals. */
     loadDismissed?: () => Promise<string[]>;
-    /** Disables Scan and Dismiss/Restore. */
-    readOnlyReason?: string | null;
     /** Disables Scan only (e.g. scanning switched off by configuration). */
     scanDisabledReason?: string | null;
     onretry?: () => void;
@@ -51,6 +51,7 @@
   let pending = $state<string | null>(null);
   let showDismissed = $state(false);
 
+  const why = $derived(panel ? panelActionReason(panel) : null);
   const phase: Phase = $derived(
     scanning
       ? 'scanning'
@@ -64,7 +65,7 @@
               ? 'never-scanned'
               : 'results',
   );
-  const scanBlocked = $derived(readOnlyReason ?? scanDisabledReason);
+  const scanBlocked = $derived(why ?? scanDisabledReason);
   const assessment = $derived(report ? advisorAssessment(report, { vulnerabilities }) : null);
   const rules = $derived((report?.results ?? []).filter((r) => showDismissed || !r.dismissed));
   const dismissedCount = $derived((report?.results ?? []).filter((r) => r.dismissed).length);
@@ -89,7 +90,7 @@
   }
 
   async function toggle(ruleId: string, dismissed: boolean) {
-    if (pending || readOnlyReason) return;
+    if (pending || why) return;
     pending = ruleId;
     actionError = null;
     try {
@@ -153,7 +154,7 @@
   }
 
   async function dismissFinding(fingerprint: string) {
-    if (!onDismissFinding || pending || readOnlyReason) return;
+    if (!onDismissFinding || pending || why) return;
     pending = fingerprint;
     actionError = null;
     try {
@@ -167,7 +168,7 @@
   }
 
   async function restoreFinding(fingerprint: string) {
-    if (pending || readOnlyReason) return;
+    if (pending || why) return;
     pending = fingerprint;
     actionError = null;
     try {
@@ -266,8 +267,8 @@
         {/if}
         <button
           onclick={() => toggle(r.id, r.dismissed)}
-          disabled={!!pending || !!readOnlyReason}
-          title={readOnlyReason ?? undefined}
+          disabled={!!pending || !!why}
+          title={why ?? undefined}
           aria-label="{r.dismissed ? 'Restore' : 'Dismiss'} {r.id}"
         >{r.dismissed ? 'Restore' : 'Dismiss'}</button>
       </span>
@@ -292,16 +293,16 @@
                   <button
                     class="link"
                     onclick={() => restoreFinding(fingerprint)}
-                    disabled={!!pending || !!readOnlyReason}
-                    title={readOnlyReason ?? undefined}
+                    disabled={!!pending || !!why}
+                    title={why ?? undefined}
                     aria-label="Restore finding {fingerprint}"
                   >Restore this finding</button>
                 {:else}
                   <button
                     class="link"
                     onclick={() => dismissFinding(fingerprint)}
-                    disabled={!!pending || !!readOnlyReason}
-                    title={readOnlyReason ?? undefined}
+                    disabled={!!pending || !!why}
+                    title={why ?? undefined}
                     aria-label="Dismiss finding {fingerprint}"
                   >Dismiss this finding</button>
                 {/if}

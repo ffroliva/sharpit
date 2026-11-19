@@ -1,11 +1,14 @@
 <script lang="ts">
   import { errorText, get, post } from '../lib/api';
   import { firstSentence } from '../lib/format';
+  import { panelActionReason } from '../lib/panelState';
   import { focusRegion, scrollable } from '../lib/scrollable';
   import type { Panel, ServerStatus } from '../lib/types';
 
   /** MCP server and CLI share one status shape; only MCP has an on/off toggle. */
   let { panel, kind }: { panel: Panel; kind: 'mcp-server' | 'cli' } = $props();
+
+  const actionReason = $derived(panelActionReason(panel));
 
   let data = $state<ServerStatus | null>(null);
   let error = $state<string | null>(null);
@@ -20,7 +23,7 @@
   void load();
 
   async function toggle() {
-    if (!data || toggling || panel.readOnly) return;
+    if (!data || toggling || actionReason) return;
     toggling = true;
     toggleError = null;
     try {
@@ -57,16 +60,16 @@
       <button
         class={data.enabled ? '' : 'primary'}
         onclick={toggle}
-        disabled={panel.readOnly}
+        disabled={!!actionReason}
         aria-disabled={toggling || undefined}
-        title={panel.readOnly ? (panel.readOnlyReason ?? undefined) : undefined}
+        title={actionReason ?? undefined}
       >
         {toggling ? 'Switching…' : data.enabled ? 'Turn off' : 'Turn on'}
       </button>
     {/if}
   </header>
   <div class="panel-body" use:scrollable role="region" aria-label={title}>
-    {#if panel.readOnly}<p class="notice warn">{panel.readOnlyReason}</p>{/if}
+    {#if actionReason}<p class="notice warn">{actionReason}</p>{/if}
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p><button onclick={(event) => { focusRegion(event); void load(); }}>Retry</button></div>
     {:else if !data}
