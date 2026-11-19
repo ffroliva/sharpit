@@ -1,13 +1,24 @@
 /* sharpit interactive tutorial controller
    Vanilla JS, no dependencies, no external calls, keyboard accessible.
+   Integrated with Material for MkDocs instant navigation (document$).
 */
 
 (function () {
   'use strict';
 
+  var teardownTutorial = null;
+
   function initTutorial() {
+    // Teardown previous listeners if navigating back or re-running
+    if (teardownTutorial) {
+      teardownTutorial();
+      teardownTutorial = null;
+    }
+
     var container = document.getElementById('tutorial-walkthrough');
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
     var steps = container.querySelectorAll('.tutorial-step');
     var tabs = container.querySelectorAll('.tutorial-tab');
@@ -20,12 +31,14 @@
     var totalSteps = steps.length;
     var currentStep = 1;
 
-    // Read initial step from URL hash if valid
-    var hashMatch = window.location.hash.match(/^#step-(\d+)$/);
-    if (hashMatch) {
-      var parsed = parseInt(hashMatch[1], 10);
-      if (parsed >= 1 && parsed <= totalSteps) {
-        currentStep = parsed;
+    // Read initial step from URL hash if valid and on tutorial page
+    if (window.location.pathname.indexOf('tutorial') !== -1) {
+      var hashMatch = window.location.hash.match(/^#step-(\d+)$/);
+      if (hashMatch) {
+        var parsed = parseInt(hashMatch[1], 10);
+        if (parsed >= 1 && parsed <= totalSteps) {
+          currentStep = parsed;
+        }
       }
     }
 
@@ -33,6 +46,9 @@
     container.classList.add('is-interactive');
 
     function showStep(stepNum, shouldFocus) {
+      if (!document.getElementById('tutorial-walkthrough')) {
+        return;
+      }
       if (stepNum < 1) stepNum = 1;
       if (stepNum > totalSteps) stepNum = totalSteps;
       currentStep = stepNum;
@@ -90,46 +106,60 @@
         }
       }
 
-      // Update URL hash without jumping page scroll
-      if (history.replaceState) {
+      // Update URL hash ONLY on the tutorial page
+      if (window.location.pathname.indexOf('tutorial') !== -1 && history.replaceState) {
         history.replaceState(null, '', '#step-' + currentStep);
       }
     }
 
     // Tab click handlers
+    var tabCleanups = [];
     for (var k = 0; k < tabs.length; k++) {
       (function (tab) {
-        tab.addEventListener('click', function () {
+        var onTabClick = function () {
           var targetStep = parseInt(tab.getAttribute('data-step'), 10);
           showStep(targetStep, true);
+        };
+        tab.addEventListener('click', onTabClick);
+        tabCleanups.push(function () {
+          tab.removeEventListener('click', onTabClick);
         });
       })(tabs[k]);
     }
 
     // Prev / Next button handlers
+    var onPrevClick = function () {
+      if (currentStep > 1) {
+        showStep(currentStep - 1, true);
+      }
+    };
     if (prevBtn) {
-      prevBtn.addEventListener('click', function () {
-        if (currentStep > 1) {
-          showStep(currentStep - 1, true);
-        }
-      });
+      prevBtn.addEventListener('click', onPrevClick);
     }
 
+    var onNextClick = function () {
+      if (currentStep < totalSteps) {
+        showStep(currentStep + 1, true);
+      } else {
+        showStep(1, true);
+      }
+    };
     if (nextBtn) {
-      nextBtn.addEventListener('click', function () {
-        if (currentStep < totalSteps) {
-          showStep(currentStep + 1, true);
-        } else {
-          showStep(1, true);
-        }
-      });
+      nextBtn.addEventListener('click', onNextClick);
     }
 
-    // Keyboard navigation
-    window.addEventListener('keydown', function (e) {
+    // Keyboard navigation:
+    // Handled ONLY while focus is inside the tutorial widget (container).
+    // Never register on window beyond the tutorial page!
+    // Never call preventDefault otherwise.
+    var onKeyDown = function (e) {
+      if (!container.contains(document.activeElement) && !container.contains(e.target)) {
+        return;
+      }
+
       // Do not intercept keystrokes if the user is typing in an input
-      var tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) {
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable)) {
         return;
       }
 
@@ -150,14 +180,39 @@
         e.preventDefault();
         showStep(totalSteps, true);
       }
-    });
+    };
+
+    container.addEventListener('keydown', onKeyDown);
+
+    teardownTutorial = function () {
+      container.removeEventListener('keydown', onKeyDown);
+      if (prevBtn) {
+        prevBtn.removeEventListener('click', onPrevClick);
+      }
+      if (nextBtn) {
+        nextBtn.removeEventListener('click', onNextClick);
+      }
+      for (var l = 0; l < tabCleanups.length; l++) {
+        tabCleanups[l]();
+      }
+    };
 
     // Initial render
     showStep(currentStep, false);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTutorial);
+  // MkDocs Material navigation.instant support:
+  // Subscribe to document$ observable for instant page changes
+  if (typeof document$ !== 'undefined') {
+    document$.subscribe(initTutorial);
+  } else if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      if (typeof document$ !== 'undefined') {
+        document$.subscribe(initTutorial);
+      } else {
+        initTutorial();
+      }
+    });
   } else {
     initTutorial();
   }

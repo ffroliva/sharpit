@@ -2,7 +2,7 @@
 
 Welcome to sharpit. In under five minutes, this interactive walkthrough demonstrates what sharpit is, the hidden runtime problems it detects, and how both developers and AI coding agents inspect running FastAPI services.
 
-<div class="tutorial-walkthrough" id="tutorial-walkthrough">
+<div class="tutorial-walkthrough" id="tutorial-walkthrough" tabindex="0" role="region" aria-label="Interactive tutorial walkthrough">
 
   <!-- Progress header (interactive mode only) -->
   <div class="tutorial-header" role="region" aria-label="Tutorial Progress">
@@ -83,7 +83,7 @@ Configuration: insecure default fallback</code>
       </div>
 
       <div class="tutorial-code-block">
-<code>pip install sharpit</code>
+<code>pip install "sharpit[fastapi]"</code>
       </div>
 
       <div class="tutorial-code-block">
@@ -100,7 +100,7 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <div class="tutorial-card">
           <strong>Fails Closed</strong>
           <p style="font-size: 0.8125rem; color: var(--muted); margin: 0.25rem 0 0 0;">
-            Turns on only when a dev server signal is present (<code>fastapi dev</code>, <code>uvicorn --reload</code>) or <code>SHARPIT_ENABLED=ON</code>. Otherwise answers 404.
+            Turns on when an enabled profile is active (<code>dev</code>, <code>local</code>, <code>development</code>), dev server signals are present (<code>fastapi dev</code>, <code>uvicorn --reload</code>), or <code>SHARPIT_ENABLED=ON</code>. A disabled profile (<code>prod</code>, <code>production</code>) or <code>SHARPIT_ENABLED=OFF</code> switches it off. Otherwise inactive answers 404.
           </p>
         </div>
         <div class="tutorial-card">
@@ -128,9 +128,9 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
     <section class="tutorial-step" id="step-3" data-step="3" tabindex="-1" aria-labelledby="step-3-heading">
       <div class="tutorial-step-header">
         <span class="tutorial-step-tag">Step 3</span>
-        <h2 class="tutorial-step-title" id="step-3-heading">The Console: Runtime Insights & N+1 Detection</h2>
+        <h2 class="tutorial-step-title" id="step-3-heading">The Console: Correlated SQL Trace & Runtime Insights</h2>
         <p class="tutorial-step-desc">
-          Open <code>http://127.0.0.1:8000/sharpit/</code> in your browser. Sharpit correlates every incoming HTTP request with the SQL statements it triggered and evaluates runtime insight rules.
+          Open <code>http://127.0.0.1:8000/sharpit/</code> in your browser. Sharpit correlates every incoming HTTP request with its executed SQL statements in SQL Trace and evaluates runtime insight rules.
         </p>
       </div>
 
@@ -139,10 +139,10 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <div class="tutorial-mock-header">
           <span class="tutorial-mock-brand">sharpit</span>
           <nav class="tutorial-mock-nav" aria-label="Console panels">
-            <span class="tutorial-mock-nav-item">Overview</span>
+            <span class="tutorial-mock-nav-item">Scorecard</span>
             <span class="tutorial-mock-nav-item">Live Activity</span>
-            <span class="tutorial-mock-nav-item">SQL Traces</span>
-            <span class="tutorial-mock-nav-item is-selected">Runtime Insights</span>
+            <span class="tutorial-mock-nav-item is-selected">SQL Trace</span>
+            <span class="tutorial-mock-nav-item">Configuration</span>
           </nav>
         </div>
         <div class="tutorial-mock-body">
@@ -156,42 +156,77 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
           <table class="tutorial-mock-sql-table">
             <thead>
               <tr>
-                <th style="width: 75px;">Time</th>
+                <th style="width: 105px;">Time</th>
                 <th>Statement</th>
-                <th style="width: 170px;">Call Site</th>
+                <th style="width: 75px; text-align: right;">Duration</th>
+                <th style="width: 50px; text-align: right;">Rows</th>
+                <th style="width: 170px;">Call site</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>2.0 ms</td>
+                <td>10:14:02.120</td>
                 <td>SELECT id, customer_id, total FROM orders WHERE status = ?</td>
+                <td style="text-align: right;">2.0 ms</td>
+                <td style="text-align: right;">30</td>
                 <td>app/routes/orders.py:40</td>
               </tr>
               <tr class="tutorial-mock-sql-highlight">
-                <td>1.0 ms</td>
+                <td>10:14:02.125</td>
                 <td>SELECT id, order_id, product_name, price FROM order_items WHERE order_id = ? <span style="color: var(--warn); font-weight: 600;">(repeated &times;30)</span></td>
+                <td style="text-align: right;">1.0 ms</td>
+                <td style="text-align: right;">1</td>
                 <td>app/routes/orders.py:42</td>
               </tr>
             </tbody>
           </table>
-
-          <div class="tutorial-mock-insight-box">
-            <div class="tutorial-mock-insight-title">
-              <span class="tutorial-status-badge tutorial-status-warn">OBSERVED</span>
-              <span>Repeated SELECTs (N+1 query pattern)</span>
-            </div>
-            <div class="tutorial-mock-insight-sentence">
-              <code>GET /orders</code> ran <code>SELECT id, order_id, product_name, price FROM order_items WHERE order_id = ?</code> 5 or more times after another statement in 3 of 3 requests, up to 30 times in one.
-            </div>
-            <div class="tutorial-mock-insight-remediation">
-              <strong>Remediation:</strong> Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned. If it does, load them with one statement, such as a join or an IN list, in SQL Trace's call site (<code>app/routes/orders.py:42</code>).
-            </div>
-          </div>
         </div>
       </div>
-      <p style="font-size: 0.8125rem; color: var(--muted); margin-top: 0.5rem;">
-        Captured directly from the sharpit engine's <code>repeated-selects</code> analyzer. The exact statement shape, repeat frequency, and source code line are reported immediately.
-      </p>
+
+      <div class="tutorial-card" style="margin-top: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <strong>Runtime Insights: Repeated SELECTs</strong>
+          <code>sharpit insights list</code>
+        </div>
+        <div class="tutorial-code-block">
+<code>$ sharpit insights list
+available: true
+unavailableReason: -
+query: all
+requests: 3
+coverage: []
+checksNotRun: []
+observations (1)
+  -
+    id: repeated-selects:999b67bc1d
+    kind: repeated-selects
+    status: OBSERVED
+    subject: GET /orders
+    sentence: `GET /orders` ran `SELECT id, order_id, product_name, price FROM order_items WHERE order_id = ?` 5 or more times after another statement in 3 of 3 requests, up to 30 times in one.
+    eligible: 3
+    affected: 3
+    tier: REQUEST_ID
+    exemplarRequestId: req_1
+    verify: Open an exemplar request in Live Activity and check whether each repeat loads the children of one row the first statement returned.
+    listed: true
+next (2)
+  -
+    command: sharpit insights show repeated-selects:999b67bc1d
+    tool: get_runtime_insight
+    arguments
+      id: repeated-selects:999b67bc1d
+    why: the evidence rows behind this repeated-selects observation, call sites included
+  -
+    command: sharpit request-profile req_1
+    tool: get_request_profile
+    arguments
+      id: req_1
+    why: one request or execution that shows it, step by step</code>
+        </div>
+        <p style="font-size: 0.8125rem; color: var(--muted); margin: 0.5rem 0 0 0;">
+          The engine's <code>repeated-selects</code> analyzer evaluates query shapes across requests without slowing your database. Inspect details with <code>sharpit insights show repeated-selects:999b67bc1d</code>.
+        </p>
+      </div>
     </section>
 
     <!-- Step 4: Checks You Can Run -->
@@ -200,7 +235,7 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <span class="tutorial-step-tag">Step 4</span>
         <h2 class="tutorial-step-title" id="step-4-heading">Checks You Can Run: Built-In Advisors</h2>
         <p class="tutorial-step-desc">
-          Sharpit provides automated advisor scans that inspect configuration, physical schemas, dependencies, and code structure. Run them in the web console or via CLI.
+          Sharpit provides automated advisor scans. Active scans run with commands like <code>sharpit security scan</code> or <code>sharpit db scan</code> (or the panel's scan button in the console); <code>sharpit db report</code> returns the last cached report (or <code>NOT_SCANNED</code> before a scan).
         </p>
       </div>
 
@@ -218,7 +253,7 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <div class="tutorial-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.375rem;">
             <strong>Database Advisor</strong>
-            <code style="font-size: 0.75rem;">sharpit db report --json</code>
+            <code style="font-size: 0.75rem;">sharpit db scan</code>
           </div>
           <p style="font-size: 0.84375rem; color: var(--ink); line-height: 1.45; margin: 0;">
             Introspects physical database schemas through SQLAlchemy to flag missing primary keys, unindexed foreign keys, and connection pool bottlenecks.
@@ -228,7 +263,7 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <div class="tutorial-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.375rem;">
             <strong>Vulnerabilities (OSV)</strong>
-            <code style="font-size: 0.75rem;">sharpit vulnerabilities report --json</code>
+            <code style="font-size: 0.75rem;">sharpit vulnerabilities scan</code>
           </div>
           <p style="font-size: 0.84375rem; color: var(--ink); line-height: 1.45; margin: 0;">
             Scans installed Python packages against the OSV.dev vulnerability database to identify known CVEs affecting runtime dependencies.
@@ -238,7 +273,7 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <div class="tutorial-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.375rem;">
             <strong>Architecture Advisor</strong>
-            <code style="font-size: 0.75rem;">sharpit architecture report --json</code>
+            <code style="font-size: 0.75rem;">sharpit architecture scan</code>
           </div>
           <p style="font-size: 0.84375rem; color: var(--ink); line-height: 1.45; margin: 0;">
             Analyzes application classes and packages against project-agnostic structure rules to prevent layer leaks and cyclic dependencies.
@@ -279,7 +314,7 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         </div>
       </div>
 
-      <h3 style="font-size: 1rem; margin: 1.25rem 0 0.5rem 0;">Exit Code Contract</h3>
+      <h3 style="font-size: 1rem; margin: 1.25rem 0 0.5rem 0;">CLI Exit Codes (sharpit --fail-on)</h3>
       <table class="tutorial-table">
         <thead>
           <tr>
@@ -291,41 +326,66 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api</code>
         <tbody>
           <tr>
             <td><code>0</code></td>
-            <td><strong>PASS</strong> (SUCCESS)</td>
-            <td>All checks completed cleanly; no findings met or exceeded the failure threshold.</td>
+            <td><strong>SUCCESS</strong></td>
+            <td>Scan or check completed cleanly; no findings met or exceeded the failure threshold.</td>
           </tr>
           <tr>
             <td><code>1</code></td>
-            <td><strong>CANNOT EVALUATE</strong> (ERROR)</td>
-            <td>Capture was incomplete, the application could not be inspected, or test gates failed closed (<code>status: unknown</code>).</td>
+            <td><strong>ERROR</strong></td>
+            <td>Request error (400 invalid usage, 401 unauthenticated, 404 unknown tool, 409/429 busy, 504 timeout, 500 server error) or an evidence gate that cannot be evaluated (unscanned report, missing scan status, or no usable evidence).</td>
           </tr>
           <tr>
             <td><code>2</code></td>
-            <td><strong>REFUSED</strong> (REFUSED)</td>
-            <td>Access denied by the security guard chain, panel disabled, or action refused under read-only policy.</td>
+            <td><strong>REFUSED</strong></td>
+            <td>Action refused by policy (403 forbidden / panel disabled via configuration or read-only policy) or endpoint disabled (503).</td>
           </tr>
           <tr>
             <td><code>3</code></td>
-            <td><strong>THRESHOLD MET</strong> (THRESHOLD)</td>
-            <td>One or more findings reached or exceeded the <code>--fail-on</code> severity threshold (e.g. <code>HIGH</code>).</td>
+            <td><strong>THRESHOLD</strong></td>
+            <td>One or more findings reached or exceeded the <code>--fail-on</code> severity threshold (e.g. <code>HIGH</code>), or <code>--fail-on insufficient</code> found insufficient/partial evidence.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="font-size: 1rem; margin: 1.25rem 0 0.5rem 0;">Pytest Runtime Plugin Exit Codes</h3>
+      <table class="tutorial-table">
+        <thead>
+          <tr>
+            <th style="width: 70px;">Code</th>
+            <th style="width: 140px;">Outcome</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>0</code></td>
+            <td><strong>PASS</strong></td>
+            <td>All tests and sharpit runtime gates passed without findings.</td>
+          </tr>
+          <tr>
+            <td><code>1</code></td>
+            <td><strong>FAIL</strong></td>
+            <td>Test failure or one or more sharpit runtime gates failed (e.g. <code>sharpit.n-plus-one</code>, <code>sharpit.max-queries</code>, <code>sharpit.exception</code>).</td>
           </tr>
         </tbody>
       </table>
 
       <div class="tutorial-card" style="margin-top: 1rem;">
-        <strong>Real Pytest Failure Transcript:</strong>
+        <strong>pytest --sharpit output</strong>
         <div class="tutorial-code-block">
 <code>FAILURES: test_orders_route
 sharpit: sharpit.n-plus-one: 30 executions of one SELECT in the call phase
 ================================ sharpit: fail ================================
+sharpit: no application found among the modules the tests imported (conftest, test modules and installed packages are not searched); rest-api skipped (pass --sharpit-app module:attr to assess the same app on any selection; --sharpit-require-app makes a missing app an error instead of a skip)
 status: fail
 tests with findings: 1
 gate counts:
   sharpit.n-plus-one: 1
 worst tests:
-  test_orders.py::test_orders_route: 1 finding(s)
+  test_sample.py::test_orders_route: 1 finding(s)
 report: sharpit-report.json
-sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception)</code>
+sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception)
+sharpit did not check: REST API, vulnerabilities, database-advisor, security, architecture, fastapi; routes and SQL your tests did not exercise; security testing (sharpit does no attack or penetration testing)</code>
         </div>
       </div>
     </section>
@@ -360,17 +420,17 @@ sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sh
             <span class="tutorial-status-badge tutorial-status-pass">BOUNDED EVIDENCE</span>
           </div>
           <ul style="font-size: 0.8125rem; color: var(--ink); padding-left: 1.25rem; margin: 0; line-height: 1.6;">
-            <li>Agent queries the running application over MCP (<code>/sharpit/api/mcp</code>) or CLI (<code>sharpit activity --json</code>).</li>
+            <li>Agent queries the running application over MCP (<code>/sharpit/api/mcp</code>) or CLI (<code>sharpit activity --json</code>). MCP is off by default: enable it with <code>SHARPIT_MCP_ENABLED=ON</code>, <code>sharpit.install(app, mcp_enabled="ON")</code>, the MCP Server panel switch, or <code>sharpit mcp enable</code>.</li>
             <li>Follows structured diagnostic playbooks (e.g. <code>database-efficiency.md</code>).</li>
             <li>Receives masked, bounded evidence with exact statement fingerprints and call sites.</li>
-            <li>Verifies the fix immediately: query count drops from 31 to 1 at runtime.</li>
+            <li>Verifies the fix immediately: one query with an IN list, or a join.</li>
           </ul>
         </div>
       </div>
 
       <div class="tutorial-card" style="margin-top: 1rem;">
         <p style="margin: 0; font-size: 0.875rem;">
-          Learn how to connect Claude Code, Cursor, Codex, or custom agents: read the full <a href="ai-agents.md">AI agents guide</a>.
+          Learn how to connect Claude Code, Cursor, Codex, or custom agents: read the full <a href="../ai-agents/">AI agents guide</a>.
         </p>
       </div>
     </section>
@@ -414,7 +474,7 @@ sharpit.install(app)</code>
       </div>
 
       <div class="tutorial-cta-group">
-        <a href="quickstart.md" class="tutorial-btn tutorial-btn-primary">Go to Quickstart &rarr;</a>
+        <a href="../quickstart/" class="tutorial-btn tutorial-btn-primary">Go to Quickstart &rarr;</a>
         <a href="https://github.com/ffroliva/sharpit" class="tutorial-star-btn" target="_blank" rel="noopener noreferrer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/>
