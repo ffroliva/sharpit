@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 import threading
 import time
 import weakref
 from collections import deque
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
 from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.capture.streams import ChangeStream
+from sharpit.engine.capture.transaction_boundary import observed
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqla.dialect_source import exception_dialect
@@ -165,7 +168,7 @@ class TransactionRecorder:
             row = {
                 "id": entry_id,
                 "methodName": method or "unknown",
-                "propagation": "PARTICIPATING" if parent is not None else "NEW",
+                "propagation": observed(known, parent is not None, savepoint).value,
                 "isolation": "UNKNOWN",  # never queried; BootUI reports UNKNOWN when it cannot tell
                 "status": "OPEN",
                 "startTimestamp": now // 1_000_000,
@@ -183,6 +186,7 @@ class TransactionRecorder:
                 "_startedNs": now,
                 "_connectionId": connection_id,
                 "_key": key,
+                "_begun": True,
             }
             self._entries.append(row)
             self._open[entry_id] = row
@@ -206,7 +210,20 @@ class TransactionRecorder:
         self.changes.signal()
 
     def fail_begin(self, entry_id: int, error: BaseException) -> None:
-        """Stub."""
+        if entry_id < 0:
+            return
+        with self._lock:
+            row = self._open.pop(entry_id, None)
+            if row is None:
+                return
+            row["propagation"] = "UNKNOWN"
+            row["connectionCount"] = 0
+            row["_begun"] = False
+            self._close_locked(row, "UNKNOWN", error)
+            while len(self._entries) > self.max_entries:
+                if not self._evict_completed_locked():
+                    break
+        self.changes.signal()
 
     def settle(self, entry_id: int, error: BaseException | None = None) -> None:
         """The DBAPI commit returned (``error`` None) or failed: re-close the row so its duration includes it."""
@@ -257,7 +274,7 @@ class TransactionRecorder:
             total, evicted, evicted_open = self._total, self._evicted, self._evicted_open
         warnings = [] if sql_rows is not None else [NO_SQL_TRACE]
         for row in rows:
-            if sql_rows is not None:
+            if sql_rows is not None and row["_begun"]:
                 row["sqlStatementCount"] = (
                     sum(
                         sql.get("connectionId") == row["_connectionId"]
@@ -267,7 +284,7 @@ class TransactionRecorder:
                     if row["_connectionId"] is not None
                     else 0
                 )
-            for key in ("_startedNs", "_connectionId", "_key"):
+            for key in ("_startedNs", "_connectionId", "_key", "_begun"):
                 row.pop(key, None)
         stats = _empty_stats()
         durations = [row["durationMillis"] for row in rows if row["endTimestamp"] is not None]
@@ -342,6 +359,64 @@ def _connection_id(conn: Any) -> str | None:
         return None
 
 
+def _dbapi_identity(conn: Any) -> int | None:
+    try:
+        return id(conn.connection.dbapi_connection)
+    except Exception:  # noqa: BLE001 - invalidated connection
+        return None
+
+
+def _owner() -> tuple[int, object | None]:
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        task = None
+    return threading.get_ident(), task
+
+
+def _autocommit(conn: Any) -> bool:
+    auto = getattr(conn, "_is_autocommit_isolation", None)
+    if callable(auto) and auto():
+        return True
+    dbapi = getattr(getattr(conn, "connection", None), "dbapi_connection", None)
+    if getattr(dbapi, "autocommit", None) is True:
+        return True
+    return type(dbapi).__module__ == "sqlite3" and getattr(dbapi, "isolation_level", "") is None
+
+
+type OpenTransaction = tuple[weakref.ref[Any], tuple[int, object | None], int | None, dict[int, int], bool]
+_OPEN: ContextVar[tuple[OpenTransaction, ...]] = ContextVar("sharpit_open_transactions", default=())
+
+
+def _forget(conn: Any) -> None:
+    _OPEN.set(tuple(item for item in _OPEN.get() if item[0]() is not conn))
+
+
+def _other_open_transactions(
+    owner: tuple[int, object | None], dbapi_id: int | None
+) -> tuple[list[OpenTransaction], bool, dict[int, int]]:
+    live: list[OpenTransaction] = []
+    known = True
+    parents: dict[int, int] = {}
+    for item in _OPEN.get():
+        other = item[0]()
+        if other is None:
+            continue
+        try:
+            active = other.in_transaction()
+        except Exception:  # noqa: BLE001 - transaction observers must degrade safely
+            active = True
+            known = False
+        if not active or item[4]:
+            continue
+        live.append(item)
+        if item[1] != owner or item[2] is None or dbapi_id is None or item[2] == dbapi_id:
+            known = False
+        else:
+            parents.update(item[3])
+    return live, known, parents
+
+
 # conn.info outlives a context on a pooled connection, so it holds recorders weakly, never a context.
 Tracked = tuple["weakref.ref[TransactionRecorder]", int]
 PENDING_COMMIT = "sharpit_tx_pending_commit"
@@ -373,22 +448,33 @@ def _settle(info: dict[str, Any], error: BaseException | None = None) -> None:
             recorder.settle(entry_id, error)
 
 
-def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
+def _begin(conn: Any, parent_ids: dict[int, int] | None = None, *, savepoint: bool = False) -> None:
     conn_info = conn.info  # a property chain: one read per listener
     stack = _stack(conn_info)
     if parent_ids is None:
         _close(stack, "UNKNOWN")
         stack.clear()
         _savepoints(conn_info).clear()
-    parents = parent_ids or {}
+    owner = _owner()
+    dbapi_id = _dbapi_identity(conn)
+    live: list[OpenTransaction] = []
+    known = True
+    discovered_parents: dict[int, int] = {}
+    if not savepoint:
+        live, known, discovered_parents = _other_open_transactions(owner, dbapi_id)
+        if live and _autocommit(conn):
+            known = False
+        if not known:
+            discovered_parents.clear()
     info = REQUEST.get()
     connection_id = _connection_id(conn)
+    recorded: dict[int, int] = {}
     for ctx in _targets(conn):
         recorder = _enabled(ctx)
         if recorder is None:
             continue
         try:
-            parent = parents.get(id(recorder))
+            parent = (parent_ids or {}).get(id(recorder)) if savepoint else discovered_parents.get(id(recorder))
             method = call_site(None) if ctx.settings.sql_trace_capture_call_site else "unknown"
             entry_id = recorder.begin(
                 id(conn),
@@ -397,18 +483,25 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
                 thread=threading.current_thread().name,
                 trace_id=info.id if info is not None and info.context_id == ctx.context_id else None,
                 connection_id=connection_id,
+                savepoint=savepoint,
+                known=known,
             )
             if entry_id >= 0:
                 stack.append((weakref.ref(recorder), entry_id))
+                recorded[id(recorder)] = entry_id
         except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
             dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
+    if recorded and not savepoint:
+        _OPEN.set((*live, (weakref.ref(conn), owner, dbapi_id, recorded, _autocommit(conn))))
 
 
-def _end(info: dict[str, Any], status: str) -> None:
+def _end(conn: Any, status: str) -> None:
+    info = conn.info
     stack = _stack(info)
     closing, stack[:] = stack[:], []
     _savepoints(info).clear()
     _close(closing, status)
+    _forget(conn)
 
 
 def _end_savepoint(conn: Any, name: str, status: str) -> None:
@@ -430,6 +523,7 @@ def _end_savepoint(conn: Any, name: str, status: str) -> None:
 def tx_begin(conn: Any) -> None:
     try:
         _settle(conn.info)
+        _forget(conn)
         _begin(conn)
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
@@ -439,7 +533,7 @@ def tx_commit(conn: Any) -> None:
     try:
         info = conn.info  # a property chain: one read per listener
         info[PENDING_COMMIT] = list(_stack(info))
-        _end(info, "COMMITTED")
+        _end(conn, "COMMITTED")
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 
@@ -447,7 +541,7 @@ def tx_commit(conn: Any) -> None:
 def tx_rollback(conn: Any) -> None:
     try:
         _settle(conn.info)
-        _end(conn.info, "ROLLED_BACK")
+        _end(conn, "ROLLED_BACK")
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 
@@ -455,13 +549,45 @@ def tx_rollback(conn: Any) -> None:
 def tx_handle_error(exception_context: Any) -> None:
     try:
         conn = exception_context.connection
-        if exception_context.statement is not None or conn is None or PENDING_COMMIT not in conn.info:
+        if conn is None:
             return
         error = exception_context.sqlalchemy_exception or exception_context.original_exception
-        # Only an error raised while the committing transaction is still active is the DBAPI commit failing.
-        _settle(conn.info, error if conn.in_transaction() else None)
+        statement = (exception_context.statement or "").lstrip().upper()
+        if PENDING_COMMIT in conn.info:
+            _settle(conn.info, error if conn.in_transaction() else None)
+            return
+        if statement.startswith("SAVEPOINT"):
+            _fail_savepoint(conn, error)
+            return
+        # A begin error has no active SQLAlchemy transaction; statement errors and failed commits do.
+        if not conn.in_transaction():
+            _fail_transaction_begin(conn, error)
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
+
+
+def _fail_savepoint(conn: Any, error: BaseException) -> None:
+    saves = _savepoints(conn.info)
+    if not saves:
+        return
+    _, failed = saves.pop()
+    for ref, entry_id in failed:
+        recorder = ref()
+        if recorder is not None:
+            recorder.fail_begin(entry_id, error)
+    failed_ids = {entry_id for _, entry_id in failed}
+    _stack(conn.info)[:] = [item for item in _stack(conn.info) if item[1] not in failed_ids]
+
+
+def _fail_transaction_begin(conn: Any, error: BaseException) -> None:
+    failed = _stack(conn.info)
+    for ref, entry_id in failed:
+        recorder = ref()
+        if recorder is not None:
+            recorder.fail_begin(entry_id, error)
+    failed.clear()
+    _savepoints(conn.info).clear()
+    _forget(conn)
 
 
 def tx_checkin(_dbapi_connection: Any, connection_record: Any) -> None:
@@ -478,7 +604,7 @@ def tx_savepoint(conn: Any, name: str | None) -> None:
         stack = _stack(conn.info)
         parents = {id(recorder): entry_id for ref, entry_id in stack if (recorder := ref()) is not None}
         before = len(stack)
-        _begin(conn, parents)
+        _begin(conn, parents, savepoint=True)
         _savepoints(conn.info).append((name, stack[before:]))
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)

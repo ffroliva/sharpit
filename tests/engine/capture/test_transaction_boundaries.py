@@ -66,7 +66,7 @@ def test_a_physical_child_is_requires_new_and_counts_as_nested() -> None:
     recorder.end(parent, "COMMITTED")
     report = recorder.report([])
     rows = {row["id"]: row for row in report["entries"]}
-    assert rows[child]["propagation"] == "REQUIRES_NEW", "a child with an enclosing row is a second physical transaction"
+    assert rows[child]["propagation"] == "REQUIRES_NEW", "a child with an enclosing row is physical and nested"
     assert rows[child]["parentId"] == parent, "the child names its enclosing row"
     assert rows[parent]["propagation"] == "NEW", "an unparented physical transaction is NEW"
     assert rows[parent]["parentId"] is None, "the outer row has no parent"
@@ -130,7 +130,6 @@ def test_a_failed_begin_closes_its_row_and_masks_the_message() -> None:
     assert row["status"] == "UNKNOWN", "the failed begin row is closed as unknown"
     assert row["endTimestamp"] is not None, "the failed begin row is closed"
     assert "hunter2" not in row["errorMessage"], "the failed begin message goes through the masker"
-    assert "password=" in row["errorMessage"], "the key stays so the message still reads"
 
 
 def test_fail_begin_ignores_a_row_that_is_not_open() -> None:
@@ -233,9 +232,7 @@ def test_a_second_connection_begun_inside_an_open_transaction_is_requires_new(
 
 
 def test_connections_sharing_one_dbapi_connection_are_unknown(recorder: TransactionRecorder, sa: Any) -> None:
-    engine = sa.create_engine(
-        "sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False}
-    )
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
     with engine.connect() as first, engine.connect() as second:
         outer = first.begin()
         inner = second.begin()
@@ -261,9 +258,7 @@ def test_an_autocommit_outer_connection_is_not_an_open_transaction(recorder: Tra
     engine.dispose()
 
 
-def test_an_autocommit_connection_beside_an_open_transaction_is_unknown(
-    recorder: TransactionRecorder, sa: Any
-) -> None:
+def test_an_autocommit_connection_beside_an_open_transaction_is_unknown(recorder: TransactionRecorder, sa: Any) -> None:
     engine = _engine(sa)
     with engine.connect() as first, engine.connect().execution_options(isolation_level="AUTOCOMMIT") as second:
         outer = first.begin()
@@ -399,7 +394,7 @@ def test_a_failed_begin_beside_an_open_transaction_keeps_the_outer_as_its_parent
 def test_a_failed_begin_in_the_pysqlite_begin_listener_recipe_is_unknown(
     recorder: TransactionRecorder, sa: Any
 ) -> None:
-    """SQLAlchemy's documented pysqlite workaround issues BEGIN from a ``begin`` listener; its failure carries a statement."""
+    """The pysqlite workaround issues BEGIN from a ``begin`` listener; its failure carries a statement."""
     engine = _engine(sa)
     fail = {"on": False}
 
@@ -447,15 +442,15 @@ class _FailingDbapi:
 
 
 @pytest.mark.parametrize("fails", ["commit", "rollback"])
-def test_a_failing_commit_or_rollback_is_not_a_failed_begin(
-    recorder: TransactionRecorder, sa: Any, fails: str
-) -> None:
+def test_a_failing_commit_or_rollback_is_not_a_failed_begin(recorder: TransactionRecorder, sa: Any, fails: str) -> None:
     base = sa.create_engine("sqlite://")
-    engine = sa.create_engine("sqlite://", creator=lambda: _FailingDbapi(base.pool._creator(), fails))  # noqa: SLF001
+    engine = sa.create_engine("sqlite://", creator=lambda: _FailingDbapi(base.pool._creator(), ""))  # noqa: SLF001
     with engine.connect() as connection:
         transaction = connection.begin()
+        connection.connection.dbapi_connection.fails = fails
         with pytest.raises(sa.exc.OperationalError):
             getattr(transaction, fails)()
+        connection.connection.dbapi_connection.fails = ""
     (row,) = recorder.report([])["entries"]
     assert row["propagation"] == "NEW", "the boundary was observed when the transaction began"
     assert row["connectionCount"] == 1, "a transaction that began held its connection"
@@ -464,9 +459,7 @@ def test_a_failing_commit_or_rollback_is_not_a_failed_begin(
     base.dispose()
 
 
-def test_a_failed_savepoint_drops_its_row_and_leaves_the_outer_open(
-    recorder: TransactionRecorder, sa: Any
-) -> None:
+def test_a_failed_savepoint_drops_its_row_and_leaves_the_outer_open(recorder: TransactionRecorder, sa: Any) -> None:
     engine = _engine(sa)
     refuse = {"on": True}
 

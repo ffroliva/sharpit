@@ -26,7 +26,7 @@ const report = {
   },
   entries: [
     {
-      id: 2, methodName: 'orders:save', propagation: 'PARTICIPATING', isolation: null, status: 'COMMITTED',
+      id: 2, methodName: 'orders:save', propagation: 'NESTED', isolation: null, status: 'COMMITTED',
       startTimestamp: 1_700_000_000_001, endTimestamp: 1_700_000_000_003, durationMillis: 2, parentId: 1,
       thread: 'MainThread', traceId: null, sqlStatementCount: 0, connectionCount: 1, readOnly: null,
       slow: false, connectionHeld: false, errorMessage: null,

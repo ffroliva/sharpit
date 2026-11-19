@@ -55,15 +55,15 @@ and `TransactionRecorder.report`, so no reader changes.
 
 ## Tasks
 
-- [ ] **Step 1:** `docs:` this file and the matrix fragment `docs/reference/matrix-updates/a2-tx-boundaries.tsv`.
-- [ ] **Step 2:** `test:` `observed()` table; recorder cases ported from `TransactionRecorderTests` (parent and child,
+- [x] **Step 1:** `docs:` this file and the matrix fragment `docs/reference/matrix-updates/a2-tx-boundaries.tsv`.
+- [x] **Step 2:** `test:` `observed()` table; recorder cases ported from `TransactionRecorderTests` (parent and child,
       physical children, savepoints and failed begins, completion outcome, failed begin without SQL or connections).
-- [ ] **Step 3:** `feat:` `TransactionBoundary`, `observed()`, `TransactionRecorder.begin(savepoint, known)`,
+- [x] **Step 3:** `feat:` `TransactionBoundary`, `observed()`, `TransactionRecorder.begin(savepoint, known)`,
       `TransactionRecorder.fail_begin`, the report's SQL correlation skips a begin that did not happen.
-- [ ] **Step 4:** `test:` SQLAlchemy shapes: savepoint, second connection, `StaticPool`, AUTOCOMMIT outer, `gather`
+- [x] **Step 4:** `test:` SQLAlchemy shapes: savepoint, second connection, `StaticPool`, AUTOCOMMIT outer, `gather`
       siblings, sequential, child task, failed `do_begin`, the pysqlite `BEGIN` recipe, commit failure, failed
       `SAVEPOINT`, masked begin error.
-- [ ] **Step 5:** `feat:` the observed context (`_OPEN`, `_autocommit`), the begin listener, `tx_handle_error`.
-- [ ] **Step 6:** `test:` update `tests/fastapi/test_transactions_api.py` and the UI component fixture to the observed
+- [x] **Step 5:** `feat:` the observed context (`_OPEN`, `_autocommit`), the begin listener, `tx_handle_error`.
+- [x] **Step 6:** `test:` update `tests/fastapi/test_transactions_api.py` and the UI component fixture to the observed
       values; the overhead budget runs alone with `-n 0` and its `BUDGET_NS` is unchanged.
-- [ ] **Step 7:** `docs:` CHANGELOG (Changed: the `propagation` value set), matrix rows, gates.
+- [x] **Step 7:** `docs:` CHANGELOG (Changed: the `propagation` value set), matrix rows, gates.

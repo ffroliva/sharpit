@@ -13,4 +13,8 @@ class TransactionBoundary(StrEnum):
 
 
 def observed(known: bool, nested: bool, savepoint: bool) -> TransactionBoundary:
-    return TransactionBoundary.NEW
+    if not known:
+        return TransactionBoundary.UNKNOWN
+    if savepoint:
+        return TransactionBoundary.NESTED
+    return TransactionBoundary.REQUIRES_NEW if nested else TransactionBoundary.NEW

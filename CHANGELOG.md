@@ -11,6 +11,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Transaction rows report observed boundaries as `NEW`, `REQUIRES_NEW`, `NESTED` or `UNKNOWN`; failed begins have no
+  SQL statement or connection counts.
 - The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
   assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.
 

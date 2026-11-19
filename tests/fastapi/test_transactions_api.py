@@ -59,7 +59,7 @@ def test_real_sqlite_savepoint_rollback_then_outer_commit() -> None:
         rows = report["entries"]
         outer_row = next(row for row in rows if row["parentId"] is None)
         child_row = next(row for row in rows if row["parentId"] is not None)
-        assert child_row["propagation"] == "PARTICIPATING", "a savepoint must be a participating transaction"
+        assert child_row["propagation"] == "NESTED", "a savepoint is an observed nested boundary"
         assert report["stats"]["nestedCount"] == 1, "a rolled-back savepoint must count as one nested transaction"
         assert child_row["status"] == "ROLLED_BACK", "rolling back a savepoint must close the child as rolled back"
         assert outer_row["status"] == "COMMITTED", "the outer transaction must still commit after savepoint rollback"
