@@ -86,6 +86,7 @@ CLI_STDLIB = frozenset(
         "shutil",  # Task 7: terminal capability checks
         "sys",  # Tasks 5 and 7: process arguments, streams and version output
         "textwrap",  # Task 7: help text rendering
+        "traceback",  # Task 5: verbose diagnostics for unexpected failures
         "time",  # Task 2: request timeout accounting
         "threading",  # Task 2: enforce a deadline across response headers and bodies
         "typing",  # Tasks 2-7: public type annotations

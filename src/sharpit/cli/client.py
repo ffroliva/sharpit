@@ -12,6 +12,7 @@ from urllib import request as _request
 from urllib.parse import quote, urlsplit
 
 from sharpit import __version__
+from sharpit.cli.options import ClientOptions
 
 # Default response cap for ordinary calls; bounded calls accept the caller's limit.
 _MAX_RESPONSE_BYTES = 1_048_576
@@ -37,9 +38,9 @@ class ToolResult:
 
 
 class Client:
-    def __init__(self, options: Any) -> None:
+    def __init__(self, options: ClientOptions) -> None:
         self.options = options
-        self.options.timeout = _valid_timeout(options.timeout)
+        self.timeout = _valid_timeout(options.timeout)
         token = options.token
         if token and any(ord(char) < 32 or 127 <= ord(char) <= 159 or ord(char) > 255 for char in token):
             raise ClientError("The token contains characters an HTTP header cannot carry")
@@ -49,7 +50,7 @@ class Client:
         return self._get(path, _MAX_RESPONSE_BYTES, None)
 
     def get_bounded(self, path: str, max_response_bytes: int, timeout: float | None = None) -> Any:
-        return self._get(path, max_response_bytes, self.options.timeout if timeout is None else timeout)
+        return self._get(path, max_response_bytes, self.timeout if timeout is None else timeout)
 
     def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
         return self._invoke(tool, arguments, _MAX_RESPONSE_BYTES, None)
@@ -57,13 +58,13 @@ class Client:
     def invoke_bounded(
         self, tool: str, arguments: dict[str, Any], max_response_bytes: int, timeout: float | None = None
     ) -> ToolResult:
-        return self._invoke(tool, arguments, max_response_bytes, self.options.timeout if timeout is None else timeout)
+        return self._invoke(tool, arguments, max_response_bytes, self.timeout if timeout is None else timeout)
 
     def catalog(self) -> Any:
         return self._catalog(_MAX_RESPONSE_BYTES, None)
 
     def catalog_bounded(self, max_response_bytes: int, timeout: float | None = None) -> Any:
-        return self._catalog(max_response_bytes, self.options.timeout if timeout is None else timeout)
+        return self._catalog(max_response_bytes, self.timeout if timeout is None else timeout)
 
     def _get(self, path: str, max_response_bytes: int, timeout: float | None) -> Any:
         endpoint = self._endpoint(path)
@@ -113,7 +114,7 @@ class Client:
             raise ValueError("max_response_bytes must be positive")
 
         base = self.options.base_url.rstrip("/")
-        configured_timeout = _valid_timeout(self.options.timeout)
+        configured_timeout = self.timeout
         request_timeout = configured_timeout if timeout is None else min(configured_timeout, float(timeout))
         if request_timeout <= 0:
             raise self._client_error(f"Request to {base} exceeded its response deadline.")

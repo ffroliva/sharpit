@@ -145,6 +145,73 @@ def test_token_never_appears_in_output():
     assert secret not in err
     assert secret not in repr(client.options)
     assert secret not in str(client.options)
+    assert secret not in repr(GlobalOptions(token=secret))
+
+
+def test_default_client_factory_completes_an_http_call(monkeypatch):
+    from sharpit.cli import client as client_module
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read1(self, _size):
+            return b'{"ok":true}'
+
+    class Opener:
+        def open(self, _request, timeout):
+            assert timeout > 0
+            return Response()
+
+    monkeypatch.setattr(client_module._request, "build_opener", lambda *_args: Opener())
+    code, out, err, _ = _run_cli(["beans"])
+    assert code == 0
+    assert '"ok": true' in out
+    assert err == ""
+
+
+def test_global_options_repr_redacts_token():
+    secret = "private-token-239"
+    assert secret not in repr(GlobalOptions(token=secret))
+
+
+def test_ambiguous_global_option_is_not_abbreviated_or_echoed():
+    secret = "do-not-echo-this"
+    code, _, err, client = _run_cli(["--tokn", secret, "beans"])
+    assert code == 1
+    assert secret not in err
+    assert len(client.invocations) == 0
+
+
+def test_short_global_option_is_not_abbreviated():
+    code, _, err, client = _run_cli(["--to", "token-value", "beans"])
+    assert code == 1
+    assert len(client.invocations) == 0
+    assert "token-value" not in err
+
+
+def test_result_without_status_is_not_success():
+    from types import SimpleNamespace
+
+    class BareClient(FakeClient):
+        def invoke(self, tool, arguments):
+            return SimpleNamespace(raw_body="{}", payload={})
+
+    code, _, _, _ = _run_cli(["beans"], client=BareClient(None))
+    assert code == 1
+
+
+def test_usage_errors_do_not_print_token_value():
+    secret = "never-print-me"
+    code, _, err, client = _run_cli(["--token", secret, "--bogus", "beans"])
+    assert code == 1
+    assert secret not in err
+    assert len(client.invocations) == 0
 
 
 # ported: CommandTreeTests.everyCommandInTheManifestInvokesTheToolItProjects

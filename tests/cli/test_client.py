@@ -494,7 +494,7 @@ def test_tool_names_are_quoted_as_a_single_path_segment(tool, endpoint):
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), -float("inf")])
 def test_invalid_timeout_uses_sixty_second_default(value):
     client = Client(options("http://127.0.0.1:1", timeout=value))
-    assert client.options.timeout == 60
+    assert client.timeout == 60
 
 
 @pytest.mark.parametrize("status,body", [(500, b""), (502, b"not json")])

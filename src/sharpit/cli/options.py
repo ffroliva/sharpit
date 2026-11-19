@@ -34,8 +34,7 @@ def normalize_api_path(path: str | None) -> str:
         return DEFAULT_API_PATH
     if not value.startswith("/"):
         value = "/" + value
-    while len(value) > 1 and value.endswith("/"):
-        value = value[:-1]
+    value = value.rstrip("/")
     return value or DEFAULT_API_PATH
 
 
@@ -46,8 +45,13 @@ def normalize_token(token: str | None) -> str | None:
 
 
 def positive_seconds(value: str) -> float:
+    raw = value.strip().lower()
+    if raw.endswith("ms"):
+        raw = str(float(raw[:-2]) / 1000)
+    elif raw.endswith("s"):
+        raw = raw[:-1]
     try:
-        seconds = float(value.strip())
+        seconds = float(raw)
     except (ValueError, TypeError):
         raise argparse.ArgumentTypeError(f"'{value}' is not a number of seconds") from None
     if seconds <= 0 or seconds != seconds or seconds == float("inf"):
@@ -89,6 +93,14 @@ class GlobalOptions:
     json: bool = False
     no_color: bool = False
     verbose: bool = False
+
+    def __repr__(self) -> str:
+        token = "'******'" if self.token else "None"
+        return (
+            f"GlobalOptions(url={self.url!r}, api_path={self.api_path!r}, "
+            f"token={token}, timeout={self.timeout!r}, "
+            f"json={self.json!r}, no_color={self.no_color!r}, verbose={self.verbose!r})"
+        )
 
     def json_output(self, terminal: bool) -> bool:
         return self.json or not terminal
