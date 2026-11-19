@@ -100,7 +100,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       `engine/capture/exceptions.py` (`caught_report`), `engine/tools.py` (`caughtInCode`),
       `engine/collectors/insights/agent_view.py`, `engine/tools04/{runtime_insights,security,transactions}.py`.
       Tests: `RuntimeInsightsAgentViewTests`, `McpToolDescriptionsTests` (two cases). Unblocks CLI Task 6.
-- [~] **A2 — observed transaction boundaries** (after W0; *predict*; one lane with B2, sequenced A2 then B2, since
+- [ ] **A2 — observed transaction boundaries** (deferred, see below) (after W0; *predict*; one lane with B2, sequenced A2 then B2, since
       both change `engine/capture/transactions.py`). Port `TransactionBoundary.observed(known, nested, savepoint)`
       and `begun`: failed begins become `ERROR`/"begin failed" in the activity feed and request profile
       (`E/engine/transactions/TransactionBoundary.java:4-21`; `TransactionRecorder.java:61-66,271`;
@@ -195,7 +195,7 @@ re-measures all of this against 2.4.0.
       `RuntimeJournal.java:308-363`) lowers sharpit's per-statement cost; verdict before code.
 - [ ] **D3 — SQL Trace panel availability** before a data source is wrapped (the #185 gap row).
 - [ ] **D4 — #184 and #185 audit follow-ups** (connection source and recorded-SQL fact).
-- [ ] **D5 — hygiene:** unused aliases in `settings.py`; the `IdleTracker` private lock.
+- [x] **D5 — hygiene:** unused aliases in `settings.py`; the `IdleTracker` private lock.
 - [ ] **D6 — safety-path items** (*predict*, *council*, base-against-branch masking corpus diff): the masking double
       pass (BootUI masks quoted text once, `FrameworkWarningsByRoute.java:240-244`); an invalid
       `SHARPIT_EMAIL_MASK_CONTENT` value falling back to `False`.
@@ -233,6 +233,12 @@ Each keeps its plan text above and moves to the next release's plan.
 - **W0 live goldens** (the per-panel 2.4.0 captures): they need BootUI 2.4.0 built into the reference application with
   its databases. The static 2.4.0 fixtures pin the contract (tools, properties, rules); route parity stays measured
   against the 2.3.0 live goldens, whose routes 2.4.0 does not change.
+- **A2** (observed transaction boundaries): the port is functionally complete on its branch (three review rounds,
+  every boundary regression red first), but it adds the ownership work to every transaction pair. Measured with
+  `scripts/dev/overhead_check.py` on `tests/fastapi/test_transactions_overhead.py`, five paired runs: 10.4 µs median on
+  the release branch, 27.9 µs on the A2 branch with runs over the 30 µs budget, and 26.1 µs after a performance round.
+  A budget is never raised. The next release starts A2 from a design whose begin and commit stay constant-time when
+  no second transaction is open, measured before the behaviour is ported again.
 - **B2** (transaction journal source): its measured cost (31.3 µs per transaction pair on Windows) is over the 30 µs
   budget, and a budget is never raised; it needs `/sharpit:perf-audit` first.
 - **B3, B4, B5** (ORM, authorization, app-event, gc, executor journal sources and their kinds): each adds a capture

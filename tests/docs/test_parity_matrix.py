@@ -41,13 +41,15 @@ def _matrix() -> dict[str, str]:
     evaluating = [k for k in implemented if k.reads <= PRODUCED_SOURCES]
     applicable = routes["total"] - routes["n-a"]
     return {
-        "tools": f"| MCP/CLI tools | 54 | {len(ours)} | {len(bootui_tools)} | 116 |",
-        "names": f"| Tools under BootUI's exact names | 45 | {len(ours & bootui_tools)} | - | - |",
-        "panels": f"| Panels | 31 | {len(PANELS)} ({_listed_panels()} listed in the console) | "
+        "tools": f"| MCP/CLI tools | 54 | 71 | {len(ours)} | {len(bootui_tools)} | 116 |",
+        "names": f"| Tools under BootUI's exact names | 45 | 62 | {len(ours & bootui_tools)} | - | - |",
+        "panels": f"| Panels | 31 | 48 (46 listed in the console) | {len(PANELS)} "
+        f"({_listed_panels()} listed in the console) | "
         f"{len(json.loads((BOOTUI / 'panels.json').read_text('utf-8'))['panels'])} (Spring) | 65 (Spring) |",
-        "insights": f"| Runtime insight kinds that evaluate | none | {len(evaluating)} of {len(KINDS)} registered | "
-        f"{len(KINDS)} | 28 |",
+        "insights": f"| Runtime insight kinds that evaluate | none | 8 of 28 registered | "
+        f"{len(evaluating)} of {len(KINDS)} registered | {len(KINDS)} | 28 |",
         "routes": f"| BootUI API routes served, of the {applicable} that apply to Python | not measured | "
+        "33 (5 shape-identical, 28 partial) | "
         f"{routes['matched'] + routes['partial']} ({routes['matched']} shape-identical, {routes['partial']} partial) | "
         f"{applicable} | not captured |",
     }
