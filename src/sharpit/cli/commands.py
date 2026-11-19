@@ -60,6 +60,25 @@ class _CliExit(Exception):
         super().__init__(status)
 
 
+class _Emission:
+    def __init__(self, token: str | None, json_output: bool, terminal: bool, color: bool) -> None:
+        self.token = token
+        self.json_output = json_output
+        self.terminal = terminal
+        self.color = color
+
+
+def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> None:
+    text = raw_body if options.json_output or not options.terminal else render(payload, color=options.color)
+    text = safe_text(text, options.token)
+    if text:
+        (write_json if options.json_output or not options.terminal else write)(
+            out, text if text.endswith("\n") else f"{text}\n"
+        )
+    if hasattr(out, "flush"):
+        out.flush()
+
+
 def _redact_usage_error(message: str, tokens: Sequence[str] = ()) -> str:
     msg = message
     if "unrecognized arguments:" in message:
@@ -227,11 +246,12 @@ def _build_root_parser(
         return subparsers_by_prefix[prefix]
 
     specs = manifest.command_specs
-    selected = (
-        (tool for path, tool in specs if path[: len(selected_path)] == selected_path)
-        if selected_path is not None
-        else (tool for _, tool in specs)
-    )
+    if selected_path is None:
+        selected = (tool for _, tool in specs)
+    elif selected_path:
+        selected = (tool for path, tool in specs if path[: len(selected_path)] == selected_path)
+    else:
+        selected = iter(())
     for tool in selected:
         path = tool.path
         for depth in range(len(path) - 1):
@@ -332,7 +352,7 @@ def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] |
     )
     known_paths = {path for path, _ in manifest.command_specs}
     if candidates and candidates[0] in {"tools", "mcp"}:
-        return None
+        return ()
     path = next(
         (candidates[:length] for length in range(len(candidates), 0, -1) if candidates[:length] in known_paths),
         None,
@@ -498,20 +518,13 @@ def _emit_success_result(
     criterion: Criterion | None,
 ) -> int:
     body = result.raw_body or (json.dumps(result.payload) if result.payload is not None else "")
-    body = safe_text(body, client_options.token)
-    if body:
-        if json_output or not terminal:
-            text = body
-        else:
-            text = render(json.loads(body, parse_int=str, parse_float=str), color=color)
-        (write_json if json_output or not terminal else write)(out, text if text.endswith("\n") else f"{text}\n")
+    payload = result.payload
+    if not json_output and terminal and body:
+        payload = json.loads(body, parse_int=str, parse_float=str)
+    _emit(out, body, payload, _Emission(client_options.token, json_output, terminal, color))
     if criterion is None:
-        if hasattr(out, "flush"):
-            out.flush()
         return ExitCodes.SUCCESS
     verdict = evaluate(result.payload, criterion, tool.name)
-    if hasattr(out, "flush"):
-        out.flush()
     if verdict.message:
         write(err, safe_text(verdict.message, client_options.token) + "\n")
     return verdict.exit_code
@@ -543,14 +556,14 @@ def _parse_command(parser: SharpitParser, argv: Sequence[str]) -> argparse.Names
     try:
         return parser.parse_args(list(argv))
     except _CliExit as exc:
-        return 2 if "--fail-on" in argv else exc.status
+        return exc.status
 
 
 def _usage_failure(parser: SharpitParser, message: str) -> int:
     try:
         parser.error(message)
     except _CliExit:
-        return 2
+        return ExitCodes.ERROR
 
 
 def _tool_criterion(
@@ -659,10 +672,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run(args, os.environ, terminal, sys.stdout, sys.stderr)
     except BrokenPipeError:
         try:
-            sys.stdout = os.fdopen(os.open(os.devnull, os.O_WRONLY), "w", encoding="utf-8")
-        except OSError:  # noqa: SIM105 - preserve the quiet exit if devnull cannot be opened.
-            return ExitCodes.SUCCESS
-        return ExitCodes.SUCCESS
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(devnull, sys.stdout.fileno())
+            finally:
+                os.close(devnull)
+        except OSError:  # noqa: SIM105 - preserve the non-success result if stdout cannot be redirected.
+            pass
+        return ExitCodes.ERROR
     except KeyboardInterrupt:
         return 130
 
@@ -746,22 +763,23 @@ def _run_tools(
     options: GlobalOptions,
     environment: Mapping[str, str],
 ) -> int:
-    response = client.catalog_result() if hasattr(client, "catalog_result") else None
-    payload: object = response.payload if response is not None else client.catalog()
+    response = client.catalog_result()
+    payload: object = response.payload
     if not isinstance(payload, dict):
         raise ClientError("The target did not return a valid sharpit catalog.")
     catalog = cast(dict[str, object], payload)
     if options.json_output(terminal):
-        text = (
-            safe_text(response.raw_body, client.options.token)
-            if response is not None
-            else json.dumps(payload, ensure_ascii=False, indent=2)
-        )
+        displayed: object = cast(dict[str, object], payload)
     else:
-        text = render(_catalog_listing(catalog), color=options.color_output(terminal, environment))
-    (write_json if options.json_output(terminal) else write)(out, text + "\n")
-    if hasattr(out, "flush"):
-        out.flush()
+        displayed = _catalog_listing(catalog)
+    _emit(
+        out,
+        response.raw_body,
+        displayed,
+        _Emission(
+            client.options.token, options.json_output(terminal), terminal, options.color_output(terminal, environment)
+        ),
+    )
     return ExitCodes.SUCCESS
 
 
@@ -804,21 +822,13 @@ def _run_mcp(
 ) -> int:
     response: ToolResult | None = None
     try:
-        if action == "status" and hasattr(client, "get_result"):
+        if action == "status":
             response = client.get_result("/mcp-server")
-        elif action != "status" and hasattr(client, "post_result"):
+        else:
             response = client.post_result("/mcp-server/toggle", json.dumps({"enabled": action == "enable"}))
-        payload = (
-            response.payload
-            if response is not None
-            else (
-                client.get("/mcp-server")
-                if action == "status"
-                else client.post("/mcp-server/toggle", json.dumps({"enabled": action == "enable"}))
-            )
-        )
+        payload = response.payload
     except ClientError as error:
-        if action != "status" and error.status is not None and 200 <= error.status < 300:
+        if action != "status" and error.request_sent:
             _emit_error(err, _UNKNOWN_MCP_OUTCOME, client_options.token)
             return ExitCodes.ERROR
         raise
@@ -826,14 +836,12 @@ def _run_mcp(
         _emit_error(err, _invalid_mcp_message(action), client_options.token)
         return ExitCodes.ERROR
     status = cast(dict[str, object], payload)
-    text = (
-        safe_text(response.raw_body, client_options.token)
-        if response is not None and options.json_output(terminal)
-        else json.dumps(status, ensure_ascii=False, indent=2)
-        if options.json_output(terminal)
-        else render(status, color=options.color_output(terminal, environment))
+    _emit(
+        out,
+        response.raw_body,
+        status,
+        _Emission(
+            client_options.token, options.json_output(terminal), terminal, options.color_output(terminal, environment)
+        ),
     )
-    (write_json if options.json_output(terminal) else write)(out, text + "\n")
-    if hasattr(out, "flush"):
-        out.flush()
     return ExitCodes.SUCCESS
