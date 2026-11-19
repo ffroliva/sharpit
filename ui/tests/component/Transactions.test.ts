@@ -60,7 +60,7 @@ it('disables transaction controls for a read-only panel', async () => {
   h.mount(Transactions, { panel: readOnly('transactions') });
   await until(() => expect(h.text()).toContain('orders:create'));
   const controls = [...h.target.querySelectorAll('button')].filter((button) => /Pause|Resume|Clear/.test(button.textContent ?? ''));
-  expect(controls.length).toBe(2);
+  expect(controls).toHaveLength(2);
   for (const b of controls) {
     expect(b.disabled).toBe(true);
     expect(b.title).toContain('SHARPIT_READ_ONLY=true');

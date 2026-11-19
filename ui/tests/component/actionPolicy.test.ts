@@ -114,7 +114,7 @@ describe('Action policy in views', () => {
     const disabledButtons = [...h.target.querySelectorAll('button')].filter((b) =>
       ['Acknowledge', 'Resolve', 'Clear all'].includes(b.textContent ?? ''),
     );
-    expect(disabledButtons.length).toBe(3);
+    expect(disabledButtons).toHaveLength(3);
     for (const b of disabledButtons) {
       expect(b.disabled).toBe(true);
       expect(b.title).toContain('SHARPIT_READ_ONLY=true');
@@ -238,7 +238,7 @@ describe('Action policy in views', () => {
     await until(() => expect(h.text()).toContain('Pause'));
 
     const buttons = [...h.target.querySelectorAll('button')].filter((b) => ['Pause', 'Clear'].includes(b.textContent ?? ''));
-    expect(buttons.length).toBe(2);
+    expect(buttons).toHaveLength(2);
     for (const b of buttons) {
       expect(b.disabled).toBe(true);
       expect(b.title).toContain('SHARPIT_READ_ONLY=true');
@@ -288,7 +288,7 @@ describe('Action policy in views', () => {
     await until(() => expect(h.text()).toContain('Pause'));
 
     const buttons = [...h.target.querySelectorAll('button')].filter((b) => ['Pause', 'Clear'].includes(b.textContent ?? ''));
-    expect(buttons.length).toBe(2);
+    expect(buttons).toHaveLength(2);
     for (const b of buttons) {
       expect(b.disabled).toBe(true);
       expect(b.title).toContain('SHARPIT_READ_ONLY=true');

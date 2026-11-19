@@ -1,7 +1,7 @@
 import type { Panel } from './types';
 
 export function panelDisabledReason(panel: { id?: string } | null | undefined): string {
-  const id = panel?.id ? panel.id.toUpperCase().replace(/-/g, '_') : 'PANEL';
+  const id = panel?.id ? panel.id.toUpperCase().replaceAll('-', '_') : 'PANEL';
   return `Panel is disabled via SHARPIT_PANELS_${id}_ENABLED=false`;
 }
 
