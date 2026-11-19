@@ -1,5 +1,5 @@
+unbatched-write-loop	partial	Request ids gate correlation; unreadable SQL and missing batch sizes remain uncounted, with their reason reported.
+repeated-selects	partial	Request ids gate correlation; masked or unsupported SQL, set operations and truncated statements are counted as unreadable.
+paged-without-order	partial	Deferred until BootUI SQL row-limit and shape analysis is ported; regex approximation is inaccurate under default masking.
 proxy-bypass	n-a	sharpit SQL events do not record application frames, so annotated proxy boundaries cannot be resolved.
 event-loop-blocking	n-a	sharpit SQL events do not classify threads as event-loop threads; a thread name cannot prove that JDBC blocked an event loop.
-unbatched-write-loop	partial	The free-text masker treats SQL column names such as api_token as secret markers and masks the remainder of the finding sentence; the finding therefore names the statement shape generically while the detail row carries the journal-masked SQL.
-repeated-selects\tpartial\tSQL statement shapes are described generically because free-text masking can treat secret-looking identifiers as markers; sharpit has no transaction journal for this kind.
-paged-without-order\tpartial\tThe implementation uses a bounded token-pattern check rather than BootUI's full SQL row-limit analysis; nested query blocks and dialect-specific TOP/FETCH forms may differ.
