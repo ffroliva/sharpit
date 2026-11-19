@@ -343,7 +343,7 @@ def install(
             ctx.capture.hooks,
             sharpit_settings.free_on_idle_timeout,
             lambda: low_footprint.enabled,
-            lock=low_footprint._lock,  # pyright: ignore[reportPrivateUsage]
+            lock=low_footprint.lock,
         )
         middleware.append(_activity_middleware(ctx, idle_tracker))
     router.lifespan_context = partial(

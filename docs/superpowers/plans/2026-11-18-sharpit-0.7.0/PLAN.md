@@ -195,7 +195,7 @@ re-measures all of this against 2.4.0.
       `RuntimeJournal.java:308-363`) lowers sharpit's per-statement cost; verdict before code.
 - [ ] **D3 — SQL Trace panel availability** before a data source is wrapped (the #185 gap row).
 - [ ] **D4 — #184 and #185 audit follow-ups** (connection source and recorded-SQL fact).
-- [ ] **D5 — hygiene:** unused aliases in `settings.py`; the `IdleTracker` private lock.
+- [x] **D5 — hygiene:** unused aliases in `settings.py`; the `IdleTracker` private lock.
 - [ ] **D6 — safety-path items** (*predict*, *council*, base-against-branch masking corpus diff): the masking double
       pass (BootUI masks quoted text once, `FrameworkWarningsByRoute.java:240-244`); an invalid
       `SHARPIT_EMAIL_MASK_CONTENT` value falling back to `False`.
