@@ -617,5 +617,31 @@ def test_exceptions_report_includes_caught_in_code_null():
         "settling": 0,
         "occurrences": 0,
         "findings": 0,
+        "insufficient": 0,
+        "partial": 0,
         "rows": [],
     }
+
+
+# ported: CaughtExceptionsReportTests (BootUI 2.4.0 CaughtExceptionsReport:27-28,46-48)
+# ported: AbstractBootUiApiConformanceTest.caughtInApplicationCodeIsUnavailableWithoutTheAgent
+def test_caught_report_emits_insufficient_and_partial_zero():
+    from sharpit.engine.capture.exceptions import caught_report
+
+    report = caught_report()
+    assert "insufficient" in report
+    assert report["insufficient"] == 0
+    assert "partial" in report
+    assert report["partial"] == 0
+    assert list(report.keys()) == [
+        "available",
+        "unavailableReason",
+        "limitations",
+        "settling",
+        "occurrences",
+        "findings",
+        "insufficient",
+        "partial",
+        "rows",
+    ]
+

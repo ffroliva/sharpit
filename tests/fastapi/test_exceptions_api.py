@@ -500,6 +500,21 @@ def test_exceptions_caught_golden_parity():
     assert resp.json()["available"] is False
 
 
+# ported: AbstractBootUiApiConformanceTest.caughtInApplicationCodeIsUnavailableWithoutTheAgent
+def test_exceptions_caught_endpoint_emits_insufficient_and_partial_zero():
+    app = _failing_app()
+    _install(app)
+    body = _client(app).get("/sharpit/api/exceptions/caught").json()
+    assert body["available"] is False
+    assert "caught-exceptions sensor" in body["unavailableReason"]
+    assert "insufficient" in body
+    assert body["insufficient"] == 0
+    assert "partial" in body
+    assert body["partial"] == 0
+    assert body["rows"] == []
+
+
+
 def test_exceptions_report_carries_caught_in_code():
     app = _failing_app()
     _install(app)
