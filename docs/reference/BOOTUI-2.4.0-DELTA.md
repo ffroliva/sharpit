@@ -25,7 +25,7 @@ of per-panel folders).
 
 ### `tools.json`: the seven strings
 
-Expected (`bootui-tools.json`, +7/-7). Sharpit has not adopted any of them.
+Expected (`bootui-tools.json`, +7/-7). Lane A1 adopted the three descriptions for runtime insights and exceptions; the remaining three belong to lanes A2 and A3.
 
 | Tool | Field | Change | Lane |
 |---|---|---|---|
@@ -36,7 +36,7 @@ Expected (`bootui-tools.json`, +7/-7). Sharpit has not adopted any of them.
 | `get_security_report` | description | static-only report | A3 |
 | `security_scan` | summary and description | static analyzer declarations (SpotBugs/FindSecBugs, Semgrep, a `sonar-project.properties` file, CodeQL) | A3 |
 
-`tests/parity/test_tools_parity.py` pins these six names as `DESCRIPTION_GAPS`, each with its lane.
+`tests/parity/test_tools_parity.py` records `get_exceptions`, `get_runtime_insights`, and `get_runtime_insight` in `DESCRIPTION_ADOPTED`, and pins the remaining three names as `DESCRIPTION_GAPS`, each with its lane.
 
 ### `routes.json`: unexpected, `StaticSecurityController`
 
