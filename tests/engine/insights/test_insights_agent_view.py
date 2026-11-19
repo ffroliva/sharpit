@@ -95,13 +95,54 @@ def test_the_list_and_detail_carry_every_key_of_bootui_agent_dtos() -> None:
     listed = agent_list(_busy(), None, None, STEPS)
     assert list(listed) == [
         "available", "unavailableReason", "query", "requests", "coverage", "checksNotRun", "observations", "omitted",
-        "notExercised", "notExercisedOmitted", "limitations", "next",
+        "notExercised", "notExercisedOmitted", "limitations", "next", "insufficient", "partial",
     ]  # fmt: skip
     assert list(listed["observations"][0]) == [
         "id", "kind", "status", "subject", "sentence", "eligible", "affected", "tier", "exemplarRequestId", "verify",
         "listed",
     ]  # fmt: skip
     assert list(listed["next"][0]) == ["command", "tool", "arguments", "why"]
+
+
+# ported: RuntimeInsightsAgentViewTests (BootUI 2.4.0 RuntimeInsightsAgentView:185-190)
+def test_agent_list_incomplete_evidence_counters_cover_all_matching_rows_past_limit() -> None:
+    obs = [
+        _observation(0, "repeated-selects", "GET /api/orders", "sentence 0", status="INSUFFICIENT"),
+        _observation(1, "repeated-selects", "GET /api/orders", "sentence 1", status="PARTIAL"),
+        _observation(2, "repeated-selects", "GET /api/orders", "sentence 2", status="OBSERVED"),
+        _observation(3, "repeated-selects", "GET /api/other", "sentence 3", status="INSUFFICIENT"),
+    ]
+    report = _report(obs)
+
+    # limit=1 cuts matching rows from 3 to 1, but counters must count all 3 matching rows
+    thin = agent_list(report, "GET /api/orders", 1, STEPS)
+    assert thin.get("insufficient") == 1
+    assert thin.get("partial") == 1
+    assert thin.get("omitted") == 2
+    assert len(thin["observations"]) == 1
+
+    # query matching other route
+    other = agent_list(report, "GET /api/other", 1, STEPS)
+    assert other.get("insufficient") == 1
+    assert other.get("partial") == 0
+    assert other.get("omitted") == 0
+
+    # default query matching all
+    all_rows = agent_list(report, None, 2, STEPS)
+    assert all_rows.get("insufficient") == 2
+    assert all_rows.get("partial") == 1
+    assert all_rows.get("omitted") == 2
+
+
+# ported: RuntimeInsightsAgentViewTests.unavailableReportEmitsZeroCounters
+def test_agent_list_unavailable_emits_zero_counters() -> None:
+    off = _report([], available=False, unavailableReason="journal off", window=None)
+    listed = agent_list(off, None, None, STEPS)
+    assert listed["available"] is False
+    assert listed.get("insufficient") == 0
+    assert listed.get("partial") == 0
+
+
 
 
 def test_an_unlisted_row_is_left_out_of_the_default_list_and_the_list_says_how_to_ask_for_it() -> None:
