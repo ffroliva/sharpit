@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.testsession.facts import SwallowedFact
+from sharpit.engine.testsession.swallowed import site_identity, swallowing_sites
 from sharpit.pytest_plugin.swallowed import TOOL_IDS, MonitoringCapture, TestTag
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "apps" / "swallowed_exception"
@@ -98,8 +100,11 @@ def test_library_raise_app_handler_is_seen(
 
     _app_swallow()
 
-    location = f"{Path(os.path.relpath(__file__)).as_posix()}:{_app_swallow_line()}"
-    assert seen == [(in_test, SwallowedFact(location, "JSONDecodeError", False))]
+    path = Path(os.path.relpath(__file__)).as_posix()
+    [site] = [s for s in swallowing_sites(Path(__file__).read_text("utf-8")) if s.scope == "_app_swallow"]
+    identity = site_identity(path, site, "JSONDecodeError")
+    location = f"{path}:{_app_swallow_line()}"
+    assert seen == [(in_test, SwallowedFact(location, "JSONDecodeError", False, identity, location))]
 
 
 def test_library_handler_is_ignored(
@@ -278,3 +283,75 @@ def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) 
     assert [f["ruleId"] for f in reported["findings"] if f["ruleId"] == RULE] == [RULE]
     assert _test_entry(baselined, "test_lookup")["outcome"] == "passed"
     assert [f["baselineState"] for f in baselined["findings"] if f["ruleId"] == RULE] == ["existing"]
+
+
+# --- #66: a dismissal keys on the clause's scope and content, not its line ---------------------------------------
+
+
+def _week_identity() -> str:
+    [site] = swallowing_sites((FIXTURE / "weekapp.py").read_text("utf-8"))
+    return site_identity("weekapp.py", site, "AttributeError")
+
+
+WEEK_IDENTITY = _week_identity()
+WEEK_LEGACY = "weekapp.py:21:AttributeError"  # the ``except Exception:`` line of the fixture
+WEEK_ARGS = ("--sharpit", "--sharpit-app=weekapp:app", "--sharpit-report=report.json", "-q")
+
+
+def _planted(data: dict[str, Any]) -> dict[str, Any]:
+    found = next(
+        (f for f in data["findings"] if f["ruleId"] == RULE and f["testNodeId"].endswith("::test_week_count")), None
+    )
+    assert found is not None, f"no {RULE} finding for test_week_count: {[f['ruleId'] for f in data['findings']]}"
+    return found
+
+
+def _dismiss(pytester: pytest.Pytester, *entries: str) -> None:
+    state_dir = pytester.path / ".sharpit"
+    state_dir.mkdir(exist_ok=True)
+    lines = "".join(f"  - {RULE} {entry}\n" for entry in entries)
+    (state_dir / "sharpit.yml").write_text(f"dismissedFindings:\n{lines}", encoding="utf-8")
+
+
+def _add_line_above(pytester: pytest.Pytester) -> None:
+    weekapp = pytester.path / "weekapp.py"
+    weekapp.write_text("# a line added above every handler\n" + weekapp.read_text("utf-8"), encoding="utf-8")
+
+
+def test_the_identity_is_the_same_serially_and_under_xdist(pytester: pytest.Pytester) -> None:
+    _week_project(pytester)
+
+    pytester.runpytest(*WEEK_ARGS)
+    serial = _planted(_report(pytester))
+    pytester.runpytest("-n", "2", *WEEK_ARGS)
+    parallel = _planted(_report(pytester))
+
+    assert re.fullmatch(r"weekapp\.py:get_week_count:AttributeError#[0-9a-f]{8}", WEEK_IDENTITY)
+    assert serial["message"].endswith(f"; identity {WEEK_IDENTITY}")
+    assert parallel["message"] == serial["message"]
+    assert parallel["fingerprint"] == serial["fingerprint"]
+
+
+def test_a_dismissal_survives_a_line_added_above_the_handler(pytester: pytest.Pytester) -> None:
+    _week_project(pytester)
+    _add_line_above(pytester)
+    _dismiss(pytester, WEEK_IDENTITY)
+
+    result = pytester.runpytest("-n", "2", *WEEK_ARGS)
+
+    assert _planted(_report(pytester))["dismissed"] is True
+    assert result.ret == 0, result.stdout.str()
+
+
+def test_a_legacy_line_keyed_entry_no_longer_dismisses_and_the_report_names_its_new_key(
+    pytester: pytest.Pytester,
+) -> None:
+    _week_project(pytester)
+    _dismiss(pytester, WEEK_LEGACY)
+
+    result = pytester.runpytest("-n", "2", *WEEK_ARGS)
+
+    data = _report(pytester)
+    assert _planted(data)["dismissed"] is False
+    assert result.ret == 1, result.stdout.str()
+    assert [w for w in data["warnings"] if WEEK_LEGACY in w and WEEK_IDENTITY in w]

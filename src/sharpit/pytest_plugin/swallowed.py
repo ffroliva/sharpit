@@ -21,7 +21,7 @@ from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.sensors import TOOL_IDS as _TOOL_IDS
 from sharpit.engine.sensors import MonitoringTool, allocator
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SwallowedFact
-from sharpit.engine.testsession.swallowed import PROGRAMMING_ERRORS, swallowing_clause_line
+from sharpit.engine.testsession.swallowed import PROGRAMMING_ERRORS, site_identity, swallowing_site
 
 TOOL_IDS = _TOOL_IDS
 SOURCE = "swallowed-exceptions"
@@ -36,26 +36,33 @@ class CaptureStatus:
     reason: str | None = None
 
 
-def _location(filename: str, line: int) -> str:
+def _relative(filename: str, root: str) -> str:
     try:
-        path = os.path.relpath(filename)
+        path = os.path.relpath(filename, root)
     except ValueError:  # another drive (Windows)
         path = filename
-    if path.startswith(".."):  # outside the working directory: keep it absolute
+    if path.startswith(".."):  # outside the root: keep it absolute
         path = filename
-    return f"{Path(path).as_posix()}:{line}"
+    return Path(path).as_posix()
 
 
 @functools.lru_cache(maxsize=4096)
-def _fact(code: CodeType, offset: int, exc_type: type[BaseException]) -> SwallowedFact | None:
-    line = swallowing_clause_line(code, offset, exc_type)
-    if line is None:
+def _fact(code: CodeType, offset: int, exc_type: type[BaseException], root: str, cwd: str) -> SwallowedFact | None:
+    site = swallowing_site(code, offset, exc_type)
+    if site is None:
         return None
-    return SwallowedFact(_location(code.co_filename, line), exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS))
+    path = _relative(code.co_filename, root)
+    identity = site_identity(path, site, exc_type.__name__)
+    legacy = f"{_relative(code.co_filename, cwd)}:{site.line}"
+    return SwallowedFact(
+        f"{path}:{site.line}", exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS), identity, legacy
+    )
 
 
 class MonitoringCapture:
-    def __init__(self, on_error: Callable[[BaseException], None] | None = None) -> None:
+    def __init__(self, on_error: Callable[[BaseException], None] | None = None, root: Path | None = None) -> None:
+        self._cwd = os.getcwd()  # the form the earlier versions wrote, to name a stale entry
+        self._root = str(root) if root is not None else self._cwd  # paths read the same whatever the cwd becomes
         self.tool_id: int | None = None
         self._tool: MonitoringTool | None = None
         self._sink: SwallowedSink | None = None
@@ -88,7 +95,7 @@ class MonitoringCapture:
         if test is None or not is_application_frame(code.co_filename):
             return
         try:
-            fact = _fact(code, offset, type(exc))
+            fact = _fact(code, offset, type(exc), self._root, self._cwd)
             if fact is not None and self._sink is not None:
                 self._sink(test, fact)
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code
@@ -115,7 +122,7 @@ def attach_session(config: Any, state: Any) -> None:
     try:
         if getattr(state, "swallowed_capture", None) is not None:
             return
-        capture = MonitoringCapture(lambda error: plugin._record_hook_failure(state.sink, error))
+        capture = MonitoringCapture(lambda error: plugin._record_hook_failure(state.sink, error), config.rootpath)
         status = capture.attach(lambda tag, fact: record(state.sink, tag, fact))
         state.swallowed_capture = capture
         config.add_cleanup(capture.detach)

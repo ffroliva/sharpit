@@ -13,6 +13,7 @@ _BUDGETS = {
     "test_plugin_report_only.py": 0,
     "test_plugin_reports.py": 1,
     "test_plugin_swallowed.py": 5,
+    "test_plugin_swallowed_baseline.py": 2,
     "test_plugin_terminal.py": 0,
     "test_plugin_xdist.py": 11,
 }
