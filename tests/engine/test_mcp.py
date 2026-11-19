@@ -32,6 +32,9 @@ ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 JSON = {"content-type": "application/json"}
 NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 
+# assembled at run time so the tree holds no full secret-shaped literal (tests/test_no_secret_shaped_literals.py)
+STRIPE_SHAPED_SECRET = "sk_" + "live_" + "12345678901234567890"
+
 
 class FakeIntrospector:
     def app_info(self) -> AppInfo:
@@ -381,7 +384,7 @@ def test_prompts_list_and_get(no_side_effects):
             6,
             {
                 "name": "diagnose_runtime_issue",
-                "arguments": {"symptom": "sk_live_12345678901234567890", "route": "  GET /orders  "},
+                "arguments": {"symptom": STRIPE_SHAPED_SECRET, "route": "  GET /orders  "},
             },
         ),
     )[1]
@@ -393,7 +396,7 @@ def test_prompts_list_and_get(no_side_effects):
     )
     assert "- The symptom the user reports: ******" in rendered
     assert "- The route, job, or listener involved: GET /orders" in rendered
-    assert "sk_live_12345678901234567890" not in rendered
+    assert STRIPE_SHAPED_SECRET not in rendered
     assert "..." not in rendered
 
 
@@ -497,13 +500,13 @@ def test_prompt_argument_truncation_keeps_a_unicode_character_whole(no_side_effe
 
 def test_prompt_errors_mask_prompt_and_argument_names(no_side_effects):
     # new: sharpit safety model masks MCP error text, including caller-supplied names
-    secret_name = "sk_live_12345678901234567890"
+    secret_name = STRIPE_SHAPED_SECRET
     unknown_prompt = _post(_server(), _rpc("prompts/get", 13, {"name": secret_name}))[1]
     unknown_argument = _post(
         _server(),
         _rpc("prompts/get", 14, {"name": "diagnose_runtime_issue", "arguments": {secret_name: "x"}}),
     )[1]
-    assert "sk_live_12345678901234567890" not in json.dumps([unknown_prompt, unknown_argument])
+    assert STRIPE_SHAPED_SECRET not in json.dumps([unknown_prompt, unknown_argument])
     assert "******" in json.dumps([unknown_prompt, unknown_argument])
 
 
@@ -521,7 +524,7 @@ def test_prompt_arguments_match_java_whitespace_and_mask_after_strip(no_side_eff
         _rpc(
             "prompts/get",
             16,
-            {"name": "diagnose_runtime_issue", "arguments": {"symptom": "  sk_live_12345678901234567890  "}},
+            {"name": "diagnose_runtime_issue", "arguments": {"symptom": f"  {STRIPE_SHAPED_SECRET}  "}},
         ),
     )[1]
     rendered = response["result"]["messages"][0]["content"]["text"]
