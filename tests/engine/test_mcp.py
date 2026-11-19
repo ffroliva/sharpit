@@ -323,15 +323,26 @@ def test_unserialisable_payload_is_internal_error(caplog: pytest.LogCaptureFixtu
     assert sum(1 for r in caplog.records if r.levelno == logging.ERROR) == 1
 
 
-def test_prompts_list_and_get():
-    # ported: BootUiMcpServiceTests.promptsListAndGetExposeDiagnosticWorkflows,
-    # AbstractMcpConformanceTest.testMcpPromptsWhenEnabled
+def test_prompts_list_and_get(no_side_effects):
+    # ported: McpDispatcherTests.promptsListAdvertisesEveryPrompt,
+    # McpDispatcherTests.promptsGetReturnsPrompt, AbstractMcpConformanceTest.testMcpPromptsWhenEnabled
     server = _server()
     body = _post(server, _rpc("prompts/list", 3))[1]
     assert body is not None
     prompts = body["result"]["prompts"]
-    assert [p["name"] for p in prompts] == ["diagnose_runtime_issue", "review_application", "assess_application"]
-    assert all(p["arguments"] == [] and isinstance(p["description"], str) for p in prompts)
+    assert [p["name"] for p in prompts] == [
+        "diagnose_runtime_issue", "verify_after_change", "review_application", "assess_application"
+    ]
+    expected_arguments = {
+        "diagnose_runtime_issue": ["symptom", "route"],
+        "verify_after_change": ["change", "route"],
+        "review_application": ["focus"],
+        "assess_application": ["goal"],
+    }
+    for prompt in prompts:
+        assert [arg["name"] for arg in prompt["arguments"]] == expected_arguments[prompt["name"]]
+        assert all(arg["description"] and arg["required"] is False for arg in prompt["arguments"])
+        assert isinstance(prompt["description"], str)
     for prompt in prompts:
         got = _post(server, _rpc("prompts/get", 4, {"name": prompt["name"]}))[1]
         assert got is not None
@@ -360,6 +371,19 @@ def test_prompts_list_and_get():
         "using sharpit and its source repository",
     ):
         assert fragment in text
+    contextual = _post(
+        server,
+        _rpc("prompts/get", 6, {"name": "diagnose_runtime_issue", "arguments": {
+            "symptom": "sk_live_12345678901234567890", "route": "  GET /orders  "
+        }}),
+    )[1]
+    assert contextual is not None
+    rendered = contextual["result"]["messages"][0]["content"]["text"]
+    assert "Context the user supplied; use it to focus the steps above, and verify it against sharpit evidence rather than assume it:" in rendered
+    assert "- The symptom the user reports: ******" in rendered
+    assert "- The route, job, or listener involved: GET /orders" in rendered
+    assert "sk_live_12345678901234567890" not in rendered
+    assert "..." not in rendered
 
 
 SHARPIT_TOOLS = {t.name for t in TOOLS}
@@ -368,7 +392,7 @@ SHARPIT_TOOLS = {t.name for t in TOOLS}
 def _guidance_texts() -> list[str]:
     server = _server()
     texts = [INSTRUCTIONS]
-    for name in ("diagnose_runtime_issue", "review_application", "assess_application"):
+    for name in ("diagnose_runtime_issue", "verify_after_change", "review_application", "assess_application"):
         got = _post(server, _rpc("prompts/get", 9, {"name": name}))[1]
         assert got is not None
         texts.append(got["result"]["messages"][0]["content"]["text"])
@@ -493,3 +517,4 @@ def test_mcp_progress_token_in_meta_is_accepted():
     body = _post(server, request)[1] or {}
     assert body.get("result", {}).get("structuredContent") == {"ok": True}
     assert server.status().get("progressDropped") == 0
+
