@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The CLI command paths of eight tools now follow BootUI's, in `GET {api}/cli` and in the Runtime Insights next steps: `get_request_profile` `activity profile` to `request-profile`, `get_transactions` `transactions` to `tx list`, `clear_transactions` `transactions clear` to `tx clear`, `pause_transaction_recording` `transactions pause` to `tx pause`, `resume_transaction_recording` `transactions resume` to `tx resume`, `get_traces` `traces` to `traces list`, `get_security_logs` `security-logs` to `security logs`, and `get_sqlalchemy_statistics` `sqlalchemy-statistics` to `sqlalchemy-statistics list`. The tool names and the `POST {api}/cli/tools/{tool}` route are unchanged.
 - The advisor status enum of `sharpit-report/1` widens to include `PARTIAL` (both copies of the schema): a partly
   assessed advisor is reported as `PARTIAL`. A consumer that switches on the status should accept the new value.
 

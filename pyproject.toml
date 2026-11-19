@@ -102,6 +102,7 @@ exclude = [
     "/mempalace.yaml",
     "/tests/test_ui_no_html.py",  # reads ui/src, which is not shipped
     "/tests/test_agent_workflow.py",  # reads skills/ and docs/, which are not shipped
+    "/tests/cli/test_manifest_drift.py",  # imports scripts/dev/gen_cli_manifest.py, which is not shipped
     "/tests/scripts",  # tests the repo scripts/, which are not shipped
 ]
 

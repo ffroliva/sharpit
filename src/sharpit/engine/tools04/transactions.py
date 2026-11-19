@@ -63,8 +63,8 @@ TOOLS = (
 )
 
 COMMANDS = {
-    "get_transactions": "transactions",
-    "clear_transactions": "transactions clear",
-    "pause_transaction_recording": "transactions pause",
-    "resume_transaction_recording": "transactions resume",
+    "get_transactions": "tx list",
+    "clear_transactions": "tx clear",
+    "pause_transaction_recording": "tx pause",
+    "resume_transaction_recording": "tx resume",
 }
