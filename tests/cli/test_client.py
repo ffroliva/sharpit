@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import ssl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +27,7 @@ def endpoint():
     headers: list[dict[str, str]] = []
     routes: dict[str, tuple[int, bytes, str | None]] = {}
     delays: dict[str, float] = {}
+    header_delays: dict[str, float] = {}
     header_trickles: set[str] = set()
 
     class Handler(BaseHTTPRequestHandler):
@@ -51,6 +53,7 @@ def endpoint():
             requests.append((self.command, self.path, self.headers.get("Authorization"), body))
             headers.append(dict(self.headers.items()))
             status, payload, redirect = routes.get(self.path, (404, b"{}", None))
+            time.sleep(header_delays.get(self.path, 0))
             if redirect:
                 self.send_response(status)
                 self.send_header("Location", redirect)
@@ -71,7 +74,7 @@ def endpoint():
     thread.start()
     host, port = server.server_address
     try:
-        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles
+        yield f"http://{host}:{port}", routes, requests, headers, delays, header_trickles, header_delays
     finally:
         server.shutdown()
         server.server_close()
@@ -349,6 +352,65 @@ def test_connect_phase_is_capped_at_ten_seconds():
         message
         == "Cannot reach sharpit at http://127.0.0.1:1. Is the application running, and is that the right --url?"
     )
+
+
+def test_response_headers_use_the_request_timeout_after_connect(monkeypatch, endpoint):
+    base, routes, *_rest, header_delays = endpoint
+    routes["/sharpit/api/cli/tools/slow"] = (200, b'{"answer":"ready"}', None)
+    header_delays["/sharpit/api/cli/tools/slow"] = 0.2
+    monkeypatch.setattr("sharpit.cli.client._CONNECT_TIMEOUT", 0.1, raising=False)
+
+    client = Client(options(base, timeout=1))
+    observed = []
+    open_response = client._opener.open
+
+    def open_with_observation(request, *, timeout):
+        observed.append(timeout)
+        return open_response(request, timeout=timeout)
+
+    client._opener.open = open_with_observation
+    result = client.invoke("slow", {})
+
+    assert result.payload == {"answer": "ready"}
+    assert observed == [0.1]
+
+
+def test_normal_tool_response_has_no_one_mib_cap(endpoint):
+    base, routes, *_ = endpoint
+    payload = b'{"value":"' + b"x" * 1_048_577 + b'"}'
+    routes["/sharpit/api/cli/tools/large"] = (200, payload, None)
+
+    result = None
+    with contextlib.suppress(ClientError):
+        result = Client(options(base)).invoke("large", {})
+
+    assert result is not None
+    assert result.payload["value"] == "x" * 1_048_577
+
+
+def test_certificate_errors_are_not_reported_as_unreachable():
+    client = Client(options("https://localhost", timeout=1))
+
+    class CertificateFailure:
+        def open(self, *_args, **_kwargs):
+            raise ssl.SSLCertVerificationError("certificate verify failed")
+
+    client._opener = CertificateFailure()
+    message = _client_error_message(lambda: client.get("/probe"))
+
+    assert "TLS" in message
+    assert "Cannot reach" not in message
+
+
+def test_post_is_a_public_client_operation(endpoint):
+    assert hasattr(Client, "post")
+    base, routes, requests, *_ = endpoint
+    routes["/sharpit/api/mcp-server/toggle"] = (200, b'{"enabled":true}', None)
+
+    result = Client(options(base)).post("/mcp-server/toggle", '{"enabled":true}')
+
+    assert result == {"enabled": True}
+    assert requests[0][0] == "POST"
 
 
 def test_bounded_calls_accept_the_callers_byte_cap_and_remaining_timeout(endpoint):

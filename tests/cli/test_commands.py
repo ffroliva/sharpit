@@ -593,6 +593,21 @@ def test_unconfirmed_foreign_403_exits_error():
     assert "not a sharpit policy refusal" in err
 
 
+def test_successful_response_echo_is_redacted_before_printing():
+    token = "BootUI-secret"
+
+    class EchoClient(FakeClient):
+        def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+            body = f'{{"message":"BootUI echoed {token}"}}'
+            return ToolResult(tool, 200, body, {"message": f"BootUI echoed {token}"})
+
+    code, out, _, _ = _run_cli(["--token", token, "beans"], client=EchoClient(None))
+
+    assert code == ExitCodes.SUCCESS
+    assert token not in out
+    assert "BootUI" not in out
+
+
 # derived: classify maps HTTP responses to CLI outcomes.
 def test_confirmed_503_disabled_endpoint_exits_refused():
     class DisabledClient(FakeClient):

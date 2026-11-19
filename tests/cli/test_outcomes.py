@@ -8,6 +8,7 @@ import pytest
 
 from sharpit.cli.client import ClientError, ToolResult
 from sharpit.cli.exit_codes import ExitCodes
+import sharpit.cli.outcomes as outcomes
 from sharpit.cli.outcomes import OutcomeKind, classify, confirm_answered
 
 
@@ -196,6 +197,18 @@ def test_classify_redacts_echoed_token_and_uses_message_field():
     outcome = confirm_answered(client, result(500, {"message": "secret-token echoed"}))
     assert "secret-token" not in outcome.message
     assert "[redacted]" in outcome.message
+
+
+def test_outcome_classifier_is_private_and_echoed_bootui_token_is_redacted_last():
+    assert not hasattr(outcomes, "classify")
+    token = "BootUI-secret"
+    client = FakeClient(token=token)
+    answer = result(400, {"error": f"BootUI rejected {token}"})
+
+    outcome = confirm_answered(client, answer)
+
+    assert token not in outcome.message
+    assert "BootUI" not in outcome.message
 
 
 def test_empty_error_body_falls_back_to_status():
