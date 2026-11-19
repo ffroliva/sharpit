@@ -11,7 +11,6 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
