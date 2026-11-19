@@ -206,7 +206,7 @@ Global options configure the connection and output format:
 - `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
 - `--token <token>`: bearer authentication token. `--token` overrides the `SHARPIT_TOKEN` environment variable; using `SHARPIT_TOKEN` is recommended so credentials are not exposed in host process listings.
 - `--timeout <seconds>`: request timeout in seconds (default `60`).
-- `--json`: emit raw JSON output verbatim instead of human-readable text.
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety.
 - `--fail-on <severity>`: gate command completion against findings or evidence sufficiency.
 
 Examples:

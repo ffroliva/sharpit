@@ -30,7 +30,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- CLI output redacts token values before rendering without changing JSON scalar types or rewriting server text; usage errors only redact token-like flag values, and expired deadlines never set a non-blocking socket timeout.
+- CLI output preserves server JSON bytes except where the token occurs: values and object keys are replaced, and a matching number literal becomes the string `"[redacted]"`. Invalid JSON also receives plain-text redaction. Terminal output escapes control characters while retaining multiline diagnostics; resolved and token-like argv values are redacted in usage errors. Expired deadlines never set a non-blocking socket timeout.
 - The CLI redacts tokens that appear with JSON escapes, returns exit 1 for usage errors and broken output pipes, and reports MCP action failures after sending the request as unknown outcomes.
 - The CLI redacts parser errors for built-in commands, keeps piped JSON UTF-8 and verbatim, and preserves MCP guard refusals without retrying the action.
 - The CLI limits only connection establishment to 10 seconds; a tool response can use the full `--timeout`, and read timeouts are reported separately from connection and TLS failures. Server text is preserved; normal API responses are not capped at 1 MiB.

@@ -216,7 +216,7 @@ The `sharpit` console script queries a running sharpit application over HTTP fro
 - `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
 - `--token <token>`: bearer token for authentication. While `--token` overrides `SHARPIT_TOKEN`, using `SHARPIT_TOKEN` is recommended to avoid exposing credentials in host process listings (`ps`, Task Manager).
 - `--timeout <seconds>`: request timeout in seconds (default `60.0`, accepts `Ns` or `Nms`).
-- `--json`: emit raw JSON verbatim instead of human-readable text (recommended for agent consumption).
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety (recommended for agent consumption).
 - `--fail-on <severity>`: gate command exit code on finding severity (`critical`, `high`, `medium`, `low`, `info`) or `insufficient` evidence.
 
 ### Command discovery and MCP control
