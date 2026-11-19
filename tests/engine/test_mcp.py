@@ -22,15 +22,18 @@ import pytest
 from sharpit import __version__
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
-from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROTOCOL_VERSION, McpServer
+from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROMPTS, PROTOCOL_VERSION, McpServer
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
-from sharpit.engine.tools import TOOLS, CallContext, Tool, tool_gate
+from sharpit.engine.tools import COMMANDS, TOOLS, CallContext, Tool, tool_gate
 from sharpit.settings import PanelSettings, load_settings
 from surface import BASE_MCP_TOOL_NAMES, expected_mcp_tool_names
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 JSON = {"content-type": "application/json"}
 NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
+
+# assembled at run time so the tree holds no full secret-shaped literal (tests/test_no_secret_shaped_literals.py)
+STRIPE_SHAPED_SECRET = "sk_" + "live_" + "12345678901234567890"
 
 
 class FakeIntrospector:
@@ -323,15 +326,29 @@ def test_unserialisable_payload_is_internal_error(caplog: pytest.LogCaptureFixtu
     assert sum(1 for r in caplog.records if r.levelno == logging.ERROR) == 1
 
 
-def test_prompts_list_and_get():
-    # ported: BootUiMcpServiceTests.promptsListAndGetExposeDiagnosticWorkflows,
-    # AbstractMcpConformanceTest.testMcpPromptsWhenEnabled
+def test_prompts_list_and_get(no_side_effects):
+    # ported: McpDispatcherTests.promptsListAdvertisesEveryPrompt,
+    # McpDispatcherTests.promptsGetReturnsPrompt, AbstractMcpConformanceTest.testMcpPromptsWhenEnabled
     server = _server()
     body = _post(server, _rpc("prompts/list", 3))[1]
     assert body is not None
     prompts = body["result"]["prompts"]
-    assert [p["name"] for p in prompts] == ["diagnose_runtime_issue", "review_application", "assess_application"]
-    assert all(p["arguments"] == [] and isinstance(p["description"], str) for p in prompts)
+    assert [p["name"] for p in prompts] == [
+        "diagnose_runtime_issue",
+        "verify_after_change",
+        "review_application",
+        "assess_application",
+    ]
+    expected_arguments = {
+        "diagnose_runtime_issue": ["symptom", "route"],
+        "verify_after_change": ["change", "route"],
+        "review_application": ["focus"],
+        "assess_application": ["goal"],
+    }
+    for prompt in prompts:
+        assert [arg["name"] for arg in prompt["arguments"]] == expected_arguments[prompt["name"]]
+        assert all(arg["description"] and arg["required"] is False for arg in prompt["arguments"])
+        assert isinstance(prompt["description"], str)
     for prompt in prompts:
         got = _post(server, _rpc("prompts/get", 4, {"name": prompt["name"]}))[1]
         assert got is not None
@@ -360,6 +377,27 @@ def test_prompts_list_and_get():
         "using sharpit and its source repository",
     ):
         assert fragment in text
+    contextual = _post(
+        server,
+        _rpc(
+            "prompts/get",
+            6,
+            {
+                "name": "diagnose_runtime_issue",
+                "arguments": {"symptom": STRIPE_SHAPED_SECRET, "route": "  GET /orders  "},
+            },
+        ),
+    )[1]
+    assert contextual is not None
+    rendered = contextual["result"]["messages"][0]["content"]["text"]
+    assert (
+        "Context the user supplied; use it to focus the steps above, and verify it against sharpit "
+        "evidence rather than assume it:" in rendered
+    )
+    assert "- The symptom the user reports: ******" in rendered
+    assert "- The route, job, or listener involved: GET /orders" in rendered
+    assert STRIPE_SHAPED_SECRET not in rendered
+    assert "..." not in rendered
 
 
 SHARPIT_TOOLS = {t.name for t in TOOLS}
@@ -368,34 +406,160 @@ SHARPIT_TOOLS = {t.name for t in TOOLS}
 def _guidance_texts() -> list[str]:
     server = _server()
     texts = [INSTRUCTIONS]
-    for name in ("diagnose_runtime_issue", "review_application", "assess_application"):
-        got = _post(server, _rpc("prompts/get", 9, {"name": name}))[1]
+    for prompt in PROMPTS:
+        got = _post(server, _rpc("prompts/get", 9, {"name": prompt.name}))[1]
         assert got is not None
         texts.append(got["result"]["messages"][0]["content"]["text"])
     return texts
 
 
-def test_guidance_names_only_sharpit_tools():
-    # new: review ruling (prompts and instructions name only the seven sharpit tools)
+def test_guidance_names_only_sharpit_tools(no_side_effects):
+    # new: review ruling (every cited tool exists in the sharpit catalogue)
     for text in _guidance_texts():
-        named = set(re.findall(r"\bget_\w+|\b\w+_scan\b", text))
+        named = set(
+            re.findall(
+                r"\b(?:get|clear|pause|resume|enable|disable|vulnerabilities|rest_api|security|database_advisor|"
+                r"architecture|fastapi|postgresql|mysql)_[a-z0-9_]+\b",
+                text,
+            )
+        )
         assert named <= SHARPIT_TOOLS, named - SHARPIT_TOOLS
     assert "vulnerabilities_scan" in INSTRUCTIONS
     assert "CLI" in INSTRUCTIONS
     assert "OSV" in INSTRUCTIONS
 
 
-def test_guidance_is_python_not_jvm():
+def test_guidance_is_python_not_jvm(no_side_effects):
     # new: review ruling (FastAPI wording, no JVM vocabulary)
     for text in _guidance_texts():
         assert not re.search(r"\b(Spring|JVM|GC|Quarkus|BootUI)\b", text), text
 
 
-def test_prompts_get_unknown():
-    # adapted: BootUiMcpService.getPrompt (unknown and missing prompt name)
+def test_prompt_text_has_no_internal_plan_jargon():
+    # ported: UserFacingPlanJargonTests.everyMcpDescriptionInstructionAndPromptIsPlain
+    forbidden = re.compile(
+        r"PLAN(-v2)?\.md|PLAN-v2|V2-VALIDATION|\bM[0-9]+-[0-9]+\b|\bD[0-9]{2}\b|"
+        r"§\s?[0-9]|(?i:validat\w* (on|against) real applications|external(ly)? validat|"
+        r"validation (application|run)|not (yet )?validated|reviewers?\b|adjudicat|per-kind gate|seeded case|"
+        r"counterexample|judged by|not judged yet|too few facts)"
+    )
+    texts = [INSTRUCTIONS, *(tool.description for tool in TOOLS)]
+    texts.extend(prompt.description + " " + prompt.text for prompt in PROMPTS)
+    for text in texts:
+        assert forbidden.search(text) is None
+
+
+def test_prompts_get_unknown(no_side_effects):
+    # ported: McpDispatcherTests.promptsGetValidatesName
     server = _server()
     assert _post(server, _rpc("prompts/get", 6, {"name": "nope"}))[1] == _err(6, -32602, "Unknown prompt: nope")
     assert _post(server, _rpc("prompts/get", 6, {}))[1] == _err(6, -32602, "Missing prompt name")
+
+
+def test_prompts_get_renders_declared_arguments_and_refuses_undeclared_ones(no_side_effects):
+    # ported: McpDispatcherTests.promptsGetRendersDeclaredArgumentsAndRefusesUndeclaredOnes
+    server = _server()
+    blank = _post(server, _rpc("prompts/get", 7, {"name": "diagnose_runtime_issue", "arguments": {"route": "  "}}))[1]
+    assert blank is not None
+    blank_text = blank["result"]["messages"][0]["content"]["text"]
+    assert "Context the user supplied" not in blank_text
+    rendered = _post(
+        server,
+        _rpc("prompts/get", 8, {"name": "diagnose_runtime_issue", "arguments": {"symptom": "x" * 501}}),
+    )[1]
+    assert rendered is not None
+    rendered_text = rendered["result"]["messages"][0]["content"]["text"]
+    assert rendered_text.endswith("- The symptom the user reports: " + "x" * 500 + "...")
+    unknown = _post(
+        server,
+        _rpc("prompts/get", 9, {"name": "diagnose_runtime_issue", "arguments": {"sympton": "typo"}}),
+    )[1]
+    assert unknown == _err(
+        9, -32602, "Unknown argument for prompt diagnose_runtime_issue: sympton. It takes route, symptom."
+    )
+    malformed = _post(server, _rpc("prompts/get", 11, {"name": "diagnose_runtime_issue", "arguments": []}))[1]
+    assert malformed == _err(11, -32602, "Prompt arguments must be an object")
+    wrong_type = _post(
+        server,
+        _rpc("prompts/get", 12, {"name": "diagnose_runtime_issue", "arguments": {"symptom": 5}}),
+    )[1]
+    assert wrong_type == _err(12, -32602, "Argument 'symptom' must be a string")
+
+
+def test_prompt_argument_truncation_keeps_a_unicode_character_whole(no_side_effects):
+    # ported: McpDispatcherTests.aBoundedPromptArgumentNeverSplitsASurrogatePair
+    value = "x" * 499 + "😀tail"
+    response = _post(
+        _server(),
+        _rpc("prompts/get", 10, {"name": "diagnose_runtime_issue", "arguments": {"symptom": value}}),
+    )[1]
+    assert response is not None
+    rendered = response["result"]["messages"][0]["content"]["text"]
+    assert rendered.endswith("- The symptom the user reports: " + "x" * 499 + "...")
+
+
+def test_prompt_errors_mask_prompt_and_argument_names(no_side_effects):
+    # new: sharpit safety model masks MCP error text, including caller-supplied names
+    secret_name = STRIPE_SHAPED_SECRET
+    unknown_prompt = _post(_server(), _rpc("prompts/get", 13, {"name": secret_name}))[1]
+    unknown_argument = _post(
+        _server(),
+        _rpc("prompts/get", 14, {"name": "diagnose_runtime_issue", "arguments": {secret_name: "x"}}),
+    )[1]
+    assert STRIPE_SHAPED_SECRET not in json.dumps([unknown_prompt, unknown_argument])
+    assert "******" in json.dumps([unknown_prompt, unknown_argument])
+
+
+def test_prompt_arguments_match_java_whitespace_and_mask_after_strip(no_side_effects):
+    # ported: McpDispatcherTests.promptsGetRendersDeclaredArgumentsAndRefusesUndeclaredOnes
+    server = _server()
+    for blank in ("\u00a0", "\u2007", "\u202f"):
+        response = _post(
+            server,
+            _rpc("prompts/get", 15, {"name": "diagnose_runtime_issue", "arguments": {"route": blank}}),
+        )[1]
+        assert "Context the user supplied" in response["result"]["messages"][0]["content"]["text"]
+    response = _post(
+        server,
+        _rpc(
+            "prompts/get",
+            16,
+            {"name": "diagnose_runtime_issue", "arguments": {"symptom": f"  {STRIPE_SHAPED_SECRET}  "}},
+        ),
+    )[1]
+    rendered = response["result"]["messages"][0]["content"]["text"]
+    assert "- The symptom the user reports: ******" in rendered
+    assert "  ******  " not in rendered
+
+
+def test_prompt_named_action_tools_are_cli_only_with_commands(no_side_effects):
+    # new: sharpit MCP actions remain CLI-only and prompt guidance names their command
+    action_commands = {tool.name: COMMANDS[tool.name] for tool in TOOLS if tool.action}
+    for prompt in PROMPTS:
+        for name, command in action_commands.items():
+            if name in prompt.text:
+                assert "CLI" in prompt.text
+                assert f"sharpit {command}" in prompt.text
+
+
+def test_verify_after_change_uses_available_repeat_insights_without_prior_run_claim(no_side_effects):
+    # review fix: sharpit runtime insights expose both queries but no previous-run comparison
+    prompt = next(p for p in PROMPTS if p.name == "verify_after_change")
+    assert "repeated-selects" in prompt.text
+    assert "lazy-sql-after-handler" in prompt.text
+    assert "previous run" not in prompt.description.lower()
+    assert "previous one" not in prompt.description.lower()
+    assert (
+        "route or test the change should affect"
+        not in next(a for a in prompt.arguments if a.name == "route").description
+    )
+
+
+def test_diagnosis_checks_low_footprint_before_interpreting_results(no_side_effects):
+    # new: sharpit exposes low-footprint state through a tool call, not result fields
+    prompt = next(p for p in PROMPTS if p.name == "diagnose_runtime_issue")
+    assert "Call get_low_footprint first" in prompt.text
+    assert "lowFootprint on results" not in prompt.text
 
 
 # --- lane D4: BootUI 2.2.0 protocol revisions and status counters ---------------------------------------------------
