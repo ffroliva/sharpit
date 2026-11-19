@@ -39,7 +39,7 @@ def result(status: int, payload=None) -> ToolResult:
 
 
 def test_foreign_403_is_an_error_not_a_refusal():
-    # ported: CliContext.confirmBootUiAnswered
+    # derived: confirm_answered verifies sharpit before trusting refusal statuses.
     client = FakeClient(catalog={"serverName": "other"})
     answer = result(403, {"error": "forbidden"})
 
@@ -48,7 +48,7 @@ def test_foreign_403_is_an_error_not_a_refusal():
 
 
 def test_503_is_disabled_only_when_sharpit_catalog_says_disabled():
-    # ported: ToolOutcome.fromStatus
+    # derived: classify maps HTTP responses to CLI outcomes.
     disabled = confirm_answered(
         FakeClient(catalog={"serverName": "sharpit", "enabled": False, "tools": []}), result(503)
     )
@@ -60,7 +60,7 @@ def test_503_is_disabled_only_when_sharpit_catalog_says_disabled():
 
 
 def test_catalog_outage_does_not_confirm_a_503_refusal():
-    # ported: CliContext.confirmBootUiAnswered
+    # derived: confirm_answered verifies sharpit before trusting refusal statuses.
     client, answer = FakeClient(error=ClientError("unreachable")), result(503)
     with pytest.raises(ClientError, match="503"):
         confirm_answered(client, answer)
@@ -97,7 +97,7 @@ def test_read_only_panel_refusal_preserves_reason_without_token():
     ],
 )
 def test_http_status_maps_to_bootui_outcome(status, kind, exit_code):
-    # ported: ToolOutcome.fromStatus
+    # derived: classify maps HTTP responses to CLI outcomes.
     outcome = classify(status, {})
 
     assert outcome.kind is kind
@@ -105,7 +105,7 @@ def test_http_status_maps_to_bootui_outcome(status, kind, exit_code):
 
 
 def test_unknown_404_is_confirmed_only_by_sharpit_catalog():
-    # ported: CliContext.confirmBootUiAnswered
+    # derived: confirm_answered verifies sharpit before trusting refusal statuses.
     outcome = confirm_answered(FakeClient(catalog={"serverName": "sharpit", "enabled": True, "tools": []}), result(404))
 
     assert outcome.kind is OutcomeKind.UNKNOWN_TOOL
@@ -176,7 +176,7 @@ def test_real_read_only_refusal_shape():
 
 @pytest.mark.parametrize("status", [400, 401, 409, 429, 500, 504, 200])
 def test_non_refusal_does_not_fetch_catalog(status):
-    # ported: CliContext.confirmBootUiAnswered
+    # derived: confirm_answered verifies sharpit before trusting refusal statuses.
     client = FakeClient(catalog={"serverName": "sharpit", "enabled": True, "tools": []})
     confirm_answered(client, result(status, {"error": "failure"}))
     assert client.catalog_calls == 0
@@ -184,7 +184,7 @@ def test_non_refusal_does_not_fetch_catalog(status):
 
 @pytest.mark.parametrize("status", [403, 404, 503])
 def test_refusal_confirmation_fetches_catalog_once(status):
-    # ported: CliContext.confirmBootUiAnswered
+    # derived: confirm_answered verifies sharpit before trusting refusal statuses.
     client = FakeClient(catalog={"serverName": "sharpit", "enabled": True, "tools": []})
     confirm_answered(client, result(status, {"error": "failure"}))
     assert client.catalog_calls == 1
@@ -199,5 +199,5 @@ def test_classify_redacts_echoed_token_and_uses_message_field():
 
 
 def test_empty_error_body_falls_back_to_status():
-    # ported: ToolResult.errorMessage
+    # derived: classify supplies the status fallback when the body has no message.
     assert classify(500, {}).message == "Request failed with HTTP 500"

@@ -12,6 +12,7 @@ from urllib import request as _request
 from urllib.parse import quote, urlsplit
 
 from sharpit import __version__
+from sharpit.cli.options import ClientOptions
 
 # Default response cap for ordinary calls; bounded calls accept the caller's limit.
 _MAX_RESPONSE_BYTES = 1_048_576
@@ -37,9 +38,9 @@ class ToolResult:
 
 
 class Client:
-    def __init__(self, options: Any) -> None:
+    def __init__(self, options: ClientOptions) -> None:
         self.options = options
-        self.options.timeout = _valid_timeout(options.timeout)
+        self.timeout = _valid_timeout(options.timeout)
         token = options.token
         if token and any(ord(char) < 32 or 127 <= ord(char) <= 159 or ord(char) > 255 for char in token):
             raise ClientError("The token contains characters an HTTP header cannot carry")
@@ -49,7 +50,7 @@ class Client:
         return self._get(path, _MAX_RESPONSE_BYTES, None)
 
     def get_bounded(self, path: str, max_response_bytes: int, timeout: float | None = None) -> Any:
-        return self._get(path, max_response_bytes, self.options.timeout if timeout is None else timeout)
+        return self._get(path, max_response_bytes, self.timeout if timeout is None else timeout)
 
     def invoke(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
         return self._invoke(tool, arguments, _MAX_RESPONSE_BYTES, None)
@@ -57,13 +58,13 @@ class Client:
     def invoke_bounded(
         self, tool: str, arguments: dict[str, Any], max_response_bytes: int, timeout: float | None = None
     ) -> ToolResult:
-        return self._invoke(tool, arguments, max_response_bytes, self.options.timeout if timeout is None else timeout)
+        return self._invoke(tool, arguments, max_response_bytes, self.timeout if timeout is None else timeout)
 
     def catalog(self) -> dict[str, Any]:
         return self._catalog(_MAX_RESPONSE_BYTES, None)
 
     def catalog_bounded(self, max_response_bytes: int, timeout: float | None = None) -> Any:
-        return self._catalog(max_response_bytes, self.options.timeout if timeout is None else timeout)
+        return self._catalog(max_response_bytes, self.timeout if timeout is None else timeout)
 
     def _get(self, path: str, max_response_bytes: int, timeout: float | None) -> Any:
         endpoint = self._endpoint(path)
@@ -126,7 +127,7 @@ class Client:
             raise ValueError("max_response_bytes must be positive")
 
         base = self.options.base_url.rstrip("/")
-        configured_timeout = _valid_timeout(self.options.timeout)
+        configured_timeout = self.timeout
         request_timeout = configured_timeout if timeout is None else min(configured_timeout, float(timeout))
         if request_timeout <= 0:
             raise self._client_error(f"Request to {base} exceeded its response deadline.")
@@ -170,7 +171,9 @@ class Client:
             raise self._timeout_error(base, configured_timeout, timeout is not None)
         outcome = result[0]
         if isinstance(outcome, Exception):
-            raise self._request_error(outcome, base, configured_timeout, timeout) from None
+            if isinstance(outcome, ClientError):
+                raise outcome
+            raise self._request_error(outcome, base, configured_timeout, timeout) from outcome
         return outcome
 
     def _request_error(self, error: Exception, base: str, timeout: float, request_timeout: float | None) -> ClientError:
@@ -210,11 +213,13 @@ class Client:
                 error.close()
                 raise self._client_error(f"Request was redirected (HTTP {error.code})") from None
             return error
-        except OSError:
+        except TimeoutError as error:
+            raise self._timeout_error(self.options.base_url.rstrip("/"), self.timeout, False) from error
+        except OSError as error:
             raise self._client_error(
                 f"Cannot reach sharpit at {self.options.base_url.rstrip('/')}. "
                 "Is the application running, and is that the right --url?"
-            ) from None
+            ) from error
 
     def _transport_error(self, error: Exception, base: str) -> ClientError:
         if isinstance(error, OSError):
@@ -232,8 +237,9 @@ class Client:
     def _timeout_error(self, base: str, timeout: float, bounded: bool) -> ClientError:
         if bounded:
             return self._client_error(f"Request to {base} exceeded its response deadline.")
+        duration = f"{timeout * 1000:g}ms" if timeout < 1 else f"{timeout:g}s"
         return self._client_error(
-            f"No response from {base} within {int(timeout)}s. Raise --timeout if the tool is expected to be slow."
+            f"No response from {base} within {duration}. Raise --timeout if the tool is expected to be slow."
         )
 
     def _describe_failure(self, status: int, body: str) -> ClientError:
@@ -256,7 +262,8 @@ class Client:
         panel_refusal = status == 403 and panel is not None and reason is not None and error == _PANEL_ACCESS_DENIED
         if status == 401 or (status == 403 and not panel_refusal):
             text = (
-                f"sharpit refused the request (HTTP {status}){detail}. A non-loopback --url needs --token, "
+                f"sharpit refused the request (HTTP {status}){detail}. A non-loopback --url needs --token "
+                "or SHARPIT_TOKEN, "
                 "and sharpit only answers requests it considers local."
             )
         else:
