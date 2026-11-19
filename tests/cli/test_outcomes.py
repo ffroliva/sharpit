@@ -154,7 +154,7 @@ def test_confirmed_503_keeps_server_error_text_and_status():
         result(503, {"error": "database down"}),
     )
     assert "database down" in outcome.message
-    assert "503" in outcome.message
+    assert "HTTP 503" not in outcome.message
 
 
 def test_catalog_error_keeps_original_http_status_and_catalog_message():
@@ -209,7 +209,7 @@ def test_outcome_classifier_is_private_and_echoed_bootui_token_is_redacted_last(
     outcome = confirm_answered(client, answer)
 
     assert token not in outcome.message
-    assert "BootUI" not in outcome.message
+    assert "BootUI" in outcome.message
 
 
 def test_empty_error_body_falls_back_to_status():

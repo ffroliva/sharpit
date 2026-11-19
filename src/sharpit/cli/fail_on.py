@@ -157,7 +157,7 @@ def accepted(tool_name: str) -> str:
 def parse(tool_name: str, value: str) -> Criterion:
     """Reads a --fail-on value allowed for the selected tool, ignoring case."""
     if tool_name in EXCLUDED:
-        raise ValueError(f"'{tool_name}' takes no --fail-on: {EXCLUDED[tool_name]}")
+        raise ValueError(f"'{value}' is not accepted here: {accepted(tool_name)}")
     if not supports_severity(tool_name) and not supports_insufficient(tool_name):
         raise ValueError(f"'{tool_name}' takes no --fail-on.")
     normalized = _trim_java(value).upper()

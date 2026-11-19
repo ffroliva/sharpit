@@ -79,13 +79,10 @@ CLI_STDLIB = frozenset(
         "dataclasses",  # Tasks 2, 3 and 5: client, outcome and options records
         "enum",  # Task 3: exit codes and outcome values
         "importlib",  # Task 4: bundled manifest resources
-        "io",  # Task 7: text stream handling
         "json",  # Tasks 2, 4 and 7: HTTP bodies, manifest and JSON output
         "os",  # Task 5: environment options and NO_COLOR
         "re",  # Task 6: fail-on parsing
-        "shutil",  # Task 7: terminal capability checks
         "sys",  # Tasks 5 and 7: process arguments, streams and version output
-        "textwrap",  # Task 7: help text rendering
         "traceback",  # Task 5: verbose diagnostics for unexpected failures
         "time",  # Task 2: request timeout accounting
         "threading",  # Task 2: enforce a deadline across response headers and bodies
@@ -736,12 +733,15 @@ def test_cli_dependency_allow_list_is_fixed_and_gatekeeps_transitive_network_mod
         "urllib.error",  # binds ``urllib``: ``urllib.request`` exports HTTPError and URLError for the client
         "subprocess",  # gated libraries other than the client's two are refused here too
         "sqlalchemy",
+        "io",
+        "shutil",
+        "textwrap",
     )
     (cli / "leak.py").write_text("\n".join(f"import {name}" for name in bad), encoding="utf-8")
     (cli / "client.py").write_text("import urllib.request\nimport http.client\n", encoding="utf-8")
     (cli / "allowed.py").write_text(
         "from __future__ import annotations\n"
-        "import argparse, dataclasses, enum, io, json, os, re, shutil, sys, textwrap, time, typing\n"
+        "import argparse, dataclasses, enum, json, os, re, sys, time, typing\n"
         "from collections.abc import Callable\n"
         "from importlib import metadata, resources\n"
         "import urllib.parse\n",

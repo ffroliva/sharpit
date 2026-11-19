@@ -206,7 +206,7 @@ Global options configure the connection and output format:
 - `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
 - `--token <token>`: bearer authentication token. `--token` overrides the `SHARPIT_TOKEN` environment variable; using `SHARPIT_TOKEN` is recommended so credentials are not exposed in host process listings.
 - `--timeout <seconds>`: request timeout in seconds (default `60`).
-- `--json`: emit raw JSON output verbatim instead of human-readable text.
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety.
 - `--fail-on <severity>`: gate command completion against findings or evidence sufficiency.
 
 Examples:
@@ -225,8 +225,8 @@ sharpit insights list --fail-on insufficient
 Exit codes follow BootUI 2.4.0 (`ExitCodes`):
 
 - `0`: success (the command completed and any gate passed).
-- `1`: error (network or HTTP error, invalid argument, or gate cannot be evaluated).
-- `2`: refused (endpoint or panel is disabled, or action is rejected by read-only policy).
+- `1`: error (network or HTTP error, invalid argument, gate cannot be evaluated); a refused MCP toggle exits 1.
+- `2`: refused tool action (endpoint or panel is disabled, or a tool action is rejected by read-only policy).
 - `3`: threshold (findings reached or exceeded the `--fail-on` severity, or evidence was insufficient).
 
 ## Use with an AI agent

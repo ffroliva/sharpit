@@ -231,7 +231,7 @@ The `sharpit` console script queries a running sharpit application over HTTP fro
 - `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
 - `--token <token>`: bearer token for authentication. While `--token` overrides `SHARPIT_TOKEN`, using `SHARPIT_TOKEN` is recommended to avoid exposing credentials in host process listings (`ps`, Task Manager).
 - `--timeout <seconds>`: request timeout in seconds (default `60.0`, accepts `Ns` or `Nms`).
-- `--json`: emit raw JSON verbatim instead of human-readable text (recommended for agent consumption).
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety (recommended for agent consumption).
 - `--fail-on <severity>`: gate command exit code on finding severity (`critical`, `high`, `medium`, `low`, `info`) or `insufficient` evidence.
 
 ### Command discovery and MCP control
@@ -263,8 +263,8 @@ sharpit insights list --fail-on insufficient
 Exit codes follow BootUI 2.4.0 (`sharpit.cli.exit_codes.ExitCodes`):
 
 - `0` (`SUCCESS`): command succeeded and findings are below the gate threshold.
-- `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated.
-- `2` (`REFUSED`): request was refused because the endpoint or panel is disabled, or the action is denied by a read-only policy (`PANEL_ACCESS_DENIED`). Refusals are confirmed by checking the target application before exiting 2.
+- `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated; a refused MCP toggle exits 1.
+- `2` (`REFUSED`): refused tool action because the endpoint or panel is disabled or the action is denied by a read-only policy (`PANEL_ACCESS_DENIED`). Tool refusals are confirmed by checking the target application before exiting 2.
 - `3` (`THRESHOLD`): findings met or exceeded the `--fail-on` severity threshold, or runtime insights evidence was insufficient.
 
 ## Running test gates (`pytest --sharpit`)
