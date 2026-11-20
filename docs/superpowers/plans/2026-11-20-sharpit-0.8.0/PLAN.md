@@ -119,7 +119,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 - [ ] **P1 Contributor documents** (do not block anything). `CONTRIBUTING.md` (setup, the four gates, red-first tests,
       the port-BootUI rule, the contribution check, pointer to `AGENTS.md`), `CODE_OF_CONDUCT.md` (Contributor Covenant
       2.1, with an enforcement contact), `.github/PULL_REQUEST_TEMPLATE.md`, bug and feature issue templates.
-- [ ] **P2 Contribution check** (decision 1). Blocks E0's merge. Exempts Dependabot. A workflow on
+- [ ] **P2 Contribution check** (DCO sign-off, decision 1). Blocks E0's merge. Exempts Dependabot. A workflow on
       `pull_request_target` never checks out pull request code and pins every action by commit.
 
 ### Track A: what 2.5.0 changed
@@ -216,20 +216,17 @@ P2 ── E0
 every lane ── R
 ```
 
-## Decisions (the recommended option in bold)
+## Decisions (all decided on 2026-11-20)
 
-1. **Contribution check.** **Developer Certificate of Origin sign-off (`Signed-off-by`), checked on each pull
-   request**: Apache-2.0 §5 already licenses inbound contributions, and DCO needs no signing service. Or a contributor
-   licence agreement: then an existing text used unmodified, with an individual and a corporate form.
-2. **Java-only deviation rows** (#1685, #1697, #1700, #1729, the Spring, Hibernate, Quarkus and JVM rules, and #1687).
-   **Record each as `n-a` or a deviation with its reason**; the list needs the maintainer's approval.
-3. **#207 time box.** **If the contribution check is not passed within 14 days of the request, the maintainers
-   re-implement the change with credit to its author** in the changelog.
-4. **Request ID header default (A8).** **Port BootUI's default (on), behind all four gates, subject to the council**;
-   or off by default as a deviation row.
-
-Decided on 2026-11-20: the release scope above; Flask in the test extra only; the maintainers build Track F with the
-author of #75 invited to review.
+1. **Contribution check:** Developer Certificate of Origin sign-off (`Signed-off-by`), checked on each pull request.
+   Apache-2.0 §5 already licenses inbound contributions, and DCO needs no signing service.
+2. **Java-only deviation rows** (#1685, #1697, #1700, #1729, the Spring, Hibernate, Quarkus and JVM rules, and #1687):
+   each recorded as `n-a` or a deviation with its reason.
+3. **#207 time box:** if the contribution check is not passed within 14 days of the request, the maintainers
+   re-implement the change with credit to its author in the changelog.
+4. **Request ID header default (A8):** BootUI's default (on), behind all four gates, subject to the lane's council.
+5. The release scope above; Flask in the test extra only; the maintainers build Track F with the author of #75 invited
+   to review.
 
 ## Out of scope
 
