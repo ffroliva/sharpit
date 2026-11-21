@@ -131,6 +131,8 @@ def _endpoint_name(endpoint: object) -> str | None:
 
 
 def _validation_error(exc: BaseException) -> bool:
+    if sys.modules.get("fastapi.exceptions") is None:
+        return False
     from sharpit.fastapi.binding_diagnostics import is_validation_error
 
     return is_validation_error(exc)

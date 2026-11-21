@@ -198,7 +198,49 @@ def test_unresolvable_route_redacts_every_segment_after_location_prefix() -> Non
     _, diagnostics, _ = validation_details(
         RequestValidationError([{"type": "int_parsing", "loc": ("body", "S3NT1NEL", "key")}]), None, False
     )
-    assert diagnostics[0]["fieldPath"] == "[*][*]"
+    assert diagnostics[0]["fieldPath"] == "body[*][*]"
+
+
+def test_declared_non_body_parameter_names_are_visible_but_unknown_parts_are_redacted() -> None:
+    # ported: SpringBindingDiagnosticsExtractorTests.extractsMethodArgumentTypeMismatchAndServerWebInputTypeMismatchWithoutReadingValue  # noqa: E501
+    from fastapi import Cookie, Header
+
+    app = FastAPI()
+
+    @app.get("/items/{item_id}")
+    def items(
+        item_id: int,
+        page: int,
+        x_region: str = Header(alias="x-region"),
+        session: str = Cookie(),
+    ) -> None:  # pyright: ignore[reportUnusedFunction]
+        return None
+
+    route = app.routes[-1]
+    errors = [
+        {"type": "int_parsing", "loc": ("query", "page")},
+        {"type": "int_parsing", "loc": ("path", "item_id")},
+        {"type": "string_type", "loc": ("header", "x-region")},
+        {"type": "string_type", "loc": ("cookie", "session")},
+        {"type": "int_parsing", "loc": ("query", "S3NT1NEL")},
+    ]
+    _, diagnostics, _ = validation_details(RequestValidationError(errors), route, False)
+    assert {row["fieldPath"] for row in diagnostics} == {
+        "query.page",
+        "path.item_id",
+        "header.x-region",
+        "cookie.session",
+        "query[*]",
+    }
+
+
+def test_unmodelled_paths_keep_the_location_prefix_and_redact_the_rest() -> None:
+    _, diagnostics, _ = validation_details(
+        RequestValidationError([{"type": "int_parsing", "loc": ("query", "S3NT1NEL", "other")}]),
+        None,
+        False,
+    )
+    assert diagnostics[0]["fieldPath"] == "query[*][*]"
 
 
 def test_binding_field_path_is_bounded_to_bootui_length() -> None:

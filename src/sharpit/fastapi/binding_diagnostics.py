@@ -73,10 +73,9 @@ def _model_fields(route: Any) -> set[str] | None:
     try:
         dependant = route.dependant
         models = [p.field_info.annotation for p in dependant.body_params]
-        fields = {"body"}
-        fields.update(p.name for p in dependant.body_params)
+        fields = _parameter_fields(dependant)
+        body_model = False
         seen: set[type] = set()
-        found = False
         while models:
             model = models.pop()
             if get_origin(model) is not None:
@@ -84,7 +83,7 @@ def _model_fields(route: Any) -> set[str] | None:
                 continue
             if not isinstance(model, type) or not issubclass(model, BaseModel) or model in seen:
                 continue
-            found = True
+            body_model = True
             seen.add(model)
             for name, field in model.model_fields.items():
                 fields.add(name)
@@ -93,9 +92,21 @@ def _model_fields(route: Any) -> set[str] | None:
                 if isinstance(field.validation_alias, str):
                     fields.add(field.validation_alias)
                 models.append(field.annotation)
-        return fields if found else None
+        if body_model:
+            fields.add("\0body-model")
+        return fields or None
     except Exception:
         return None
+
+
+def _parameter_fields(dependant: Any) -> set[str]:
+    fields: set[str] = set()
+    for location in ("query", "path", "header", "cookie"):
+        for field in getattr(dependant, f"{location}_params", ()):
+            fields.add(f"{location}:{field.name}")
+            if isinstance(field.alias, str):
+                fields.add(f"{location}:{field.alias}")
+    return fields
 
 
 def _target_type(route: Any) -> str | None:
@@ -115,29 +126,41 @@ def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> 
     parts: list[Any] = list(cast(Sequence[Any], loc))
     if any(not isinstance(part, (str, int)) for part in parts):
         return "(unknown)", False
+    prefix = ""
     if parts and parts[0] in ("body", "query", "path", "header", "cookie"):
-        parts = parts[1:]
+        location = parts.pop(0)
+        prefix = location
     if kind == "json_invalid":
         return "(body)", False
-    out: list[str] = []
+    body_model = fields is not None and "\0body-model" in fields
+    if prefix == "body" and not body_model:
+        path = prefix + "[*]" * len(parts)
+        extra = kind == "extra_forbidden"
+        return path, extra
+    out: list[str] = [prefix] if prefix and prefix != "body" else []
     extra = False
     for part in parts:
         if isinstance(part, int) or part == "[key]":
             out.append("[*]")
-        elif isinstance(part, str):
+        else:
             if part == "extra_forbidden":
                 continue
-            if fields is None or part not in fields:
+            declared = _declared_field(fields, prefix, part)
+            if fields is None or not declared:
                 key = "".join(char if char.isprintable() else " " for char in part)
                 key = key.replace("\\", "\\\\").replace("'", "\\'")[:64]
                 extra = extra or kind == "extra_forbidden"
                 out.append(key if kind == "extra_forbidden" else f"['{key}']" if full else "[*]")
             else:
                 out.append(part)
-        else:
-            out.append("[*]")
     path = ".".join(out).replace(".[", "[") or "(body)"
     return path[:MAX_FIELD_LENGTH] + ("…" if len(path) > MAX_FIELD_LENGTH else ""), extra
+
+
+def _declared_field(fields: set[str] | None, prefix: str, part: str) -> bool:
+    if fields is None:
+        return False
+    return f"{prefix}:{part}" in fields if prefix != "body" else part in fields
 
 
 def _exposed_path(path: str, full: bool) -> str:

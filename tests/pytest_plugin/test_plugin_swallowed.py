@@ -45,14 +45,98 @@ def test_validation_errors_never_enter_the_test_session_sink() -> None:
     from sharpit.pytest_plugin import _ExceptionHandler
 
     class Sink:
+        facts = type("Facts", (), {"warnings": [], "sources": []})()
+        calls: list[object] = []
+
+        def register_app(self, _app: object) -> None:
+            pass
+
         def on_exception(self, *_args: object) -> None:
-            raise AssertionError("RequestValidationError reached the test-session sink")
+            self.calls.append(_args)
 
     error = RequestValidationError(
         [{"type": "value_error", "loc": ("body",), "msg": "invalid ordinary-secret-91", "input": "ordinary-secret-91"}]
     )
     record = logging.LogRecord("app", logging.ERROR, "f", 1, "failed", (), (type(error), error, None))
-    _ExceptionHandler(Sink()).emit(record)  # type: ignore[arg-type]
+    sink = Sink()
+    _ExceptionHandler(sink).emit(record)  # type: ignore[arg-type]
+    assert sink.calls == []
+
+
+def test_422_handler_capture_skips_the_test_session_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+    from sharpit.engine.sources import dispatch
+
+    class Sink:
+        facts = type("Facts", (), {"warnings": [], "sources": []})()
+        calls: list[object] = []
+
+        def register_app(self, _app: object) -> None:
+            pass
+
+        def on_exception(self, *args: object) -> None:
+            self.calls.append(args)
+
+    sink = Sink()
+    monkeypatch.setattr(dispatch, "session_sink", lambda: sink)
+    app = FastAPI()
+
+    @app.get("/value")
+    def value(n: int) -> int:  # pyright: ignore[reportUnusedFunction]
+        return n
+
+    handle = install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    try:
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.get("/value?n=not-an-int")
+    finally:
+        handle.uninstall_capture()
+    assert response.status_code == 422
+    assert sink.calls == []
+
+
+def test_422_log_capture_skips_the_test_session_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.testclient import TestClient
+    from starlette.responses import PlainTextResponse
+
+    from fastapi import FastAPI
+    from sharpit import install
+    from sharpit.engine.sources import dispatch
+
+    class Sink:
+        facts = type("Facts", (), {"warnings": [], "sources": []})()
+        calls: list[object] = []
+
+        def register_app(self, _app: object) -> None:
+            pass
+
+        def on_exception(self, *args: object) -> None:
+            self.calls.append(args)
+
+    sink = Sink()
+    monkeypatch.setattr(dispatch, "session_sink", lambda: sink)
+    app = FastAPI()
+
+    @app.get("/logged-422")
+    def logged_422() -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
+        try:
+            raise RequestValidationError([{"type": "int_parsing", "loc": ("query", "n")}])
+        except RequestValidationError:
+            logging.getLogger("host").exception("expected validation response")
+            return PlainTextResponse("invalid", status_code=422)
+
+    handle = install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    try:
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.get("/logged-422")
+    finally:
+        handle.uninstall_capture()
+    assert response.status_code == 422
+    assert sink.calls == []
 
 
 def test_spike_f1_swallowed_attribute_error_fails(pytester: pytest.Pytester) -> None:

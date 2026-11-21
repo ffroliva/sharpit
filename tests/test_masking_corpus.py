@@ -24,6 +24,7 @@ import pytest
 from examples.fastapi_sample.app import SignedSessionMiddleware, create_app
 from fastapi.testclient import TestClient
 from prometheus_client import CollectorRegistry, Gauge
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.requests import Request
 
 from conftest import get_paths
@@ -65,6 +66,16 @@ WIDENED = (
     "STORAGE_CONN",
     "BUS_CONN",
 )
+
+
+class BindingCorpusProfile(BaseModel):
+    email: str
+
+
+class BindingCorpusPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: int
+    person: BindingCorpusProfile = Field(alias="a_profile")
 
 
 def _opener() -> FakeOpener:
@@ -334,6 +345,107 @@ def test_probe_masking_corpus(tmp_path: Path):
     assert SENTINEL not in str(results)
     assert JWT not in str(results)
     assert all(SENTINEL not in str(row) and JWT not in str(row) for row in exchange_rows)
+
+
+@pytest.mark.parametrize("exposure", ("METADATA_ONLY", "MASKED", "FULL"))
+def test_binding_diagnostics_corpus_r1_through_r12_over_real_requests(tmp_path: Path, exposure: str) -> None:
+    from fastapi.exceptions import RequestValidationError
+
+    app = FastAPI()
+
+    @app.post("/diagnostics")
+    async def diagnostics(request: Request, _payload: BindingCorpusPayload) -> None:
+        body = await request.json()
+        rows = [
+            # R1: an ordinary rejected value and message.
+            {
+                "type": "int_parsing",
+                "loc": ("body", "display_name"),
+                "input": "ordinary-secret-91",
+                "msg": "invalid ordinary-secret-91",
+            },
+            # R2: a benign-looking value interpolated into msg and ctx.
+            {
+                "type": "value_error",
+                "loc": ("body", "a_profile", "email"),
+                "msg": "invalid ordinary-secret-91",
+                "ctx": {"value": ["ordinary-secret-91"]},
+            },
+            # R3: a bare dictionary key.
+            {"type": "dict_type", "loc": ("body", SENTINEL), "input": SENTINEL},
+            # R4: a nested mapping key, index and pydantic [key] marker.
+            {"type": "int_parsing", "loc": ("body", "records", 0, SENTINEL, "[key]"), "input": SENTINEL},
+            # R5: a forbidden extra-property name.
+            {"type": "extra_forbidden", "loc": ("body", JWT), "input": SENTINEL},
+            # R6: a custom error type.
+            {"type": "bad_dynamic_type", "loc": ("body",), "input": "ordinary-secret-91"},
+            # R7: a nested list index.
+            {"type": "int_parsing", "loc": ("body", "records", 2, JWT), "input": SENTINEL},
+            # R8: malformed JSON.
+            {"type": "json_invalid", "loc": ("body", 9), "input": SENTINEL},
+            # R9: a declared alias remains readable.
+            {"type": "int_parsing", "loc": ("body", "a_profile", "email"), "input": "ordinary-secret-91"},
+            # R10 and R11: FULL and METADATA_ONLY are exercised by the parameterized request.
+            {"type": "string_type", "loc": ("body", "display_name"), "input": "ordinary-secret-91"},
+            {"type": "bool_type", "loc": ("body", "display_name"), "input": "ordinary-secret-91"},
+            # R12: twelve distinct diagnostics exceed BootUI's ten-row bound.
+            {"type": "float_type", "loc": ("body", "display_name"), "input": "ordinary-secret-91"},
+        ]
+        raise RequestValidationError(rows, body=body)
+
+    @app.post("/rejected-value")
+    def rejected_value(_payload: BindingCorpusPayload) -> None:  # pyright: ignore[reportUnusedFunction]
+        return None
+
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        state_dir=str(tmp_path / exposure),
+        expose_values=exposure,
+        panels={"exceptions": {"enabled": True}},
+    )
+    try:
+        with TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False) as client:
+            rejected = client.post(
+                "/rejected-value",
+                json={"display_name": "ordinary-secret-91", "a_profile": {"email": "ok"}},
+            )
+            response = client.post("/diagnostics", json={"display_name": 1, "a_profile": {"email": "ok"}})
+            assert response.status_code == 422
+            assert rejected.status_code == 422
+            listed = client.get(f"{API}/exceptions").json()
+            details = [client.get(f"{API}/exceptions/{group['id']}").json() for group in listed["groups"]]
+            occurrences = [item for detail in details for item in detail["occurrences"]]
+            profiles = [client.get(f"{API}/activity/request/{item['requestId']}").json() for item in occurrences]
+    finally:
+        handle.uninstall_capture()
+
+    destinations = (str(listed), *(str(item) for item in details), *(str(item) for item in profiles))
+    for text in destinations:
+        assert "ordinary-secret-91" not in text
+    for text in destinations:
+        assert '"ctx"' not in text
+    for text in destinations:
+        assert '"input"' not in text
+    occurrence = next(item for item in occurrences if len(item["bindingDiagnostics"]) > 1)
+    rows = occurrence["bindingDiagnostics"]
+    assert len(rows) == 10
+    assert occurrence["bindingDiagnosticsTruncated"] is True
+    rejected_occurrence = next(item for item in occurrences if len(item["bindingDiagnostics"]) == 1)
+    assert rejected_occurrence["bindingDiagnostics"][0]["reason"] == "int_parsing"
+    if exposure == "FULL":
+        assert "bad_dynamic_type" in {row["reason"] for row in rows}
+    else:
+        assert "Invalid" in {row["reason"] for row in rows}
+    assert "json_invalid" in {row["reason"] for row in rows}
+    assert "a_profile.email" in {row["fieldPath"] for row in rows}
+    if exposure == "FULL":
+        assert SENTINEL in str(rows)
+        assert JWT in str(rows)
+    else:
+        assert SENTINEL not in str(rows)
+        assert JWT not in str(rows)
 
 
 def test_sentinel_never_leaks(
