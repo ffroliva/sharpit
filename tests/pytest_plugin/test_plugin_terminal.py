@@ -235,6 +235,27 @@ def test_a_clause_counts_a_test_once_whatever_its_attempts() -> None:
     assert _summary(findings) == ["swallowed exceptions: 1 clause, 1 test", "  a.py:3: 1 test"]
 
 
+def test_a_real_raise_clears_a_test_double_note_for_the_same_clause() -> None:
+    findings = [
+        _swallowed_finding("a.py:3", "t::a", double=True),
+        _swallowed_finding("a.py:3", "t::a"),
+    ]
+
+    assert _summary(findings) == ["swallowed exceptions: 1 clause, 1 test"]
+
+
+def test_swallowed_clause_order_uses_numeric_line_numbers() -> None:
+    findings = [_swallowed_finding("a.py:10", "t::ten"), _swallowed_finding("a.py:9", "t::nine")]
+
+    assert _summary(findings)[1:] == ["  a.py:9: 1 test", "  a.py:10: 1 test"]
+
+
+def test_swallowed_clause_list_is_capped_at_five() -> None:
+    findings = [_swallowed_finding(f"a.py:{line}", f"t::{line}") for line in range(8)]
+
+    assert len(_summary(findings)) == 6
+
+
 def test_a_clause_only_test_doubles_reached_says_so() -> None:
     findings = [_swallowed_finding("a.py:3", f"t::a{i}", double=True) for i in range(2)]
 
