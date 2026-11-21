@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from examples.fastapi_sample.app import create_app
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]
 from starlette.background import BackgroundTasks
@@ -254,16 +255,26 @@ def test_http_exception_handler_unwrapped():
     def teapot() -> None:  # pyright: ignore[reportUnusedFunction]
         raise HTTPException(418)
 
+    _install(app)
+    assert all(app.exception_handlers[k] is v for k, v in before.items() if k is not RequestValidationError)
+    with _client(app) as client:
+        assert client.get("/teapot").status_code == 418
+        assert _groups(client) == []
+
+
+def test_validation_handler_captures_request_validation_errors():
+    app = FastAPI()
+    original_handler = app.exception_handlers[RequestValidationError]
+
     @app.get("/invalid")
     def invalid(n: int) -> int:  # pyright: ignore[reportUnusedFunction]
         return n
 
     _install(app)
-    assert all(app.exception_handlers[k] is v for k, v in before.items())  # HTTPException, validation errors
+    assert app.exception_handlers[RequestValidationError] is not original_handler
     with _client(app) as client:
-        assert client.get("/teapot").status_code == 418
         assert client.get("/invalid?n=x").status_code == 422
-        assert _groups(client) == []
+        assert len(_groups(client)) == 1
 
 
 def test_cancelled_error_never_recorded():
@@ -365,7 +376,10 @@ def test_shape_keys_match_bootui():
     assert tuple(detail["frames"][0]) == ("declaringClass", "methodName", "fileName", "lineNumber", "applicationFrame")
     assert tuple(detail["occurrences"][0]) == (
         "timestamp", "thread", "requestMethod", "requestPath", "handler", "source", "traceId", "requestId",
+        "bindingDiagnostics", "bindingDiagnosticsTruncated",
     )  # fmt: skip
+    assert detail["occurrences"][0]["bindingDiagnostics"] == []
+    assert detail["occurrences"][0]["bindingDiagnosticsTruncated"] is False
     assert detail["occurrences"][0]["requestId"] == detail["occurrences"][0]["traceId"]
 
 
@@ -460,7 +474,7 @@ def test_get_exceptions_mcp_no_side_effects(no_side_effects: SideEffectGuard):
         listed = _rpc(client, "get_exceptions", {})["result"]
         gid = listed["structuredContent"]["groups"][0]["id"]
         detail = _rpc(client, "get_exception_detail", {"id": f"  {gid}  "})["result"]
-        unknown = _rpc(client, "get_exception_detail", {"id": "does-not-exist"})
+        unknown = _rpc(client, "get_exception_detail", {"id": "S3NT1NEL"})
         missing = _rpc(client, "get_exception_detail", {})
         wrong = _rpc(client, "get_exception_detail", {"id": 1})
     app.state.sharpit.uninstall_capture()
@@ -471,7 +485,7 @@ def test_get_exceptions_mcp_no_side_effects(no_side_effects: SideEffectGuard):
     # ported: AbstractMcpConformanceTest.testMcpToolClientErrorIsReportedInBandInsteadOfInternalError
     assert "error" not in unknown
     assert unknown["result"]["isError"] is True
-    assert unknown["result"]["content"][0]["text"] == "Unknown exception group 'does-not-exist'"
+    assert unknown["result"]["content"][0]["text"] == "Unknown exception group 'S3NT1NEL'"
     assert missing["error"] == {"code": -32602, "message": "Missing required argument: id"}
     assert wrong["error"] == {"code": -32602, "message": "Argument 'id' must be a string"}
     assert no_side_effects.violations == []

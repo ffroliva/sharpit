@@ -349,6 +349,7 @@ def test_request_profile_timing_and_exceptions():
     assert [(e["exceptionClassName"], e["source"]) for e in profile["exceptions"]] == [("ValueError", "request")]
     assert tuple(profile["exceptions"][0]) == (
         "exceptionClassName", "message", "location", "timestamp", "thread", "handler", "source",
+        "bindingDiagnostics", "bindingDiagnosticsTruncated",
     )  # fmt: skip
 
 

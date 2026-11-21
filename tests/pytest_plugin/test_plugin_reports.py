@@ -40,6 +40,8 @@ def _run_report_corpus(
 
     result = pytester.runpytest_inprocess(
         "--sharpit",
+        "-n",
+        "0",
         "--sharpit-app=appmod:app",
         "--sharpit-allow-unknown",
         "--sharpit-report=report.json",
@@ -116,6 +118,68 @@ def test_plugin_report_corpus_full_exposure(pytester: pytest.Pytester, monkeypat
 def test_plugin_report_corpus_masking_off(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     _run_report_corpus(
         pytester, monkeypatch, "SHARPIT_MASK_SECRETS", "false", "report ignores SHARPIT_MASK_SECRETS=false"
+    )
+
+
+@pytest.mark.parametrize("exposure", ("MASKED", "METADATA_ONLY", "FULL"))
+def test_binding_diagnostic_sentinels_do_not_enter_pytest_outputs(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, exposure: str
+) -> None:
+    field = "S3NT1NEL9f3c"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.S3NT1NEL9f3c.signature"
+    monkeypatch.setenv("SHARPIT_EXPOSE_VALUES", exposure)
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        from pydantic import BaseModel, ConfigDict
+        app = FastAPI()
+        class Payload(BaseModel):
+            model_config = ConfigDict(extra='forbid')
+            value: int
+        @app.post('/payload')
+        def payload(data: Payload): return data
+        """,
+        test_binding=f"""
+        from fastapi.testclient import TestClient
+        from appmod import app
+        def test_binding_request():
+            with TestClient(app, raise_server_exceptions=False) as client:
+                response = client.post('/payload', json={{'{field}': '{jwt}'}})
+            assert response.status_code == 422
+        """,
+    )
+
+    result = pytester.runpytest_inprocess(
+        "--sharpit",
+        "--sharpit-app=appmod:app",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "--sharpit-junit=report.xml",
+        "--sharpit-sarif=report.sarif",
+        "-q",
+    )
+
+    terminal = result.stdout.str()
+    json_report = (pytester.path / "report.json").read_text()
+    junit_report = (pytester.path / "report.xml").read_text()
+    sarif_report = (pytester.path / "report.sarif").read_text()
+    assert result.ret == 0
+    sentinels = (field, jwt)
+    assert all(sentinel not in terminal for sentinel in sentinels)
+    assert all(sentinel not in json_report for sentinel in sentinels)
+    assert all(sentinel not in junit_report for sentinel in sentinels)
+    assert all(sentinel not in sarif_report for sentinel in sentinels)
+    (pytester.path / f"binding-pytest-{exposure}.jsonl").write_text(
+        "".join(
+            json.dumps({"exposure": exposure, "surface": surface, "text": text}) + "\n"
+            for surface, text in (
+                ("pytest terminal", terminal),
+                ("pytest JSON", json_report),
+                ("pytest JUnit", junit_report),
+                ("pytest SARIF", sarif_report),
+            )
+        ),
+        encoding="utf-8",
     )
 
 
