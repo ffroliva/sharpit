@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -126,6 +127,58 @@ def fixture_osv() -> FakeOsv:
 
 def dep(report: dict[str, Any], name: str) -> dict[str, Any]:
     return next(d for d in report["dependencies"] if d["artifactId"] == name)
+
+
+class _DeadlineClock:
+    now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class _TricklingResponse:
+    status = 200
+
+    def __init__(self, clock: _DeadlineClock) -> None:
+        self.clock = clock
+        self.timeouts: list[float] = []
+        self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=self))
+        self.read1_calls = 0
+        self.read_calls = 0
+        self.body_read = False
+        self.closed = False
+
+    def settimeout(self, timeout: float) -> None:
+        self.timeouts.append(timeout)
+
+    def read1(self, _size: int = -1) -> bytes:
+        self.read1_calls += 1
+        self.clock.now += 1.0
+        return b'{"res'
+
+    def read(self, _size: int = -1) -> bytes:
+        self.read_calls += 1
+        if self.body_read:
+            return b""
+        self.body_read = True
+        return b'{"results":[{}]}'
+
+    def close(self) -> None:
+        self.closed = True
+
+    def __enter__(self) -> "_TricklingResponse":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+class _ResponseOpener:
+    def __init__(self, response: _TricklingResponse) -> None:
+        self.response = response
+
+    def open(self, *_args: Any, **_kwargs: Any) -> _TricklingResponse:
+        return self.response
 
 
 def test_get_never_network(no_side_effects: SideEffectGuard, tmp_state_dir: Path):
@@ -419,63 +472,10 @@ def test_whole_scan_deadline_keeps_prior_query_results_and_releases_single_fligh
 def test_trickling_body_read_stops_at_deadline_and_releases_single_flight(
     tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    class Clock:
-        now = 0.0
-
-        def __call__(self) -> float:
-            return self.now
-
-    class Socket:
-        def __init__(self) -> None:
-            self.timeouts: list[float] = []
-
-        def settimeout(self, timeout: float) -> None:
-            self.timeouts.append(timeout)
-
-    class Response:
-        status = 200
-
-        def __init__(self, clock: Clock) -> None:
-            self.clock = clock
-            self.socket = Socket()
-            self.fp = type("Fp", (), {"raw": type("Raw", (), {"_sock": self.socket})()})()
-            self.read1_calls = 0
-            self.read_calls = 0
-            self.body_read = False
-            self.closed = False
-
-        def read1(self, _size: int = -1) -> bytes:
-            self.read1_calls += 1
-            self.clock.now += 1.0
-            return b"{\"res"
-
-        def read(self, _size: int = -1) -> bytes:
-            self.read_calls += 1
-            if self.body_read:
-                return b""
-            self.body_read = True
-            return b'{"results":[{}]}'
-
-        def close(self) -> None:
-            self.closed = True
-
-        def __enter__(self) -> "Response":
-            return self
-
-        def __exit__(self, *_exc: object) -> None:
-            self.close()
-
-    class Opener:
-        def __init__(self, response: Response) -> None:
-            self.response = response
-
-        def open(self, *_args: Any, **_kwargs: Any) -> Response:
-            return self.response
-
-    clock = Clock()
-    response = Response(clock)
+    clock = _DeadlineClock()
+    response = _TricklingResponse(clock)
     osv = FakeOsv()
-    osv.opener = Opener(response)  # type: ignore[assignment]
+    osv.opener = _ResponseOpener(response)  # type: ignore[assignment]
     flight = SingleFlight()
     svc = service(
         osv,
@@ -493,7 +493,7 @@ def test_trickling_body_read_stops_at_deadline_and_releases_single_flight(
     assert "the scan deadline was reached" in report["scan"]["message"]
     assert response.read1_calls == 2
     assert response.read_calls == 0
-    assert response.socket.timeouts == [2.0, 1.0]
+    assert response.timeouts == [2.0, 1.0]
     assert response.closed is True
     assert flight.active == ""
 

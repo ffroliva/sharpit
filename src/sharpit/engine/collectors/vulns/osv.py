@@ -60,27 +60,7 @@ def request_json(
     try:
         with opener.open(request, timeout=timeout) as response:
             status = int(getattr(response, "status", 200))
-            chunks: list[bytes] = []
-            size = 0
-            while True:
-                remaining = deadline.remaining() if deadline is not None else timeout
-                if deadline is not None and remaining <= 0:
-                    raise OsvError("OSV scan deadline exceeded")
-                sock = getattr(
-                    getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None), "settimeout", None
-                )
-                if sock is not None:
-                    sock(min(timeout, remaining))
-                chunk = cast(bytes, response.read1(min(64 * 1024, max_bytes + 1 - size)))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                size += len(chunk)
-                if size > max_bytes:
-                    break
-                if deadline is not None and deadline.check_expired():
-                    raise OsvError("OSV scan deadline exceeded")
-            body = b"".join(chunks)
+            body = _read_bounded_body(response, timeout, max_bytes, deadline)
     except OsvError:
         raise
     except urllib.error.HTTPError as error:
@@ -95,6 +75,28 @@ def request_json(
         return json.loads(body)
     except (ValueError, RecursionError) as error:  # JSONDecodeError, UnicodeDecodeError, deeply nested arrays
         raise OsvError(f"{what} returned malformed JSON") from error
+
+
+def _read_bounded_body(response: Any, timeout: float, max_bytes: int, deadline: ScanDeadline | None) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        remaining = deadline.remaining() if deadline is not None else timeout
+        if deadline is not None and remaining <= 0:
+            raise OsvError("OSV scan deadline exceeded")
+        sock = getattr(getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None), "settimeout", None)
+        if sock is not None:
+            sock(min(timeout, remaining))
+        chunk = cast(bytes, response.read1(min(64 * 1024, max_bytes + 1 - size)))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > max_bytes:
+            break
+        if deadline is not None and deadline.check_expired():
+            raise OsvError("OSV scan deadline exceeded")
+    return b"".join(chunks)
 
 
 def is_request_timeout(error: OsvError) -> bool:
