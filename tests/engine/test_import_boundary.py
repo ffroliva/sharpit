@@ -520,6 +520,21 @@ def test_engine_never_imports_an_adapter():
     assert adapter_violations() == []
 
 
+def test_flask_import_is_confined_to_its_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "src"
+    adapter = source / "sharpit" / "flask"
+    engine = source / "sharpit" / "engine"
+    adapter.mkdir(parents=True)
+    engine.mkdir(parents=True)
+    (adapter / "__init__.py").write_text("import flask\n", encoding="utf-8")
+    (adapter / "introspector.py").write_text("import flask\n", encoding="utf-8")
+    (engine / "tools.py").write_text("import flask\nimport sharpit.flask.introspector\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    assert adapter_violations(engine) == ["sharpit/engine/tools.py imports sharpit.flask.introspector"]
+    assert gatekeeper_violations() == ["sharpit/engine/tools.py imports flask: only ['sharpit/flask'] may import flask"]
+
+
 def test_the_engine_imports_only_the_version_from_the_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     live = package_name_violations()
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
