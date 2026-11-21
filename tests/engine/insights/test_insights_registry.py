@@ -1,4 +1,4 @@
-"""Runtime Insights kind registry (W5c I0): BootUI's 28 observations, registered as stubs in report order.
+"""Runtime Insights kind registry (W5c I0): BootUI's observations, registered in report order.
 
 Order: ``RuntimeInsightsService.defaultObservations`` (``E/insights/RuntimeInsightsService.java:441-468``). Each row is
 ``kind()``, ``title()``, ``minimumTier()``, ``reads()`` and ``optionalReads()`` of ``E/insights/<Kind>.java``;
@@ -16,6 +16,8 @@ REQ = "REQUEST_ID"
 BOOTUI_KINDS = (
     ("route-time-breakdown", "Route time breakdown", REQ, {"http"},
      {"sql", "connection", "rest-client", "authorization", "ai", "orm", "messaging"}),
+    ("route-latency-outliers", "Slow route outliers vs. baseline", REQ, {"http"},
+     {"sql", "connection", "cache", "rest-client", "orm"}),
     ("exception-hotspots", "Exception hotspots", REQ, {"exception"}, set()),
     ("errors-behind-2xx", "Errors behind 2xx responses", REQ, {"http"},
      {"transaction", "exception", "log", "rest-client"}),  # BootUI also lists fault-tolerance: never read here
@@ -51,7 +53,8 @@ BOOTUI_KINDS = (
 )  # fmt: skip
 
 
-def test_insights_registry_lists_28_kinds_in_bootui_order() -> None:
+def test_insights_registry_lists_29_kinds_in_bootui_order() -> None:
+    assert len(registry.KINDS) == len(BOOTUI_KINDS)
     assert [spec.kind for spec in registry.KINDS] == [row[0] for row in BOOTUI_KINDS]
 
 
@@ -63,7 +66,7 @@ def test_each_kind_copies_bootui_title_tier_and_sources() -> None:
 
 
 def test_kind_sources_are_journal_sources_and_tiers_are_bootui_tiers() -> None:
-    assert len(registry.KINDS) == 28
+    assert len(registry.KINDS) == len(BOOTUI_KINDS)
     sources = {source for spec in registry.KINDS for source in (*spec.reads, *spec.optional_reads)}
     assert sources <= set(JOURNAL_SOURCES)
     assert {spec.minimum_tier for spec in registry.KINDS} <= set(registry.TIERS)
@@ -71,12 +74,13 @@ def test_kind_sources_are_journal_sources_and_tiers_are_bootui_tiers() -> None:
 
 def test_kind_implemented_reads_the_kind_modules_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each kind lane flips only its own module's flag; the registry reads it at call time, as ``Panel.implemented``."""
-    assert len(registry.KINDS) == 28
+    assert len(registry.KINDS) == len(BOOTUI_KINDS)
     spec = registry.KINDS[3]
     monkeypatch.setattr(spec.module, "IMPLEMENTED", True)
     assert spec.implemented is True
     monkeypatch.setattr(spec.module, "IMPLEMENTED", False)
     assert spec.implemented is False
+
 
 # ported: RouteLatencyOutliersTests.comparesRouteSlowestOutlierAgainstClosestWarm2xxBaselineAndExcludesColdFirstRequest
 def test_route_latency_outliers_is_registered_after_route_time_breakdown() -> None:

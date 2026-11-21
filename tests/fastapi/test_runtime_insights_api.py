@@ -68,7 +68,7 @@ def test_get_returns_the_report_with_every_bootui_key() -> None:
     body = response.json()
     assert list(body) == REPORT_KEYS
     assert body["available"] is True
-    assert len(body["checks"]) == 28
+    assert len(body["checks"]) == 29
 
 
 # ported: RuntimeInsightsControllerTests.sqlChecksAreUnavailableOnSpringMvcAndWebFluxWhenNoDataSourceIsTraced (disabled)
