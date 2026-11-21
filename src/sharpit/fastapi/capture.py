@@ -158,7 +158,7 @@ def _record_exception(
         if info is not None and info.scope is not None
         else None
     )
-    if template is not None and info is not None:
+    if template is not None and info is not None and not full:
         info.path = template
     route = route_for_scope(info.scope if info is not None else None, host_app)
     message, diagnostics, truncated = validation_details(exc, route, full)

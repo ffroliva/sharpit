@@ -476,7 +476,7 @@ def test_replaced_422_handlers_remain_byte_identical(
 
 
 @pytest.mark.parametrize("exposure", ("MASKED", "METADATA_ONLY", "FULL"))
-def test_invalid_path_parameter_is_not_echoed_in_exception_group_path(tmp_path: Any, exposure: str) -> None:
+def test_invalid_path_parameter_exception_path_follows_exposure(tmp_path: Any, exposure: str) -> None:
     app = FastAPI()
 
     @app.get("/items/{item_id}")
@@ -499,4 +499,5 @@ def test_invalid_path_parameter_is_not_echoed_in_exception_group_path(tmp_path: 
         handle.uninstall_capture()
 
     assert response.status_code == 422
-    assert groups[0]["lastRequestPath"] == "/items/{item_id}"
+    expected = "/items/S3NT1NEL9f3c" if exposure == "FULL" else "/items/{item_id}"
+    assert groups[0]["lastRequestPath"] == expected
