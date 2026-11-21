@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Self, cast
@@ -130,6 +131,7 @@ class UnboundedReadFact:
 
 MAX_HTTP_VARIANTS_PER_ROUTE = 64  # distinct (status, header presence) pairs kept per configured route
 MAX_HTTP_METHODS = 16  # distinct methods counted in the route-state tallies
+_HTTP_METHOD = re.compile(r"[A-Z]{1,16}")
 
 
 @dataclass
@@ -151,6 +153,7 @@ class HttpFacts:
     overflow: bool = False  # more methods than the tallies hold
 
     def record(self, method: str, state: str, route: str, status: int, present: tuple[str, ...]) -> None:
+        method = method if _HTTP_METHOD.fullmatch(method) else "OTHER"  # the client picks the method: bound its text
         if state == "matched":
             self._matched(method, route, status, tuple(sorted(present)))
             return

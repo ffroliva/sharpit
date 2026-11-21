@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from typing import Any
 
@@ -10,8 +11,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Response, WebSocket
 from sharpit.engine.advisors.http_security import HeaderExpectation, StatusExpectation, evaluate
+from sharpit.engine.testsession.facts import MAX_HTTP_VARIANTS_PER_ROUTE
 from sharpit.engine.testsession.sink import TestSessionSink
 from sharpit.pytest_plugin.http_security_asgi import ObservedASGI
 
@@ -526,3 +528,106 @@ def test_http_security_function_fixture_traffic_belongs_to_attempt(pytester: pyt
     result = pytester.runpytest_subprocess(*SECURE, *INNER)
 
     result.assert_outcomes(passed=1)
+
+
+# --- Task 5: omission by construction and bounded collection ----------------------------------------------------
+
+
+def test_http_security_unmapped_secret_path_is_not_retained() -> None:
+    sink = _sink(FRAME)
+    client = TestClient(ObservedASGI(_app(), sink.on_http))
+    sink.begin_test(NODE)
+
+    client.get("/reset/canary-path-token")
+
+    facts = sink.facts.tests[0].http
+    assert facts.not_found == {"GET": 1}
+    assert "canary" not in json.dumps(sink.facts.to_json())
+
+
+def test_http_security_observer_omits_secrets_and_response_body() -> None:
+    app = FastAPI()
+
+    @app.get("/tokens/{token}")
+    def token(token: str, response: Response) -> dict[str, str]:
+        response.set_cookie("sid", "canary-set-cookie")
+        return {"body": "canary-body"}
+
+    @app.get("/explode")
+    def explode() -> None:
+        raise RuntimeError("canary-exception")
+
+    sink = _sink(
+        HeaderExpectation("GET", "/tokens/{token}", "x-frame-options"), HeaderExpectation("GET", "/explode", "a")
+    )
+    client = TestClient(ObservedASGI(app, sink.on_http), raise_server_exceptions=False)
+    sink.begin_test(NODE)
+
+    client.get(
+        "/tokens/canary-path?access=canary-query",
+        headers={"Authorization": "Bearer canary-auth", "Cookie": "s=canary-cookie"},
+    )
+    client.get("/explode")
+
+    stored = json.dumps(sink.facts.to_json())
+    assert "/tokens/{token}" in stored
+    for canary in ("canary-auth", "canary-cookie", "canary-query", "canary-set-cookie", "canary-path", "canary-body"):
+        assert canary not in stored
+    assert "canary-exception" not in stored
+    for unconfigured in ("set-cookie", "content-type", "content-length", "authorization"):
+        assert unconfigured not in stored.lower()
+    assert NODE not in json.dumps(sink.facts.tests[0].http.to_json())
+
+
+def test_http_security_hostile_method_is_bounded() -> None:
+    sink = _sink(FRAME)
+    sink.begin_test(NODE)
+
+    sink.on_http("X" * 100_000, "unobservable", "", 200, [])
+    sink.on_http("get\x00\n" * 50, "not_found", "", 404, [])
+
+    assert len(json.dumps(sink.facts.tests[0].http.to_json())) < 500
+
+
+def test_http_security_observer_bounds_metadata_for_large_runs() -> None:
+    sink = _sink(FRAME)
+    sink.begin_test(NODE)
+
+    for i in range(6000):
+        sink.on_http("GET", "matched", "/items", 100 + i % 500, ["x-frame-options"] if i % 2 else [])
+        sink.on_http("GET", "matched", f"/other/{i}", 200, [])
+        sink.on_http(f"M{chr(65 + i % 26)}{chr(65 + i // 26 % 26)}", "unobservable", "", 200, [])
+
+    facts = sink.facts.tests[0].http
+    assert len(json.dumps(facts.to_json())) < 20_000
+    assert len(facts.exchanges) <= MAX_HTTP_VARIANTS_PER_ROUTE
+    assert facts.overflow is True
+
+
+def test_http_security_fact_cap_makes_affected_expectation_unknown() -> None:
+    sink = _sink(FRAME)
+    sink.begin_test(NODE)
+
+    for status in range(200, 200 + MAX_HTTP_VARIANTS_PER_ROUTE + 10):
+        sink.on_http("GET", "matched", "/items", status, ["x-frame-options"])
+
+    run = evaluate((FRAME,), (), sink.facts.tests)
+    assert ("GET", "/items") in sink.facts.tests[0].http.incomplete
+    assert run is not None
+    assert run.status == "UNKNOWN"
+    assert run.reason is not None
+    assert "evidence incomplete" in run.reason
+
+
+def test_http_security_cap_overflow_with_dropped_violation_never_passes() -> None:
+    sink = _sink(FRAME)
+    sink.begin_test(NODE)
+    for status in range(200, 200 + MAX_HTTP_VARIANTS_PER_ROUTE):
+        sink.on_http("GET", "matched", "/items", status, ["x-frame-options"])
+
+    sink.on_http("GET", "matched", "/items", 200, [])  # the one violating tuple: dropped by the cap
+
+    run = evaluate((FRAME,), (), sink.facts.tests)
+    assert run is not None
+    assert run.status == "UNKNOWN"
+    assert run.findings == ()
