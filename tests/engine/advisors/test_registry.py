@@ -36,6 +36,7 @@ def test_registry_specs():
         "security": "security",
         "architecture": "architecture",
         "fastapi": "fastapi",
+        "pentesting": "pentesting",
     }
 
 

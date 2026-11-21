@@ -31,6 +31,7 @@ ALL_PANEL_IDS = {
     "code-paths",
     "side-effects",
     "email",
+    "pentesting",
     "cache",
     "dev-services",
     "runtime-insights",

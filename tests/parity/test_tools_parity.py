@@ -52,6 +52,8 @@ MATCHED_TOOLS = (
     "get_postgresql_report",
     "get_database_advisor_report",
     "database_advisor_scan",
+    "get_pentest_report",
+    "pentest_scan",
     "clear_exceptions",
     "get_exceptions",
     "get_exception_detail",
@@ -135,8 +137,6 @@ MISSING_TOOLS = (
     "get_memory_report",
     "memory_scan",
     "get_memory_rule_violations",
-    "get_pentest_report",
-    "pentest_scan",
     "get_method_probe",
     "start_method_probe",
     "get_rabbitmq_activity",
@@ -196,6 +196,8 @@ pytestmark = [
     pytest.mark.bootui("cli:insights show"),
     pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:overview"),
+    pytest.mark.bootui("cli:pentest report"),
+    pytest.mark.bootui("cli:pentest scan"),
     pytest.mark.bootui("cli:profile diff"),
     pytest.mark.bootui("cli:request-profile"),
     pytest.mark.bootui("cli:rest-api report"),
@@ -234,6 +236,7 @@ pytestmark = [
     pytest.mark.bootui("tool:get_metrics"),
     pytest.mark.bootui("tool:get_mysql_report"),
     pytest.mark.bootui("tool:get_overview"),
+    pytest.mark.bootui("tool:get_pentest_report"),
     pytest.mark.bootui("tool:get_postgresql_report"),
     pytest.mark.bootui("tool:get_profile_diff"),
     pytest.mark.bootui("tool:get_request_profile"),
@@ -248,6 +251,7 @@ pytestmark = [
     pytest.mark.bootui("tool:pause_sql_trace_recording"),
     pytest.mark.bootui("tool:pause_transaction_recording"),
     pytest.mark.bootui("tool:postgresql_read"),
+    pytest.mark.bootui("tool:pentest_scan"),
     pytest.mark.bootui("tool:rest_api_scan"),
     pytest.mark.bootui("tool:resume_sql_trace_recording"),
     pytest.mark.bootui("tool:resume_transaction_recording"),
@@ -360,7 +364,9 @@ DESCRIPTION_MATCHED = (
     "get_low_footprint",
     "get_mappings",
     "get_metrics",
+    "get_pentest_report",
     "get_postgresql_report",
+    "pentest_scan",
     "get_profile_diff",
     "get_request_profile",
 )
@@ -372,7 +378,7 @@ DESCRIPTION_ADOPTED_24: tuple[str, ...] = (
     "get_runtime_insight",
     "get_runtime_insights",
 )
-MATCHED_TOOLS_PIN = 38  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
+MATCHED_TOOLS_PIN = 40  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
 
 
 @pytest.mark.parametrize("name", DESCRIPTION_MATCHED)

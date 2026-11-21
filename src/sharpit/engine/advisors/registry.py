@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from sharpit.engine.collectors.pentesting.report import RULE_ORDER as PENTESTING_RULE_ORDER
 from sharpit.engine.collectors.restapi.rules import RULE_IDS
 from sharpit.engine.panels04 import module_implemented
 
@@ -13,6 +14,7 @@ from sharpit.engine.panels04 import module_implemented
 _VULNERABILITY_KEY = r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+"
 _VULNERABILITY = re.compile(_VULNERABILITY_KEY)
 _DIGEST = r":[0-9a-f]{16}"
+_PENTESTING_RULE_IDS = frozenset(PENTESTING_RULE_ORDER)
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,7 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
     AdvisorSpec(
         "pentesting",
         "pentesting",
-        lambda value: re.fullmatch(r"PT-A\d{2}-\d{3}", value) is not None,
+        _PENTESTING_RULE_IDS.__contains__,
         fingerprint=None,
     ),
 )
