@@ -166,41 +166,9 @@ class VulnerabilityService:
         if deadline.check_expired():
             return {}, set(), len(ids)
         pool = ThreadPoolExecutor(min(ADVISORY_FETCH_CONCURRENCY, len(ids)), thread_name_prefix="sharpit-osv")
-        futures: list[Future[dict[str, Any] | None]] = []
         try:
             futures = [pool.submit(self._fetch_one, vuln_id, deadline) for vuln_id in ids]
-            docs: dict[str, dict[str, Any]] = {}
-            withdrawn: set[str] = set()
-            failed = 0
-            for index, (vuln_id, future) in enumerate(zip(ids, futures, strict=True)):
-                try:
-                    if future.done():
-                        doc = future.result()
-                    else:
-                        remaining = deadline.remaining()
-                        if remaining <= 0:
-                            deadline.mark_expired()
-                            for pending in futures[index:]:
-                                pending.cancel()
-                            failed += len(ids) - index
-                            break
-                        doc = future.result(timeout=remaining)
-                except FutureTimeoutError:
-                    deadline.mark_expired()
-                    for pending in futures[index:]:
-                        pending.cancel()
-                    failed += len(ids) - index
-                    break
-                except Exception:
-                    doc = None
-                if doc is None or doc.get("id") != vuln_id:
-                    failed += 1
-                elif _is_withdrawn(doc):
-                    if _valid_withdrawal(doc):
-                        withdrawn.add(vuln_id)
-                else:
-                    docs[vuln_id] = doc
-            return docs, withdrawn, failed
+            return _collect_fetch_results(ids, futures, deadline)
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
 
@@ -233,6 +201,56 @@ class VulnerabilityService:
             "enrichment was incomplete or unavailable." if result.failed else "remaining CVEs have no available data."
         )
         return f" EPSS: {len(result.scores)} of {len(cves)} requested CVEs have scores; {tail}"
+
+
+def _collect_fetch_results(
+    ids: list[str], futures: list[Future[dict[str, Any] | None]], deadline: ScanDeadline
+) -> tuple[dict[str, dict[str, Any]], set[str], int]:
+    docs: dict[str, dict[str, Any]] = {}
+    withdrawn: set[str] = set()
+    failed = 0
+    for index, (vuln_id, future) in enumerate(zip(ids, futures, strict=True)):
+        try:
+            if future.done():
+                doc = future.result()
+            else:
+                remaining = deadline.remaining()
+                if remaining <= 0:
+                    deadline.mark_expired()
+                    failed += _cancel_pending(futures[index:])
+                    break
+                doc = future.result(timeout=remaining)
+        except FutureTimeoutError:
+            deadline.mark_expired()
+            failed += _cancel_pending(futures[index:])
+            break
+        except Exception:
+            doc = None
+        failed += _record_document(vuln_id, doc, docs, withdrawn)
+    return docs, withdrawn, failed
+
+
+def _cancel_pending(futures: list[Future[dict[str, Any] | None]]) -> int:
+    for future in futures:
+        future.cancel()
+    return len(futures)
+
+
+def _record_document(
+    vuln_id: str, doc: dict[str, Any] | None, docs: dict[str, dict[str, Any]], withdrawn: set[str]
+) -> int:
+    if doc is None or doc.get("id") != vuln_id:
+        return 1
+    _store_document(vuln_id, doc, docs, withdrawn)
+    return 0
+
+
+def _store_document(vuln_id: str, doc: dict[str, Any], docs: dict[str, dict[str, Any]], withdrawn: set[str]) -> None:
+    if not _is_withdrawn(doc):
+        docs[vuln_id] = doc
+        return
+    if _valid_withdrawal(doc):
+        withdrawn.add(vuln_id)
 
 
 def _is_withdrawn(doc: dict[str, Any]) -> bool:

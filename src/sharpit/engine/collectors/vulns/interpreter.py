@@ -305,17 +305,7 @@ class _Entry:
 
 
 def _evaluate(doc: dict[str, Any], pkg: Package) -> tuple[str, float | None, list[str], bool]:
-    matching: list[_Entry] = []
-    unknown_identity = False
-    for item in _affected_list(doc):
-        if item is None or item.ecosystem is None or item.name is None:
-            unknown_identity = True
-        elif (
-            pkg.name.strip()
-            and item.ecosystem == ECOSYSTEM
-            and (item.name == "*" or canonicalize_name(item.name) == pkg.name)
-        ):
-            matching.append(_Entry(item, canonicalize_name(item.name) == pkg.name))
+    matching, unknown_identity = _matching_entries(doc, pkg)
 
     applicable = False
     unresolved = unknown_identity
@@ -352,6 +342,21 @@ def _evaluate(doc: dict[str, Any], pkg: Package) -> tuple[str, float | None, lis
         verified = _verify_candidates(pkg.version, matching, unknown_identity, cross_branch_streams)
     severity = severity_from_text(_database_severity(doc)) if score is None else severity_for(score)
     return severity, score, _order_fixed_versions(verified), unresolved
+
+
+def _matching_entries(doc: dict[str, Any], pkg: Package) -> tuple[list[_Entry], bool]:
+    matching: list[_Entry] = []
+    unknown_identity = False
+    for item in _affected_list(doc):
+        if item is None or item.ecosystem is None or item.name is None:
+            unknown_identity = True
+        elif (
+            pkg.name.strip()
+            and item.ecosystem == ECOSYSTEM
+            and (item.name == "*" or canonicalize_name(item.name) == pkg.name)
+        ):
+            matching.append(_Entry(item, canonicalize_name(item.name) == pkg.name))
+    return matching, unknown_identity
 
 
 def _verify_candidates(

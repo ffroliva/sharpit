@@ -104,18 +104,7 @@ class EpssClient:
                 raise _EpssError("OSV scan deadline exceeded")
             root = self._fetch_page(cve_ids, offset, deadline)
             data = cast(list[Any], root["data"])
-            invalid = False
-            for row in data:
-                entry = cast(dict[str, Any], row) if isinstance(row, dict) else {}
-                cve = canonical_cve_id(_text(entry, "cve"))
-                probability, percentile = _probability(entry, "epss"), _probability(entry, "percentile")
-                if cve is None or cve not in requested or cve in seen or probability is None or percentile is None:
-                    invalid = True  # BootUI keeps the page's valid rows, then fails
-                    continue
-                seen.add(cve)
-                scores[cve] = (probability, percentile)
-            if invalid:
-                raise _EpssError("EPSS returned invalid, duplicate or unrequested score rows")
+            _record_scores(data, requested, seen, scores)
             if not {"total", "offset", "limit"} & root.keys():
                 if expected_total is not None:
                     raise _EpssError("EPSS continuation omitted pagination metadata")
@@ -188,3 +177,20 @@ def _integer(root: dict[str, Any], key: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 2**31 - 1:
         raise _EpssError(f"EPSS returned invalid {key} metadata")
     return value
+
+
+def _record_scores(
+    data: list[Any], requested: set[str], seen: set[str], scores: dict[str, tuple[float, float]]
+) -> None:
+    invalid = False
+    for row in data:
+        entry = cast(dict[str, Any], row) if isinstance(row, dict) else {}
+        cve = canonical_cve_id(_text(entry, "cve"))
+        probability, percentile = _probability(entry, "epss"), _probability(entry, "percentile")
+        if cve is None or cve not in requested or cve in seen or probability is None or percentile is None:
+            invalid = True  # BootUI keeps the page's valid rows, then fails
+            continue
+        seen.add(cve)
+        scores[cve] = (probability, percentile)
+    if invalid:
+        raise _EpssError("EPSS returned invalid, duplicate or unrequested score rows")
