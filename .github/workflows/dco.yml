@@ -2,8 +2,9 @@ name: dco
 
 # The pull request is data only. pull_request_target runs with the base repository's token, so this workflow checks
 # out the base branch (no ref), never runs code from the pull request, and passes every value through env.
+# zizmor dangerous-triggers: ignored for that reason; pull_request would run the pull request's own copy of the check.
 on:
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
     types: [opened, synchronize, reopened, edited]
 
 permissions: {}

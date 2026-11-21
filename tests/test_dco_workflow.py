@@ -72,7 +72,7 @@ def _run_values() -> list[str]:
 
 
 def test_the_trigger_is_exactly_pull_request_target() -> None:
-    triggers = [line.strip() for line in _block("on") if _indent(line) == 2]
+    triggers = [line.split("#", 1)[0].strip() for line in _block("on") if _indent(line) == 2]
     assert triggers == ["pull_request_target:"]
 
 
