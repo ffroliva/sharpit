@@ -38,6 +38,7 @@ from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sensors.lane import build_lane
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sqltext import is_database_exception
+from sharpit.fastapi.request_id_header import with_request_id_header
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -714,6 +715,10 @@ class CaptureMiddleware:
                 try:
                     kind = message["type"]
                     if kind == "http.response.start":
+                        try:
+                            message = with_request_id_header(self.ctx, scope, message)
+                        except Exception as exc:  # noqa: BLE001 - optional response decoration cannot alter host output
+                            wiring.hook_failed("request id response header", exc)
                         status = message["status"]
                         response_headers = list(message.get("headers", ()))
                     elif kind == "http.response.body":

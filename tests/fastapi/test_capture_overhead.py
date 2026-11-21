@@ -76,7 +76,13 @@ def test_request_overhead_budget():
         loop.close()
     exchanges = on_handle.context.capture.exchanges
     assert exchanges is not None
-    assert exchanges.report(None, None, None, None, None)["total"] > 0, "capture never ran: the number means nothing"
+    report = exchanges.report(None, None, None, None, None)
+    assert report["total"] > 0, "capture never ran: the number means nothing"
+    assert any(
+        header["name"].lower() == "x-sharpit-request-id"
+        for row in report["exchanges"]
+        for header in row["responseHeaders"]
+    ), "the measured capture path did not emit the request id header"
     check_budget("capture per request", result, BUDGET_MS * 1e6, "ms", 1e6)
 
 

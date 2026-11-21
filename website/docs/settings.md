@@ -7,6 +7,8 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 `api_path` raises `ValueError`, and an unknown keyword raises `TypeError` with a suggestion. Booleans accept
 `true/false/yes/no/on/off/1/0`; durations accept `10s`, `500ms` or a bare number of seconds.
 
+The request id response header is enabled by default when the `http-exchanges` panel is enabled and the raw request peer is trusted. Set `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out. A same-host tunnel that adds no forwarding headers can make outside callers appear local, and a shared cache in front of the app can serve the header to outside callers; disable the header when either applies.
+
 | Env var | Keyword | Default | Meaning |
 |---|---|---|---|
 | `SHARPIT_ENABLED` | `enabled` | `AUTO` | `ON`, `OFF` or `AUTO` (see [Activation](activation.md)) |
@@ -51,6 +53,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_CLI_MAX_CONCURRENT_CALLS` | `cli_max_concurrent_calls` | `20` | parallel calls |
 | `SHARPIT_CLI_EXECUTION_TIMEOUT` | `cli_execution_timeout` | `30s` | per call |
 | `SHARPIT_HTTP_EXCHANGES_MAX_EXCHANGES` | `http_exchanges_max_exchanges` | `200` | HTTP exchanges ring buffer size |
+| `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER` | `http_exchanges_expose_request_id_header` | `true` | include the recorded request id in `X-Sharpit-Request-Id` on trusted application responses; invalid values turn it off with a warning |
 | `SHARPIT_EXCEPTIONS_MAX_GROUPS` | `exceptions_max_groups` | `100` | max exception groups retained |
 | `SHARPIT_EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP` | `exceptions_max_occurrences_per_group` | `25` | occurrences kept per exception group |
 | `SHARPIT_EXCEPTIONS_MAX_STACK_FRAMES` | `exceptions_max_stack_frames` | `50` | stack frames kept per exception |

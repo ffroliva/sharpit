@@ -478,8 +478,8 @@
     },
     {
       "name": "bootui.http-exchanges.expose-request-id-header",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for http_exchanges_expose_request_id_header"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.http-exchanges.max-exchanges",
