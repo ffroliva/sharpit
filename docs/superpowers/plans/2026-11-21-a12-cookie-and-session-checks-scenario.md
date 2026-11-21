@@ -38,7 +38,11 @@ Helpers read for the port: `Support` `cookieName` (90-98), `stripCookiePrefix` (
 Reused from lane A11 (not copied): `SyntheticResponse.incomplete_header_names`, `header_inventory_incomplete`,
 `headers_complete(*names)`; `headers.bound_headers`, `headers.joined`, `java_trim`, `java_is_blank`;
 `assessment.retained_headers` and `required_headers`; the evidence sanitiser, `make_echo(masker)` and the required
-`masker` of `PentestingService.scan`. Shared with lane A13: the single `read_security_facts` read per scan.
+`masker` of `PentestingService.scan`. This lane's first task moves the sanitiser and `make_echo` from A11's `cors.py`
+into the shared module `pentesting/echo.py` (behaviour unchanged); lane A13 merges after this one and reuses that module
+without a move of its own. Every finding of this lane passes through the sanitiser (BootUI `evidence()`,
+`PentestingCheckSupport.java:51-63`). This lane creates `fastapi/pentesting_exposure.py::read_security_facts`, the single
+per-scan read, and lane A13 extends it.
 
 Out of scope: any request beyond A10's GET and OPTIONS; cookie value decoding or a general cookie parser; the OPTIONS
 and CORS checks (A11); the Flask adapter, which has no pentesting scan and whose `app.config` always carries the session
@@ -50,7 +54,7 @@ cookie defaults (`flask/app.py:194,196`), so an explicit false cannot be detecte
 |---|---|
 | D1 Safe mode fails closed | Active: the checks run only inside the scan action; an inactive console answers 404 and never reaches the probe (re-asserted with a cookie-setting host). |
 | D2 Activation and access guard | Active: scan refusal on a read-only or disabled panel, cross-site, and MCP-off paths refuse before any host call. |
-| D3 Secret masking | Active and decisive: `Set-Cookie` values are credentials. Values never reach an observation, report, error, log, capture record or persisted file, in every exposure. |
+| D3 Secret masking | Active and decisive: `Set-Cookie` values are credentials. Values never reach an observation, report, error, log, MCP or CLI output or persisted file produced by the scan, in every exposure. Capture records of the probe exchange hold no value in `MASKED` and `METADATA_ONLY`; under `FULL` the capture middleware shows header values for every captured exchange by design, so the probe's cookie is shown there (stated exception, row 39; deviation row `pentesting:cookie-capture-full`, owner to confirm). |
 | D4 BootUI contract parity | Active: IDs, titles, severities, confidence, categories, recommendation text, registry order, gap strings and scope suffixes of the nine checks. |
 | D5 Framework drift | Active: duplicate `Set-Cookie` header tuples; `SessionMiddleware` keyword, positional and mounted options across Starlette versions; the `null` clear cookie. |
 | D6 No side effects on GET or MCP | Active: report reads never call the host and never read security facts. |
@@ -91,11 +95,11 @@ and in the label, evidence and echo rules, not by masking a whole string, which 
 
 | # | Dimension | Scenario | Severity | Expected behaviour | Test |
 |---|---|---|---|---|---|
-| 1 | D3 | A cookie value is a unique canary (`name=<canary>`) | Critical | The canary appears in no observation, `SyntheticResponse` field or `repr`, report, MCP or CLI output, error body, log record, capture record or state file, in `MASKED`, `METADATA_ONLY` and `FULL` | Unit, Integration |
+| 1 | D3 | A cookie value is a unique canary (`name=<canary>`) | Critical | The canary appears in no observation, `SyntheticResponse` field or `repr`, report, MCP or CLI output, error body, log record or state file, in `MASKED`, `METADATA_ONLY` and `FULL`, and in no capture record in `MASKED` and `METADATA_ONLY` (the `FULL` capture exception is row 39) | Unit, Integration |
 | 2 | D3 | A first segment without `=` (`<canary>; Secure`) | Critical | Label `(unnamed)`; flags still evaluated; token discarded | Unit |
 | 3 | D3 | Empty name (`=<canary>; Secure`) | Critical | Label `(unnamed)`; value discarded | Unit |
 | 4 | D3 | Extension attribute and `Domain` value carry the canary | Critical | Only the closed presence set is retained; no attribute value is echoed | Unit |
-| 5 | D3 | Name with control characters, whitespace or over 80 characters | High | BootUI's `boundedLabel`: runs to `_`, 77 characters plus `...` | Unit |
+| 5 | D3 | Name with control characters, whitespace or over 80 characters | High | BootUI's `boundedLabel`: runs of ASCII control and whitespace (U+0000-U+0020, U+007F) to `_`, 77 characters plus `...`; Unicode whitespace such as U+00A0 and U+0085 is kept, as Java's `[\p{Cntrl}\s]` keeps it | Unit |
 | 6 | D3 | Name matches a secret value pattern (JWT or vendor-token shape) | Critical | `(redacted)`; the finding still fires | Unit |
 | 7 | D3 | Malformed, empty, huge or non-UTF-8 header text reaches the parser | Critical | Total: returns `(unnamed)` with no attributes, never raises, no input in any message | Unit |
 | 8 | D3 | `repr`, `str`, assertion diff and logging of `SyntheticResponse` | Critical | No raw header text; `headers` carries no `set-cookie` key | Unit |
@@ -112,7 +116,7 @@ and in the label, evidence and echo rules, not by masking a whole string, which 
 | 19 | D4 | Secure session-like cookie without a recognised prefix; analytics cookie; already prefixed | High | PT-A05-064 only for a Secure session or authentication name without a prefix | Unit |
 | 20 | D4 | `Cache-Control` with `public`, `s-maxage`, positive `max-age`, `private`, `no-store`, quoted `private="Set-Cookie"` and `no-cache="Set-Cookie"`, escaped quotes, numeric overflow | High | PT-A02-008 HIGH, MEDIUM for session names with a positive `max-age`, silent for the safe forms | Unit |
 | 21 | D9 | `Set-Cookie` value over 4096 characters, more than 128 values, over 64 names, over 16 KiB | High | Over-limit value discarded; `set-cookie` incomplete; other cookies evaluated; scan PARTIAL with BootUI's gap `GET required response headers were incomplete.`; the dropped cookie is never named | Unit |
-| 22 | D9 | `Cache-Control` incomplete while a cookie is present | High | PT-A02-008 not produced; the same gap | Unit |
+| 22 | D9 | `Cache-Control` incomplete while a cookie is present | High | PT-A02-008 not produced; both of BootUI's gaps (`GET required response headers were incomplete.` and `... were unavailable.`, `Assessment.headers`), also when no cookie is set | Unit, Integration |
 | 23 | D4 | GET failed, timed out, Host rejected or unavailable | High | No cookie finding and no pass claim; A10's incomplete finding and limitation stand | Unit |
 | 24 | D5 | Several `Set-Cookie` header tuples from one response | High | One observation each, in arrival order | Unit, Integration |
 | 25 | D5 | `SessionMiddleware(https_only=False)` passed as a keyword | High | PT-A02-004 LOW | Unit |
@@ -127,16 +131,24 @@ and in the label, evidence and echo rules, not by masking a whole string, which 
 | 34 | D8 | Host default `SessionMiddleware` emits no cookie on the probe path | Medium | No cookie finding; the A04 coverage text says no observed `Set-Cookie` does not establish that there are no sessions | Unit |
 | 35 | D3 | A 152-character JWT-shaped name, in all exposures | Critical | `(redacted)` from the parser, so `FULL` (which shows text) still hides it; no 77-character prefix appears | Unit, Integration |
 | 36 | D3 | `SameSite=<canary>` and `Path=/<canary>` | Critical | PT-A05-005 fires for the unrecognised value; the canary is in no field, `repr` or output; `path_is_root` is false | Unit |
-| 37 | D3 | `Cache-Control: public, x-token=<canary>` and `private="<canary>"` | Critical | PT-A02-008 fires; evidence lists the recognised directives and counts the others; the canary is absent | Unit, Integration |
+| 37 | D3 | `Cache-Control: public, x-token=<canary>`, `private="<canary>"` and `max-age=<canary>`, each complete or over-long, set by a host with a session cookie, in `MASKED`, `METADATA_ONLY` and `FULL` on every output surface | Critical | Complete `public, x-token=<canary>`: PT-A02-008 fires, evidence lists the recognised directives and counts the others; `max-age=<canary>`: silent (not positive); over-long: no finding, both gap strings, scan PARTIAL; the canary is absent in every case | Unit, Integration |
 | 38 | D3 | A nameless padded base64 value (`dGVzdA==; Secure`) | Medium | Label is the unpadded part, as RFC 6265bis reads a name; pinned by a test and listed as awaiting confirmation | Unit |
-| 39 | D3 | Capture middleware records the probe exchange and trace | High | At `MASKED` and `METADATA_ONLY` the records hold no canary (positive control first); `FULL` is excluded because header masking shows values by design | Integration |
+| 39 | D3 | Capture middleware records the probe exchange and trace | High | At `MASKED` and `METADATA_ONLY` the records hold no canary (positive control first). `FULL` is the stated exception: header masking shows values there by design for every captured exchange, so the probe's cookie is shown; decision, rationale and consequence are in the plan's Global Constraints, and a test pins the behaviour | Integration |
 | 40 | D3 | Name echoed in each exposure | High | `MASKED` shows the label, `METADATA_ONLY` shows `[masked]`, `FULL` shows the label; severity follows the unmasked label | Unit |
 | 41 | D9 | Worst-case limitation set (A10, A11 and A12 strings) | High | Each A12 string is present after the 20-entry, 240-character cut | Unit |
 | 42 | D6 | `security_facts` calls per scan and per read | High | Exactly one per scan; zero on GET, MCP read and CLI read | Integration |
 | 43 | D5 | Starlette clear cookie (`session=null; expires=1970`) | Medium | Not a deletion cookie; evaluated like any cookie (parity note) | Unit |
 | 44 | D3 | A facts limitation or mount path carries a canary | Critical | Gap is the fixed BootUI string; the mount path is echoed only through `echo` | Unit |
+| 45 | D3, D4 | PT-A02-007 on `__Host-session` with all three violations (no `Secure`, `Domain`, `Path` other than `/`) | High | BootUI's sentence is 233 characters plus the name, so the evidence is cut to 237 characters plus `...` (240) by the shared sanitiser, with no CR, LF or TAB; every other finding passes the same sanitiser | Unit |
+| 46 | D6, D3 | `security_facts()` raises with a canary in its message, the attribute is absent or not callable, or it returns a value that is not `SecurityFacts` | Critical | `read_security_facts` returns `None`, logs nothing, copies no message; the scan reports BootUI's configuration gap; a valid object comes back unchanged | Unit |
+| 47 | D3 | A name containing U+00A0, U+0085, U+2003 or U+3000, or U+007F | Medium | Java's ASCII class: the Unicode whitespace stays in the label, U+007F becomes `_` | Unit |
 
 ## Must-cover before merge (Critical + High): one pytest name per row
+
+Shared module (`tests/engine/collectors/pentesting/test_evidence_echo.py`):
+
+- `test_sanitizer_collapses_cr_lf_and_tab_runs_to_one_space`, `test_sanitizer_trims_java_whitespace`,
+  `test_sanitizer_cuts_at_240_characters_with_an_ellipsis`, and one echo case per exposure (row 45)
 
 Observation boundary (`tests/engine/collectors/pentesting/test_cookie_observation.py`):
 
@@ -145,6 +157,7 @@ Observation boundary (`tests/engine/collectors/pentesting/test_cookie_observatio
 - `test_empty_name_is_unnamed` (row 3)
 - `test_attribute_values_are_never_retained` (rows 4, 36)
 - `test_label_follows_bootui_bound_and_replaces_whitespace` (row 5)
+- `test_label_keeps_unicode_whitespace_that_java_does_not_match` (row 47)
 - `test_secret_shaped_name_is_redacted_before_shortening` (rows 6, 35)
 - `test_padded_base64_without_a_name_keeps_the_unpadded_label` (row 38)
 - `test_parser_is_total_on_malformed_input` (row 7)
@@ -161,6 +174,7 @@ Probe boundary and surfaces (`tests/fastapi/test_pentesting_cookie_probe.py`, `t
 - `test_header_budgets_apply_to_raw_cookie_text_before_parsing` (row 21)
 - `test_planted_cookie_value_is_absent_from_every_output_surface`, parametrised by surface (POST scan, cached GET, MCP
   `pentest_scan`, MCP `get_pentest_report`, CLI `pentest scan`, CLI `pentest report`) and exposure (rows 9, 35, 36, 37, 40)
+- `test_cache_control_canary_is_absent_from_every_output_surface`, same parametrisation (rows 22, 37)
 
 Observed-cookie checks (`tests/engine/collectors/pentesting/test_cookie_checks.py`, `test_cache_control.py`):
 
@@ -174,6 +188,8 @@ Observed-cookie checks (`tests/engine/collectors/pentesting/test_cookie_checks.p
 - `test_cacheable_set_cookie_distinguishes_public_shared_and_session_max_age` (row 20)
 - `test_cache_control_evidence_is_rebuilt_from_directives` (row 37)
 - `test_cache_control_incomplete_does_not_manufacture_a_finding` (row 22)
+- `test_cookie_finding_evidence_is_sanitised_and_cut_at_240_characters`,
+  `test_cookie_finding_evidence_goes_through_the_shared_sanitiser` (row 45)
 - `test_failed_or_rejected_get_leaves_cookie_checks_indeterminate` (row 23)
 - `test_incomplete_set_cookie_inventory_keeps_cookie_result_partial` (row 21)
 
@@ -185,13 +201,18 @@ Session configuration (`tests/engine/collectors/pentesting/test_session_cookie_c
 - `test_unreadable_session_options_leave_metadata_checks_indeterminate` (rows 29, 44)
 - `test_mounted_sub_app_finding_names_the_echoed_mount_path` (row 30)
 - `test_https_only_false_flag_is_read_from_keyword_only`
+- `tests/fastapi/test_pentesting_exposure_adapter.py`: `test_read_security_facts_returns_the_object_the_introspector_gives`,
+  `test_read_security_facts_returns_none_and_logs_nothing_when_the_reader_raises`,
+  `test_read_security_facts_returns_none_when_the_attribute_is_absent`,
+  `test_read_security_facts_returns_none_for_a_result_of_the_wrong_type` (row 46)
 
 Report, hidden surfaces and gates:
 
 - `test_cookie_rules_follow_registry_order_and_bootui_contract` (row 31)
 - `test_cookie_pending_text_is_replaced_and_no_pending_wording_remains` (rows 32, 34)
 - `test_planted_cookie_value_is_absent_from_every_hidden_surface` (rows 1, 9: error bodies, logs, state files)
-- `test_probe_exchange_and_trace_records_are_free_of_the_canary` (row 39)
+- `test_probe_exchange_and_trace_records_are_free_of_the_canary` (row 39, `MASKED` and `METADATA_ONLY`),
+  `test_full_exposure_capture_records_the_probe_exchange_like_any_other` (row 39, the `FULL` exception)
 - `test_cookie_checks_are_scan_action_only_and_read_only_denied` (rows 10, 11, 42), `test_one_scan_reads_security_facts_once`
 - `test_limitations_added_by_this_lane_survive_the_cut` (row 41)
 
