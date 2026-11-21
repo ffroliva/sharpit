@@ -73,6 +73,12 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
     _prefixed("security", "SEC"),
     _prefixed("architecture", "ARCH"),
     _prefixed("fastapi", "FASTAPI", "SPRING"),
+    AdvisorSpec(
+        "pentesting",
+        "pentesting",
+        lambda value: re.fullmatch(r"PT-A\d{2}-\d{3}", value) is not None,
+        fingerprint=None,
+    ),
 )
 
 
