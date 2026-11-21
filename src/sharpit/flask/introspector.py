@@ -27,7 +27,7 @@ def _handler_name(value: object) -> str | None:
     module = _attribute(value, "__module__")
     qualname = _attribute(value, "__qualname__")
     if isinstance(module, str) and isinstance(qualname, str):
-        return f"{module}.{qualname}"
+        return f"{module}:{qualname}"
     return None
 
 

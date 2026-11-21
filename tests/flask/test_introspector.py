@@ -10,15 +10,11 @@ from werkzeug.routing import BaseConverter
 
 from flask import Flask
 from sharpit.engine.spi import AppInfo, RouteInfo
+from sharpit.flask import FlaskIntrospector
 
 
-def _introspector(app: Flask) -> Any:
-    try:
-        module = importlib.import_module("sharpit.flask.introspector")
-    except ModuleNotFoundError:
-        return None
-    adapter = getattr(module, "FlaskIntrospector", None)
-    return adapter(app) if adapter is not None else None
+def _introspector(app: Flask) -> FlaskIntrospector:
+    return FlaskIntrospector(app)
 
 
 def test_app_metadata_uses_flask_distribution_version() -> None:
@@ -27,14 +23,12 @@ def test_app_metadata_uses_flask_distribution_version() -> None:
 
     introspector = _introspector(app)
 
-    assert introspector is not None
     assert introspector.app_info() == AppInfo("example", "Flask", version("flask"), None)
 
 
 def test_empty_flask_app_has_no_routes() -> None:
     introspector = _introspector(Flask("empty", static_folder=None))
 
-    assert introspector is not None
     assert introspector.routes() == []
 
 
@@ -55,19 +49,18 @@ def test_routes_keep_registration_order_and_endpoint_without_calling_views() -> 
 
     introspector = _introspector(app)
 
-    assert introspector is not None
     assert introspector.routes() == [
         RouteInfo(
             ("GET", "HEAD", "OPTIONS"),
             "/items/{item_id}",
-            f"{first.__module__}.{first.__qualname__}",
+            f"{first.__module__}:{first.__qualname__}",
             None,
             None,
             None,
             "first",
         ),
         RouteInfo(
-            ("OPTIONS", "POST"), "/second", f"{second.__module__}.{second.__qualname__}", None, None, None, "second"
+            ("OPTIONS", "POST"), "/second", f"{second.__module__}:{second.__qualname__}", None, None, None, "second"
         ),
     ]
     assert calls == []
@@ -144,7 +137,6 @@ def test_route_introspection_has_no_side_effects(no_side_effects: Any) -> None:
     app.add_url_rule("/", view_func=endpoint)
     introspector = _introspector(app)
 
-    assert introspector is not None
     introspector.app_info()
     introspector.routes()
     introspector.providers()

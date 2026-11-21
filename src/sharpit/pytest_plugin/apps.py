@@ -17,7 +17,7 @@ from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
-from sharpit.engine.spi import ApiModel
+from sharpit.engine.spi import ApiModel, ApiRouteInfo
 from sharpit.engine.testsession.outcome import AUTODETECT, NO_APPLICATION
 from sharpit.fastapi.introspector import FastApiIntrospector
 
@@ -109,8 +109,12 @@ def _mounted(app: object, mounts: frozenset[type]) -> list[int]:
 
 
 def autodetect_apps(test_files: Sequence[str] = TEST_FILES) -> tuple[tuple[str, object], ...]:
-    """FastAPI/Starlette instances in loaded project-module globals; imports nothing, runs no module hook."""
-    apps = _classes("starlette.applications", "Starlette") | _classes("fastapi.applications", "FastAPI")
+    """Flask/FastAPI/Starlette instances in loaded project-module globals; imports nothing, runs no module hook."""
+    apps = (
+        _classes("starlette.applications", "Starlette")
+        | _classes("fastapi.applications", "FastAPI")
+        | _classes("flask.app", "Flask")
+    )
     if not apps:
         return ()
     paths = sysconfig.get_paths()
@@ -190,11 +194,24 @@ def load_app(spec: str) -> tuple[str, object]:
     if not separator:
         raise ValueError("--sharpit-app must be MOD:ATTR")
     app = getattr(importlib.import_module(module_name), attr)
-    return spec, app() if callable(app) and not hasattr(app, "router") else app
+    return spec, app() if callable(app) and not hasattr(app, "router") and not _is_flask_app(app) else app
+
+
+def _is_flask_app(app: object) -> bool:
+    return not _classes("flask.app", "Flask").isdisjoint(type(app).__mro__)
+
+
+def _app_model(app: object) -> ApiModel:
+    if _is_flask_app(app):
+        from sharpit.flask import FlaskIntrospector
+
+        routes = FlaskIntrospector(app).routes()
+        return ApiModel(tuple(ApiRouteInfo(route.methods, route.path, route.handler) for route in routes), (), ())
+    return FastApiIntrospector(app).api_model()
 
 
 def model_of(app: object) -> ApiModel:
-    return FastApiIntrospector(app).api_model()
+    return _app_model(app)
 
 
 def _configured_models(
@@ -202,7 +219,7 @@ def _configured_models(
 ) -> list[tuple[str, ApiModel]] | None:
     try:
         name, app = (load_app or _load_app)(state.options.app)
-        return [(name, FastApiIntrospector(app).api_model())]
+        return [(name, _app_model(app))]
     except Exception as exc:  # noqa: BLE001
         state.sink.facts.advisor_runs.append(
             AdvisorRun(
@@ -225,7 +242,7 @@ def _discovered_models(state: Any) -> list[tuple[str, ApiModel]] | None:
         if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
             state.sink.facts.advisor_runs.append(run)
         return None
-    model = FastApiIntrospector(chosen[1]).api_model()
+    model = _app_model(chosen[1])
     if not application_routes(model.routes):
         state.sink.facts.advisor_runs.append(bare_app_run(chosen[0], state.options.require_app))
         return None
