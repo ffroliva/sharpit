@@ -85,7 +85,8 @@ def test_http_security_observer_overhead_within_budget() -> None:
     result = paired(lambda: round_of(bare), lambda: round_of(observed), ROUNDS)
 
     assert sink.current_test is not None
-    assert sum(sink.current_test.http.exchanges.values()) == (ROUNDS + 1) * PER_ROUND
+    http = sink.current_test.http  # Starlette 0.44 leaves the route out of the scope: "unobservable", not "matched"
+    assert sum(http.exchanges.values()) + sum(http.unobservable.values()) == (ROUNDS + 1) * PER_ROUND
     check_budget("HTTP security observer per observed ASGI exchange", result, ASGI_BUDGET_NS, "µs", 1000)
 
 
