@@ -77,18 +77,22 @@ def _key(key: object) -> tuple[str | None, int | None]:
 def _key_mro(key: object, key_type: str | None) -> tuple[str, ...]:
     if type(key) is not type or key_type is None:
         return ()
+    return tuple(_mro_names(key) or [key_type])
+
+
+def _mro_names(key: type) -> list[str]:
+    """The class's MRO as qualified names; empty when any class in it cannot be read plainly."""
+    names: list[str] = []
     try:
-        mro = type.__getattribute__(key, "__mro__")
-        names: list[str] = []
-        for cls in mro:
+        for cls in type.__getattribute__(key, "__mro__"):
             module = type.__getattribute__(cls, "__module__")
             qualname = type.__getattribute__(cls, "__qualname__")
             if type(module) is not str or type(qualname) is not str:
-                return (key_type,)
+                return []
             names.append(qualname if module == "builtins" else f"{module}.{qualname}")
-        return tuple(names) or (key_type,)
-    except Exception:
-        return (key_type,)
+    except Exception:  # noqa: BLE001 - introspection degrades to the exact name, never crashes the host
+        return []
+    return names
 
 
 def _handler_row(
