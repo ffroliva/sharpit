@@ -151,7 +151,9 @@ def _lines(config: Any, option: Any, cli: str, ini: str) -> list[str]:
         return []
 
 
-def _http_security(config: Any, option: Any, enabled: bool) -> tuple[bool, tuple[Any, ...], tuple[Any, ...]]:
+def _http_security(
+    config: Any, option: Any, enabled: bool, advisors: bool
+) -> tuple[bool, tuple[Any, ...], tuple[Any, ...]]:
     observe = bool(_value(config, option, "http_security", False))
     headers = parse_header_expectations(
         _lines(config, option, "sharpit_required_response_header", "sharpit_required_response_headers"), HEADER_OPTION
@@ -163,6 +165,10 @@ def _http_security(config: Any, option: Any, enabled: bool) -> tuple[bool, tuple
         raise ValueError("response expectations need --sharpit-http-security (sharpit_http_security = true)")
     if observe and not enabled:
         raise ValueError("--sharpit-http-security requires --sharpit")
+    if (headers or statuses) and not advisors:
+        raise ValueError(
+            "--sharpit-http-security expectations conflict with --sharpit-no-advisors (sharpit_advisors = false)"
+        )
     return observe, headers, statuses
 
 
@@ -187,7 +193,8 @@ def resolve(config: Any) -> PluginOptions:
     junit = _value(config, option, "junit", None)
     sarif = _value(config, option, "sarif", None)
     enabled = bool(_value(config, option, "enabled", False))
-    observe, required_headers, expected_statuses = _http_security(config, option, enabled)
+    advisors = bool(_value(config, option, "advisors", True))
+    observe, required_headers, expected_statuses = _http_security(config, option, enabled, advisors)
     return PluginOptions(
         enabled,
         Path(_value(config, option, "report", "sharpit-report.json")),
@@ -196,7 +203,7 @@ def resolve(config: Any) -> PluginOptions:
         fail_on,
         bool(_value(config, option, "allow_unknown", False)),
         _value(config, option, "app", None),
-        bool(_value(config, option, "advisors", True)),
+        advisors,
         unattributed,
         bool(_value(config, option, "require_app", False)),
         bool(_value(config, option, "verbose", False))

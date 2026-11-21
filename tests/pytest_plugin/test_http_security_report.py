@@ -222,12 +222,3 @@ def test_http_security_finding_text_is_masked_before_output() -> None:
 
     assert [f["ruleId"] for f in data["findings"]] == ["HTTP-SEC-001"]
     assert "hunter2-canary" not in json.dumps(data["findings"])
-
-
-def test_http_security_no_advisors_skips_the_http_advisor() -> None:
-    facts = _facts("a.py::t", "gw0", ("GET", "/items", 200, ()))
-    gate = replace(GateOptions(None, 5, "HIGH", False, 10.0, False), http_headers=(FRAME,))
-
-    data, _status, _reasons = finish([facts], [], options=gate, version="0.8.0", now_ms=1, warnings=[])
-
-    assert [f for f in data["findings"] if f["advisor"] == "http-security"] == []

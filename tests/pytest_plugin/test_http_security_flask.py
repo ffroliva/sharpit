@@ -17,7 +17,7 @@ from sharpit.pytest_plugin.http_security_flask import observe_flask, route_of
 NODE = "tests/test_items.py::test_list"
 FRAME = HeaderExpectation("GET", "/items", "x-frame-options")
 SECURE = ("--sharpit", "--sharpit-http-security", "--sharpit-required-response-header", "GET /items=X-Frame-Options")
-INNER = "--sharpit-no-advisors", "--sharpit-allow-unknown"
+INNER = ("--sharpit-allow-unknown",)
 
 
 def _sink(*headers: HeaderExpectation) -> TestSessionSink:

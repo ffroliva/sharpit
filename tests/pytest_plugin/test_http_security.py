@@ -114,6 +114,19 @@ def test_http_security_observer_requires_sharpit(pytester: pytest.Pytester) -> N
     assert "requires --sharpit" in stderr
 
 
+def test_http_security_expectations_conflict_with_no_advisors(pytester: pytest.Pytester) -> None:
+    stderr = _refused(pytester, "--sharpit", "--sharpit-http-security", HEADER, "GET /a=X-A", "--sharpit-no-advisors")
+
+    assert "--sharpit-http-security" in stderr
+    assert "--sharpit-no-advisors" in stderr
+
+
+def test_http_security_observer_without_expectations_allows_no_advisors(pytester: pytest.Pytester) -> None:
+    options = _options(pytester, "--sharpit", "--sharpit-http-security", "--sharpit-no-advisors")
+
+    assert _field(options, "http_security_enabled") is True
+
+
 def test_http_security_configured_routes_are_normalized(pytester: pytest.Pytester) -> None:
     options = _options(
         pytester,
@@ -186,7 +199,7 @@ def test_http_security_fixture_off_state_is_identity(pytester: pytest.Pytester) 
 NODE = "tests/test_items.py::test_list"
 FRAME = HeaderExpectation("GET", "/items", "x-frame-options")
 SECURE = ("--sharpit", "--sharpit-http-security", HEADER, "GET /items=X-Frame-Options")
-INNER = "--sharpit-no-advisors", "--sharpit-allow-unknown"
+INNER = ("--sharpit-allow-unknown",)
 
 
 def _app() -> FastAPI:
