@@ -100,21 +100,23 @@ class MonitoringCapture:
         try:
             fact = _fact(code, offset, type(exc), self._root, self._cwd)
             if fact is not None and self._sink is not None:
-                if test != self._double_test:
-                    self._double_test = test
-                    self._ordinary_exceptions.clear()
-                if fact in self._ordinary_exceptions:
-                    self._sink(test, fact)
-                else:
-                    test_double = raised_by_test_double(exc)
-                    # Recheck doubles so a later real exception can clear the note.
-                    if not test_double:
-                        self._ordinary_exceptions.add(fact)
-                    self._sink(test, replace(fact, test_double=True) if test_double else fact)
+                self._sink(test, self._classified(test, fact, exc))
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code
             if not self._failed and self._on_error is not None:
                 self._failed = True
                 self._on_error(error)
+
+    def _classified(self, test: TestTag, fact: SwallowedFact, exc: BaseException) -> SwallowedFact:
+        """``fact``, marked when a test double raised it; an ordinary fact is classified once per test."""
+        if test != self._double_test:
+            self._double_test = test
+            self._ordinary_exceptions.clear()
+        if fact in self._ordinary_exceptions:
+            return fact
+        if raised_by_test_double(exc):  # rechecked each time, so a later real raise can clear the note
+            return replace(fact, test_double=True)
+        self._ordinary_exceptions.add(fact)
+        return fact
 
 
 def record(sink: Any, tag: TestTag, fact: SwallowedFact) -> None:
