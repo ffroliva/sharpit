@@ -74,7 +74,7 @@ session rules.
   host-echoed fragments pass through `echo = make_echo(masker)` (the required `masker` of `PentestingService.scan`),
   before the evidence is sanitised and cut at 240 characters; fixed BootUI text, gaps and limitations are never
   masked, and under `METADATA_ONLY` each path becomes `[masked]`. A whole-string pass is rejected because it rewrites
-  BootUI's fixed text. This lane adds no second masker; `echo` and the sanitiser live in one shared module. The rule
+  BootUI's fixed text. This lane adds no second masker; `echo` and the sanitiser live in one shared module, created by A12's first task. The rule
   is proved in `MASKED`, `METADATA_ONLY` and `FULL`, including PT-A05-044's mount evidence.
 - D4 parity: active. Two findings, one coverage rule and one completeness message are ported.
 - D5 introspection drift: active. This is the main risk of the change.
@@ -136,9 +136,10 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
   case: gap, PARTIAL, A02 INDETERMINATE.
 - `SecurityFacts.limitations` is neither copied nor counted, by A13 or any lane: its text can carry route paths and
   mount labels (`introspector.py:410, 878-884`; the positional-options note is `introspection_security.py:105`) and
-  limitations are not masked. The non-FastAPI marker (`spi.py:133`) is handled as the absent case above. A12's plan
-  copies that text and marks the scan PARTIAL; A12 must use a fixed sentence instead, and A13 pins it with a planted
-  path.
+  limitations are not masked. The non-FastAPI marker (`spi.py:133`) is handled as the absent case above. A12's revised
+  plan already uses BootUI's fixed configuration gap and reads only whether the facts carry a limitation, never the
+  text; A13 pins that against A12's merged code with a planted path. `fastapi/pentesting_exposure.py::read_security_facts`
+  is A12's; this lane extends the module and does not recreate it.
 - `--fail-on` evaluates a PARTIAL scan with a note (`fail_on.py:113, 256`); that is unchanged and pinned.
 
 ## Scenario table
