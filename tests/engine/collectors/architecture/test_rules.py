@@ -35,7 +35,7 @@ def test_rule_packages_free_of_cycles(tmp_path: Path) -> None:
 
 
 def test_package_cycle_roots_keep_shared_multisegment_prefix(tmp_path: Path) -> None:
-    # ported: ArchitectureRulesTests.packageCyclesDetectCrossRootCyclesAcrossSharedMultiSegmentPrefixAndNeverCollapseSingleSegmentPrefix
+    # ported: ArchitectureRulesTests.packageCyclesDetectCrossRootCyclesAcrossSharedMultiSegmentPrefixAndNeverCollapseSingleSegmentPrefix  # noqa: E501
     pkg = tmp_path / "com" / "acme"
     _write(pkg / "inventory" / "__init__.py", "import com.acme.order\n")
     _write(pkg / "order" / "__init__.py", "import com.acme.inventory\n")

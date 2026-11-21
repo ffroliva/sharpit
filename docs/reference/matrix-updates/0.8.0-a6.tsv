@@ -11,3 +11,9 @@ DB-MYSQL-004	missing	BootUI 2.5.0 defines this applicable rule; tracked for a la
 ARCH-CODE-019	n-a	JDK formatter and XML processor thread-safety is specific to Java static and shared-bean fields.
 DB-DRIVER-010	n-a	MySQL Connector/J autoReconnect is specific to the Java JDBC driver.
 rule:DB-SCHEMA-007	partial	PostgreSQL serial2 is recognized as the smallint alias using SQLAlchemy inspector type names; broader JDBC metadata ranking remains specific to BootUI.
+rule:DB-HIB-005	n-a	SQLAlchemy's supported model facts expose mapped tables and columns but no binding from an entity to one of multiple datasources, so datasource-attributed uniqueness cannot be resolved safely.
+rule:DB-CATALOG-ORACLE	n-a	Sharpit has no Oracle catalog reader; the applicable bounded and uncertainty-aware PostgreSQL and MySQL catalog behavior is ported.
+rule:RAPI-VALID-003	n-a	FastAPI and Pydantic treat omitted optional Header and Cookie primitive values as valid None/default bindings; Spring's resolver failure for Java primitives does not apply.
+rule:RAPI-ERR-DECLARED	n-a	Sharpit reports explicitly registered FastAPI exception-handler keys; implicit inheritance mapping is Starlette runtime dispatch and is not represented by the handler declaration catalogue.
+rule:ARCH-PKG-001	adapted	Python detects cycles between resolved package imports directly, so BootUI's configured Java slice-root expansion is unnecessary; cross-root cycle behavior is covered by the existing package-cycle rule.
+rule:ARCH-MOD-001	n-a	The Python internal-module rule compares resolved import targets with source packages; BootUI's configured-base-package boundary distinction has no configured package-root input in the Python rule model.

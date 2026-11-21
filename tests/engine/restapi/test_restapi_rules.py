@@ -188,10 +188,13 @@ def test_duplicate_route_mapping_normalizes_path_variable_names():
 @pytest.mark.bootui("rule:RAPI-MAP-003")
 def test_state_changing_get_rule_does_not_flag_post_put_or_patch_domain_noun_prefixes():
     # ported: RestApiContractDefectRulesTests.stateChangingGetRuleDoesNotFlagPostPutOrPatchDomainNounPrefixes
-    assert found(
-        "RAPI-MAP-003",
-        [route(name="post_comments"), route(name="patch_notes"), route(name="put_options")],
-    ) == []
+    assert (
+        found(
+            "RAPI-MAP-003",
+            [route(name="post_comments"), route(name="patch_notes"), route(name="put_options")],
+        )
+        == []
+    )
 
 
 def test_versioning_rules():

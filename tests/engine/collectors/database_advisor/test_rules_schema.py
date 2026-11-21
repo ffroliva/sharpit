@@ -149,7 +149,7 @@ def test_unique_index_on_the_primary_key_columns_is_reported() -> None:
 
 
 def test_unique_index_without_observed_primary_key_backing_is_not_called_redundant() -> None:
-    # ported: DatabaseAdvisorSchemaRulesTests.tablesWithOnlyNonUniqueSecondaryIndexesOrUnrelatedUniqueIndexesDoNotTriggerUnknownBackingDiagnostics
+    # ported: DatabaseAdvisorSchemaRulesTests.tablesWithOnlyNonUniqueSecondaryIndexesOrUnrelatedUniqueIndexesDoNotTriggerUnknownBackingDiagnostics  # noqa: E501
     table = _table("orders", _column("id"), _column("customer_id"), indexes=(
         _index("uq_id", "id", unique=True), _index("ix_customer", "customer_id"),
         _index("uq_customer", "customer_id", unique=True)))  # fmt: skip

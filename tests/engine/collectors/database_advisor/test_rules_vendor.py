@@ -112,8 +112,10 @@ def test_pg_003_not_valid_constraint() -> None:
 
 
 def test_pg_003_reports_not_null_constraints_as_not_null() -> None:
-    # ported: DatabaseAdvisorVendorRulesTests.postgresUnvalidatedConstraintRuleReportsForeignKeyCheckAndNotNullConstraints
-    source = _source("postgresql", notValid=_fact({"tbl": "orders", "name": "orders_customer_id_not_null", "type": "n"}))
+    # ported: DatabaseAdvisorVendorRulesTests.postgresUnvalidatedConstraintRuleReportsForeignKeyCheckAndNotNullConstraints  # noqa: E501
+    source = _source(
+        "postgresql", notValid=_fact({"tbl": "orders", "name": "orders_customer_id_not_null", "type": "n"})
+    )
 
     outcome = _check("DB-PG-003", source)
 
