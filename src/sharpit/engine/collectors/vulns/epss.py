@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sharpit.engine.collectors.vulns.deadline import ScanDeadline
+from sharpit.engine.collectors.vulns.deadline import SCAN_DEADLINE_EXCEEDED, ScanDeadline
 from sharpit.engine.collectors.vulns.osv import (
     MAX_QUERY_BATCH_PAGES,
     Opener,
@@ -101,25 +101,13 @@ class EpssClient:
         expected_total: int | None = None
         for _ in range(min(MAX_QUERY_BATCH_PAGES, len(cve_ids))):
             if deadline is not None and deadline.check_expired():
-                raise _EpssError("OSV scan deadline exceeded")
+                raise _EpssError(SCAN_DEADLINE_EXCEEDED)
             root = self._fetch_page(cve_ids, offset, deadline)
             data = cast(list[Any], root["data"])
             _record_scores(data, requested, seen, scores)
-            if not {"total", "offset", "limit"} & root.keys():
-                if expected_total is not None:
-                    raise _EpssError("EPSS continuation omitted pagination metadata")
+            total = _page_total(root, len(requested), offset, len(data), expected_total)
+            if total is None:
                 return
-            total, returned_offset, limit = (_integer(root, key) for key in ("total", "offset", "limit"))
-            if (
-                total > len(requested)
-                or returned_offset != offset
-                or limit < 1
-                or limit > len(requested)
-                or len(data) > limit
-                or offset + len(data) > total
-                or (expected_total is not None and total != expected_total)
-            ):
-                raise _EpssError("EPSS returned inconsistent pagination metadata")
             expected_total = total
             offset += len(data)
             if offset == total:
@@ -134,7 +122,7 @@ class EpssClient:
         try:
             budget = deadline.request_budget(self._timeout) if deadline is not None else None
         except TimeoutError as error:
-            raise _EpssError("OSV scan deadline exceeded") from error
+            raise _EpssError(SCAN_DEADLINE_EXCEEDED) from error
         try:
             root = request_json(
                 self._open(),
@@ -150,14 +138,35 @@ class EpssClient:
                 or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
             ):
                 deadline.mark_expired()
-                raise _EpssError("OSV scan deadline exceeded") from error
+                raise _EpssError(SCAN_DEADLINE_EXCEEDED) from error
             raise
         if deadline is not None and deadline.check_expired():
             deadline.mark_expired()
-            raise _EpssError("OSV scan deadline exceeded")
+            raise _EpssError(SCAN_DEADLINE_EXCEEDED)
         if not isinstance(root, dict) or not isinstance(cast(dict[str, Any], root).get("data"), list):
             raise _EpssError("EPSS response did not contain a data array")
         return cast(dict[str, Any], root)
+
+
+def _page_total(
+    root: dict[str, Any], requested: int, offset: int, row_count: int, expected_total: int | None
+) -> int | None:
+    if not {"total", "offset", "limit"} & root.keys():
+        if expected_total is not None:
+            raise _EpssError("EPSS continuation omitted pagination metadata")
+        return None
+    total, returned_offset, limit = (_integer(root, key) for key in ("total", "offset", "limit"))
+    if (
+        total > requested
+        or returned_offset != offset
+        or limit < 1
+        or limit > requested
+        or row_count > limit
+        or offset + row_count > total
+        or (expected_total is not None and total != expected_total)
+    ):
+        raise _EpssError("EPSS returned inconsistent pagination metadata")
+    return total
 
 
 def _probability(entry: dict[str, Any], key: str) -> float | None:

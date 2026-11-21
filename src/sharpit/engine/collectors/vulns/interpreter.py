@@ -37,7 +37,7 @@ _REFERENCE_PRIORITY = ("ADVISORY", "FIX")
 _MAX_ALIASES = 20
 _MAX_REFERENCES = 20
 _MAX_FIXED_VERSIONS = 10
-_CVE_ID = re.compile(r"CVE-[0-9]{4}-[0-9]{4,}", re.IGNORECASE)
+_CVE_ID = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE | re.ASCII)
 
 
 @dataclass

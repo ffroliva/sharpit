@@ -29,7 +29,7 @@ from typing import Any, Final
 from sharpit.engine.advisors.dismissals import DismissalStore, rule_id
 from sharpit.engine.advisors.report import evidence, severity_counts
 from sharpit.engine.collectors.vulns.cvss import SEVERITIES
-from sharpit.engine.collectors.vulns.deadline import ScanDeadline
+from sharpit.engine.collectors.vulns.deadline import SCAN_DEADLINE_EXCEEDED, ScanDeadline
 from sharpit.engine.collectors.vulns.epss import EpssClient, canonical_cve_id
 from sharpit.engine.collectors.vulns.interpreter import Finding, compare_versions, interpret
 from sharpit.engine.collectors.vulns.inventory import Package
@@ -136,7 +136,7 @@ class VulnerabilityService:
             query = self._osv.querybatch(candidates, deadline)
         except OsvError as error:
             deps = [_Dependency(p, []) for p in packages]
-            if deadline.check_expired() or str(error) == "OSV scan deadline exceeded":
+            if deadline.check_expired() or str(error) == SCAN_DEADLINE_EXCEEDED:
                 message = _scan_message(False, False, True, len(candidates), 0)
                 return _Scan(True, "PARTIAL", message, scanned_at, 0, skipped, deps)
             return _Scan(True, "ERROR", f"OSV scan failed: {error}", scanned_at, 0, skipped, deps)

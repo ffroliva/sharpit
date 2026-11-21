@@ -681,3 +681,9 @@ def test_aliases_prioritize_cve_and_ghsa_include_upstream_and_keep_stable_limit(
     assert finding.aliases[1] == "GHSA-aaaa-bbbb-cccc"
     assert finding.aliases[2] == "VENDOR-0"
     assert len(finding.aliases) == 20
+
+
+def test_unicode_digits_are_not_cve_ids():
+    from sharpit.engine.collectors.vulns.interpreter import _alias_priority
+
+    assert _alias_priority("CVE-١٢٣٤-٥٦٧٨") == 2

@@ -117,8 +117,10 @@ def test_non_timeout_failure_does_not_become_a_deadline_when_budget_is_capped():
             return 0.0
 
     deadline = ScanDeadline(2.0, Clock())
+    osv_client = client(replies((503, "unavailable")), timeout=10.0)
+    packages = [WIDGET]
     with pytest.raises(OsvError, match="OSV query returned HTTP 503"):
-        client(replies((503, "unavailable")), timeout=10.0).querybatch([WIDGET], deadline)
+        osv_client.querybatch(packages, deadline)
     assert deadline.check_expired() is False
 
 

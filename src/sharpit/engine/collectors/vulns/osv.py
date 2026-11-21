@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
-from sharpit.engine.collectors.vulns.deadline import ScanDeadline
+from sharpit.engine.collectors.vulns.deadline import SCAN_DEADLINE_EXCEEDED, ScanDeadline
 from sharpit.engine.collectors.vulns.inventory import Package
 
 ECOSYSTEM = "PyPI"
@@ -83,7 +83,7 @@ def _read_bounded_body(response: Any, timeout: float, max_bytes: int, deadline: 
     while True:
         remaining = deadline.remaining() if deadline is not None else timeout
         if deadline is not None and remaining <= 0:
-            raise OsvError("OSV scan deadline exceeded")
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
         sock = getattr(getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None), "settimeout", None)
         if sock is not None:
             sock(min(timeout, remaining))
@@ -95,7 +95,7 @@ def _read_bounded_body(response: Any, timeout: float, max_bytes: int, deadline: 
         if size > max_bytes:
             break
         if deadline is not None and deadline.check_expired():
-            raise OsvError("OSV scan deadline exceeded")
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
     return b"".join(chunks)
 
 
@@ -155,22 +155,32 @@ class OsvClient:
                 if page == 0:
                     raise
                 return ids, [pkg for pkg, _ in pending], False, complete
-            next_pending: list[tuple[Package, str | None]] = []
-            for (pkg, _), item in zip(pending, results, strict=True):
-                for vuln in cast(list[dict[str, Any]], item.get("vulns") or []):
-                    vuln_id = cast(str, vuln["id"])
-                    if vuln_id not in seen[pkg]:
-                        seen[pkg].add(vuln_id)
-                        ids[pkg].append(vuln_id)
-                token = text_field(item, "next_page_token")
-                if token is None:
-                    complete.add(pkg)
-                else:
-                    next_pending.append((pkg, token))
-            pending = next_pending
+            pending = self._record_page(pending, results, ids, seen, complete)
             if not pending:
                 return ids, [], False, complete
         return ids, [], True, complete
+
+    @staticmethod
+    def _record_page(
+        pending: list[tuple[Package, str | None]],
+        results: list[dict[str, Any]],
+        ids: dict[Package, list[str]],
+        seen: dict[Package, set[str]],
+        complete: set[Package],
+    ) -> list[tuple[Package, str | None]]:
+        next_pending: list[tuple[Package, str | None]] = []
+        for (pkg, _), item in zip(pending, results, strict=True):
+            for vuln in cast(list[dict[str, Any]], item.get("vulns") or []):
+                vuln_id = cast(str, vuln["id"])
+                if vuln_id not in seen[pkg]:
+                    seen[pkg].add(vuln_id)
+                    ids[pkg].append(vuln_id)
+            token = text_field(item, "next_page_token")
+            if token is None:
+                complete.add(pkg)
+            else:
+                next_pending.append((pkg, token))
+        return next_pending
 
     def _query_page(
         self, pending: list[tuple[Package, str | None]], deadline: ScanDeadline | None = None
@@ -190,7 +200,7 @@ class OsvClient:
         try:
             budget = deadline.request_budget(self._timeout) if deadline is not None else None
         except TimeoutError as error:
-            raise OsvError("OSV scan deadline exceeded") from error
+            raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
         try:
             root = request_json(
                 self._open(),
@@ -206,11 +216,11 @@ class OsvClient:
                 or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
             ):
                 deadline.mark_expired()
-                raise OsvError("OSV scan deadline exceeded") from error
+                raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
             raise
         if deadline is not None and deadline.check_expired():
             deadline.mark_expired()
-            raise OsvError("OSV scan deadline exceeded")
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
         return _validate_results(root, len(pending))
 
     def vuln(self, id: str, deadline: ScanDeadline | None = None) -> dict[str, Any]:
@@ -219,7 +229,7 @@ class OsvClient:
         try:
             budget = deadline.request_budget(self._timeout) if deadline is not None else None
         except TimeoutError as error:
-            raise OsvError("OSV scan deadline exceeded") from error
+            raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
         try:
             doc = request_json(
                 self._open(),
@@ -235,11 +245,11 @@ class OsvClient:
                 or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
             ):
                 deadline.mark_expired()
-                raise OsvError("OSV scan deadline exceeded") from error
+                raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
             raise
         if deadline is not None and deadline.check_expired():
             deadline.mark_expired()
-            raise OsvError("OSV scan deadline exceeded")
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
         if not isinstance(doc, dict):
             raise OsvError(f"OSV advisory {id} is not a JSON object")
         return cast(dict[str, Any], doc)

@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 
 DEFAULT_SCAN_TIMEOUT = 60.0
+SCAN_DEADLINE_EXCEEDED = "OSV scan deadline exceeded"
 
 
 class _Clock:
@@ -39,7 +40,7 @@ class ScanDeadline:
     def request_budget(self, per_request: float) -> RequestBudget:
         remaining = self.remaining()
         if remaining <= 0:
-            raise TimeoutError("OSV scan deadline exceeded")
+            raise TimeoutError(SCAN_DEADLINE_EXCEEDED)
         timeout = per_request if per_request > 0 else 10.0
         return RequestBudget(min(timeout, remaining), remaining <= timeout)
 
