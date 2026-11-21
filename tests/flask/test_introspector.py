@@ -121,11 +121,11 @@ def test_static_and_duplicate_blueprint_routes_are_kept() -> None:
     assert [route.path for route in routes] == ["/static/{filename}", "/one/same", "/two/same"]
 
 
-def test_malformed_url_map_degrades_to_no_routes() -> None:
+def test_malformed_url_map_is_unreadable() -> None:
     app = Flask("broken", static_folder=None)
     app.url_map = object()  # type: ignore[assignment]
 
-    assert _introspector(app).routes() == []
+    assert _introspector(app).routes() is None
 
 
 def test_route_introspection_has_no_side_effects(no_side_effects: Any) -> None:

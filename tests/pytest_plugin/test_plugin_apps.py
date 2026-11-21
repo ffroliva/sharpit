@@ -96,6 +96,25 @@ def test_sharpit_app_option(pytester: pytest.Pytester) -> None:
     assert "detected from" not in result.stdout.str()
 
 
+def test_explicit_flask_app_with_unreadable_map_is_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        app="""
+        from flask import Flask
+        app = Flask('broken', static_folder=None)
+        app.url_map = object()
+        """
+    )
+    pytester.makepyfile("def test_empty(): pass")
+
+    pytester.runpytest(
+        "--sharpit", "--sharpit-app=app:app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    run = _rest_run(pytester)
+    assert run["status"] == "UNKNOWN"
+    assert run["reason"] == "application routes cannot be inspected (Flask URL map)"
+
+
 def test_single_process_assesses_routes_added_after_the_last_test(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(
         """
