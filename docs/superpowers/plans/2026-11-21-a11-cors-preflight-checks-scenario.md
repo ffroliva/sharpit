@@ -206,7 +206,7 @@ mutant that makes it fail):
 | `test_scan_still_sends_exactly_one_get_and_one_options_request` | `probe()` sends a second OPTIONS request |
 | `test_cors_scan_respects_existing_gates_and_sends_no_probe_when_refused` | the scan action calls the host before the refusal is returned |
 | `test_report_reads_after_cors_scan_do_not_invoke_host` | the report read calls the probe or opens a socket |
-| `test_pt_a10_001_stays_indeterminate_under_existing_coverage` | the GET-incomplete override is removed, so PT-A10-001 reads `REVIEW` |
+| `test_pt_a10_001_stays_indeterminate_under_existing_coverage` | the GET-incomplete override is removed, so A10 reads `REVIEW` for an OPTIONS 5xx with a truncated GET 404 |
 
 ## Deferred (Medium + Low): file as issues
 
