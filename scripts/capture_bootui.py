@@ -553,11 +553,6 @@ def _collect_java_rules(bootui_root: str) -> dict[str, str]:
 
 def _collect_java_retired_rules(bootui_root: str) -> dict[str, str]:
     java_retired: dict[str, str] = {}
-    rapi_def_regex = re.compile(
-        r'new\s+RestApiRuleDefinition\(\s*"(RAPI-[A-Z0-9-]+)"\s*,\s*"(?:\\.|[^"\\])*"\s*,'
-        r'\s*RestApiCategory\.\w+\s*,\s*"(?:\\.|[^"\\])*"\s*,\s*'
-        r'((?:"(?:\\.|[^"\\])*"\s*\+?\s*)+)'
-    )
     for jf in _iter_java_files(bootui_root):
         jf_norm = _rel_posix(jf, bootui_root)
         if "/src/main/java/" not in f"/{jf_norm}" or "DocsCommand.java" in jf_norm:
@@ -583,11 +578,6 @@ def _collect_java_retired_rules(bootui_root: str) -> dict[str, str]:
                     reason = "".join(re.findall(r'"((?:\\.|[^"\\])*)"', evaluate.group(1)))
                     if reason.startswith("Retired heuristic:"):
                         java_retired[rid_match.group(1)] = reason
-            for m in rapi_def_regex.finditer(jcode):
-                rid, desc_expr = m.groups()
-                desc = "".join(re.findall(r'"((?:\\.|[^"\\])*)"', desc_expr))
-                if desc.startswith("Retired heuristic:"):
-                    java_retired.setdefault(rid, desc)
     return java_retired
 
 
