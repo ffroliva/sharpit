@@ -36,9 +36,9 @@ There are two layers:
 - **The engine** (`src/sharpit/engine/`) knows nothing about FastAPI or Starlette. It holds the rules: activation,
   the guard, masking, collectors, live streams, and the MCP server. Each collector takes plain data and returns BootUI's JSON
   shapes.
-- **The FastAPI adapter** (`src/sharpit/fastapi/`) is the only code that touches the web framework. It reads your
-  app's routes, dependencies and lifespan (`introspector.py`), mounts the sub-app, attaches runtime capture hooks, and turns
-  HTTP requests into engine calls. A Django or Flask adapter would replace only this layer.
+- **The FastAPI adapter** (`src/sharpit/fastapi/`) mounts the console, reads app routes, dependencies and lifespan
+  (`introspector.py`), attaches runtime capture hooks, and turns HTTP requests into engine calls. The Flask adapter
+  (`src/sharpit/flask/`) reads route metadata for the pytest advisor; it does not mount the console.
 
 ## When it turns on
 
