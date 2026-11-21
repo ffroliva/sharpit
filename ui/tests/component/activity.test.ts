@@ -62,32 +62,29 @@ it('steps between profileable requests from the open profile', async () => {
   const second = { ...entry, id: 'r2', summary: 'GET /pets', path: '/pets' };
   const unprofileable = { ...entry, id: 'sql1', type: 'SQL', profileable: false, summary: 'SELECT 1' };
   h.route((url) => {
-    if (url.startsWith('api/activity/request/')) return json(200, { ...profile, request: { ...(profile.request ?? entry), id: url.endsWith('r2') ? 'r2' : 'r1' } });
+    if (url.startsWith('api/activity/request/')) return json(200, { ...profile, request: { ...(profile.request ?? entry), id: url.slice('api/activity/request/'.length) } });
     return isFeed(url) ? json(200, report([entry, unprofileable, second])) : undefined;
   });
   h.mount(Activity);
   await until(() => expect(h.text()).toContain('GET /pets'));
-  h.target.querySelectorAll<HTMLButtonElement>('button.link')[1]!.click();
+  [...h.target.querySelectorAll<HTMLButtonElement>('button.link')].find((button) => button.textContent?.includes('GET /owners'))!.click();
   await until(() => expect(h.text()).toContain('7 executions'));
   const nextButton = () => h.target.querySelector<HTMLButtonElement>('button[aria-label="Next profileable entry"]')!;
   const previousButton = () => h.target.querySelector<HTMLButtonElement>('button[aria-label="Previous profileable entry"]')!;
-  const next = nextButton();
-  expect(next).not.toBeNull();
-  const previous = previousButton();
-  expect(previous).not.toBeNull();
-  expect(previous!.disabled).toBe(false);
-  expect(next!.disabled).toBe(true);
-  await until(() => expect(h.calls('GET')).toContain('api/activity/request/r2'));
-  previous!.click();
-  await until(() => expect(previousButton().disabled).toBe(true));
-  expect(h.calls('GET')).toContain('api/activity/request/r1');
+  await until(() => expect(h.text()).toContain('7 executions'));
   expect(previousButton().disabled).toBe(true);
   expect(nextButton().disabled).toBe(false);
   nextButton().click();
-  await until(() => expect(nextButton().disabled).toBe(true));
-  expect(h.calls('GET')).toContain('api/activity/request/r2');
+  await until(() => expect(h.calls('GET')).toContain('api/activity/request/r2'));
+  await until(() => expect(h.target.querySelector('button[aria-label="Previous profileable entry"]')).not.toBeNull());
+  expect(h.calls('GET')).not.toContain('api/activity/request/sql1');
   expect(previousButton().disabled).toBe(false);
   expect(nextButton().disabled).toBe(true);
+  previousButton().click();
+  expect(h.calls('GET')).toContain('api/activity/request/r1');
+  await until(() => expect(h.text()).toContain('7 executions'));
+  await until(() => expect(previousButton().disabled).toBe(true));
+  expect(nextButton().disabled).toBe(false);
 });
 
 it('reloads on a stream tick, and sends the route filter as q', async () => {
