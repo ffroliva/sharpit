@@ -70,12 +70,15 @@
 | 36 | D5, D8 | Flask route matching meets a mounted `SCRIPT_NAME`, a trailing-slash redirect, a wrong method or a matcher exception | High | The matched rule composes with `SCRIPT_NAME`, not found is `not_found`, every other outcome is `unobservable`, no view executes, and nothing raised by matching reaches the host. | Integration |
 | 37 | D4 | The status finding is produced for different observed statuses of the same route | Medium | The fingerprint ignores the observed status and the configured set, and the header finding's identity includes the header name; observed statuses appear only in the message. | Unit |
 | 38 | D3, D4 | The opaque attempt key is compared with digests of the test node ID | Low | The key is a counter or random value, not derived from the node ID. | Unit |
+| 39 | D4, D9 | A selection run (`-k`, one file or `--lf`) observes the expected route, and every observed exchange is clean | High | The expectation is PASSED, not UNKNOWN; the reason `selection run` appears only when no matching exchange exists. A violation in the selected tests is still FAILED. | Integration |
+| 40 | D4, D8 | A route with a header expectation receives a legitimate 304 or an error response that omits the header | High | Per-exchange evaluation reports that exchange as a violation. Status-scoped header expectations are deferred and out of scope for this lane; tests that exercise such responses target a route without the header expectation. | Integration |
 
 ## Outcome semantics for a configured expectation
 
 | Situation | Result |
 |---|---|
 | Observed on a complete run, no violating exchange | PASSED |
+| Observed on a selection run, no violating exchange | PASSED; reason `selection run` appears only when no matching exchange exists |
 | Any violating exchange, complete or selection run | FAILED, one finding per rule and policy key |
 | No matching complete exchange, complete run | UNKNOWN, reason `no matching exchange` |
 | No matching complete exchange, selection run (`-k`, `-m`, file, node ID, `--lf`, `--deselect`) | UNKNOWN, reason `selection run`; fails unless allow-unknown is set |
@@ -153,6 +156,7 @@ PARTIAL is never used for a configured expectation: a clean PARTIAL run passes.
 - Observed 500 remains bounded internal evidence without a finding or diagnostic report; no separate report assertion is required.
 - Unrelated informational coverage may be PARTIAL; it never changes a configured expectation's UNKNOWN state.
 - Production TLS termination, reverse-proxy headers and browser behavior: outside in-process test observation; track separately if deployment-edge coverage is required.
+- Status-scoped header expectations (a header required only for some statuses of a route): deferred and documented. A header expectation applies to every finished exchange of its route, including 304 and error responses.
 - Generic authentication, tenant ownership, fail-closed identity and response-body disclosure assertions: remain application-authored tests until the application supplies explicit intent and safe bounded evidence.
 
 ## Known-issues cross-reference
