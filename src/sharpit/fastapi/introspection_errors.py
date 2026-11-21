@@ -74,6 +74,27 @@ def _key(key: object) -> tuple[str | None, int | None]:
     return None, None
 
 
+def _key_mro(key: object, key_type: str | None) -> tuple[str, ...]:
+    if type(key) is not type or key_type is None:
+        return ()
+    return tuple(_mro_names(key) or [key_type])
+
+
+def _mro_names(key: type) -> list[str]:
+    """The class's MRO as qualified names; empty when any class in it cannot be read plainly."""
+    names: list[str] = []
+    try:
+        for cls in type.__getattribute__(key, "__mro__"):
+            module = type.__getattribute__(cls, "__module__")
+            qualname = type.__getattribute__(cls, "__qualname__")
+            if type(module) is not str or type(qualname) is not str:
+                return []
+            names.append(qualname if module == "builtins" else f"{module}.{qualname}")
+    except Exception:  # introspection degrades to the exact name, never crashes the host
+        return []
+    return names
+
+
 def _handler_row(
     key: object, handler: object, scope: str, target: str | None, limitations: list[str]
 ) -> ErrorHandlerInfo:
@@ -86,7 +107,7 @@ def _handler_row(
         if target is None:
             row_target = f"status={key_status}"
     name, is_partial = handler_name(handler)
-    return ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial)
+    return ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial, _key_mro(key, key_type))
 
 
 def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHandlerInfo], list[str]]:

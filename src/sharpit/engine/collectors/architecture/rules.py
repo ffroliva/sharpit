@@ -235,16 +235,35 @@ def _eval_cycles(graph: ImportGraph, out: list[Finding]) -> None:
         out.append(Finding("ARCH-PKG-001", ADVISOR, "HIGH", target, msg))
 
 
+def _is_internal_part(part: str) -> bool:
+    return part == "internal" or (part.startswith("_") and not part.startswith("__"))
+
+
+def _crosses_internal_boundary(app_package: str | None, src_mod: str, target: str) -> bool:
+    """Whether ``target`` is an internal module that ``src_mod`` does not own (relative to the application package)."""
+    if not app_package:
+        return any(_is_internal_part(p) for p in target.split("."))
+    prefix = f"{app_package}."
+    if not target.startswith(prefix):
+        return False
+    parts = target[len(prefix) :].split(".")
+    internal_index = next((i for i, part in enumerate(parts) if _is_internal_part(part)), None)
+    if internal_index is None:
+        return False
+    owner = prefix + ".".join(parts[:internal_index])
+    return not (src_mod == owner or src_mod.startswith(f"{owner}."))
+
+
 def _eval_internal_imports(graph: ImportGraph, out: list[Finding]) -> None:
     for src_mod, edges in graph.edges.items():
         src_pkg = src_mod.rpartition(".")[0]
         for edge in edges:
-            parts = edge.target.split(".")
-            if any(p == "internal" or (p.startswith("_") and not p.startswith("__")) for p in parts):
-                tgt_pkg = edge.target.rpartition(".")[0]
-                if not (edge.target.startswith(f"{src_pkg}.") or src_pkg == tgt_pkg):
-                    msg = f"{src_mod} ({edge.path.name}:{edge.line}) imports internal module {edge.target}"
-                    out.append(Finding("ARCH-MOD-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
+            if not _crosses_internal_boundary(graph.app_package, src_mod, edge.target):
+                continue
+            tgt_pkg = edge.target.rpartition(".")[0]
+            if not (edge.target.startswith(f"{src_pkg}.") or src_pkg == tgt_pkg):
+                msg = f"{src_mod} ({edge.path.name}:{edge.line}) imports internal module {edge.target}"
+                out.append(Finding("ARCH-MOD-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
 
 
 def _eval_module_ast(

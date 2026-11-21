@@ -59,6 +59,8 @@ def _resolve_relative(package: str, level: int, module: str | None) -> str | Non
 class ImportGraph:
     nodes: set[str] = field(default_factory=set[str])
     edges: dict[str, list[ImportEdge]] = field(default_factory=dict[str, list[ImportEdge]])
+    packages: set[str] = field(default_factory=set[str])
+    app_package: str | None = None
 
     def find_cycles(self) -> list[Cycle]:
         """Tarjan strongly connected components of size >= 2 over module edges."""
@@ -69,10 +71,10 @@ class ImportGraph:
         pkg_nodes: set[str] = set()
         pkg_edges: dict[str, list[ImportEdge]] = {}
         for source, edges in self.edges.items():
-            src_pkg = source.rpartition(".")[0] if "." in source else source
+            src_pkg = source if source in self.packages else source.rpartition(".")[0]
             pkg_nodes.add(src_pkg)
             for edge in edges:
-                tgt_pkg = edge.target.rpartition(".")[0] if "." in edge.target else edge.target
+                tgt_pkg = edge.target if edge.target in self.packages else edge.target.rpartition(".")[0]
                 if src_pkg != tgt_pkg:
                     pkg_nodes.add(tgt_pkg)
                     pkg_edges.setdefault(src_pkg, []).append(ImportEdge(src_pkg, tgt_pkg, edge.line, edge.path))
@@ -188,8 +190,10 @@ def _module_edges(
 def build_graph(index: SourceIndex, app_package: str | None = None) -> ImportGraph:
     """Build application internal module import graph from SourceIndex."""
     graph = ImportGraph()
+    graph.app_package = app_package
     known = index.modules
     graph.nodes.update(known)
+    graph.packages.update(name for name, info in known.items() if info.path.name == "__init__.py")
 
     base_pkgs = {app_package} if app_package else {m.partition(".")[0] for m in known if m}
 

@@ -26,7 +26,6 @@ UNRESOLVED_CITATION_ITEMS = {
     ("ArchitectureRulesTests", "exceptionsShouldBeNamedEndingWithException"),
     ("ArchitectureRulesTests", "internalPackagesShouldNotBeAccessedFromOtherModules"),
     ("ArchitectureRulesTests", "loggersShouldBePrivateFinalOrContainerManaged"),
-    ("ArchitectureRulesTests", "packagesShouldBeFreeOfCycles"),
     ("ArchitectureRulesTests", "repositoriesShouldNotDependOnControllers"),
     ("ArchitectureRulesTests", "repositoriesShouldNotDependOnServices"),
     ("ArchitectureRulesTests", "servicesAndRepositoriesShouldNotDependOnWebRequestTypes"),

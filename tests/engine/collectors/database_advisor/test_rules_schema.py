@@ -22,15 +22,17 @@ def _fk(name: str | None, columns: list[str], table: str, referred: list[str], *
 
 
 def _table(name: str, *columns: dict[str, Any], pk: tuple[str, ...] = ("id",), fks: tuple[dict[str, Any], ...] = (),
-           indexes: tuple[dict[str, Any], ...] = (), truncated: bool = False) -> dict[str, Any]:  # fmt: skip
-    return {"schema": None, "name": name, "truncated": truncated, "columns": list(columns) or [_column("id")],
+           indexes: tuple[dict[str, Any], ...] = (), truncated: bool = False,
+           pk_name: str | None = None) -> dict[str, Any]:  # fmt: skip
+    return {"schema": None, "name": name, "truncated": truncated, "primaryKeyName": pk_name,
+            "columns": list(columns) or [_column("id")],
             "primaryKey": list(pk), "foreignKeys": list(fks), "indexes": list(indexes)}  # fmt: skip
 
 
-def _source(*tables: dict[str, Any], status: str = "AVAILABLE") -> Source:
-    catalog = {"dialect": "sqlite", "tables": list(tables), "tableCount": len(tables), "truncated": False,
+def _source(*tables: dict[str, Any], status: str = "AVAILABLE", dialect: str = "sqlite") -> Source:
+    catalog = {"dialect": dialect, "tables": list(tables), "tableCount": len(tables), "truncated": False,
                "complete": True, "diagnostics": [], "server": {}}  # fmt: skip
-    return Source("db", "sqlite", "pysqlite", status, None, catalog if status != "FAILED" else {})
+    return Source("db", dialect, "driver", status, None, catalog if status != "FAILED" else {})
 
 
 def _check(rule_id: str, source: Source) -> Outcome:
@@ -116,6 +118,19 @@ def test_foreign_key_type_mismatch_uses_the_referenced_column() -> None:
     assert _targets(_check("DB-SCHEMA-004", _source(PARENT, child))) == ["db/lines.order_code"]
 
 
+def test_postgresql_serial_aliases_match_their_integer_types():
+    # ported: DatabaseAdvisorSchemaRulesTests.postgresSerialTypesAndUnboundedSentinelsAreComparedAccurately
+    parent = _table("orders", _column("id", "INTEGER"))
+    child = _table(
+        "lines",
+        _column("order_id", "SERIAL"),
+        pk=(),
+        fks=(_fk("fk_order", ["order_id"], "orders", ["id"]),),
+    )
+
+    assert _targets(_check("DB-SCHEMA-004", _source(parent, child, dialect="postgresql"))) == []
+
+
 def test_identical_declarations_are_not_a_type_mismatch() -> None:
     # ported: DatabaseAdvisorSchemaRulesTests.onlyIdenticalFullyReportedDeclarationsMakeUnmodeledFamiliesComparable
     fk = _fk("fk_code", ["order_code"], "orders", ["code"])
@@ -126,10 +141,20 @@ def test_identical_declarations_are_not_a_type_mismatch() -> None:
 
 def test_unique_index_on_the_primary_key_columns_is_reported() -> None:
     # ported: DatabaseAdvisorSchemaRulesTests.primaryKeyBackingIndexIsNeverGuessedFromItsNameOrColumns
-    table = _table("orders", _column("id"), _column("code"), indexes=(
-        _index("uq_id", "id", unique=True), _index("uq_code", "code", unique=True), _index("ix_id", "id")))  # fmt: skip
+    table = _table("orders", _column("id"), _column("code"), pk_name="pk_orders", indexes=(
+        _index("pk_orders", "id", unique=True), _index("uq_id", "id", unique=True),
+        _index("uq_code", "code", unique=True), _index("ix_id", "id")))  # fmt: skip
 
     assert _targets(_check("DB-SCHEMA-005", _source(table))) == ["db/orders.uq_id"]
+
+
+def test_unique_index_without_observed_primary_key_backing_is_not_called_redundant() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.tablesWithOnlyNonUniqueSecondaryIndexesOrUnrelatedUniqueIndexesDoNotTriggerUnknownBackingDiagnostics  # noqa: E501
+    table = _table("orders", _column("id"), _column("customer_id"), indexes=(
+        _index("uq_id", "id", unique=True), _index("ix_customer", "customer_id"),
+        _index("uq_customer", "customer_id", unique=True)))  # fmt: skip
+
+    assert _targets(_check("DB-SCHEMA-005", _source(table))) == []
 
 
 def test_duplicate_foreign_keys_need_identical_pairs_and_actions() -> None:
@@ -151,6 +176,15 @@ def test_generated_small_key_is_reported() -> None:
     wide = _table("wide", _column("id", "BIGINT", autoincrement=True))
 
     assert _targets(_check("DB-SCHEMA-007", _source(tiny, plain, wide))) == ["db/tiny.id"]
+
+
+def test_generated_postgresql_serial_aliases_use_their_integer_width() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.generatedSmallKeyReportsBoundsNotLifetimeRows
+    small = _table("small", _column("id", "serial2", autoincrement=True))
+    regular = _table("regular", _column("id", "serial4", autoincrement=True))
+    large = _table("large", _column("id", "serial8", autoincrement=True))
+
+    assert _targets(_check("DB-SCHEMA-007", _source(small, regular, large))) == ["db/small.id"]
 
 
 def test_finding_identity_never_holds_a_value() -> None:
