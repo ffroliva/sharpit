@@ -364,8 +364,9 @@ def test_shape_keys_match_bootui():
     assert tuple(detail["group"]) == GROUP_KEYS
     assert tuple(detail["frames"][0]) == ("declaringClass", "methodName", "fileName", "lineNumber", "applicationFrame")
     assert tuple(detail["occurrences"][0]) == (
-        "timestamp", "thread", "requestMethod", "requestPath", "handler", "source", "traceId",
+        "timestamp", "thread", "requestMethod", "requestPath", "handler", "source", "traceId", "requestId",
     )  # fmt: skip
+    assert detail["occurrences"][0]["requestId"] == detail["occurrences"][0]["traceId"]
 
 
 def test_unknown_id_404():

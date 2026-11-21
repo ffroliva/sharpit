@@ -414,6 +414,7 @@ def test_shape_keys_match_bootui():
     assert REPORT_KEYS == (
         "available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption",
     )  # fmt: skip
+    # BootUI v2.5.0 RequestProfileDto.java:35-51
     assert PROFILE_KEYS == (
         "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
         "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",

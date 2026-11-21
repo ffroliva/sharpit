@@ -44,7 +44,8 @@ class ResourceProfile:
         return {
             "state": "UNAVAILABLE", "reason": self._reason(), "sampler": None, "startedAt": None, "endsAt": None,
             "finishedAt": None, "maxDurationSeconds": int(self.max_duration), "cpuSamples": 0, "outsideSamples": 0,
-            "requests": 0, "routes": [], "routesOmitted": 0, "limitations": [],
+            "requests": 0, "virtualThreadPinningSupported": False, "pinnedEvents": 0, "outsidePinnedEvents": 0,
+            "pinnedDurationMicros": 0, "routes": [], "routesOmitted": 0, "limitations": [],
         }  # fmt: skip
 
 

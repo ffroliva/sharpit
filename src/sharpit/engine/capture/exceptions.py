@@ -337,6 +337,7 @@ class ExceptionStore:
             "handler": request.endpoint if request else None,
             "source": source,
             "traceId": request.id if request else None,
+            "requestId": request.id if request else None,
         }
         gid = hashlib.sha256(key.encode()).hexdigest()[:16]
         with _guarded(self._lock):
