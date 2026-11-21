@@ -426,12 +426,28 @@ _BINDING_LITERALS: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str]],
 )
 
 
+# A pattern can only match text that holds one of these phrases, so a text without them skips the pattern's scan.
+_NEEDLES: dict[re.Pattern[str], tuple[str, ...]] = {
+    _PYDANTIC_LOC: ("\n  ",),
+    _UUID_CHAR: ("found `",),
+    _INT_LITERAL: ("invalid literal for int() with base ",),
+    _FLOAT_LITERAL: ("could not convert string to float: ",),
+    _TIME_DATA: ("time data ",),
+    _UNCONVERTED_DATA: ("unconverted data remains:",),
+    _ISOFORMAT: ("Invalid isoformat string: ",),
+    _ENUM_INPUT: (" is not a valid ",),  # a repr or number without the Enum message is kept as written
+    _PYDANTIC_INPUT_VALUE: ("input_value=",),
+    _PYDANTIC_CUSTOM_MESSAGE: ("Value error, ", "Assertion failed, "),
+}
+
+
 def scrub_binding_literals(text: str | None) -> str | None:
     """``text`` with the user-input literal of each recognized binding message replaced by the mask."""
     if not text:
         return text
     for pattern, replacement in _BINDING_LITERALS:
-        text = pattern.sub(replacement, text)
+        if any(needle in text for needle in _NEEDLES[pattern]):
+            text = pattern.sub(replacement, text)
     return text
 
 
