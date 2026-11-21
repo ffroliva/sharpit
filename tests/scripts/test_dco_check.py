@@ -177,7 +177,7 @@ def test_main_never_prints_a_message_body(monkeypatch: pytest.MonkeyPatch, capsy
 def test_main_strips_control_characters_from_a_subject(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    gh = _Gh(json.dumps([_commit("fix: \x1b[31mred\rpart\n", sha="4" * 40)]))
+    gh = _Gh(json.dumps([_commit("fix: \x1b[31mred\x07part\n", sha="4" * 40)]))
     _run_main(monkeypatch, gh)
     lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("4444444 ")]
     assert lines == [f"4444444 fix:  [31mred part - {MISSING}"]
