@@ -11,7 +11,8 @@ import asyncio
 import functools
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +145,23 @@ def _send(client: TestClient, method: str, path: str, headers: dict[str, str]) -
     return client.request(method, path, headers=headers, json=PING if method == "POST" else None)
 
 
+@pytest.fixture(scope="module")
+def matrix_client() -> Iterator[Callable[[bool, tuple[str, int]], TestClient]]:
+    """One entered client per (remote access, peer): TestClient starts a thread per request outside ``with``, which
+    dominates the 1000 matrix rows on Windows. Each request still starts with an empty cookie jar."""
+    with ExitStack() as stack:
+        clients: dict[tuple[bool, tuple[str, int]], TestClient] = {}
+
+        def get(remote_access: bool, peer: tuple[str, int]) -> TestClient:
+            key = (remote_access, peer)
+            if key not in clients:
+                clients[key] = stack.enter_context(_client(_app(remote_access), peer))
+            clients[key].cookies.clear()
+            return clients[key]
+
+        yield get
+
+
 @pytest.mark.parametrize(
     ("variant", "peer", "headers", "remote_access", "outcome"), VARIANTS, ids=[v[0] for v in VARIANTS]
 )
@@ -159,8 +177,9 @@ def test_guard_matrix(
     headers: dict[str, str],
     remote_access: bool,
     outcome: str,
+    matrix_client: Callable[[bool, tuple[str, int]], TestClient],
 ):
-    resp = _send(_client(_app(remote_access), peer), method, path, headers)
+    resp = _send(matrix_client(remote_access, peer), method, path, headers)
     outcome = _OUTCOME_ALIASES.get(outcome, outcome)
     if outcome == "403-cross-api":  # every API row needs a token, so needs_token is "is an API path"
         outcome = MESSAGE_CROSS_SITE if needs_token else "ok"
