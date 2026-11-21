@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from sharpit.engine.collectors.pentesting.report import RULE_ORDER as PENTESTING_RULE_ORDER
 from sharpit.engine.collectors.restapi.rules import RULE_IDS
 from sharpit.engine.panels04 import module_implemented
 
@@ -13,6 +14,7 @@ from sharpit.engine.panels04 import module_implemented
 _VULNERABILITY_KEY = r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+"
 _VULNERABILITY = re.compile(_VULNERABILITY_KEY)
 _DIGEST = r":[0-9a-f]{16}"
+_PENTESTING_RULE_IDS = frozenset(PENTESTING_RULE_ORDER)
 _HTTP_SECURITY_RULE = r"HTTP-SEC-[0-9]{3}"  # NOSONAR - \d also matches non-ASCII digits; rule IDs are ASCII
 _HTTP_SECURITY = re.compile(_HTTP_SECURITY_RULE)
 
@@ -81,6 +83,12 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
     _prefixed("security", "SEC"),
     _prefixed("architecture", "ARCH"),
     _prefixed("fastapi", "FASTAPI", "SPRING"),
+    AdvisorSpec(
+        "pentesting",
+        "pentesting",
+        _PENTESTING_RULE_IDS.__contains__,
+        fingerprint=None,
+    ),
 )
 
 

@@ -4,8 +4,8 @@
 Ported: the ``McpDispatcher.callTool`` gates that ``BootUiMcpServiceTests`` exercises through the codec (they are cited
 here where the engine owns the behaviour, and again in ``test_mcp.py`` where the codec renders it).
 Dropped, with reason:
-- ``advisor*`` cases (``RULE_VIOLATIONS`` schema, ``scanId``/``offset`` paging, stale snapshots): no advisor tools in
-  the MVP catalogue.
+- advisor-detail cases (``RULE_VIOLATIONS`` schema, ``scanId``/``offset`` paging, stale snapshots): the A10
+  pentesting tools expose a report and bounded scan summary, not paged violations.
 - ``McpDispatcher`` interrupt bookkeeping (``invocationState``): Python threads cannot be interrupted; the slot is
   released only when the worker finishes, so abandoned workers count against the cap
   (``test_timeout_releases_semaphore``).
@@ -284,10 +284,16 @@ def test_every_action_tool_references_an_action_capable_panel():
 
 
 def test_mcp_call_action_tool_unknown_32602():
-    # new: brief ruling (MCP never sees an action tool, spec §9)
+    # new: BootUI actions other than pentest_scan remain CLI-only
     with pytest.raises(RpcError) as exc:
         call_tool(_call(_ctx()), "vulnerabilities_scan", {}, via="mcp")
     assert (exc.value.code, exc.value.message) == (INVALID_PARAMS, "Unknown tool: vulnerabilities_scan")
+
+
+def test_bootui_pentest_scan_is_the_mcp_action_tool():
+    tool = Tool("pentest_scan", "scan", NONE_SCHEMA, "pentesting", True, lambda _call, _args: {"scan": True})
+
+    assert call_tool(_call(_ctx()), "pentest_scan", {}, via="mcp", tools=(tool,)) == {"scan": True}
 
 
 @pytest.mark.parametrize(

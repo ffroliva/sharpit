@@ -423,8 +423,8 @@ def _no_seed(_handle: SharpitHandle) -> Callable[[], object]:
 
 
 Seed = Callable[[SharpitHandle], Callable[[], object]]
-# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe). A lane declares its own in its
-# safety file (CLI_ACTIONS = ["<tool>", ...]); cli_action_cases adds them while the lane's flag is on.
+# CLI action tools: (tool, panel, seed returning a state probe). `pentest_scan` also has its BootUI MCP action;
+# other actions are CLI-only. Each lane declares its CLI names in its safety file.
 BASE_CLI_ACTIONS: list[tuple[str, str, Seed]] = [
     ("clear_exceptions", "exceptions", _seed_exceptions),
     ("clear_sql_traces", "sql-trace", _seed_sql_trace),
@@ -467,7 +467,39 @@ def test_cli_action_tools_gated(
         assert (resp.status_code, resp.json()) == (403, {"error": reason})
         assert probe() == before
         listed = client.post("/sharpit/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).json()
-        assert tool not in [t["name"] for t in listed["result"]["tools"]]
+        names = [t["name"] for t in listed["result"]["tools"]]
+        assert (tool == "pentest_scan") is (tool in names)
+    finally:
+        handle.uninstall_capture()
+
+
+@pytest.mark.parametrize("gate", ["panel-disabled", "panel-read-only"])
+def test_mcp_pentest_action_is_gated_before_host_invocation(gate: str) -> None:
+    app = FastAPI()
+    host_calls: list[str] = []
+
+    @app.get("/__bootui_pentesting__/missing-resource")
+    async def synthetic_probe():
+        host_calls.append("GET")
+        return {"status": "missing"}
+
+    handle = install(app, enabled="ON", show_banner=False, mcp_enabled="ON", **GATES[gate]("pentesting"))
+    try:
+        response = _client(app).post(
+            "/sharpit/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "pentest_scan", "arguments": {}},
+            },
+        )
+
+        expected = disabled_reason("pentesting") if gate == "panel-disabled" else read_only_reason("pentesting", False)
+        assert response.status_code == 200
+        assert response.json()["result"]["isError"] is True
+        assert response.json()["result"]["content"][0]["text"] == expected
+        assert host_calls == []
     finally:
         handle.uninstall_capture()
 
@@ -780,7 +812,7 @@ CLI_ACTIONS = ["probe_action"]
 
 
 def test_cli_actions_declared_per_lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # 0.5.0 spec §4.4: a lane's safety file declares its CLI-only actions; test_cli_action_tools_gated picks them up
+    # 0.5.0 spec §4.4: a lane's safety file declares its CLI actions; test_cli_action_tools_gated picks them up
     package = tmp_path / "cli_lane_pkg"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")

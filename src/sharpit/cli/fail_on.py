@@ -83,6 +83,8 @@ ADVISOR_TOOLS: frozenset[str] = frozenset(
         "get_database_advisor_report",
         "fastapi_scan",
         "get_fastapi_report",
+        "pentest_scan",
+        "get_pentest_report",
         "rest_api_scan",
         "get_rest_api_report",
         "security_scan",

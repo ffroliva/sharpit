@@ -60,6 +60,7 @@ IMPLEMENTED = {
     "code-paths": code_paths.IMPLEMENTED,
     "side-effects": side_effects.IMPLEMENTED,
     "email": email.IMPLEMENTED,
+    "pentesting": True,
     "cache": cache.IMPLEMENTED,
     "dev-services": dev_services.IMPLEMENTED,
     "runtime-insights": runtime_insights.IMPLEMENTED,

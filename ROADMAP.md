@@ -7,11 +7,11 @@ Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 t
 
 | | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
 |---|---|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 71 | 116 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | 62 | - | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| MCP/CLI tools | 54 | 71 | 71 | 73 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
 | Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 66 | not captured | not captured |
+| BootUI API routes served, of the 65 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 65 | not captured | not captured |
 
 `tests/docs/test_parity_matrix.py` recomputes the sharpit 0.8.0 column from the code and the BootUI 2.5.0 fixtures
 on every run. Routes remain measured against the 2.3.0 live goldens; the 2.5.0 static fixtures pin tools, properties,
