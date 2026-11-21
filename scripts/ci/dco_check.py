@@ -8,6 +8,7 @@ The environment carries GH_TOKEN, REPO (`owner/name`) and PR_NUMBER. Standard li
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from typing import Any, NamedTuple
 
@@ -57,6 +58,8 @@ def check_commits(commits: list[dict[str, Any]]) -> list[Failure]:
 
 
 def main() -> int:
+    out = subprocess.run(["gh", "api", "--paginate", "x"], capture_output=True, text=True, check=False).stdout
+    print(out)
     return 3
 
 
