@@ -111,6 +111,4 @@ def test_malformed_autodetected_flask_map_is_unknown(pytester: Any) -> None:
     run = next(item for item in report["advisors"] if item["advisor"] == "rest-api")
 
     assert run["status"] == "UNKNOWN"
-    assert (
-        run["reason"] == "app appmod:app has no application routes; rest-api skipped (pass --sharpit-app module:attr)"
-    )
+    assert run["reason"] == "application routes cannot be inspected (Flask URL map)"

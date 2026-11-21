@@ -1,0 +1,1 @@
+adapter:flask-route-metadata	adapted	BootUI 2.5.0 has no Flask route model; Flask route metadata is read statically, unreadable maps report UNKNOWN, and callable views are identified by class without invocation; docs/reference/FLASK-ROUTE-MODEL.md

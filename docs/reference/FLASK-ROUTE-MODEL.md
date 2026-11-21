@@ -9,7 +9,11 @@ including automatically added `HEAD` and `OPTIONS`, and preserves the rule's sla
 
 The route model has no fields for `strict_slashes`, subdomain or host constraints, converter semantics, blueprint
 provenance, declared-versus-automatic methods, response metadata, or produced and consumed media types. These facts are
-not inferred; host is `null`, and unavailable response and media metadata are `null`. A malformed or unreadable URL map
-produces no routes, allowing the pytest advisor to report `UNKNOWN` when route presence is required.
+not inferred; host is `null`, and unavailable response and media metadata are `null`. An unreadable URL map is
+distinct from a confirmed empty map: route inspection returns `None` when the map cannot be read, and an explicitly
+selected app is reported as `UNKNOWN`. Unreadable rule fields are skipped without evaluating descriptors. Callable
+views are represented by their class identity and are never called.
 
 Flask route introspection does not mount the sharpit console in Flask applications.
+
+BootUI 2.5.0 has no Flask route model, so these framework-specific behaviors have no BootUI parity counterpart.
