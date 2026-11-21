@@ -294,6 +294,14 @@ def _classify_unmatched_mapping(mapping: dict[str, object]) -> None:
     mapping["reason"] = _MAPPING_REASONS[classification]
 
 
+def _starter_mapping_paths(prefix: str, args: str) -> list[str]:
+    paths = []
+    for suffix in re.findall(r'"([^"]*)"', args) or [""]:
+        path = (prefix + suffix).replace("//", "/") or "/"
+        paths.append(path if path.startswith("/") else "/" + path)
+    return paths
+
+
 def _extract_starter_mappings(bootui_root: str) -> tuple[list[dict], list[dict]]:
     starter_src = _fs_path(bootui_root) / "bootui-spring-boot-starter/src/main/java"
     starter_controllers = _iter_java_files(starter_src)
@@ -322,19 +330,16 @@ def _extract_starter_mappings(bootui_root: str) -> tuple[list[dict], list[dict]]
                 parent_by_class[class_name] = parent_name
         for match in re.finditer(r"@(Get|Post|Delete|Put|Patch)Mapping\b(\s*\((?:[^()]|\([^()]*\))*\))?", ccode):
             method, args = match.group(1).upper(), match.group(2) or ""
-            for suffix in re.findall(r'"([^"]*)"', args) or [""]:
-                path = (prefix + suffix).replace("//", "/") or "/"
-                if not path.startswith("/"):
-                    path = "/" + path
-                starter_mappings.append(
-                    {
-                        "controller": cp.name,
-                        "source": _rel_posix(cp, bootui_root),
-                        "line": ccode[: match.start()].count("\n") + 1,
-                        "verb": method,
-                        "path": path,
-                    }
-                )
+            starter_mappings.extend(
+                {
+                    "controller": cp.name,
+                    "source": _rel_posix(cp, bootui_root),
+                    "line": ccode[: match.start()].count("\n") + 1,
+                    "verb": method,
+                    "path": path,
+                }
+                for path in _starter_mapping_paths(prefix, args)
+            )
 
     inherited_mappings = []
     for child, parent in parent_by_class.items():
@@ -664,6 +669,31 @@ def _build_rule_additions(
     return rule_additions
 
 
+def _doc_rule_diff_explanation(rid: str, doc_rules: dict[str, dict], java_retired: dict[str, str]) -> str:
+    r_info = doc_rules.get(rid, {})
+    if r_info.get("retired"):
+        return str(r_info["retiredExplanation"])
+    if rid in java_retired:
+        return java_retired[rid]
+    if "HIB" in rid:
+        return "Documented Hibernate check; retired or Jakarta Persistence implicit default"
+    if "DB-" in rid:
+        return "Documented database schema check"
+    return f"Documented check specification in {r_info.get('source')}"
+
+
+def _java_rule_diff_explanation(rid: str, java_rules: dict[str, str], java_retired: dict[str, str]) -> str:
+    if rid in java_retired:
+        return java_retired[rid]
+    if "MEM-" in rid:
+        return "Runtime memory check rule implemented in engine MemoryRules.java"
+    if "ARCH-" in rid:
+        return "Architecture check rule constant in ArchitectureRules.java"
+    if "QS-" in rid:
+        return "Quarkus security check constant in QuarkusSecurityChecks.java"
+    return f"Internal rule constant in {os.path.basename(java_rules.get(rid, ''))}"
+
+
 def _build_diff_explanations(
     in_doc_only: list[str],
     in_java_only: list[str],
@@ -673,31 +703,10 @@ def _build_diff_explanations(
 ) -> dict[str, str]:
     java_rules = java_rules or {}
     java_retired = java_retired or {}
-    diff_explanations: dict[str, str] = {}
-    for rid in in_doc_only:
-        r_info = doc_rules.get(rid, {})
-        if r_info.get("retired"):
-            diff_explanations[rid] = str(r_info["retiredExplanation"])
-        elif rid in java_retired:
-            diff_explanations[rid] = java_retired[rid]
-        elif "HIB" in rid:
-            diff_explanations[rid] = "Documented Hibernate check; retired or Jakarta Persistence implicit default"
-        elif "DB-" in rid:
-            diff_explanations[rid] = "Documented database schema check"
-        else:
-            diff_explanations[rid] = f"Documented check specification in {r_info.get('source')}"
-    for rid in in_java_only:
-        if rid in java_retired:
-            diff_explanations[rid] = java_retired[rid]
-        elif "MEM-" in rid:
-            diff_explanations[rid] = "Runtime memory check rule implemented in engine MemoryRules.java"
-        elif "ARCH-" in rid:
-            diff_explanations[rid] = "Architecture check rule constant in ArchitectureRules.java"
-        elif "QS-" in rid:
-            diff_explanations[rid] = "Quarkus security check constant in QuarkusSecurityChecks.java"
-        else:
-            diff_explanations[rid] = f"Internal rule constant in {os.path.basename(java_rules.get(rid, ''))}"
-    return diff_explanations
+    return {
+        **{rid: _doc_rule_diff_explanation(rid, doc_rules, java_retired) for rid in in_doc_only},
+        **{rid: _java_rule_diff_explanation(rid, java_rules, java_retired) for rid in in_java_only},
+    }
 
 
 def _reconcile_rule_ids(
@@ -816,16 +825,18 @@ def _scan_constants_file(
         r"static\s+final\s+Duration\s+(\w+)\s*=\s*([A-Z]\w+)\.([A-Z0-9_]+)\s*;", source
     ):
         deferred_refs.append((cls, name, ref_cls, ref_name))
-    for name, body in re.findall(
-        r"static\s+final\s+List<String>\s+(\w+)\s*=\s*List\.of\((.*?)\)\s*;", source, re.DOTALL
-    ):
+    _scan_string_lists(source, cls_consts)
+
+
+def _scan_string_lists(source: str, cls_consts: dict[str, object]) -> None:
+    lists = re.findall(r"static\s+final\s+List<String>\s+(\w+)\s*=\s*List\.of\((.*?)\)\s*;", source, re.DOTALL)
+    for name, body in lists:
         clean_body = re.sub(r"//[^\n]*", "", body)
-        items: list[str] = []
-        for token in [t.strip() for t in clean_body.split(",") if t.strip()]:
-            if token.startswith('"') and token.endswith('"'):
-                items.append(token[1:-1])
-            elif token in cls_consts and isinstance(cls_consts[token], str):
-                items.append(str(cls_consts[token]))
+        items = [
+            token[1:-1] if token.startswith('"') and token.endswith('"') else str(cls_consts[token])
+            for token in (part.strip() for part in clean_body.split(","))
+            if token and (token.startswith('"') and token.endswith('"') or isinstance(cls_consts.get(token), str))
+        ]
         cls_consts[name] = items
 
 
@@ -921,24 +932,27 @@ def _resolve_property_default(
     return None, f"BootUiProperties.java:{line_no}"
 
 
+def _read_property_metadata(metadata_file: Path, add_metadata_file: Path) -> dict[str, dict[str, object]]:
+    props_dict: dict[str, dict[str, object]] = {}
+    for path in (metadata_file, add_metadata_file):
+        if not path.is_file():
+            if path == metadata_file:
+                raise FileNotFoundError(f"Maven build did not generate required metadata: {metadata_file}")
+            continue
+        for prop in json.loads(path.read_text(encoding="utf-8")).get("properties", []):
+            name = str(prop.get("name", ""))
+            if name.startswith("bootui."):
+                props_dict[name] = dict(prop)
+    return props_dict
+
+
 def _capture_properties(bootui_root: str, output_dir: str) -> None:
     base = _fs_path(bootui_root)
     metadata_file = base / "bootui-spring-boot-starter/target/classes/META-INF/spring-configuration-metadata.json"
     add_metadata_file = base / (
         "bootui-spring-boot-starter/src/main/resources/META-INF/additional-spring-configuration-metadata.json"
     )
-    if not metadata_file.is_file():
-        raise FileNotFoundError(f"Maven build did not generate required metadata: {metadata_file}")
-
-    props_dict: dict[str, dict[str, object]] = {}
-    for p in json.loads(metadata_file.read_text(encoding="utf-8")).get("properties", []):
-        if str(p.get("name", "")).startswith("bootui."):
-            props_dict[p["name"]] = dict(p)
-
-    if add_metadata_file.is_file():
-        for p in json.loads(add_metadata_file.read_text(encoding="utf-8")).get("properties", []):
-            if str(p.get("name", "")).startswith("bootui."):
-                props_dict[p["name"]] = dict(p)
+    props_dict = _read_property_metadata(metadata_file, add_metadata_file)
 
     constants = _parse_java_constants(bootui_root)
     fields, parent_by_class, api_path_return_line = _parse_bootui_properties_fields(bootui_root)
