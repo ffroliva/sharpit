@@ -9,8 +9,9 @@ from importlib.metadata import PackageNotFoundError, version
 from types import FunctionType
 from typing import cast
 
-from flask import Flask
 from werkzeug.routing import Map
+
+from flask import Flask
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 
 _PARAMETER = re.compile(r"<(?:(?:[^<>:]+):)?([^<>:]+)>")
@@ -19,7 +20,8 @@ _MISSING = object()
 
 def _attribute(value: object, name: str) -> object | None:
     result = inspect.getattr_static(value, name, _MISSING)
-    if result is _MISSING or inspect.isdatadescriptor(result):
+    result_type = cast(type[object], type(result))
+    if result is _MISSING or inspect.getattr_static(result_type, "__get__", _MISSING) is not _MISSING:
         return None
     return result
 

@@ -202,9 +202,7 @@ def load_app(spec: str) -> tuple[str, object]:
 
 
 def _is_flask_app(app: object) -> bool:
-    return not (
-        _classes("flask.app", "Flask") | _classes("flask.sansio.app", "Flask")
-    ).isdisjoint(type(app).__mro__)
+    return not (_classes("flask.app", "Flask") | _classes("flask.sansio.app", "Flask")).isdisjoint(type(app).__mro__)
 
 
 def _app_model(app: object) -> ApiModel | None:
