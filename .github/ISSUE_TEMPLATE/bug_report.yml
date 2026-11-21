@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a bug in sharpit
+labels: [ bug, triage ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please ensure no sensitive information is included:
+        **Warning:** Do not paste tokens, secrets, URLs with credentials, or real production data into public issues.
+        For security vulnerabilities, please refer to [SECURITY.md](https://github.com/ffroliva/sharpit/blob/main/SECURITY.md) instead.
+  - type: input
+    id: sharpit-version
+    attributes:
+      label: sharpit version
+      placeholder: "0.8.0"
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12 or 3.13"
+    validations:
+      required: true
+  - type: input
+    id: framework-and-version
+    attributes:
+      label: Web framework and version
+      description: Web framework and version hosting sharpit (e.g. FastAPI 0.115, Starlette 0.40).
+      placeholder: "FastAPI 0.115.0"
+    validations:
+      required: true
+  - type: input
+    id: install-method
+    attributes:
+      label: Install method
+      description: How sharpit was installed (e.g. uv, pip, poetry, or editable).
+      placeholder: "uv add sharpit"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Describe what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe what should have happened.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide minimal steps or code to reproduce the behavior.
+      placeholder: |
+        1. Mount sharpit on app: sharpit.install(app)
+        2. Send request to ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      description: Please verify that all tokens, credentials, and sensitive data have been redacted.
+      render: shell
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I confirmed that no secrets, tokens, or credentials are included in this report.
+          required: true
+        - label: I searched existing issues before opening this report.
+          required: true

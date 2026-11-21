@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an idea or enhancement for sharpit
+labels: [ enhancement, triage ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature or enhancement for sharpit.
+        sharpit is a Python port of BootUI; features matching BootUI functionality are prioritized.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What developer problem or workflow gap are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe your proposed solution or enhancement.
+    validations:
+      required: true
+  - type: input
+    id: bootui-counterpart
+    attributes:
+      label: BootUI counterpart (if any)
+      description: If this feature exists in BootUI, cite the corresponding panel, property, or source class.
+      placeholder: "e.g. BootUI RequestIdFilter / bootui.http-exchanges.expose-request-id-header"
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any alternative approaches or workarounds considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any extra context, screenshots, or references.
