@@ -82,11 +82,14 @@ def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> N
     ordered = sorted(clauses.items(), key=lambda item: (-len(item[1]), *_location_key(item[0])))
     for location, doubles in ordered[:5]:
         raised = sum(doubles.values())
-        if raised == len(doubles):
-            note = f", {TEST_DOUBLE_NOTE}"
-        else:
-            note = f", {raised} raised by a test double" if raised else ""
+        note = _double_note(raised, len(doubles))
         terminalreporter.write_line(f"  {location}: {_count(len(doubles), 'test')}{note}")
+
+
+def _double_note(raised: int, total: int) -> str:
+    if raised == total:
+        return f", {TEST_DOUBLE_NOTE}"
+    return f", {raised} raised by a test double" if raised else ""
 
 
 def _location_key(location: str) -> tuple[str, tuple[int, int | str]]:
