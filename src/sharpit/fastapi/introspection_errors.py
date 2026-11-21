@@ -90,7 +90,7 @@ def _mro_names(key: type) -> list[str]:
             if type(module) is not str or type(qualname) is not str:
                 return []
             names.append(qualname if module == "builtins" else f"{module}.{qualname}")
-    except Exception:  # noqa: BLE001 - introspection degrades to the exact name, never crashes the host
+    except Exception:  # introspection degrades to the exact name, never crashes the host
         return []
     return names
 
