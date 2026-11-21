@@ -137,8 +137,13 @@ def _validation_error(exc: BaseException) -> bool:
 
 
 def _record_exception(
-    store: ExceptionStore, exc: Exception, source: str, info: RequestInfo | None, thread: str | None,
-    ctx: SharpitContext | None, host_app: object,
+    store: ExceptionStore,
+    exc: Exception,
+    source: str,
+    info: RequestInfo | None,
+    thread: str | None,
+    ctx: SharpitContext | None,
+    host_app: object,
 ) -> None:
     if not _validation_error(exc):
         store.record(exc, source, info, thread)
@@ -149,8 +154,14 @@ def _record_exception(
     route = route_for_scope(info.scope if info is not None else None, host_app)
     message, diagnostics, truncated = validation_details(exc, route, full)
     store.record(
-        exc, source, info, thread, message_override=message, message_override_always=True,
-        binding_diagnostics=diagnostics, binding_diagnostics_truncated=truncated,
+        exc,
+        source,
+        info,
+        thread,
+        message_override=message,
+        message_override_always=True,
+        binding_diagnostics=diagnostics,
+        binding_diagnostics_truncated=truncated,
     )
 
 
@@ -235,14 +246,19 @@ def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: Ex
             return
         try:
             validation = _validation_error(exc)
-            if (sink := dispatch.session_sink()) is not None:
-                if not validation:
-                    sink.on_exception(exc, "handler", TEST.get())
+            if (sink := dispatch.session_sink()) is not None and not validation:
+                sink.on_exception(exc, "handler", TEST.get())
             info = REQUEST.get()
             if info is not None and info.endpoint is None:
                 info.endpoint = _endpoint_name(conn.scope.get("endpoint"))
             _record_exception(
-                store, exc, "handler", info, threading.current_thread().name, wiring._context, wiring.app
+                store,
+                exc,
+                "handler",
+                info,
+                threading.current_thread().name,
+                wiring._context,  # pyright: ignore[reportPrivateUsage]
+                wiring.app,  # pyright: ignore[reportPrivateUsage]
             )
         except Exception as failure:  # noqa: BLE001 - the host's handler always runs
             wiring.hook_failed("exception handler", failure)
@@ -294,17 +310,15 @@ def unwrap_exception_handlers(app: Any) -> None:
         app.exception_handlers = {k: getattr(v, "__sharpit_original__", v) for k, v in handlers.items()}
 
 
-def _record_logged(store: ExceptionStore, record: logging.LogRecord, ctx: SharpitContext) -> None:
+def _record_logged(store: ExceptionStore, record: logging.LogRecord, ctx: SharpitContext | None = None) -> None:
     """The log source: ``logger.exception(...)`` and any record with ``exc_info``."""
     exc = record.exc_info[1] if record.exc_info else None
-    if exc is not None:
+    if isinstance(exc, Exception):
         if (sink := dispatch.session_sink()) is not None and not _validation_error(exc):
             sink.on_exception(exc, "log", TEST.get())
         if _validation_error(exc):
-            wiring = wiring_of(ctx)
-            _record_exception(
-                store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None
-            )
+            wiring = wiring_of(ctx) if ctx is not None else None
+            _record_exception(store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None)
         else:
             override = None if is_database_exception(exc) else record.getMessage()
             store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
@@ -791,7 +805,12 @@ class CaptureMiddleware:
                             if raised is not None:
                                 with _request_end_guard(wiring):
                                     _record_exception(
-                                        store, raised, "request", info, threading.current_thread().name, self.ctx,
+                                        store,
+                                        raised,
+                                        "request",
+                                        info,
+                                        threading.current_thread().name,
+                                        self.ctx,
                                         wiring.app,
                                     )
                         finally:

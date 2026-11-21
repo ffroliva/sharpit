@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from examples.fastapi_sample.app import create_app
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]
 from starlette.background import BackgroundTasks
@@ -20,7 +21,6 @@ from starlette.responses import JSONResponse, PlainTextResponse, StreamingRespon
 
 from conftest import SideEffectGuard
 from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
 from sharpit import install
 from sharpit.engine.capture.exceptions import GROUP_KEYS, ExceptionStore
 from sharpit.fastapi.adapter import SharpitHandle
@@ -247,7 +247,7 @@ def test_custom_404_handler_unwrapped():
         assert _groups(client) == []
 
 
-def test_http_exception_handler_unwrapped_and_validation_handler_captures():
+def test_http_exception_handler_unwrapped():
     app = FastAPI()
     before = dict(app.exception_handlers)
 
@@ -255,15 +255,24 @@ def test_http_exception_handler_unwrapped_and_validation_handler_captures():
     def teapot() -> None:  # pyright: ignore[reportUnusedFunction]
         raise HTTPException(418)
 
+    _install(app)
+    assert all(app.exception_handlers[k] is v for k, v in before.items() if k is not RequestValidationError)
+    with _client(app) as client:
+        assert client.get("/teapot").status_code == 418
+        assert _groups(client) == []
+
+
+def test_validation_handler_captures_request_validation_errors():
+    app = FastAPI()
+    original_handler = app.exception_handlers[RequestValidationError]
+
     @app.get("/invalid")
     def invalid(n: int) -> int:  # pyright: ignore[reportUnusedFunction]
         return n
 
     _install(app)
-    assert all(app.exception_handlers[k] is v for k, v in before.items() if k is not RequestValidationError)
-    assert app.exception_handlers[RequestValidationError] is not before[RequestValidationError]
+    assert app.exception_handlers[RequestValidationError] is not original_handler
     with _client(app) as client:
-        assert client.get("/teapot").status_code == 418
         assert client.get("/invalid?n=x").status_code == 422
         assert len(_groups(client)) == 1
 

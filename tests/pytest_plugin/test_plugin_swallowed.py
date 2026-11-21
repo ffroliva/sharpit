@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -35,6 +36,23 @@ def _report(pytester: pytest.Pytester) -> dict[str, Any]:
 
 def _test_entry(data: dict[str, Any], name: str) -> dict[str, Any]:
     return next(t for t in data["tests"] if t["nodeId"].endswith(f"::{name}"))
+
+
+def test_validation_errors_never_enter_the_test_session_sink() -> None:
+    # approved A4a condition: a user's expected FastAPI 422 is not a test-session exception finding
+    from fastapi.exceptions import RequestValidationError
+
+    from sharpit.pytest_plugin import _ExceptionHandler
+
+    class Sink:
+        def on_exception(self, *_args: object) -> None:
+            raise AssertionError("RequestValidationError reached the test-session sink")
+
+    error = RequestValidationError(
+        [{"type": "value_error", "loc": ("body",), "msg": "invalid ordinary-secret-91", "input": "ordinary-secret-91"}]
+    )
+    record = logging.LogRecord("app", logging.ERROR, "f", 1, "failed", (), (type(error), error, None))
+    _ExceptionHandler(Sink()).emit(record)  # type: ignore[arg-type]
 
 
 def test_spike_f1_swallowed_attribute_error_fails(pytester: pytest.Pytester) -> None:

@@ -288,8 +288,16 @@ class ExceptionStore:
             return
         if not mark_seen(exc, request.id if request is not None else None, self._slot):
             return
-        self._record(exc, source, request, thread, message_override, message_override_always,
-                     binding_diagnostics, binding_diagnostics_truncated)
+        self._record(
+            exc,
+            source,
+            request,
+            thread,
+            message_override,
+            message_override_always,
+            binding_diagnostics,
+            binding_diagnostics_truncated,
+        )
         self._signal()
 
     def _offer(self, build: Callable[[], dict[str, object]]) -> None:

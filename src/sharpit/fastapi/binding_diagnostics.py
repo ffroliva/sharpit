@@ -2,27 +2,30 @@
 
 from __future__ import annotations
 
-from typing import get_args
+from collections.abc import Sequence
+from typing import Any, cast, get_args, get_origin
 
 from fastapi.exceptions import RequestValidationError
-from starlette.routing import Match
 from pydantic import BaseModel
-from pydantic_core import ErrorType
+from pydantic_core.core_schema import ErrorType
+from starlette.routing import Match
 
 MAX_DIAGNOSTICS = 10
 MAX_FIELD_LENGTH = 256
 _ERROR_TYPES = frozenset(get_args(ErrorType))
 
 
-def validation_details(exc: BaseException, endpoint: object, full: bool) -> tuple[str | None, list[dict[str, str | None]], bool]:
+def validation_details(
+    exc: BaseException, endpoint: Any, full: bool
+) -> tuple[str | None, list[dict[str, object]], bool]:
     if not isinstance(exc, RequestValidationError):
         return None, [], False
-    errors = exc.errors()
+    errors = cast(list[dict[str, Any]], exc.errors())
     fields = _model_fields(endpoint)
     rows: set[tuple[str | None, str, str]] = set()
     for error in errors:
-        kind = error.get("type")
-        loc = error.get("loc")
+        kind: object = error.get("type")
+        loc: object = error.get("loc")
         reason = kind if isinstance(kind, str) and (kind in _ERROR_TYPES or full) else "Invalid"
         reason = _bounded(reason)
         path, extra = _field_path(loc, fields, full, kind)
@@ -31,7 +34,7 @@ def validation_details(exc: BaseException, endpoint: object, full: bool) -> tupl
         rows.add((_target_type(endpoint), _bounded(path), reason))
     ordered = sorted(rows, key=lambda row: (row[1], row[2], row[0] or ""))
     truncated = len(ordered) > MAX_DIAGNOSTICS
-    diagnostics = [
+    diagnostics: list[dict[str, object]] = [
         {"targetType": target, "fieldPath": _exposed_path(path, full), "reason": reason}
         for target, path, reason in ordered[:MAX_DIAGNOSTICS]
     ]
@@ -44,17 +47,21 @@ def is_validation_error(exc: BaseException) -> bool:
     return isinstance(exc, RequestValidationError)
 
 
-def route_for_scope(scope: object, app: object = None) -> object:
+def route_for_scope(scope: object, app: Any = None) -> Any:
     if not isinstance(scope, dict):
         return None
-    if (route := scope.get("route")) is not None:
+    scope_dict = cast(dict[str, Any], scope)
+    if (route := scope_dict.get("route")) is not None:
         return route
     try:
-        router = getattr(app or scope.get("app"), "router")
+        host = app or scope_dict.get("app")
+        if host is None:
+            return None
+        router: Any = host.router
         for route in router.routes:
-            if getattr(route, "path", None) == scope.get("path"):
+            if getattr(route, "path", None) == scope_dict.get("path"):
                 return route
-            match, _ = route.matches(scope)
+            match, _ = route.matches(scope_dict)
             if match is Match.FULL:
                 return route
     except Exception:
@@ -62,28 +69,39 @@ def route_for_scope(scope: object, app: object = None) -> object:
     return None
 
 
-def _model_fields(route: object) -> set[str] | None:
+def _model_fields(route: Any) -> set[str] | None:
     try:
-        dependant = getattr(route, "dependant")
-        models = [p.type_ for p in dependant.body_params if isinstance(p.type_, type) and issubclass(p.type_, BaseModel)]
+        dependant = route.dependant
+        models = [p.field_info.annotation for p in dependant.body_params]
         fields = {"body"}
         fields.update(p.name for p in dependant.body_params)
-        for model in models:
+        seen: set[type] = set()
+        found = False
+        while models:
+            model = models.pop()
+            if get_origin(model) is not None:
+                models.extend(get_args(model))
+                continue
+            if not isinstance(model, type) or not issubclass(model, BaseModel) or model in seen:
+                continue
+            found = True
+            seen.add(model)
             for name, field in model.model_fields.items():
                 fields.add(name)
                 if isinstance(field.alias, str):
                     fields.add(field.alias)
                 if isinstance(field.validation_alias, str):
                     fields.add(field.validation_alias)
-        return fields if models else None
+                models.append(field.annotation)
+        return fields if found else None
     except Exception:
         return None
 
 
-def _target_type(route: object) -> str | None:
+def _target_type(route: Any) -> str | None:
     try:
         for parameter in route.dependant.body_params:
-            annotation = parameter.type_
+            annotation = parameter.field_info.annotation
             if isinstance(annotation, type) and issubclass(annotation, BaseModel):
                 return annotation.__name__[:MAX_FIELD_LENGTH]
     except Exception:
@@ -91,10 +109,12 @@ def _target_type(route: object) -> str | None:
     return None
 
 
-def _field_path(loc: object, fields: set[str] | None, full: bool, kind: object) -> tuple[str, bool]:
+def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> tuple[str, bool]:
     if not isinstance(loc, (tuple, list)):
         return "(unknown)", False
-    parts = list(loc)
+    parts: list[Any] = list(cast(Sequence[Any], loc))
+    if any(not isinstance(part, (str, int)) for part in parts):
+        return "(unknown)", False
     if parts and parts[0] in ("body", "query", "path", "header", "cookie"):
         parts = parts[1:]
     if kind == "json_invalid":
@@ -102,22 +122,21 @@ def _field_path(loc: object, fields: set[str] | None, full: bool, kind: object) 
     out: list[str] = []
     extra = False
     for part in parts:
-        if isinstance(part, int):
+        if isinstance(part, int) or part == "[key]":
             out.append("[*]")
-        elif part == "[key]":
-            out.append("[*]" if not full else "['key']")
         elif isinstance(part, str):
-            if part in ("extra_forbidden",):
+            if part == "extra_forbidden":
                 continue
             if fields is None or part not in fields:
+                key = "".join(char if char.isprintable() else " " for char in part)
+                key = key.replace("\\", "\\\\").replace("'", "\\'")[:64]
                 extra = extra or kind == "extra_forbidden"
-                key = part.replace("\\", "\\\\").replace("'", "\\'").replace("\r", " ").replace("\n", " ")[:64]
-                out.append(f"['{key}']" if full else "[*]")
+                out.append(key if kind == "extra_forbidden" else f"['{key}']" if full else "[*]")
             else:
                 out.append(part)
         else:
             out.append("[*]")
-    path = ".".join(out).replace(".[*]", "[*]") or "(body)"
+    path = ".".join(out).replace(".[", "[") or "(body)"
     return path[:MAX_FIELD_LENGTH] + ("…" if len(path) > MAX_FIELD_LENGTH else ""), extra
 
 

@@ -108,7 +108,15 @@ class _ExceptionHandler(LockFreeHandler):
         if not record.exc_info or record.exc_info[1] is None:
             return
         try:
-            self.sink.on_exception(record.exc_info[1], "log", TEST.get())
+            exc = record.exc_info[1]
+            try:
+                from fastapi.exceptions import RequestValidationError
+            except ImportError:
+                validation_error = False
+            else:
+                validation_error = isinstance(exc, RequestValidationError)
+            if not validation_error:
+                self.sink.on_exception(exc, "log", TEST.get())
         except Exception as exc:  # noqa: BLE001
             _record_hook_failure(self.sink, exc)
 
