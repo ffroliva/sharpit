@@ -39,7 +39,6 @@ from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import PANELS, panels_report
 from sharpit.engine.panels04 import MODULE_PANEL_IDS
 from sharpit.engine.singleflight import ActionBusy
-from sharpit.fastapi.routes.pentesting import build_routes as _pentesting_routes
 from sharpit.fastapi.sse import sse_response
 
 _adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
@@ -688,7 +687,6 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         *_read_routes(ctx),
         *_http_exchange_routes(ctx),
         *_http_probe_routes(ctx, host_app),
-        *_pentesting_routes(ctx, host_app),
         *low_footprint(ctx),
         *config_overrides(ctx),
         *_activity_routes(ctx),
