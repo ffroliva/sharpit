@@ -259,7 +259,7 @@ def exception_detail(ctx: SharpitContext, gid: str) -> dict[str, Any]:
     store = ctx.capture.exceptions
     detail = store.detail(gid) if store is not None else None
     if detail is None:
-        raise ToolCallError(unknown_group(), 404)
+        raise ToolCallError(unknown_group(gid), 404)
     return detail
 
 

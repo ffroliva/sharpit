@@ -490,7 +490,11 @@ def _assert_binding_corpus_outputs(exposure: str, destinations: dict[str, str], 
     for name, text in destinations.items():
         assert '"input"' not in text, name
     for name, text in error_surfaces.items():
-        assert all(value not in text for value in (SENTINEL, JWT)), name
+        request_id = JWT if name.startswith("JWT") else SENTINEL
+        other_id = SENTINEL if request_id == JWT else JWT
+        assert f"Unknown exception group '{request_id}'" in text, name
+        assert other_id not in text, name
+        assert "ordinary-secret-91" not in text, name
     for name, text in destinations.items():
         present = {value for value in (SENTINEL, JWT) if value in text}
         expected = {SENTINEL, JWT} if exposure == "FULL" and name in _BINDING_DIAGNOSTIC_SURFACES else set()

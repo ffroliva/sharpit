@@ -72,26 +72,29 @@ def route_for_scope(scope: object, app: Any = None) -> Any:
 def _model_fields(route: Any) -> set[str] | None:
     try:
         dependant = route.dependant
-        models = [p.field_info.annotation for p in dependant.body_params]
+        models: list[tuple[Any, tuple[str, ...], frozenset[type[BaseModel]]]] = [
+            (p.field_info.annotation, ("body",), frozenset()) for p in dependant.body_params
+        ]
         fields = _parameter_fields(dependant)
         body_model = False
-        seen: set[type] = set()
         while models:
-            model = models.pop()
+            model, parent, ancestors = models.pop()
             if get_origin(model) is not None:
-                models.extend(get_args(model))
+                models.extend((arg, parent, ancestors) for arg in get_args(model))
                 continue
-            if not isinstance(model, type) or not issubclass(model, BaseModel) or model in seen:
+            if not isinstance(model, type) or not issubclass(model, BaseModel) or model in ancestors:
                 continue
             body_model = True
-            seen.add(model)
+            ancestors = ancestors | {model}
             for name, field in model.model_fields.items():
-                fields.add(name)
+                names = {name}
                 if isinstance(field.alias, str):
-                    fields.add(field.alias)
+                    names.add(field.alias)
                 if isinstance(field.validation_alias, str):
-                    fields.add(field.validation_alias)
-                models.append(field.annotation)
+                    names.add(field.validation_alias)
+                for field_name in names:
+                    fields.add("/".join((*parent, field_name)))
+                    models.append((field.annotation, (*parent, field_name), ancestors))
         if body_model:
             fields.add("\0body-model")
         return fields or None
@@ -138,6 +141,7 @@ def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> 
         extra = kind == "extra_forbidden"
         return path, extra
     out: list[str] = [prefix] if prefix and prefix != "body" else []
+    parent = [prefix] if prefix else []
     extra = False
     for part in parts:
         if isinstance(part, int) or part == "[key]":
@@ -145,7 +149,7 @@ def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> 
         else:
             if part == "extra_forbidden":
                 continue
-            declared = _declared_field(fields, prefix, part)
+            declared = _declared_field(fields, prefix, part, parent)
             if fields is None or not declared:
                 key = "".join(char if char.isprintable() else " " for char in part)
                 key = key.replace("\\", "\\\\").replace("'", "\\'")[:64]
@@ -153,14 +157,15 @@ def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> 
                 out.append(key if kind == "extra_forbidden" else f"['{key}']" if full else "[*]")
             else:
                 out.append(part)
+            parent.append(part)
     path = ".".join(out).replace(".[", "[") or "(body)"
     return path[:MAX_FIELD_LENGTH] + ("…" if len(path) > MAX_FIELD_LENGTH else ""), extra
 
 
-def _declared_field(fields: set[str] | None, prefix: str, part: str) -> bool:
+def _declared_field(fields: set[str] | None, prefix: str, part: str, parent: list[str]) -> bool:
     if fields is None:
         return False
-    return f"{prefix}:{part}" in fields if prefix != "body" else part in fields
+    return f"{prefix}:{part}" in fields if prefix != "body" else "/".join((*parent, part)) in fields
 
 
 def _exposed_path(path: str, full: bool) -> str:

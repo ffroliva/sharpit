@@ -193,6 +193,15 @@ def test_binding_path_allowlist_alias_unknown_fallback_and_deduplication() -> No
     assert any(row["fieldPath"] == "person.email" for row in full)
 
 
+def test_body_field_is_allowed_only_under_its_declaring_parent() -> None:
+    _, diagnostics, _ = validation_details(
+        RequestValidationError([{"type": "int_parsing", "loc": ("body", "person", "display_name")}]),
+        _route(),
+        False,
+    )
+    assert diagnostics[0]["fieldPath"] == "person[*]"
+
+
 def test_unresolvable_route_redacts_every_segment_after_location_prefix() -> None:
     # ported: SpringBindingDiagnosticsExtractorTests.extractsJackson3InvalidFormatAndUnrecognizedPropertyAndNeverLeaksValuesInMaskedOrMetadataOnly  # noqa: E501
     _, diagnostics, _ = validation_details(
