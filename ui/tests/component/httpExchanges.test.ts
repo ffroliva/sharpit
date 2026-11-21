@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import HttpExchanges from '../../src/views/HttpExchanges.svelte';
 import { FakeEventSource, harness, json, page, until } from './support';
 
@@ -80,7 +80,7 @@ it('live ticks do not refetch an error, and Retry recovers', async () => {
   expect(h.calls('GET').filter(isExchangeList)).toHaveLength(failedRequests);
 
   h.route((url) => isExchangeList(url) ? json(200, report([])) : undefined);
-  h.target.querySelector<HTMLButtonElement>('button')!.click();
+  [...h.target.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Retry')!.click();
   await until(() => expect(h.target.querySelector('[role="alert"]')).toBeNull());
 });
 
@@ -131,8 +131,8 @@ it('shows unranked routes when no route scores for the selected metric', async (
   expect(h.target.querySelectorAll('[data-route-id]')).toHaveLength(2);
 });
 
-// ported: HttpExchangesTest.contains request details in the route drawer and restores focus on every close path
-it('opens and closes the exchanges drawer for a ranked route', async () => {
+// ported: HttpExchangesTest.contains request details in the route drawer; every-close-path focus restoration is adapted for the native dialog.
+it('closes the route exchanges drawer with Escape, Close, and backdrop while restoring focus', async () => {
   mountRankedRoutes();
   const ranking = () => h.target.querySelector<HTMLSelectElement>('[aria-label="Rank routes by"]')!;
   await until(() => expect(ranking()).not.toBeNull());
@@ -148,7 +148,42 @@ it('opens and closes the exchanges drawer for a ranked route', async () => {
   expect(drawer.getAttribute('aria-describedby')).toBe('route-drawer-route');
   expect(drawer.querySelector<HTMLButtonElement>('[aria-label="Close route exchanges"]')).toBe(document.activeElement);
   await until(() => expect(h.calls('GET').some((url) => url.includes('route=POST+%2Fpets'))).toBe(true));
-  drawer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const escape = () => drawer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  escape();
   await until(() => expect(h.target.querySelector('dialog[open]')).toBeNull());
   expect(document.activeElement).toBe(opener);
+  opener.click();
+  await until(() => expect(h.target.querySelector('dialog[open]')).not.toBeNull());
+  h.target.querySelector<HTMLButtonElement>('[aria-label="Close route exchanges"]')!.click();
+  await until(() => expect(h.target.querySelector('dialog[open]')).toBeNull());
+  expect(document.activeElement).toBe(opener);
+  opener.click();
+  await until(() => expect(h.target.querySelector('dialog[open]')).not.toBeNull());
+  const backdrop = h.target.querySelector<HTMLDialogElement>('dialog[open]')!;
+  backdrop.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await until(() => expect(h.target.querySelector('dialog[open]')).toBeNull());
+  expect(document.activeElement).toBe(opener);
+});
+
+it('refreshes route rankings after stream ticks and every 30 seconds', async () => {
+  vi.useFakeTimers();
+  let requests = 1;
+  h.route((url) => url.startsWith('api/http-exchanges/routes')
+    ? json(200, { ...routeRankingReport, routes: [{ ...routeRankingReport.routes[0], requests, topFor: ['REQUESTS'] }] })
+    : isExchangeList(url) ? json(200, report([row])) : undefined);
+  h.mount(HttpExchanges);
+  await vi.waitFor(() => expect(h.target.querySelector('[data-route-id]')).not.toBeNull());
+  requests = 2;
+  const routeCalls = () => h.calls('GET').filter((url) => url.startsWith('api/http-exchanges/routes')).length;
+  const initialRouteCalls = routeCalls();
+  FakeEventSource.last.emit('update');
+  await vi.waitFor(() => expect(routeCalls()).toBeGreaterThan(initialRouteCalls));
+  await vi.waitFor(() => expect(h.target.querySelector('[data-route-id]')?.textContent).toContain('2'));
+  requests = 3;
+  const streamRouteCalls = routeCalls();
+  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.waitFor(() => expect(routeCalls()).toBeGreaterThan(streamRouteCalls));
+  await vi.waitFor(() => expect(h.target.querySelector('[data-route-id]')?.textContent).toContain('3'));
+  vi.useRealTimers();
 });

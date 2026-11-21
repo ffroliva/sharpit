@@ -57,7 +57,7 @@ it('opens the request profile with the N+1 group on top, and renders SQL as text
   expect(h.text()).toContain('<img src=x onerror=alert(1)>');
 });
 
-// ported: LiveActivityTest.renders the back-to-insights link, What stands out summary, section tabs, and width toggle in the request drawer
+// ported: LiveActivityTest.opens the request profile an HTTP Exchanges link names; stepping between entries is adapted because BootUI has no stepping control.
 it('steps between profileable requests from the open profile', async () => {
   const second = { ...entry, id: 'r2', summary: 'GET /pets', path: '/pets' };
   const unprofileable = { ...entry, id: 'sql1', type: 'SQL', profileable: false, summary: 'SELECT 1' };

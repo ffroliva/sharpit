@@ -28,10 +28,24 @@
   let opener: HTMLElement | null = null;
   let pointerStartedOnBackdrop = false;
 
+  let routeRequest = 0;
+  async function refreshRoutes() {
+    const request = ++routeRequest;
+    try {
+      const value = await get<RouteReport>('http-exchanges/routes');
+      if (request === routeRequest) {
+        routeReport = value;
+        routeError = null;
+      }
+    } catch (error) {
+      if (request === routeRequest) routeError = String(error);
+    }
+  }
+
   $effect(() => {
-    let active = true;
-    get<RouteReport>('http-exchanges/routes').then((value) => { if (active) routeReport = value; }).catch((error) => { if (active) routeError = String(error); });
-    return () => { active = false; };
+    void refreshRoutes();
+    const timer = setInterval(() => void refreshRoutes(), 30_000);
+    return () => clearInterval(timer);
   });
 
   const metricCriteria = { requests: 'REQUESTS', totalDurationMs: 'TOTAL_DURATION', p95DurationMs: 'P95_DURATION', maxDurationMs: 'MAX_DURATION', errorCount: 'ERROR_COUNT' };
@@ -59,7 +73,7 @@
 
   // exchanges have no stream of their own: the activity tick fires on every captured request
   $effect(() => {
-    const stream = openStream('api/activity/stream', { onUpdate: () => { void table?.reload(); void routeTable?.reload(); } });
+    const stream = openStream('api/activity/stream', { onUpdate: () => { void table?.reload(); void routeTable?.reload(); void refreshRoutes(); } });
     return () => stream.close();
   });
 
@@ -70,6 +84,7 @@
 <section class="block routes" aria-labelledby="route-rankings-heading">
   <header class="panel-head">
     <h2 id="route-rankings-heading">Routes <span class="muted">{rankedRoutes.length}</span></h2>
+    <button class="link" onclick={() => void refreshRoutes()}>Refresh rankings</button>
     <label for="route-ranking-metric">Rank by
       <select id="route-ranking-metric" aria-label="Rank routes by" bind:value={rank}>
         <option value="requests">Requests</option>
