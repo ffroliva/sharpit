@@ -255,6 +255,7 @@ def _attach(config: Any) -> None:
         raise pytest.UsageError(str(exc)) from exc
     worker = getattr(config, "workerinput", {}).get("workerid", "master")
     sink = TestSessionSink(worker)
+    sink.configure_http(options.http_required_headers, options.http_expected_statuses)
     settings = load_settings({}, os.environ)
     loaded_baseline = None
     try:

@@ -6,6 +6,7 @@ route may answer); it infers no policy from route metadata, and it never sees a 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple, cast
 
@@ -15,6 +16,13 @@ from sharpit.engine.testsession.facts import HttpFacts, TestFacts
 from sharpit.engine.testsession.outcome import deciding
 
 MIN_STATUS, MAX_STATUS = 100, 599
+_STARLETTE_PARAM = re.compile(r"\{(\w+)(?::[^}]*)?\}")  # {id} and {id:int}
+_WERKZEUG_PARAM = re.compile(r"<(?:[^<>:]+:)?(\w+)>")  # <id>, <int:id> and <int(min=1):id>
+
+
+def normalize_route(template: str) -> str:
+    """One route syntax for every adapter: a parameter is ``{name}``, whatever its framework calls it."""
+    return _WERKZEUG_PARAM.sub(r"{\1}", _STARLETTE_PARAM.sub(r"{\1}", template))
 
 
 class HeaderExpectation(NamedTuple):
