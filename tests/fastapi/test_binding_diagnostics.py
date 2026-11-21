@@ -476,7 +476,21 @@ def test_replaced_422_handlers_remain_byte_identical(
 
 
 @pytest.mark.parametrize("exposure", ("MASKED", "METADATA_ONLY", "FULL"))
-def test_invalid_path_parameter_exception_path_follows_exposure(tmp_path: Any, exposure: str) -> None:
+def test_invalid_path_parameter_exception_path_follows_exposure(
+    tmp_path: Any, exposure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sharpit.fastapi import capture
+
+    recorded_request_paths: list[str] = []
+    record_exception = capture._record_exception
+
+    def observe_record(*args: Any, **kwargs: Any) -> None:
+        info = args[3]
+        record_exception(*args, **kwargs)
+        if info is not None:
+            recorded_request_paths.append(info.path)
+
+    monkeypatch.setattr(capture, "_record_exception", observe_record)
     app = FastAPI()
 
     @app.get("/items/{item_id}")
@@ -495,9 +509,15 @@ def test_invalid_path_parameter_exception_path_follows_exposure(tmp_path: Any, e
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             response = client.get("/items/S3NT1NEL9f3c")
             groups = client.get("/sharpit/api/exceptions").json()["groups"]
+            occurrence = client.get(f"/sharpit/api/exceptions/{groups[0]['id']}").json()["occurrences"][0]
+            profile = client.get(f"/sharpit/api/activity/request/{occurrence['requestId']}").json()
     finally:
         handle.uninstall_capture()
 
     assert response.status_code == 422
     expected = "/items/S3NT1NEL9f3c" if exposure == "FULL" else "/items/{item_id}"
     assert groups[0]["lastRequestPath"] == expected
+    assert profile["request"]["path"] == "/items/S3NT1NEL9f3c"
+    assert occurrence["requestPath"] == expected
+    if exposure != "FULL":
+        assert "/items/S3NT1NEL9f3c" in recorded_request_paths

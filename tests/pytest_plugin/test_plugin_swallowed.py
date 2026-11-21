@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import sys
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,22 @@ def test_validation_errors_never_enter_the_test_session_sink() -> None:
     sink = Sink()
     _ExceptionHandler(sink).emit(record)  # type: ignore[arg-type]
     assert sink.calls == []
+
+
+def test_log_exception_does_not_import_fastapi() -> None:
+    code = """
+import logging
+import sys
+from sharpit.pytest_plugin import _ExceptionHandler
+class Sink:
+    facts = type('Facts', (), {'warnings': [], 'sources': []})()
+    def on_exception(self, *_args): pass
+record = logging.LogRecord('app', logging.ERROR, 'f', 1, 'failed', (), (ValueError, ValueError(), None))
+_ExceptionHandler(Sink()).emit(record)
+print('fastapi' in sys.modules)
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "False"
 
 
 def test_422_handler_capture_skips_the_test_session_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
