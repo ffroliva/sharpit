@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 HEADER = b"x-sharpit-request-id"
+_FORWARDED_HEADERS = (b"forwarded", b"x-forwarded-for", b"x-real-ip")
 
 
 def with_request_id_header(ctx: SharpitContext, scope: Scope, message: Message, info: RequestInfo) -> Message:
@@ -32,7 +33,9 @@ def with_request_id_header(ctx: SharpitContext, scope: Scope, message: Message, 
 
     client = scope.get("client")
     forwarded_headers = {
-        name.decode("latin-1").lower(): "" for name, _ in cast("list[tuple[bytes, bytes]]", scope.get("headers", ()))
+        name.decode("latin-1").lower(): ""
+        for name, _ in cast("list[tuple[bytes, bytes]]", scope.get("headers", ()))
+        if name.lower() in _FORWARDED_HEADERS
     }
     facts = guard.RequestFacts(
         scope["method"],
