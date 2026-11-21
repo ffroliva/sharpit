@@ -256,6 +256,15 @@ def _orm_diff(target: _Metrics, base: _Metrics, snapshot: Snapshot) -> tuple[lis
             highlights.append(f"+{counted(auto, 'auto-flush', 'auto-flushes')}")
         elif flushes > 0:
             highlights.append(f"+{counted(flushes, 'Hibernate flush', 'Hibernate flushes')}")
+    entity_highlights, entity_rows = _orm_entity_diff(target, base)
+    highlights.extend(entity_highlights)
+    rows.extend(entity_rows)
+    return highlights, rows
+
+
+def _orm_entity_diff(target: _Metrics, base: _Metrics) -> tuple[list[str], list[list[str]]]:
+    highlights: list[str] = []
+    rows: list[list[str]] = []
     if (
         not target.orm_entities_unmeasured
         and not base.orm_entities_unmeasured
@@ -300,49 +309,71 @@ def evaluate(snapshot: Snapshot) -> Evaluation:
         eligible += len(warm)
         if not (comparison := _outlier_pair(warm)):
             continue
-        slowest, baseline, p50, threshold, warm_2xx_count = comparison
-        target_metrics, baseline_metrics = _Metrics.of(slowest), _Metrics.of(baseline)
-        highlights, rows = _compare(slowest, baseline, p50, target_metrics, baseline_metrics, snapshot)
-        if not highlights:
-            continue
-        limitations: list[str] = []
-        if int(snapshot.status.get("evictedEvents", 0)) != 0:
-            limitations.append(
-                "Events were evicted or cleared, so the route's first retained request may not be its cold first "
-                "request in this run."
-            )
-        if target_metrics.unverified_sql or baseline_metrics.unverified_sql:
-            limitations.append("Unverified SQL preparations do not establish JDBC execution counts or database time.")
-        sufficient = warm_2xx_count >= MIN_WARM_REQUESTS
-        if sufficient:
-            sentence = (
-                f"On `{route}`, slowest request `{slowest.request_id}` took "
-                f"{millis(slowest.duration_nanos or 0)} ms against "
-                f"{millis(baseline.duration_nanos or 0)} ms in warm baseline `{baseline.request_id}` "
-                f"(warm median {millis(p50)} ms across {counted(warm_2xx_count, 'warm 2xx request')}): "
-                f"{', '.join(highlights)}."
-            )
-        else:
-            sentence = (
-                f"On `{route}`, request `{slowest.request_id}` took "
-                f"{millis(slowest.duration_nanos or 0)} ms against "
-                f"{millis(baseline.duration_nanos or 0)} ms in `{baseline.request_id}` ({', '.join(highlights)}), over "
-                f"{counted(warm_2xx_count, 'warm 2xx request')}; comparing against a warm baseline "
-                f"needs {MIN_WARM_REQUESTS}."
-            )
-        findings.append(
-            Finding(
-                route,
-                route,
-                sufficient,
-                sentence,
-                len(warm),
-                sum((r.duration_nanos or 0) >= threshold for r in warm),
-                CHECKS,
-                [slowest.request_id, baseline.request_id],
-                COLUMNS,
-                rows,
-                limitations,
-            )
-        )
+        finding = _route_finding(route, warm, comparison, snapshot)
+        if finding is not None:
+            findings.append(finding)
     return Evaluation(eligible, findings)
+
+
+def _route_finding(
+    route: str,
+    warm: list[Request],
+    comparison: tuple[Request, Request, int, int, int],
+    snapshot: Snapshot,
+) -> Finding | None:
+    slowest, baseline, p50, threshold, warm_2xx_count = comparison
+    target_metrics, baseline_metrics = _Metrics.of(slowest), _Metrics.of(baseline)
+    highlights, rows = _compare(slowest, baseline, p50, target_metrics, baseline_metrics, snapshot)
+    if not highlights:
+        return None
+    limitations = _limitations(snapshot, target_metrics, baseline_metrics)
+    sufficient = warm_2xx_count >= MIN_WARM_REQUESTS
+    sentence = _finding_sentence(route, slowest, baseline, p50, warm_2xx_count, highlights, sufficient)
+    return Finding(
+        route,
+        route,
+        sufficient,
+        sentence,
+        len(warm),
+        sum((request.duration_nanos or 0) >= threshold for request in warm),
+        CHECKS,
+        [slowest.request_id, baseline.request_id],
+        COLUMNS,
+        rows,
+        limitations,
+    )
+
+
+def _limitations(snapshot: Snapshot, target: _Metrics, baseline: _Metrics) -> list[str]:
+    result: list[str] = []
+    if int(snapshot.status.get("evictedEvents", 0)) != 0:
+        result.append(
+            "Events were evicted or cleared, so the route's first retained request may not be its cold first "
+            "request in this run."
+        )
+    if target.unverified_sql or baseline.unverified_sql:
+        result.append("Unverified SQL preparations do not establish JDBC execution counts or database time.")
+    return result
+
+
+def _finding_sentence(
+    route: str,
+    slowest: Request,
+    baseline: Request,
+    p50: int,
+    count: int,
+    highlights: list[str],
+    sufficient: bool,
+) -> str:
+    if sufficient:
+        return (
+            f"On `{route}`, slowest request `{slowest.request_id}` took "
+            f"{millis(slowest.duration_nanos or 0)} ms against "
+            f"{millis(baseline.duration_nanos or 0)} ms in warm baseline `{baseline.request_id}` "
+            f"(warm median {millis(p50)} ms across {counted(count, 'warm 2xx request')}): {', '.join(highlights)}."
+        )
+    return (
+        f"On `{route}`, request `{slowest.request_id}` took {millis(slowest.duration_nanos or 0)} ms against "
+        f"{millis(baseline.duration_nanos or 0)} ms in `{baseline.request_id}` ({', '.join(highlights)}), over "
+        f"{counted(count, 'warm 2xx request')}; comparing against a warm baseline needs {MIN_WARM_REQUESTS}."
+    )
