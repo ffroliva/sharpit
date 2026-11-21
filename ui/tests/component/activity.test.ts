@@ -57,6 +57,23 @@ it('opens the request profile with the N+1 group on top, and renders SQL as text
   expect(h.text()).toContain('<img src=x onerror=alert(1)>');
 });
 
+// ported: LiveActivity renders the back-to-insights link, What stands out summary, section tabs, and width toggle in the request drawer
+it('steps between profileable requests from the open profile', async () => {
+  const second = { ...entry, id: 'r2', summary: 'GET /pets', path: '/pets' };
+  h.route((url) => {
+    if (url.startsWith('api/activity/request/')) return json(200, { ...profile, request: { ...(profile.request ?? entry), id: url.endsWith('r2') ? 'r2' : 'r1' } });
+    return isFeed(url) ? json(200, report([entry, second])) : undefined;
+  });
+  h.mount(Activity);
+  await until(() => expect(h.text()).toContain('GET /pets'));
+  h.target.querySelectorAll<HTMLButtonElement>('button.link')[1]!.click();
+  await until(() => expect(h.text()).toContain('7 executions'));
+  const next = h.target.querySelector<HTMLButtonElement>('button[aria-label="Next profileable entry"]');
+  expect(next).not.toBeNull();
+  next!.click();
+  await until(() => expect(h.calls('GET')).toContain('api/activity/request/r2'));
+});
+
 it('reloads on a stream tick, and sends the route filter as q', async () => {
   h.route((url) => (isFeed(url) ? json(200, report([entry])) : undefined));
   h.mount(Activity, { q: 'abc' });

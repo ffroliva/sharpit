@@ -34,6 +34,12 @@
     }
   }
   const close = () => ((profile = null), (profileError = null));
+  const profileableEntries = $derived(report.data?.entries.filter((entry) => entry.type === 'REQUEST' && entry.profileable) ?? []);
+  const profileIndex = $derived(profileableEntries.findIndex((entry) => entry.id === profile?.request?.id));
+  function stepProfile(direction: -1 | 1) {
+    const entry = profileableEntries[profileIndex + direction];
+    if (entry) void open(entry);
+  }
   const kpi = (v: number | string | null | undefined, unit = '') => (v === null || v === undefined ? '—' : `${v}${unit}`);
   const sevClass = { ERROR: 'danger', WARN: 'warn', SLOW: 'warn', OK: 'muted' } as const;
   const groups = $derived([...(profile?.sqlGroups ?? [])].sort((a, b) => Number(b.potentialNPlusOne) - Number(a.potentialNPlusOne)));
@@ -62,7 +68,16 @@
     {#each r.warnings as w}<p class="notice warn">{w}</p>{/each}
     {#if profile || profileError}
       <section class="block profile" aria-label="Request profile">
-        <h2>{profile?.request?.summary ?? 'Request profile'} <button class="link" onclick={close}>Close</button></h2>
+        <h2>
+          {profile?.request?.summary ?? 'Request profile'}
+          {#if profileIndex >= 0 && profileableEntries.length > 1}
+            <span class="profile-nav" role="group" aria-label="Step between profileable entries">
+              <button class="link" aria-label="Previous profileable entry" disabled={profileIndex <= 0} onclick={() => stepProfile(-1)}>Previous</button>
+              <button class="link" aria-label="Next profileable entry" disabled={profileIndex >= profileableEntries.length - 1} onclick={() => stepProfile(1)}>Next</button>
+            </span>
+          {/if}
+          <button class="link" onclick={close}>Close</button>
+        </h2>
         {#if profileError}<p class="danger" role="alert">{profileError}</p>
         {:else if profile && !profile.available}<p class="muted">{profile.unavailableReason ?? 'No profile available'}</p>
         {:else if profile}
@@ -115,4 +130,5 @@
   .bar { height: 6px; margin: 0 var(--s4) var(--s2); background: var(--line); border-radius: 2px; overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--accent); }
   .profile h2 button { margin-left: var(--s2); font-weight: 400; }
+  .profile-nav { display: inline-flex; gap: var(--s2); margin-left: var(--s2); }
 </style>
