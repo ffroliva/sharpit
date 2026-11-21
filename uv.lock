@@ -1537,7 +1537,7 @@ requires-dist = [
     { name = "apscheduler", marker = "extra == 'test'", specifier = ">=3.10.2,<4" },
     { name = "fastapi", marker = "extra == 'fastapi'", specifier = ">=0.115" },
     { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115" },
-    { name = "flask", marker = "extra == 'test'", specifier = ">=3.0" },
+    { name = "flask", marker = "extra == 'test'", specifier = ">=2.3.3" },
     { name = "flask-sqlalchemy", marker = "extra == 'test'", specifier = ">=3.1" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.100" },

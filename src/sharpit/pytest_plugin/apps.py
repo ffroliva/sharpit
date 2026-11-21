@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import os
 import sys
 import sysconfig
@@ -17,7 +18,7 @@ from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
-from sharpit.engine.spi import ApiModel
+from sharpit.engine.spi import ApiModel, ApiRouteInfo
 from sharpit.engine.testsession.outcome import AUTODETECT, NO_APPLICATION
 from sharpit.fastapi.introspector import FastApiIntrospector
 
@@ -43,6 +44,7 @@ __all__ = [
 
 
 _HINT = "pass --sharpit-app module:attr"
+_MISSING = object()
 _NOT_FOUND = (
     "no application found among the modules the tests imported "
     "(conftest, test modules and installed packages are not searched)"
@@ -109,8 +111,13 @@ def _mounted(app: object, mounts: frozenset[type]) -> list[int]:
 
 
 def autodetect_apps(test_files: Sequence[str] = TEST_FILES) -> tuple[tuple[str, object], ...]:
-    """FastAPI/Starlette instances in loaded project-module globals; imports nothing, runs no module hook."""
-    apps = _classes("starlette.applications", "Starlette") | _classes("fastapi.applications", "FastAPI")
+    """Flask/FastAPI/Starlette instances in loaded project-module globals; imports nothing, runs no module hook."""
+    apps = (
+        _classes("starlette.applications", "Starlette")
+        | _classes("fastapi.applications", "FastAPI")
+        | _classes("flask.app", "Flask")
+        | _classes("flask.sansio.app", "Flask")
+    )
     if not apps:
         return ()
     paths = sysconfig.get_paths()
@@ -190,11 +197,28 @@ def load_app(spec: str) -> tuple[str, object]:
     if not separator:
         raise ValueError("--sharpit-app must be MOD:ATTR")
     app = getattr(importlib.import_module(module_name), attr)
-    return spec, app() if callable(app) and not hasattr(app, "router") else app
+    has_router = inspect.getattr_static(app, "router", _MISSING) is not _MISSING
+    return spec, app() if callable(app) and not has_router and not _is_flask_app(app) else app
+
+
+def _is_flask_app(app: object) -> bool:
+    return not (_classes("flask.app", "Flask") | _classes("flask.sansio.app", "Flask")).isdisjoint(type(app).__mro__)
+
+
+def _app_model(app: object) -> ApiModel | None:
+    if _is_flask_app(app):
+        from sharpit.flask import FlaskIntrospector
+
+        routes = FlaskIntrospector(app).routes()
+        if routes is None:
+            return None
+        return ApiModel(tuple(ApiRouteInfo(route.methods, route.path, route.handler) for route in routes), (), ())
+    return FastApiIntrospector(app).api_model()
 
 
 def model_of(app: object) -> ApiModel:
-    return FastApiIntrospector(app).api_model()
+    model = _app_model(app)
+    return model if model is not None else ApiModel((), (), ())
 
 
 def _configured_models(
@@ -202,7 +226,20 @@ def _configured_models(
 ) -> list[tuple[str, ApiModel]] | None:
     try:
         name, app = (load_app or _load_app)(state.options.app)
-        return [(name, FastApiIntrospector(app).api_model())]
+        model = _app_model(app)
+        if model is None:
+            state.sink.facts.advisor_runs.append(
+                AdvisorRun(
+                    "rest-api",
+                    "UNKNOWN",
+                    (),
+                    {},
+                    "application routes cannot be inspected (Flask URL map)",
+                    name,
+                )
+            )
+            return None
+        return [(name, model)]
     except Exception as exc:  # noqa: BLE001
         state.sink.facts.advisor_runs.append(
             AdvisorRun(
@@ -225,7 +262,19 @@ def _discovered_models(state: Any) -> list[tuple[str, ApiModel]] | None:
         if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
             state.sink.facts.advisor_runs.append(run)
         return None
-    model = FastApiIntrospector(chosen[1]).api_model()
+    model = _app_model(chosen[1])
+    if model is None:
+        state.sink.facts.advisor_runs.append(
+            AdvisorRun(
+                "rest-api",
+                "UNKNOWN",
+                (),
+                {},
+                "application routes cannot be inspected (Flask URL map)",
+                chosen[0],
+            )
+        )
+        return None
     if not application_routes(model.routes):
         state.sink.facts.advisor_runs.append(bare_app_run(chosen[0], state.options.require_app))
         return None

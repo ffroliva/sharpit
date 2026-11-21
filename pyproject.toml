@@ -48,7 +48,7 @@ settings = ["pydantic-settings>=2.4"]
 test = [
     "fastapi>=0.115",
     "pydantic-settings>=2.4",
-    "flask>=3.0",
+    "flask>=2.3.3",
     "flask-sqlalchemy>=3.1",  # the Flask gate tests (F2); tests only
     "uvicorn>=0.30",
     "httpx>=0.27",

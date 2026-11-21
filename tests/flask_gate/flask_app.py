@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from flask import Flask, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
+
+from flask import Flask, Response, jsonify
 
 db = SQLAlchemy()
 
