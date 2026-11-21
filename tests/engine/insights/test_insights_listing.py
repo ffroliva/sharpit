@@ -8,7 +8,8 @@ from sharpit.engine.collectors.insights.listing import Outcome
 from sharpit.engine.collectors.insights.registry import KINDS
 
 REPORTED = {
-    "route-time-breakdown": "FAILED", "repeated-selects": "UNDER_SAMPLED", "lazy-sql-after-handler": "UNDER_SAMPLED",
+    "route-time-breakdown": "FAILED", "route-latency-outliers": "NOT_JUDGED",
+    "repeated-selects": "UNDER_SAMPLED", "lazy-sql-after-handler": "UNDER_SAMPLED",
     "exception-hotspots": "FAILED", "errors-behind-2xx": "PASSED", "connections-per-request": "FAILED",
     "safe-method-dml": "NOT_VALIDATED", "transaction-across-remote-call": "NOT_VALIDATED",
     "split-transaction-writes": "UNDER_SAMPLED", "after-commit-writes": "NOT_VALIDATED",

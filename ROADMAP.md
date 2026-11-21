@@ -10,7 +10,7 @@ Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 t
 | MCP/CLI tools | 54 | 71 | 71 | 71 | 116 | 116 | 116 |
 | Tools under BootUI's exact names | 45 | 62 | 62 | 62 | - | - | - |
 | Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 10 of 28 registered | 28 | 28 | 29 |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 28 | 28 | 29 |
 | BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (4 shape-identical, 29 partial) | 66 | not captured | not captured |
 
 `tests/docs/test_parity_matrix.py` recomputes the sharpit 0.8.0 column from the code and the BootUI 2.5.0 fixtures

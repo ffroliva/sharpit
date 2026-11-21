@@ -1,4 +1,4 @@
-"""Runtime Insights kind registry: BootUI's 28 observations in report order (``RuntimeInsightsService.java:441-468``).
+"""Runtime Insights kind registry: BootUI's observations in report order (``RuntimeInsightsService.java:441-468``).
 
 Each kind's id, title, tier and sources live in its own module under ``kinds/``, so a kind lane edits only that module
 and flips its ``IMPLEMENTED`` flag; nothing here changes when a kind lands.
@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 TIERS = ("REQUEST_ID", "PROPAGATED", "TRACE_ID", "SERVING_THREAD", "TIME_WINDOW")
 
 _ORDER = (
-    "route_time_breakdown", "exception_hotspots", "errors_behind_2xx", "repeated_selects", "connections_per_request",
+    "route_time_breakdown", "route_latency_outliers", "exception_hotspots", "errors_behind_2xx",
+    "repeated_selects", "connections_per_request",
     "safe_method_dml", "proxy_bypass", "anonymous_data_reach", "anonymous_success_on_restricted_route",
     "split_transaction_writes", "unbatched_write_loop", "transactional_listener_skipped", "after_commit_writes",
     "orm_auto_flush", "large_persistence_context", "slow_flush", "connection_reacquisition",
