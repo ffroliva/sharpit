@@ -307,7 +307,7 @@ def test_partial_on_truncated_pagination(tmp_state_dir: Path):
     osv = FakeOsv()
     osv.query = [(200, json.dumps({"results": [{"next_page_token": "again"}]}))] * 20
     report = service(osv, [JINJA], tmp_state_dir).scan()
-    assert report["scan"]["status"] == "PARTIAL"
+    assert report["scan"]["status"] == "PARTIAL", report["scan"]
     assert report["scan"]["message"] == (
         "Scan completed against OSV.dev, but some advisories were paginated and not fully fetched; "
         "1 package query was not completed."
@@ -413,6 +413,89 @@ def test_whole_scan_deadline_keeps_prior_query_results_and_releases_single_fligh
     assert dep(report, "package-0000")["assessment"]["queryComplete"] is True
     assert flight.active == ""
     assert svc.scan()["scan"]["status"] != "ERROR"
+
+
+# ported: OsvVulnerabilityScannerTest.degradesToPartialAndRetainsEarlierQuerybatchPagesWhenWholeScanDeadlineExpiresMidBody
+def test_trickling_body_read_stops_at_deadline_and_releases_single_flight(
+    tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    class Socket:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def settimeout(self, timeout: float) -> None:
+            self.timeouts.append(timeout)
+
+    class Response:
+        status = 200
+
+        def __init__(self, clock: Clock) -> None:
+            self.clock = clock
+            self.socket = Socket()
+            self.fp = type("Fp", (), {"raw": type("Raw", (), {"_sock": self.socket})()})()
+            self.read1_calls = 0
+            self.read_calls = 0
+            self.body_read = False
+            self.closed = False
+
+        def read1(self, _size: int = -1) -> bytes:
+            self.read1_calls += 1
+            self.clock.now += 1.0
+            return b"{\"res"
+
+        def read(self, _size: int = -1) -> bytes:
+            self.read_calls += 1
+            if self.body_read:
+                return b""
+            self.body_read = True
+            return b'{"results":[{}]}'
+
+        def close(self) -> None:
+            self.closed = True
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            self.close()
+
+    class Opener:
+        def __init__(self, response: Response) -> None:
+            self.response = response
+
+        def open(self, *_args: Any, **_kwargs: Any) -> Response:
+            return self.response
+
+    clock = Clock()
+    response = Response(clock)
+    osv = FakeOsv()
+    osv.opener = Opener(response)  # type: ignore[assignment]
+    flight = SingleFlight()
+    svc = service(
+        osv,
+        [JINJA],
+        tmp_state_dir,
+        flight,
+        vulnerabilities_scan_timeout=2.0,
+        vulnerabilities_request_timeout=10.0,
+    )
+    monkeypatch.setattr(vuln_service, "ScanDeadline", lambda timeout: ScanDeadline(timeout, clock))
+
+    report = svc.scan()
+
+    assert report["scan"]["status"] == "PARTIAL"
+    assert "the scan deadline was reached" in report["scan"]["message"]
+    assert response.read1_calls == 2
+    assert response.read_calls == 0
+    assert response.socket.timeouts == [2.0, 1.0]
+    assert response.closed is True
+    assert flight.active == ""
 
 
 def test_scan_releases_lock_after_unexpected_opener_exception(tmp_state_dir: Path):
