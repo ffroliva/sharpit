@@ -181,3 +181,20 @@ def test_routes_do_not_evaluate_rule_properties() -> None:
     _introspector(app).routes()
 
     assert accesses == []
+
+
+def test_callable_view_with_explicit_endpoint_is_kept_without_calling_it() -> None:
+    class CallableView:
+        calls = 0
+
+        def __call__(self) -> str:
+            CallableView.calls += 1
+            return "called"
+
+    app = Flask("callable-view", static_folder=None)
+    app.add_url_rule("/callable", endpoint="callable", view_func=CallableView())
+
+    routes = _introspector(app).routes()
+
+    assert [route.path for route in routes or []] == ["/callable"]
+    assert CallableView.calls == 0
