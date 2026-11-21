@@ -87,3 +87,121 @@ Titles of P rows are BootUI's, verbatim.
 
 BootUI's 26 reactive rules (`SEC-RXF-*`) and the Quarkus rules (`QS-*`) are [JVM] twins of the servlet rules above and
 have no rows.
+
+## HTTP security observer (pytest)
+
+A sharpit-only advisor, `http-security`, evaluates response expectations that the host configures against the HTTP
+requests the host's own tests already make. It has no BootUI counterpart: BootUI's HTTP Probe sends a request of its
+own, and sharpit's observer sends none. It is evaluated once per run by the pytest controller and appears in the report,
+JUnit, SARIF and terminal output like any advisor; `--sharpit-no-advisors` turns it off with the others, and it
+cannot be combined with configured expectations.
+
+It is opt-in on two levels: `--sharpit` (or `sharpit = true`) for the session, and `--sharpit-http-security` (or
+`sharpit_http_security = true`) for the observer. Configuring an expectation without the second, the second without
+the first, or an expectation together with `--sharpit-no-advisors` (`sharpit_advisors = false`) is a pytest usage
+error at configure time: an expectation the host wrote is never silently skipped.
+
+### Handing the app to the observer
+
+The function-scoped fixture `sharpit_http_observed` is a factory. A test builds its client from what it returns:
+
+```python
+from fastapi.testclient import TestClient
+
+
+def test_items(sharpit_http_observed):
+    client = TestClient(sharpit_http_observed(app))
+    assert client.get("/items").status_code == 200
+```
+
+```python
+def test_items(sharpit_http_observed, flask_app):
+    client = sharpit_http_observed(flask_app).test_client()
+    assert client.get("/items").status_code == 200
+```
+
+Only requests sent through the returned app are observed. A request from an unwrapped client, from a wrapper the
+observer cannot see into, or made outside a running test attempt cannot satisfy an expectation: an expectation with no
+matching observed exchange is UNKNOWN. Adopting the observer therefore means building each host test client from
+`sharpit_http_observed(app)`. With the observer off the fixture returns the app itself.
+
+The two frameworks differ in what they mutate:
+
+- **FastAPI and Starlette** (any ASGI app): `observe` returns a separate ASGI callable that delegates attribute access
+  to the app (`state`, `router`, `dependency_overrides`). The supplied app, its middleware stack and its lifespan are
+  untouched, so a shared or already started app stays usable. Lifespan and websocket scopes pass through and are not
+  exchanges, and requests to sharpit's own mount are excluded.
+- **Flask**: a `FlaskClient` needs the real `Flask` instance, so `observe` patches `app.wsgi_app` in place, returns the
+  same app, and restores the original at fixture teardown. Calling `observe` twice patches once. The route is resolved
+  with a second `url_map` match before the view runs; the match executes no view and changes no request.
+
+### Expectations
+
+```ini
+[pytest]
+sharpit = true
+sharpit_http_security = true
+sharpit_required_response_headers =
+    GET /items=X-Content-Type-Options
+sharpit_expected_statuses =
+    GET /items/{item_id}=200,304
+```
+
+On the command line: `--sharpit-required-response-header "GET /items=X-Content-Type-Options"` and
+`--sharpit-expected-status "GET /items/{item_id}=200,304"`, each repeatable. Command-line values replace the ini lines as
+a whole. A line is `METHOD ROUTE=VALUE`, split on the first space and the last `=`, so a route may contain `=` or `,`.
+Methods are upper-cased, header names compare case-insensitively, repeated lines deduplicate, and the statuses of one
+route are unioned (any listed status satisfies it; statuses are integers from 100 to 599). A route is the template the
+framework matched, written `{name}` for both frameworks (`<int:item_id>` in Flask and `{item_id:int}` in Starlette
+normalize to `{item_id}`; a configured route is normalized the same way, so either spelling matches). A header expectation and a status expectation for one route are independent policies. There
+is no implicit policy: nothing is inferred from route metadata, an observed status or a body.
+
+### Evaluation and findings
+
+Each finished exchange is evaluated against the policy of its method and route; an expectation holds only if every
+exchange of that route satisfies it. One violating exchange is one finding per policy, however many exchanges violate:
+
+| rule | severity | raised when |
+|---|---|---|
+| `HTTP-SEC-001` | HIGH | a configured response header is absent from an exchange of the route |
+| `HTTP-SEC-002` | HIGH | an exchange of the route answers a status outside the configured set |
+
+The finding identity is the method and template (plus the lower-cased header name for `HTTP-SEC-001`), so it is stable
+across runs and survives the baseline; the observed statuses appear in the message only. A header expectation also
+applies to error and not-modified responses of the same route: a test that deliberately exercises a response that
+omits the header must target a route without that expectation. An observed 500 with no status expectation is evidence
+only, never a finding.
+
+Dismissals are not available for `HTTP-SEC-001` and `HTTP-SEC-002`: a dismissal belongs to the console's stored state,
+and the pytest gate does not read it. To accept a known finding, record it in a baseline (`--sharpit-baseline`). Two
+apps that share a route template share one policy key, because the key is the method and the template.
+
+A configured expectation with incomplete evidence is **UNKNOWN**, never PARTIAL, and fails the gate unless
+`--sharpit-allow-unknown` is set (that option also tolerates incomplete evidence from a bound exceeded, so a violation
+dropped by a bound can then pass):
+
+- `no matching exchange`: the run was complete and no observed exchange matched (including the fixture never being
+  called, or only a wrapper the observer cannot see into);
+- `selection run`: the same on a run selected with `-k`, `-m`, a file or node ids, `--lf` or `--deselect`;
+- `evidence incomplete`: a response whose route could not be read (`unobservable`), traffic outside any test attempt,
+  or a bound exceeded (see below);
+- `missing worker`: an xdist worker reported no facts.
+
+A definite violation outranks UNKNOWN and keeps the reason beside it. A selection run that observed the expected route
+and found no violation passes. UNKNOWN or partial evidence refuses a baseline write.
+
+### What is kept, and what is not
+
+Only the method, the matched route template, the status and the presence of the configured header names are kept, per
+test attempt, as `(status, presence)` counts for each configured `(method, route)`; the number of facts follows the
+configuration and the status range, not the request count. A response whose route is not matched is counted as
+`not_found` and one whose route metadata is unavailable as `unobservable`, per method only. Header values, unconfigured
+header names, query strings, request or response bodies, raw paths, exception text and test node ids never enter the
+facts. A finding's text still passes the report masker.
+
+### Limits
+
+The observer sees in-process test traffic only. It does not establish proxy, TLS or CDN behavior, and it does not
+establish authorization, tenant ownership or input validation. Its overhead is measured by
+`tests/pytest_plugin/test_http_security_overhead.py`.
+
