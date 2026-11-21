@@ -70,8 +70,8 @@ def request_json(
                     getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None), "settimeout", None
                 )
                 if sock is not None:
-                    sock(remaining if deadline is not None else timeout)
-                chunk = cast(bytes, response.read(min(64 * 1024, max_bytes + 1 - size)))
+                    sock(min(timeout, remaining))
+                chunk = cast(bytes, response.read1(min(64 * 1024, max_bytes + 1 - size)))
                 if not chunk:
                     break
                 chunks.append(chunk)

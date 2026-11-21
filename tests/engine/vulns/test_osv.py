@@ -142,6 +142,9 @@ def test_trickling_response_stops_at_deadline_and_is_reported_partial():
             self.clock.now += 1.0
             return b"{" if self.reads < 10 else b""
 
+        def read1(self, size: int = -1) -> bytes:
+            return self.read(size)
+
         def close(self) -> None:
             self.closed = True
 

@@ -30,6 +30,11 @@ class FakeResponse:
             raise self._body
         return self._stream.read(size)  # type: ignore[union-attr]
 
+    def read1(self, size: int = -1) -> bytes:
+        if isinstance(self._body, BaseException):
+            raise self._body
+        return self._stream.read1(size)  # type: ignore[union-attr]
+
     def __enter__(self) -> "FakeResponse":
         return self
 

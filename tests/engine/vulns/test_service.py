@@ -307,7 +307,7 @@ def test_partial_on_truncated_pagination(tmp_state_dir: Path):
     osv = FakeOsv()
     osv.query = [(200, json.dumps({"results": [{"next_page_token": "again"}]}))] * 20
     report = service(osv, [JINJA], tmp_state_dir).scan()
-    assert report["scan"]["status"] == "PARTIAL", report["scan"]
+    assert report["scan"]["status"] == "PARTIAL"
     assert report["scan"]["message"] == (
         "Scan completed against OSV.dev, but some advisories were paginated and not fully fetched; "
         "1 package query was not completed."
@@ -415,7 +415,7 @@ def test_whole_scan_deadline_keeps_prior_query_results_and_releases_single_fligh
     assert svc.scan()["scan"]["status"] != "ERROR"
 
 
-# ported: OsvVulnerabilityScannerTest.degradesToPartialAndRetainsEarlierQuerybatchPagesWhenWholeScanDeadlineExpiresMidBody
+# ported: OsvVulnerabilityScannerTest.degradesToPartialAndRetainsEarlierQuerybatchPagesWhenWholeScanDeadlineExpiresMidBody  # noqa: E501
 def test_trickling_body_read_stops_at_deadline_and_releases_single_flight(
     tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
 ):
