@@ -31,6 +31,7 @@ BLOCK_FASTAPI = """
 """
 # captured on the base (b310de30), where ``import sharpit`` imported the adapter eagerly
 STARLETTE_MAPPINGS = {
+    "basePath": "",
     "mappings": [
         {
             "consumes": None,
