@@ -31,4 +31,5 @@ sharpit enforces strict safety invariants:
   - The EPSS client in `src/sharpit/engine/collectors/vulns/epss.py` queries FIRST EPSS.
   - Destinations are configurable via `SHARPIT_VULNERABILITIES_OSV_BASE_URI` and `SHARPIT_VULNERABILITIES_EPSS_BASE_URI`.
   - Network vulnerability scans can be disabled via `SHARPIT_VULNERABILITIES_OSV_ENABLED=false` and `SHARPIT_VULNERABILITIES_EPSS_ENABLED=false`.
+- Whole scans have a 60-second default deadline (`SHARPIT_VULNERABILITIES_SCAN_TIMEOUT`); each network request is capped by the remaining scan time.
 - **Fails closed**: If network requests to OSV or EPSS fail or time out, the scan reports the failure gracefully without compromising security or crashing the host application.

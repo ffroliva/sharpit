@@ -20,7 +20,8 @@ import functools
 import re
 import time
 from collections.abc import Callable, Iterable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Final
@@ -28,6 +29,7 @@ from typing import Any, Final
 from sharpit.engine.advisors.dismissals import DismissalStore, rule_id
 from sharpit.engine.advisors.report import evidence, severity_counts
 from sharpit.engine.collectors.vulns.cvss import SEVERITIES
+from sharpit.engine.collectors.vulns.deadline import SCAN_DEADLINE_EXCEEDED, ScanDeadline
 from sharpit.engine.collectors.vulns.epss import EpssClient, canonical_cve_id
 from sharpit.engine.collectors.vulns.interpreter import Finding, compare_versions, interpret
 from sharpit.engine.collectors.vulns.inventory import Package
@@ -129,19 +131,26 @@ class VulnerabilityService:
         skipped = max(0, len(distinct) - max_packages)
         if not candidates:
             return _Scan(True, "SCANNED", EMPTY_MESSAGE, scanned_at, 0, skipped, [])
+        deadline = ScanDeadline(settings.vulnerabilities_scan_timeout)
         try:
-            query = self._osv.querybatch(candidates)
+            query = self._osv.querybatch(candidates, deadline)
         except OsvError as error:
             deps = [_Dependency(p, []) for p in packages]
+            if deadline.check_expired() or str(error) == SCAN_DEADLINE_EXCEEDED:
+                message = _scan_message(False, False, True, len(candidates), 0)
+                return _Scan(True, "PARTIAL", message, scanned_at, 0, skipped, deps)
             return _Scan(True, "ERROR", f"OSV scan failed: {error}", scanned_at, 0, skipped, deps)
         unique_ids = list(dict.fromkeys(i for ids in query.ids.values() for i in ids))
         max_advisories = max(1, settings.vulnerabilities_max_advisories)
-        docs, withdrawn, failed_fetches = self._fetch(sorted(unique_ids)[:max_advisories])
+        docs, withdrawn, failed_fetches = self._fetch(sorted(unique_ids)[:max_advisories], deadline)
         dependencies, unresolved = _enrich(packages, query, docs, withdrawn)
-        epss_message = self._apply_epss(dependencies)
+        epss_message = self._apply_epss(dependencies, deadline)
         limited = len(candidates) < len(distinct) or len(unique_ids) > max_advisories
-        partial = limited or query.truncated or query.failed or failed_fetches or unresolved
-        message = _scan_message(limited, query.truncated, len(candidates) - len(query.complete), failed_fetches)
+        expired = deadline.check_expired()
+        partial = limited or query.truncated or query.failed or failed_fetches or unresolved or expired
+        message = _scan_message(
+            limited, query.truncated, expired, len(candidates) - len(query.complete), failed_fetches
+        )
         if unresolved:
             message += (
                 f" {unresolved} finding associations could not be fully interpreted;"
@@ -150,32 +159,26 @@ class VulnerabilityService:
         status = "PARTIAL" if partial else "SCANNED"
         return _Scan(True, status, message + epss_message, scanned_at, len(query.complete), skipped, dependencies)
 
-    def _fetch(self, ids: list[str]) -> tuple[dict[str, dict[str, Any]], set[str], int]:
+    def _fetch(self, ids: list[str], deadline: ScanDeadline) -> tuple[dict[str, dict[str, Any]], set[str], int]:
         """Advisory details over a bounded pool (BootUI ``fetchVulnerabilities``): (docs, withdrawn ids, failures)."""
         if not ids:
             return {}, set(), 0
-        with ThreadPoolExecutor(min(ADVISORY_FETCH_CONCURRENCY, len(ids)), thread_name_prefix="sharpit-osv") as pool:
-            fetched = list(pool.map(self._fetch_one, ids))
-        docs: dict[str, dict[str, Any]] = {}
-        withdrawn: set[str] = set()
-        failed = 0
-        for vuln_id, doc in zip(ids, fetched, strict=True):
-            if doc is None or doc.get("id") != vuln_id:  # a mismatched document counts as a failed fetch
-                failed += 1
-            elif _is_withdrawn(doc):
-                if _valid_withdrawal(doc):  # a malformed timestamp is excluded too, leaving the detail incomplete
-                    withdrawn.add(vuln_id)
-            else:
-                docs[vuln_id] = doc
-        return docs, withdrawn, failed
-
-    def _fetch_one(self, vuln_id: str) -> dict[str, Any] | None:
+        if deadline.check_expired():
+            return {}, set(), len(ids)
+        pool = ThreadPoolExecutor(min(ADVISORY_FETCH_CONCURRENCY, len(ids)), thread_name_prefix="sharpit-osv")
         try:
-            return self._osv.vuln(vuln_id)
+            futures = [pool.submit(self._fetch_one, vuln_id, deadline) for vuln_id in ids]
+            return _collect_fetch_results(ids, futures, deadline)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    def _fetch_one(self, vuln_id: str, deadline: ScanDeadline) -> dict[str, Any] | None:
+        try:
+            return self._osv.vuln(vuln_id, deadline)
         except Exception:  # BootUI counts any failed fetch task (its ExecutionException included) as one failure
             return None
 
-    def _apply_epss(self, dependencies: list[_Dependency]) -> str:
+    def _apply_epss(self, dependencies: list[_Dependency], deadline: ScanDeadline) -> str:
         """Best-effort EPSS enrichment (BootUI ``applyEpss``/``applyEpssScores``); returns the message suffix."""
         if not self._settings.vulnerabilities_epss_enabled:
             return ""
@@ -183,7 +186,7 @@ class VulnerabilityService:
         cves = list(dict.fromkeys(cve for f in findings for cve in _cve_ids(f)))
         if not cves:
             return ""
-        result = self._epss.scores(cves)
+        result = self._epss.scores(cves, deadline)
         for finding in findings:
             best: tuple[str, tuple[float, float]] | None = None
             for cve in _cve_ids(finding):
@@ -198,6 +201,56 @@ class VulnerabilityService:
             "enrichment was incomplete or unavailable." if result.failed else "remaining CVEs have no available data."
         )
         return f" EPSS: {len(result.scores)} of {len(cves)} requested CVEs have scores; {tail}"
+
+
+def _collect_fetch_results(
+    ids: list[str], futures: list[Future[dict[str, Any] | None]], deadline: ScanDeadline
+) -> tuple[dict[str, dict[str, Any]], set[str], int]:
+    docs: dict[str, dict[str, Any]] = {}
+    withdrawn: set[str] = set()
+    failed = 0
+    for index, (vuln_id, future) in enumerate(zip(ids, futures, strict=True)):
+        try:
+            if future.done():
+                doc = future.result()
+            else:
+                remaining = deadline.remaining()
+                if remaining <= 0:
+                    deadline.mark_expired()
+                    failed += _cancel_pending(futures[index:])
+                    break
+                doc = future.result(timeout=remaining)
+        except FutureTimeoutError:
+            deadline.mark_expired()
+            failed += _cancel_pending(futures[index:])
+            break
+        except Exception:
+            doc = None
+        failed += _record_document(vuln_id, doc, docs, withdrawn)
+    return docs, withdrawn, failed
+
+
+def _cancel_pending(futures: list[Future[dict[str, Any] | None]]) -> int:
+    for future in futures:
+        future.cancel()
+    return len(futures)
+
+
+def _record_document(
+    vuln_id: str, doc: dict[str, Any] | None, docs: dict[str, dict[str, Any]], withdrawn: set[str]
+) -> int:
+    if doc is None or doc.get("id") != vuln_id:
+        return 1
+    _store_document(vuln_id, doc, docs, withdrawn)
+    return 0
+
+
+def _store_document(vuln_id: str, doc: dict[str, Any], docs: dict[str, dict[str, Any]], withdrawn: set[str]) -> None:
+    if not _is_withdrawn(doc):
+        docs[vuln_id] = doc
+        return
+    if _valid_withdrawal(doc):
+        withdrawn.add(vuln_id)
 
 
 def _is_withdrawn(doc: dict[str, Any]) -> bool:
@@ -257,12 +310,16 @@ def _cve_ids(finding: Finding) -> list[str]:
     return list(dict.fromkeys(c for c in map(canonical_cve_id, [finding.id, *finding.aliases]) if c is not None))
 
 
-def _scan_message(limited: bool, truncated: bool, failed_packages: int, failed_fetches: int) -> str:
+def _scan_message(
+    limited: bool, truncated: bool, deadline_exceeded: bool, failed_packages: int, failed_fetches: int
+) -> str:
     reasons: list[str] = []
     if limited:
         reasons.append("configured package or advisory limits were applied")
     if truncated:
         reasons.append("some advisories were paginated and not fully fetched")
+    if deadline_exceeded:
+        reasons.append("the scan deadline was reached")
     if failed_packages > 0:
         noun = "package query was" if failed_packages == 1 else "package queries were"
         reasons.append(f"{failed_packages} {noun} not completed")
@@ -370,4 +427,6 @@ def _evidence(scan: _Scan) -> dict[str, Any]:
         limitations.append("Some inventory packages were excluded by the scan limit.")
     if any(not _known(f) for d in deps for f in d.findings):
         limitations.append("Findings with unknown severity are excluded from score penalties.")
+    if scan.status == "PARTIAL" and not limitations:
+        limitations.append("The vulnerability scan did not complete within its configured limits.")
     return evidence(usable, not limitations, limitations)

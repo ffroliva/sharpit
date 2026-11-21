@@ -11,13 +11,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from vulnfakes import FakeOpener, Reply, fixture_text
 
+import sharpit.engine.collectors.vulns.service as vuln_service
 from conftest import SideEffectGuard, golden
 from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.collectors.vulns.deadline import ScanDeadline
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient
@@ -98,10 +101,12 @@ class FakeOsv:
 def service(
     osv: FakeOsv, packages: list[Package], state_dir: Path, flight: SingleFlight | None = None, **settings: Any
 ) -> VulnerabilityService:
+    configured = SharpitSettings(**settings)
+    timeout = configured.vulnerabilities_request_timeout
     return VulnerabilityService(
-        SharpitSettings(**settings),
-        OsvClient("http://osv.test", 2.0, osv.opener),
-        EpssClient("http://epss.test", 2.0, osv.opener),
+        configured,
+        OsvClient("http://osv.test", timeout, osv.opener),
+        EpssClient("http://epss.test", timeout, osv.opener),
         lambda: list(packages),
         DismissalStore(state_dir),
         flight or SingleFlight(),
@@ -122,6 +127,58 @@ def fixture_osv() -> FakeOsv:
 
 def dep(report: dict[str, Any], name: str) -> dict[str, Any]:
     return next(d for d in report["dependencies"] if d["artifactId"] == name)
+
+
+class _DeadlineClock:
+    now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class _TricklingResponse:
+    status = 200
+
+    def __init__(self, clock: _DeadlineClock) -> None:
+        self.clock = clock
+        self.timeouts: list[float] = []
+        self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=self))
+        self.read1_calls = 0
+        self.read_calls = 0
+        self.body_read = False
+        self.closed = False
+
+    def settimeout(self, timeout: float) -> None:
+        self.timeouts.append(timeout)
+
+    def read1(self, _size: int = -1) -> bytes:
+        self.read1_calls += 1
+        self.clock.now += 1.0
+        return b'{"res'
+
+    def read(self, _size: int = -1) -> bytes:
+        self.read_calls += 1
+        if self.body_read:
+            return b""
+        self.body_read = True
+        return b'{"results":[{}]}'
+
+    def close(self) -> None:
+        self.closed = True
+
+    def __enter__(self) -> "_TricklingResponse":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+class _ResponseOpener:
+    def __init__(self, response: _TricklingResponse) -> None:
+        self.response = response
+
+    def open(self, *_args: Any, **_kwargs: Any) -> _TricklingResponse:
+        return self.response
 
 
 def test_get_never_network(no_side_effects: SideEffectGuard, tmp_state_dir: Path):
@@ -363,6 +420,214 @@ def test_caps_max_advisories(tmp_state_dir: Path):
     assert report["scan"]["status"] == "PARTIAL"
     assert [p for p in osv.paths() if p.startswith("/v1/vulns/")] == ["/v1/vulns/V-1"]  # sorted, then capped
     assert dep(report, "jinja2")["assessment"]["detailAssessmentComplete"] is False
+
+
+def test_whole_scan_deadline_keeps_prior_query_results_and_releases_single_flight(
+    tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    packages = [Package(f"package-{index:04}", "1.0", None) for index in range(1001)]
+    osv = FakeOsv(ids={"package-0000": ["V-1"]}, docs={"V-1": advisory("V-1", packages[0])})
+    calls = 0
+
+    def answer(request: urllib.request.Request) -> Reply:
+        nonlocal calls
+        if urllib.parse.urlsplit(request.full_url).path != "/v1/querybatch":
+            return osv.__call__(request)
+        calls += 1
+        if calls == 2:
+            clock.now = 2.0
+        queries = json.loads(request.data)["queries"]  # type: ignore[arg-type]
+        return 200, json.dumps(
+            {"results": [{"vulns": [{"id": "V-1"}] if q["package"]["name"] == "package-0000" else []} for q in queries]}
+        )
+
+    osv.opener.handler = answer
+    flight = SingleFlight()
+    svc = service(
+        osv,
+        packages,
+        tmp_state_dir,
+        flight,
+        vulnerabilities_scan_timeout=2.0,
+        vulnerabilities_max_packages=1001,
+        vulnerabilities_max_advisories=1001,
+    )
+    monkeypatch.setattr(vuln_service, "ScanDeadline", lambda timeout: ScanDeadline(timeout, clock))
+    report = svc.scan()
+    assert report["scan"]["status"] == "PARTIAL"
+    assert "the scan deadline was reached" in report["scan"]["message"]
+    assert dep(report, "package-0000")["assessment"]["queryComplete"] is True
+    assert flight.active == ""
+    assert svc.scan()["scan"]["status"] != "ERROR"
+
+
+# ported: OsvVulnerabilityScannerTest.degradesToPartialAndRetainsEarlierQuerybatchPagesWhenWholeScanDeadlineExpiresMidBody  # noqa: E501
+def test_trickling_body_read_stops_at_deadline_and_releases_single_flight(
+    tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    clock = _DeadlineClock()
+    response = _TricklingResponse(clock)
+    osv = FakeOsv()
+    osv.opener = _ResponseOpener(response)  # type: ignore[assignment]
+    flight = SingleFlight()
+    svc = service(
+        osv,
+        [JINJA],
+        tmp_state_dir,
+        flight,
+        vulnerabilities_scan_timeout=2.0,
+        vulnerabilities_request_timeout=10.0,
+    )
+    monkeypatch.setattr(vuln_service, "ScanDeadline", lambda timeout: ScanDeadline(timeout, clock))
+
+    report = svc.scan()
+
+    assert report["scan"]["status"] == "PARTIAL"
+    assert "the scan deadline was reached" in report["scan"]["message"]
+    assert response.read1_calls == 2
+    assert response.read_calls == 0
+    assert response.timeouts == [2.0, 1.0]
+    assert response.closed is True
+    assert flight.active == ""
+
+
+def test_scan_releases_lock_after_unexpected_opener_exception(tmp_state_dir: Path):
+    osv = FakeOsv(ids={"jinja2": ["V-1"]}, docs={"V-1": advisory("V-1", JINJA)})
+    flight = SingleFlight()
+    svc = service(osv, [JINJA], tmp_state_dir, flight)
+    osv.opener.handler = lambda _request: RuntimeError("fake opener failure")
+    with pytest.raises(RuntimeError, match="fake opener failure"):
+        svc.scan()
+    assert flight.active == ""
+    osv.opener.handler = osv.__call__
+    assert svc.scan()["scan"]["status"] == "SCANNED"
+    assert flight.active == ""
+
+
+def test_scan_releases_lock_after_success_and_allows_another_scan(tmp_state_dir: Path):
+    osv = FakeOsv(ids={"jinja2": ["V-1"]}, docs={"V-1": advisory("V-1", JINJA)})
+    flight = SingleFlight()
+    svc = service(osv, [JINJA], tmp_state_dir, flight)
+    assert svc.scan()["scan"]["status"] == "SCANNED"
+    assert flight.active == ""
+    assert svc.scan()["scan"]["status"] == "SCANNED"
+    assert flight.active == ""
+
+
+def test_request_timeouts_never_exceed_request_limit_or_remaining_scan_time(
+    tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    monkeypatch.setattr(vuln_service, "ScanDeadline", lambda timeout: ScanDeadline(timeout, clock))
+    osv = FakeOsv(
+        ids={JINJA.name: ["V-1"]},
+        docs={"V-1": advisory("V-1", JINJA, aliases=("CVE-2024-0001",))},
+    )
+    original = osv.__call__
+
+    def answer(request: urllib.request.Request) -> Reply:
+        reply = original(request)
+        clock.now += 0.75
+        return reply
+
+    osv.opener.handler = answer
+    svc = service(
+        osv,
+        [JINJA],
+        tmp_state_dir,
+        vulnerabilities_request_timeout=10.0,
+        vulnerabilities_scan_timeout=3.0,
+    )
+    report = svc.scan()
+    assert report["scan"]["status"] == "SCANNED"
+    assert all(timeout <= 10.0 for timeout in osv.opener.timeouts)
+    assert all(timeout <= remaining for timeout, remaining in zip(osv.opener.timeouts, [3.0, 2.25, 1.5], strict=True))
+    assert osv.opener.timeouts == [3.0, 2.25, 1.5]
+
+
+def test_detail_fetch_deadline_keeps_completed_advisories_and_counts_cancelled_rest(
+    tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    svc = service(FakeOsv(), [JINJA], tmp_state_dir)
+    deadline = ScanDeadline(2.0, clock)
+    monkeypatch.setattr(vuln_service, "ADVISORY_FETCH_CONCURRENCY", 1)
+
+    def fetch(vuln_id: str, scan_deadline: ScanDeadline) -> dict[str, str]:
+        scan_deadline.request_budget(1.0)
+        if vuln_id == "V-2":
+            clock.now = 2.1
+        return {"id": vuln_id}
+
+    monkeypatch.setattr(svc._osv, "vuln", fetch)
+    docs, withdrawn, failed = svc._fetch(["V-1", "V-2", "V-3"], deadline)  # pyright: ignore[reportPrivateUsage]
+    assert docs == {"V-1": {"id": "V-1"}, "V-2": {"id": "V-2"}}
+    assert withdrawn == set()
+    assert failed == 1
+    assert deadline.check_expired() is True
+
+
+# ported: OsvVulnerabilityScannerTests.degradesToPartialAndRetainsEarlierEpssChunksWhenWholeScanDeadlineExpiresDuringEpss  # noqa: E501
+def test_epss_deadline_keeps_earlier_scores_and_marks_only_expired_scan_partial(
+    tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    monkeypatch.setattr(vuln_service, "ScanDeadline", lambda timeout: ScanDeadline(timeout, clock))
+    cves = [f"CVE-2024-{index:05}" for index in range(160)]
+    ids = [f"V-{index:03}" for index in range(len(cves))]
+    docs = {
+        vuln_id: {
+            "id": vuln_id,
+            "aliases": [cve],
+            "database_specific": {"severity": "HIGH"},
+            "affected": [{"package": {"ecosystem": "PyPI", "name": JINJA.name}, "versions": [JINJA.version]}],
+        }
+        for vuln_id, cve in zip(ids, cves, strict=True)
+    }
+    osv = FakeOsv(ids={JINJA.name: ids}, docs=docs)
+    original = osv.__call__
+    epss_calls = 0
+
+    def answer(request: urllib.request.Request) -> Reply:
+        nonlocal epss_calls
+        if urllib.parse.urlsplit(request.full_url).path != "/data/v1/epss":
+            return original(request)
+        epss_calls += 1
+        clock.now = 1.5 if epss_calls == 1 else 2.0
+        values = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)["cve"][0].split(",")
+        return 200, json.dumps({"data": [{"cve": cve, "epss": "0.1", "percentile": "0.2"} for cve in values]})
+
+    osv.opener.handler = answer
+    report = service(osv, [JINJA], tmp_state_dir, vulnerabilities_scan_timeout=2.0).scan()
+    assert report["scan"]["status"] == "PARTIAL"
+    assert "enrichment was incomplete or unavailable." in report["scan"]["message"]
+    assert any(finding["epssScore"] is not None for finding in dep(report, "jinja2")["vulnerabilities"])
+    assert "The vulnerability scan did not complete within its configured limits." in report["evidence"]["limitations"]
 
 
 def test_empty_inventory(tmp_state_dir: Path):

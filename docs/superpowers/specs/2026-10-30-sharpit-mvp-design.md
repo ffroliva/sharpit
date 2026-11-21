@@ -371,6 +371,7 @@ If `identity.key` was already committed, remove it from Git manually; `.gitignor
 | Forwarded-header 403 generic text | 403 text names `SHARPIT_TRUSTED_PROXIES` and `SHARPIT_ALLOW_NON_LOCALHOST` | the user can fix it without reading source |
 | `BOOTUI_ENABLED` boolean | `SHARPIT_ENABLED` accepts 1/0/true/false/yes/no/on/off, case-insensitive; `ON` overrides a disabled profile and adds a warning | env var ergonomics; a loud opt-in instead of silent profile precedence |
 | Vulnerabilities `scannedAt` always a timestamp | `scannedAt` is `null` before the first scan | no scan has happened; no invented time |
+| BootUI 2.5.0 vulnerability scan and advisory interpretation | `SHARPIT_VULNERABILITIES_SCAN_TIMEOUT` bounds the scan, with `PARTIAL` on deadline; PyPI aliases prioritize CVE/GHSA and include upstream identifiers | PyPI has no Maven archive names, package URLs, Code Inventory reach, or advisory symbols; urllib socket timeouts cannot stop a trickling response mid-read (A5 matrix fragment) |
 | Beans carry no `overriddenBy` key | provider `overridden_by` is appended to `resource` as `(overridden by X)` | keeps the bean DTO keys; the override is still visible |
 | URL userinfo masked only with a non-empty user | any URL with userinfo is masked, including an empty user (`scheme://:x@host`) | fail closed; an odd non-secret `://:x@` URL is masked too |
 | FULL exposure shows raw values | FULL keeps the `SecretStr` placeholder `**********` and shows plain-`str` defaults | Pydantic `SecretStr` cannot be unwrapped safely; FULL is an explicit opt-in |

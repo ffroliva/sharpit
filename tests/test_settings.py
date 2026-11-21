@@ -27,6 +27,7 @@ def test_defaults():
     assert s.expose_values is Exposure.MASKED
     assert s.warnings == ()
     assert (s.cli_max_results, s.cli_max_concurrent_calls, s.cli_execution_timeout) == (200, 20, 30.0)
+    assert vars(s).get("vulnerabilities_scan_timeout") == 60.0
     assert s.panels["mcp-server"] == PanelSettings(enabled=True, read_only=False)
 
 
@@ -57,6 +58,20 @@ def test_github_setting_defaults_and_parsers():
     assert getattr(loaded, "github_api_enabled", None) is False
     assert getattr(loaded, "github_request_timeout", None) == 2.5
     assert getattr(loaded, "github_allowed_api_hosts", None) == ("api.github.com", "ghe.example.com")
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("2s", 2.0), ("500ms", 0.5), ("2.5", 2.5)])
+def test_vulnerability_scan_timeout_parses_duration_env(raw: str, expected: float):
+    loaded = load_settings({}, {"SHARPIT_VULNERABILITIES_SCAN_TIMEOUT": raw})
+    assert vars(loaded).get("vulnerabilities_scan_timeout") == expected
+
+
+def test_vulnerability_scan_timeout_kwarg():
+    try:
+        loaded = load_settings({"vulnerabilities_scan_timeout": 3.0}, {})
+    except TypeError:
+        loaded = SharpitSettings()
+    assert vars(loaded).get("vulnerabilities_scan_timeout") == 3.0
 
 
 def test_env_overrides_kwargs():
@@ -157,6 +172,9 @@ FAIL_SAFE: list[tuple[str, str, str, Any]] = [
     ("vulnerabilities_max_packages", "SHARPIT_VULNERABILITIES_MAX_PACKAGES", "many", 500),
     ("vulnerabilities_max_advisories", "SHARPIT_VULNERABILITIES_MAX_ADVISORIES", "-3", 200),
     ("vulnerabilities_request_timeout", "SHARPIT_VULNERABILITIES_REQUEST_TIMEOUT", "soon", 10.0),
+    ("vulnerabilities_scan_timeout", "SHARPIT_VULNERABILITIES_SCAN_TIMEOUT", "soon", 60.0),
+    ("vulnerabilities_scan_timeout", "SHARPIT_VULNERABILITIES_SCAN_TIMEOUT", "0", 60.0),
+    ("vulnerabilities_scan_timeout", "SHARPIT_VULNERABILITIES_SCAN_TIMEOUT", "-1", 60.0),
     ("mcp_max_results", "SHARPIT_MCP_MAX_RESULTS", "0", 200),
     ("mcp_max_payload_bytes", "SHARPIT_MCP_MAX_PAYLOAD_BYTES", "big", 1048576),
     ("mcp_max_concurrent_calls", "SHARPIT_MCP_MAX_CONCURRENT_CALLS", "1.5", 20),
@@ -171,7 +189,7 @@ FAIL_SAFE: list[tuple[str, str, str, Any]] = [
 @pytest.mark.parametrize(("field", "env", "raw", "expected"), FAIL_SAFE, ids=[f[0] for f in FAIL_SAFE])
 def test_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
     s = load_settings({}, {env: raw})
-    assert getattr(s, field) == expected
+    assert vars(s).get(field) == expected
     assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
 
 
@@ -279,6 +297,7 @@ PROPERTIES = {
     "bootui.config-scan": ("config_scan", "false"),
     "bootui.vulnerabilities.osv-enabled": ("vulnerabilities_osv_enabled", "false"),
     "bootui.vulnerabilities.request-timeout": ("vulnerabilities_request_timeout", "3s"),
+    "bootui.vulnerabilities.scan-timeout": ("vulnerabilities_scan_timeout", "2s"),
     "bootui.vulnerabilities.max-packages": ("vulnerabilities_max_packages", "7"),
     "bootui.vulnerabilities.max-advisories": ("vulnerabilities_max_advisories", "8"),
     "bootui.vulnerabilities.osv-base-uri": ("vulnerabilities_osv_base_uri", "http://osv.test"),
@@ -581,9 +600,9 @@ def test_a_varied_key_does_not_warn() -> None:
 def test_env_name_table(prop: str):
     field, sample = PROPERTIES[prop]
     assert field == _env_name(prop).removeprefix("SHARPIT_").lower()
-    default = getattr(load_settings({}, {}), field)
+    default = vars(load_settings({}, {})).get(field)
     s = load_settings({}, {_env_name(prop): sample})
-    assert getattr(s, field) != default
+    assert vars(s).get(field) != default
     assert not any(w.startswith("Ignoring invalid") for w in s.warnings)
 
 
@@ -733,6 +752,7 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "FREE_ON_IDLE_TIMEOUT",
         "VULNERABILITIES_OSV_ENABLED",
         "VULNERABILITIES_REQUEST_TIMEOUT",
+        "VULNERABILITIES_SCAN_TIMEOUT",
         "VULNERABILITIES_MAX_PACKAGES",
         "VULNERABILITIES_MAX_ADVISORIES",
         "VULNERABILITIES_OSV_BASE_URI",
