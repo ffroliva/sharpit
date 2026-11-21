@@ -1,14 +1,14 @@
 """Module boundaries, checked on every run (Spring Modulith style). AGENTS.md "Architecture rules" lists the same rules.
 
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
-2. Dependencies point inward: the engine never imports the adapters (``sharpit.fastapi``, ``sharpit.pytest_plugin``
-   or ``sharpit.ui``); no module outside ``sharpit/cli/`` imports ``sharpit.cli``; modules under ``sharpit/cli/``
-   import only the standard library and ``sharpit.cli``, not even for a type.
+2. Dependencies point inward: the engine never imports the adapters (``sharpit.fastapi``, ``sharpit.flask``,
+   ``sharpit.pytest_plugin`` or ``sharpit.ui``); no module outside ``sharpit/cli/`` imports ``sharpit.cli``; modules
+   under ``sharpit/cli/`` import only the standard library and ``sharpit.cli``, not even for a type.
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
    code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
    Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
-4. Gatekeepers: an optional dependency or a network client is imported only by its named gatekeeper file or package,
-   so the rest of the package works without it (CI's ``no-sqlalchemy`` job). ``urllib.request`` is limited to
+4. Gatekeepers: Flask, an optional dependency or a network client is imported only by its named gatekeeper file or
+   package, so the rest of the package works without it (CI's ``no-sqlalchemy`` job). ``urllib.request`` is limited to
    ``engine/collectors/vulns/osv.py``, ``engine/collectors/vulns/epss.py``, ``engine/collectors/github/client.py``
    and ``cli/client.py``; ``http.client`` is limited to the same files except EPSS. The CLI imports only the named
    standard-library modules in ``CLI_STDLIB`` below.
@@ -34,12 +34,13 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 ENGINE = SRC / "sharpit" / "engine"
 COLLECTORS = ENGINE / "collectors"
 FRAMEWORKS = ("fastapi", "starlette")
-ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui")
+ADAPTERS = ("sharpit.fastapi", "sharpit.flask", "sharpit.pytest_plugin", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
     "sqlalchemy": {"sharpit/engine/sqla"},  # a package: every module under engine/sqla/ (0.5.0 spec §4.1)
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
+    "flask": {"sharpit/flask"},
     "dotenv": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
     "prometheus_client": {"sharpit/engine/collectors/metrics/prometheus.py"},
