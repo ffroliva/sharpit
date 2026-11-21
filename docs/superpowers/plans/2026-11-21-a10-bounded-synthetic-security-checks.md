@@ -10,9 +10,9 @@
 
 **Review gate:** Complete the required high-tier review of this plan and record its disposition before implementation begins. The gate covers host-code execution by synthetic requests, action gates, transport limits, and the synchronous-call limitation above.
 
-## Open question
+## Review disposition
 
-- Does this design satisfy the required high-tier review gate? Record the disposition before implementation begins.
+- Reviewed at high tier before implementation; conditions folded into tasks 1-5.
 
 ## Global Constraints
 
@@ -117,7 +117,7 @@
 
 ## Definition of done
 
-- [ ] High-tier review acceptance is recorded before implementation.
+- [x] High-tier review acceptance is recorded before implementation.
 - [ ] All Critical/High scenarios have named passing tests; inactive, guard, read-only, and GET-purity gates hold.
 - [ ] BootUI probe sequence, retention limits, redirect behavior, rule registry, and report DTO are covered; ASGI and BootUI contract fixtures are distinct.
 - [ ] Secrets never escape; incomplete ASGI evidence never appears clean; synchronous event-loop blocking is documented as uninterruptible.
