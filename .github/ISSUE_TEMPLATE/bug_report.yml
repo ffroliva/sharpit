@@ -7,12 +7,12 @@ body:
       value: |
         Thank you for reporting a bug. Please ensure no sensitive information is included:
         **Warning:** Do not paste tokens, secrets, URLs with credentials, or real production data into public issues.
-        For security vulnerabilities, please refer to [SECURITY.md](../../SECURITY.md) instead.
+        For security vulnerabilities, please refer to [SECURITY.md](https://github.com/ffroliva/sharpit/blob/main/SECURITY.md) instead.
   - type: input
     id: sharpit-version
     attributes:
       label: sharpit version
-      placeholder: "0.7.0"
+      placeholder: "0.8.0"
     validations:
       required: true
   - type: input

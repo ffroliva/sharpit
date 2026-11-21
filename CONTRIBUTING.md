@@ -61,7 +61,7 @@ All bug fixes and additions follow test-driven development:
 
 1. **Assertion-first failure**: The test fails on an assertion specifically naming the defect or behavior under test, never on an `ImportError`, `AttributeError`, or collection crash.
 2. **One condition per assert**: Each assertion tests a single condition (following ruff `PT018`) so failures identify the exact issue.
-3. **Verification with `red_check.py`**:
+3. **Verification with `scripts/dev/red_check.py`**:
    Run the red check script before committing a test:
    ```bash
    uv run python scripts/dev/red_check.py tests/path/to/test_file.py::test_name
