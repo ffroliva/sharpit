@@ -1,7 +1,8 @@
 # BootUI 2.2.0 panel parity
 
-> The 0.5.0 record against BootUI 2.2.0. For where sharpit stands now (0.6.0 against BootUI 2.3.0 and 2.4.0), see
-> [ROADMAP.md](../../ROADMAP.md).
+> The 0.5.0 record against BootUI 2.2.0. For where sharpit stands now (0.8.0 against BootUI 2.5.0), see
+> [ROADMAP.md](../../ROADMAP.md). The 0.8.0 static pin targets BootUI 2.5.0; live route status remains measured
+> against the 2.3.0 goldens until the 2.5.0 reference-app capture is available.
 
 Every panel id in BootUI 2.2.0 (`tests/fixtures/bootui/2.2.0/ids.json`) and where sharpit stands on it at 0.5.0.
 

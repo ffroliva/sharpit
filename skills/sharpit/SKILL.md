@@ -260,7 +260,7 @@ sharpit insights list --fail-on insufficient
 
 ### Exit codes
 
-Exit codes follow BootUI 2.4.0 (`sharpit.cli.exit_codes.ExitCodes`):
+Exit codes follow BootUI 2.5.0 (`sharpit.cli.exit_codes.ExitCodes`):
 
 - `0` (`SUCCESS`): command succeeded and findings are below the gate threshold.
 - `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated; a refused MCP toggle exits 1.

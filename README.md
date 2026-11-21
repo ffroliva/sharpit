@@ -135,15 +135,15 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
 
 ## How close to BootUI
 
-sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, and 0.7.0 targets BootUI 2.4.0.
+sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0.
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | BootUI 2.3.0 | BootUI 2.4.0 |
-|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 28 | 28 |
-| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 66 | not captured |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 71 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 62 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 10 of 28 registered | 28 | 28 | 29 |
+| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (4 shape-identical, 29 partial) | 66 | not captured | not captured |
 
 How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
 
@@ -224,7 +224,7 @@ sharpit security scan --fail-on high
 sharpit insights list --fail-on insufficient
 ```
 
-Exit codes follow BootUI 2.4.0 (`ExitCodes`):
+Exit codes follow BootUI 2.5.0 (`ExitCodes`):
 
 - `0`: success (the command completed and any gate passed).
 - `1`: error (network or HTTP error, invalid argument, gate cannot be evaluated); a refused MCP toggle exits 1.

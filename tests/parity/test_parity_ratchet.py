@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 PARITY = Path(__file__).parent
-ROUTES_MATCHED_PIN = 5  # routes still measure the BootUI 2.3.0 live goldens until the live capture lands
+ROUTES_MATCHED_PIN = 4  # mappings/flat adds basePath in the 2.5.0 static contract; A2 ports it
 PROPERTIES_MATCHED_PIN = 103
 
 

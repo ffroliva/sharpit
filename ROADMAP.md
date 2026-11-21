@@ -1,30 +1,30 @@
 # Roadmap: how close sharpit is to BootUI
 
 sharpit is a Python/FastAPI port of [BootUI](https://github.com/jdubois/boot-ui), the Spring Boot developer console.
-Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, and 0.7.0 targets BootUI 2.4.0.
+Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0.
 
 ## Where it stands
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | BootUI 2.3.0 | BootUI 2.4.0 |
-|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 28 | 28 |
-| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 66 | not captured |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 71 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 62 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 10 of 28 registered | 28 | 28 | 29 |
+| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (4 shape-identical, 29 partial) | 66 | not captured | not captured |
 
-`tests/docs/test_parity_matrix.py` recomputes the sharpit 0.7.0 column from the code and the BootUI 2.4.0 fixtures
-on every run (routes stay measured against the 2.3.0 live goldens: the static 2.4.0 fixtures pin tools and properties,
-while 2.4.0 live goldens are deferred to the next release). The sharpit 0.5.0 and 0.6.0 columns are frozen literals, and
-the BootUI columns were recorded at BootUI's respective tags (`v2.3.0` and `v2.4.0`).
+`tests/docs/test_parity_matrix.py` recomputes the sharpit 0.8.0 column from the code and the BootUI 2.5.0 fixtures
+on every run. Routes remain measured against the 2.3.0 live goldens; the 2.5.0 static fixtures pin tools, properties,
+and rule identifiers, while 2.5.0 live goldens await the reference app and databases. The sharpit 0.5.0, 0.6.0,
+and 0.7.0 columns are frozen literals; BootUI columns use their respective tags.
 
 How each row is counted:
 
 - **Tools:** sharpit's MCP/CLI tool catalogue (`sharpit.engine.tools.TOOLS`) against BootUI's
-  (`tests/fixtures/bootui/2.4.0/tools.json`; at BootUI's tags, `bootui-cli/src/main/resources/bootui-tools.json`).
+  (`tests/fixtures/bootui/2.5.0/tools.json`; at BootUI's tags, `bootui-cli/src/main/resources/bootui-tools.json`).
   "Exact names" counts the sharpit tools whose name is also a BootUI tool name.
 - **Panels:** sharpit's panel registry, and the panels `GET /sharpit/api/panels` lists. BootUI's count is the Spring
-  sample app's (the live capture fixture, `tests/fixtures/bootui/2.4.0/panels.json`; at BootUI's tags,
+  sample app's (the live capture fixture, `tests/fixtures/bootui/2.5.0/panels.json`; at BootUI's tags,
   `bootui-conformance/.../expected-panels-spring.json`). Some BootUI panels are Java-only, so 48 of 65 is not a
   percentage of the work left.
 - **Runtime insights:** sharpit registers all 28 of BootUI's insight kinds; 10 evaluate in 0.7.0; of the other 18, `proxy-bypass` and
@@ -81,7 +81,7 @@ sharpit 0.7.0 targets BootUI 2.4.0 behaviour and engine robustness across existi
 
 Deferred lanes from 0.7.0 move to 0.8.0:
 
-- **W0 live goldens:** capture per-panel 2.4.0 live goldens once BootUI 2.4.0 is built into the reference app with live databases.
+- **W0 live goldens:** capture per-panel 2.5.0 live goldens once BootUI 2.5.0 is built into the reference app with live databases; the static 2.5.0 fixtures now pin tools, properties and rule identifiers.
 - **A2 (observed transaction boundaries):** port `TransactionBoundary.observed` and failed begin reporting once boundary tracking is optimized within the 30 µs budget.
 - **B2 (transaction journal source and kinds):** add `transaction` journal events, `split-transaction-writes`, and `transaction-across-remote-call` after overhead audit.
 - **B3 (ORM journal source and kinds):** add SQLAlchemy session events as the `orm` source and port ORM flush and context insight kinds.
@@ -90,7 +90,7 @@ Deferred lanes from 0.7.0 move to 0.8.0:
 - **B6 (missing routes):** implement the 33 unserved BootUI API routes across scan results, runtime insights, traces, memory, and application structure.
 - **B7 (partial routes):** close the 28 partial route differences or record detailed per-panel deviations.
 - **D1 (SQLAlchemy listener race):** resolve class-level listener registration races across Engine, Pool, and Mapper.
-- **D2 (SQL listener per-statement path):** evaluate BootUI 2.4.0 event-sink capture to reduce per-statement listener overhead.
+- **D2 (SQL listener per-statement path):** evaluate BootUI 2.5.0 event-sink capture to reduce per-statement listener overhead.
 - **D3 (SQL Trace panel availability):** align SQL Trace panel availability before a data source is wrapped.
 - **D4 (connection and SQL facts):** audit follow-ups for connection statement counts and recorded-SQL presence flags.
 - **D6 (masking safety):** single-pass quoted-text masking and strict fail-safe fallback for invalid email mask settings.
