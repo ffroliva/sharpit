@@ -414,18 +414,16 @@ def test_shape_keys_match_bootui():
     assert REPORT_KEYS == (
         "available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption",
     )  # fmt: skip
+    # BootUI v2.5.0 RequestProfileDto.java:35-51
     assert PROFILE_KEYS == (
         "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
         "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",
-        "approximate", "authorizations", "baselineComparison",
+        "approximate",
     )  # fmt: skip
     ctx = _ctx()
     _request(ctx, "r1")
     _sql(ctx, "r1")
     _raise(ctx, "r1")
-    profile = request_profile(ctx, "r1")
-    assert profile["authorizations"] == []
-    assert profile["baselineComparison"] is None
     assert all(tuple(e) == ENTRY_KEYS for e in _report(ctx)["entries"])
 
 
