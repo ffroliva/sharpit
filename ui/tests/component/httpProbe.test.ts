@@ -5,7 +5,7 @@ import HttpProbe from '../../src/views/HttpProbe.svelte';
 import { harness, json, page, panel, readOnly, until } from './support';
 
 const result = { status: 200, statusText: 'OK', headers: { 'content-type': 'application/json' }, body: '{"a":1}', durationMs: 7, error: null, truncated: false };
-const mappings = { total: 1, mappings: [{ method: 'GET', pattern: '/owners/{id}', handler: 'app.owner', produces: null, consumes: null }], page: page(1) };
+const mappings = { total: 1, basePath: '/service', mappings: [{ method: 'POST', pattern: '/owners/{id}', handler: 'app.owner', produces: null, consumes: null }], page: page(1) };
 const h = harness();
 
 function serve(reply: () => Response = () => json(200, result)) {
@@ -24,11 +24,13 @@ const type = (sel: string, value: string, ev = 'input') => {
 const send = () => [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'Send')!;
 const body = (n = 0) => JSON.parse(String(h.fetchMock.mock.calls.filter(([, i]) => i?.method === 'POST')[n]![1]!.body));
 
-it('offers route suggestions from mappings', async () => {
+it('picks a declared route with its method and effective base path', async () => {
   serve();
   h.mount(HttpProbe, { panel: panel('http-probe') });
-  await until(() => expect(h.target.querySelectorAll('datalist option')).toHaveLength(1));
-  expect(h.target.querySelector<HTMLOptionElement>('datalist option')!.value).toBe('/owners/{id}');
+  await until(() => expect(h.target.querySelectorAll('select[aria-label="Declared route"] option')).toHaveLength(2));
+  type('select[aria-label="Declared route"]', 'POST /service/owners/{id}', 'change');
+  expect(h.target.querySelector<HTMLSelectElement>('select[aria-label="Method"]')!.value).toBe('POST');
+  expect(h.target.querySelector<HTMLInputElement>('input[aria-label="Path"]')!.value).toBe('/service/owners/{id}');
 });
 
 it('sends method, path, headers and body, and shows status, timing, headers and the pretty body', async () => {

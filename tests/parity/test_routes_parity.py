@@ -121,12 +121,6 @@ def test_partial_routes_record_exact_gaps(client: TestClient, item: dict[str, An
     assert response.status_code == 200, f"{route} returned HTTP {response.status_code}"
     payload = response.json()
 
-    if item["golden"] == "mappings/flat.captured.json":
-        assert item["difference"] == "BootUI 2.5.0 adds basePath; sharpit support is tracked in A2"
-        sharpit_id, name = _fixture_parts(item["golden"])
-        assert_parity(sharpit_id, name, payload, fixture_version="2.3.0", matched=True)
-        return
-
     with pytest.raises(AssertionError) as exc_info:
         assert_parity(sharpit_id, name, payload, fixture_version="2.3.0", matched=True)
 

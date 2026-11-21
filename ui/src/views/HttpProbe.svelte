@@ -1,7 +1,6 @@
 <script lang="ts">
   import PanelShell from '../components/PanelShell.svelte';
-  import { errorText, post } from '../lib/api';
-  import { ServerPage } from '../lib/paging';
+  import { errorText, get, post } from '../lib/api';
   import { panelActionReason } from '../lib/panelState';
   import { statusFamilyClass } from '../lib/status';
   import type { Mapping, Panel, ProbeResult } from '../lib/types';
@@ -25,14 +24,32 @@
   let sending = $state(false);
   let result = $state<ProbeResult | null>(null);
   let failure = $state<string | null>(null);
-  let routes = $state<string[]>([]);
+  let routes = $state<Entry[]>([]);
+  let selectedRoute = $state('');
   let history = $state<Entry[]>(readHistory());
 
-  // route suggestions: the patterns of the app's own routes
-  ServerPage.loadAll<Mapping>('mappings/flat', 'mappings', 1000).then(
-    (rows) => (routes = [...new Set(rows.map((r) => r.pattern))].sort()),
+  // Route options use the same effective prefix the server reports for mappings.
+  // shortcut: the picker shows at most 1000 mappings, raise the API cap if larger apps need deeper browsing.
+  get<{ mappings?: Mapping[]; basePath?: string }>('mappings/flat', { limit: 1000 }).then(
+    (report) => {
+      const basePath = typeof report?.basePath === 'string' ? report.basePath : '';
+      const mappings = Array.isArray(report?.mappings) ? report.mappings : [];
+      routes = [...new Map<string, Entry>(mappings.map((r) => {
+        const path = `${basePath}${r.pattern === '/' ? '' : r.pattern}` || '/';
+        return [`${r.method} ${path}`, { method: r.method, path }] as const;
+      })).values()].sort((a, b) => `${a.method} ${a.path}`.localeCompare(`${b.method} ${b.path}`));
+    },
     () => {},
   );
+
+  function chooseRoute(value: string) {
+    selectedRoute = value;
+    const route = routes.find((r) => `${r.method} ${r.path}` === value);
+    if (route) {
+      method = METHODS.includes(route.method) ? route.method : 'GET';
+      path = route.path;
+    }
+  }
 
   function readHistory(): Entry[] {
     try {
@@ -96,8 +113,11 @@
   <form class="form" onsubmit={(e) => (e.preventDefault(), void send())}>
     <div class="line">
       <select aria-label="Method" bind:value={method}>{#each METHODS as m}<option>{m}</option>{/each}</select>
-      <input class="path" type="text" aria-label="Path" list="probe-routes" placeholder="/owners/1?expand=pets" bind:value={path} autocomplete="off" spellcheck="false" />
-      <datalist id="probe-routes">{#each routes as r}<option value={r}></option>{/each}</datalist>
+      <select aria-label="Declared route" value={selectedRoute} onchange={(e) => chooseRoute(e.currentTarget.value)}>
+        <option value="">Choose route…</option>
+        {#each routes as r}<option value={`${r.method} ${r.path}`}>{r.method} {r.path}</option>{/each}
+      </select>
+      <input class="path" type="text" aria-label="Path" placeholder="/owners/1?expand=pets" bind:value={path} autocomplete="off" spellcheck="false" />
       <button type="submit" class="primary" disabled={!!why || sending || !path} title={why ?? undefined}>{sending ? 'Sending…' : 'Send'}</button>
     </div>
     <div class="areas">

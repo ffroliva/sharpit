@@ -12,6 +12,7 @@ class AppInfo:
     framework: str
     framework_version: str | None
     docs_url: str | None
+    base_path: str = ""
 
 
 @dataclass(frozen=True)

@@ -15,8 +15,10 @@ ROW_KEYS = {"method", "pattern", "handler", "produces", "consumes"}
 
 
 class FakeIntrospector:
+    base_path = ""
+
     def app_info(self) -> AppInfo:
-        return AppInfo(None, "FastAPI", None, None)
+        return AppInfo(None, "FastAPI", None, None, self.base_path)
 
     def routes(self) -> list[RouteInfo]:
         return ROUTES
@@ -32,7 +34,7 @@ def _ctx() -> SharpitContext:
 def test_shape_matches_contract_keys(no_side_effects: SideEffectGuard):
     # golden mappings.json is the raw Actuator descriptor (dropped); the flat shape is contract section 4
     report = mappings_flat(_ctx(), None, None, None)
-    assert set(report) == {"total", "mappings", "page"}
+    assert set(report) == {"total", "basePath", "mappings", "page"}
     assert all(set(row) == ROW_KEYS for row in report["mappings"])
     assert set(report["page"]) == {"total", "matched", "offset", "limit", "returned", "hasMore"}
 
@@ -63,3 +65,15 @@ def test_row_values_and_paging_and_q():
     assert report["page"]["total"] == 5
     assert report["page"]["matched"] == 1
     assert mappings_flat(_ctx(), "get", 0, 1)["page"]["hasMore"] is True  # method matches case-insensitively
+
+
+# ported: MappingsServiceTests.normalizesAndComposesEffectiveBasePathInReport
+def test_base_path_is_reported_and_composed_route_matches_query():
+    ctx = _ctx()
+    ctx.introspector.base_path = "/service/"
+
+    report = mappings_flat(ctx, "/service/owners/{id}", None, None)
+
+    assert report["basePath"] == "/service"
+    assert report["page"]["matched"] == 1
+    assert report["mappings"][0]["pattern"] == "/owners/{id}"

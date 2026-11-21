@@ -428,11 +428,13 @@ class FastApiIntrospector:
         values = _attrs(self.app)  # a FastAPI subclass's properties are never run
         title = values.get("title")
         docs_url = values.get("docs_url")
+        root_path = values.get("root_path")
         return AppInfo(
             title if isinstance(title, str) else None,
             "FastAPI",
             _version("fastapi"),
             docs_url if isinstance(docs_url, str) else None,
+            root_path if isinstance(root_path, str) else "",
         )
 
     def routes(self) -> list[RouteInfo]:
