@@ -320,7 +320,8 @@ def test_http_security_selection_run_outcomes_follow_table() -> None:
     dropped = _run((FRAME,), tests=(capped,), partial_run=True)
     missing = _run((FRAME,), tests=(seen,), missing_workers=("gw1",))
 
-    assert (complete.status, selection.status, dropped.status, missing.status) == ("UNKNOWN",) * 4
+    statuses = (complete.status, selection.status, dropped.status, missing.status)
+    assert statuses == ("UNKNOWN",) * 4
     assert complete.reason is not None
     assert "no matching exchange" in complete.reason
     assert selection.reason is not None

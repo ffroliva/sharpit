@@ -158,9 +158,10 @@ def test_http_security_flask_restores_wsgi_app_after_exception() -> None:
     sink.begin_test(NODE)
 
     try:
-        app.test_client().get("/items")
+        client = app.test_client()
+        client.get("/items")
         with pytest.raises(RuntimeError, match="view failed"):
-            app.test_client().get("/boom")
+            client.get("/boom")
     finally:
         restore()
 
