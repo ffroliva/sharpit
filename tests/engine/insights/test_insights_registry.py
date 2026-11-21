@@ -77,3 +77,8 @@ def test_kind_implemented_reads_the_kind_modules_flag(monkeypatch: pytest.Monkey
     assert spec.implemented is True
     monkeypatch.setattr(spec.module, "IMPLEMENTED", False)
     assert spec.implemented is False
+
+# ported: RouteLatencyOutliersTests.comparesRouteSlowestOutlierAgainstClosestWarm2xxBaselineAndExcludesColdFirstRequest
+def test_route_latency_outliers_is_registered_after_route_time_breakdown() -> None:
+    kinds = [spec.kind for spec in registry.KINDS]
+    assert kinds[1] == "route-latency-outliers"
