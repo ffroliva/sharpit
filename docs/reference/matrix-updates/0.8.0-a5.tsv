@@ -1,0 +1,6 @@
+prop:bootui.vulnerabilities.scan-timeout	matched	BootUI 2.5.0 scan-timeout is exposed as SHARPIT_VULNERABILITIES_SCAN_TIMEOUT with a 60-second default and failsafe.
+ArchiveNames	n-a	Jar archive naming applies to Maven archives; PyPI distributions have no archive inventory in this scan.
+PackageUrls	n-a	Maven package URL production has no PyPI counterpart in sharpit's distribution inventory.
+VulnerabilityReach	n-a	BootUI runtime reach depends on Code Inventory and Maven dependency edges, neither of which sharpit exposes for PyPI.
+AdvisorySymbols	n-a	BootUI symbols are populated from Maven/Code Inventory evidence; PyPI advisory symbols remain unavailable.
+malicious-package-summary	missing	No MAL- or malicious-package guidance exists in sharpit; no malicious-package feature is added.

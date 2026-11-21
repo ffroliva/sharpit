@@ -58,6 +58,7 @@ class SharpitSettings:
     config_scan: tuple[str, ...] | bool = True
     vulnerabilities_osv_enabled: bool = True
     vulnerabilities_request_timeout: float = 10.0
+    vulnerabilities_scan_timeout: float = 60.0
     vulnerabilities_max_packages: int = 500
     vulnerabilities_max_advisories: int = 200
     vulnerabilities_osv_base_uri: str = "https://api.osv.dev"

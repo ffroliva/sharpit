@@ -12,6 +12,7 @@
 | [development/ci.md](development/ci.md) | Every CI job, what it guards, and the exact command to run it locally |
 | [development/overhead-budgets.md](development/overhead-budgets.md) | How the overhead budget tests measure and how to read a failure |
 | [reference/BOOTUI-CONTRACT-MVP.md](reference/BOOTUI-CONTRACT-MVP.md) | The BootUI HTTP contract the MVP must match: DTOs, error strings, activation reasons |
+| [reference/BOOTUI-2.5.0-DELTA.md](reference/BOOTUI-2.5.0-DELTA.md) | Static fixture changes from BootUI 2.4.0 to 2.5.0 |
 | [reference/BOOTUI-PYTHON-MAPPING.md](reference/BOOTUI-PYTHON-MAPPING.md) | How BootUI's Spring concepts map to Python/FastAPI |
 | [reference/FLASK-ROUTE-MODEL.md](reference/FLASK-ROUTE-MODEL.md) | Flask route introspection scope and route facts unavailable in `RouteInfo` |
 | [superpowers/specs/2026-10-30-sharpit-mvp-design.md](superpowers/specs/2026-10-30-sharpit-mvp-design.md) | MVP design spec; §14 deviation log, §15 coordinator's calls for the owner |

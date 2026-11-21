@@ -2,9 +2,7 @@
 ``queryBatchChunk``, ``queryBatchRequest`` and ``fetchVulnerability``).
 
 Only the stdlib ``urllib`` is used. Every request carries the configured timeout and nothing retries. The opener is
-injectable for tests and is built lazily, never at import or definition time. The urllib timeout bounds each socket
-operation (connect, each read), not the whole request: a server trickling bytes can hold a request longer, up to the
-body cap.
+injectable for tests and is built lazily, never at import or definition time.
 
 Dropped from ``OsvVulnerabilityScannerTests`` (JVM/adapter-only): ``singleArgConstructorUsesConfiguredOsvBaseUri``
 (Spring property binding), ``fetchesManyDistinctAdvisoriesConcurrentlyWithoutLosingOrMisattributingAny`` and
@@ -24,6 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
+from sharpit.engine.collectors.vulns.deadline import SCAN_DEADLINE_EXCEEDED, ScanDeadline
 from sharpit.engine.collectors.vulns.inventory import Package
 
 ECOSYSTEM = "PyPI"
@@ -49,12 +48,21 @@ class QueryResult:
     complete: set[Package]  # every page fetched (BootUI completedPackages)
 
 
-def request_json(opener: Opener, request: urllib.request.Request, timeout: float, max_bytes: int, what: str) -> Any:
+def request_json(
+    opener: Opener,
+    request: urllib.request.Request,
+    timeout: float,
+    max_bytes: int,
+    what: str,
+    deadline: ScanDeadline | None = None,
+) -> Any:
     """Send ``request`` and parse its JSON body; any failure raises ``OsvError``."""
     try:
         with opener.open(request, timeout=timeout) as response:
             status = int(getattr(response, "status", 200))
-            body = cast(bytes, response.read(max_bytes + 1))
+            body = _read_bounded_body(response, timeout, max_bytes, deadline)
+    except OsvError:
+        raise
     except urllib.error.HTTPError as error:
         raise OsvError(f"{what} returned HTTP {error.code}") from error
     except (OSError, ValueError, http.client.HTTPException) as error:  # URLError, timeouts, IncompleteRead...
@@ -69,6 +77,33 @@ def request_json(opener: Opener, request: urllib.request.Request, timeout: float
         raise OsvError(f"{what} returned malformed JSON") from error
 
 
+def _read_bounded_body(response: Any, timeout: float, max_bytes: int, deadline: ScanDeadline | None) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        remaining = deadline.remaining() if deadline is not None else timeout
+        if deadline is not None and remaining <= 0:
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
+        sock = getattr(getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None), "settimeout", None)
+        if sock is not None:
+            sock(min(timeout, remaining))
+        chunk = cast(bytes, response.read1(min(64 * 1024, max_bytes + 1 - size)))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > max_bytes:
+            break
+        if deadline is not None and deadline.check_expired():
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
+    return b"".join(chunks)
+
+
+def is_request_timeout(error: OsvError) -> bool:
+    cause = error.__cause__
+    return isinstance(cause, TimeoutError) or isinstance(getattr(cause, "reason", None), TimeoutError)
+
+
 class OsvClient:
     def __init__(self, base_uri: str, timeout: float, opener: Opener | None = None) -> None:
         self._base_uri = base_uri.rstrip("/") + "/"  # joined with relative paths, so a base path is kept
@@ -80,14 +115,17 @@ class OsvClient:
             self._opener = urllib.request.build_opener()
         return self._opener
 
-    def querybatch(self, pkgs: Sequence[Package]) -> QueryResult:
+    def querybatch(self, pkgs: Sequence[Package], deadline: ScanDeadline | None = None) -> QueryResult:
         """Query OSV in chunks of 1000. A failure before any chunk completed raises ``OsvError``; a later failure
         puts that chunk's unfinished packages and every later package in ``failed`` (BootUI ``queryBatch``)."""
         result = QueryResult({}, [], False, set())
         for start in range(0, len(pkgs), MAX_QUERYBATCH_SIZE):
+            if start and deadline is not None and deadline.check_expired():
+                result.failed = list(pkgs[start:])
+                break
             chunk = list(pkgs[start : start + MAX_QUERYBATCH_SIZE])
             try:
-                ids, failed, truncated, complete = self._query_chunk(chunk)
+                ids, failed, truncated, complete = self._query_chunk(chunk, deadline)
             except OsvError:
                 if start == 0:
                     raise
@@ -101,36 +139,52 @@ class OsvClient:
                 break
         return result
 
-    def _query_chunk(self, chunk: list[Package]) -> tuple[dict[Package, list[str]], list[Package], bool, set[Package]]:
+    def _query_chunk(
+        self, chunk: list[Package], deadline: ScanDeadline | None = None
+    ) -> tuple[dict[Package, list[str]], list[Package], bool, set[Package]]:
         ids: dict[Package, list[str]] = {pkg: [] for pkg in chunk}
         seen: dict[Package, set[str]] = {pkg: set() for pkg in chunk}
         complete: set[Package] = set()
         pending: list[tuple[Package, str | None]] = [(pkg, None) for pkg in chunk]
         for page in range(MAX_QUERY_BATCH_PAGES):
+            if page and deadline is not None and deadline.check_expired():
+                return ids, [pkg for pkg, _ in pending], False, complete
             try:
-                results = self._query_page(pending)
+                results = self._query_page(pending, deadline)
             except OsvError:
                 if page == 0:
                     raise
                 return ids, [pkg for pkg, _ in pending], False, complete
-            next_pending: list[tuple[Package, str | None]] = []
-            for (pkg, _), item in zip(pending, results, strict=True):
-                for vuln in cast(list[dict[str, Any]], item.get("vulns") or []):
-                    vuln_id = cast(str, vuln["id"])
-                    if vuln_id not in seen[pkg]:
-                        seen[pkg].add(vuln_id)
-                        ids[pkg].append(vuln_id)
-                token = text_field(item, "next_page_token")
-                if token is None:
-                    complete.add(pkg)
-                else:
-                    next_pending.append((pkg, token))
-            pending = next_pending
+            pending = self._record_page(pending, results, ids, seen, complete)
             if not pending:
                 return ids, [], False, complete
         return ids, [], True, complete
 
-    def _query_page(self, pending: list[tuple[Package, str | None]]) -> list[dict[str, Any]]:
+    @staticmethod
+    def _record_page(
+        pending: list[tuple[Package, str | None]],
+        results: list[dict[str, Any]],
+        ids: dict[Package, list[str]],
+        seen: dict[Package, set[str]],
+        complete: set[Package],
+    ) -> list[tuple[Package, str | None]]:
+        next_pending: list[tuple[Package, str | None]] = []
+        for (pkg, _), item in zip(pending, results, strict=True):
+            for vuln in cast(list[dict[str, Any]], item.get("vulns") or []):
+                vuln_id = cast(str, vuln["id"])
+                if vuln_id not in seen[pkg]:
+                    seen[pkg].add(vuln_id)
+                    ids[pkg].append(vuln_id)
+            token = text_field(item, "next_page_token")
+            if token is None:
+                complete.add(pkg)
+            else:
+                next_pending.append((pkg, token))
+        return next_pending
+
+    def _query_page(
+        self, pending: list[tuple[Package, str | None]], deadline: ScanDeadline | None = None
+    ) -> list[dict[str, Any]]:
         queries: list[dict[str, Any]] = []
         for pkg, token in pending:
             query: dict[str, Any] = {"package": {"name": pkg.name, "ecosystem": ECOSYSTEM}, "version": pkg.version}
@@ -143,19 +197,59 @@ class OsvClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        root = request_json(self._open(), request, self._timeout, QUERYBATCH_MAX_BYTES, "OSV query")
+        try:
+            budget = deadline.request_budget(self._timeout) if deadline is not None else None
+        except TimeoutError as error:
+            raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
+        try:
+            root = request_json(
+                self._open(),
+                request,
+                budget.timeout if budget else self._timeout,
+                QUERYBATCH_MAX_BYTES,
+                "OSV query",
+                deadline,
+            )
+        except OsvError as error:
+            if deadline is not None and (
+                deadline.check_expired()
+                or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
+            ):
+                deadline.mark_expired()
+                raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
+            raise
+        if deadline is not None and deadline.check_expired():
+            deadline.mark_expired()
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
         return _validate_results(root, len(pending))
 
-    def vuln(self, id: str) -> dict[str, Any]:
+    def vuln(self, id: str, deadline: ScanDeadline | None = None) -> dict[str, Any]:
         """``GET /v1/vulns/{id}``; any failure, or a body that is not a JSON object, raises ``OsvError``."""
         url = urllib.parse.urljoin(self._base_uri, "v1/vulns/" + urllib.parse.quote(id, safe=""))
-        doc = request_json(
-            self._open(),
-            urllib.request.Request(url, method="GET"),
-            self._timeout,
-            ADVISORY_MAX_BYTES,
-            f"OSV advisory {id}",
-        )
+        try:
+            budget = deadline.request_budget(self._timeout) if deadline is not None else None
+        except TimeoutError as error:
+            raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
+        try:
+            doc = request_json(
+                self._open(),
+                urllib.request.Request(url, method="GET"),
+                budget.timeout if budget else self._timeout,
+                ADVISORY_MAX_BYTES,
+                f"OSV advisory {id}",
+                deadline,
+            )
+        except OsvError as error:
+            if deadline is not None and (
+                deadline.check_expired()
+                or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
+            ):
+                deadline.mark_expired()
+                raise OsvError(SCAN_DEADLINE_EXCEEDED) from error
+            raise
+        if deadline is not None and deadline.check_expired():
+            deadline.mark_expired()
+            raise OsvError(SCAN_DEADLINE_EXCEEDED)
         if not isinstance(doc, dict):
             raise OsvError(f"OSV advisory {id} is not a JSON object")
         return cast(dict[str, Any], doc)

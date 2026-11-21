@@ -9,6 +9,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -68,6 +69,67 @@ def _app_swallow() -> int:
 
 def _app_swallow_line() -> int:
     return _app_swallow.__code__.co_firstlineno + 3  # the ``except Exception:`` line
+
+
+def _record(*doubles: bool) -> list[bool]:
+    from types import SimpleNamespace
+
+    from sharpit.engine.testsession.facts import TestFacts, TestKey
+    from sharpit.pytest_plugin.swallowed import record
+
+    current = TestFacts(TestKey("t::a", "w", 1))
+    sink = SimpleNamespace(current_test=current)
+    for double in doubles:
+        record(sink, ("t::a", 1, "call"), SwallowedFact("a.py:3", "TypeError", True, test_double=double))
+    return [fact.test_double for fact in current.phases["call"].swallowed]
+
+
+def test_one_real_raise_among_the_doubles_clears_the_note() -> None:
+    assert _record(True, False, True) == [False]
+    assert _record(False, True) == [False]
+
+
+def test_monitoring_capture_classifies_double_and_resets_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.testsession.facts import SwallowedFact
+    from sharpit.pytest_plugin import swallowed
+
+    fact = SwallowedFact("app.py:4", "ValueError", True)
+    monkeypatch.setattr(swallowed, "_fact", lambda *_args: fact)
+    monitor = MonitoringCapture()
+    seen: list[tuple[TestTag, SwallowedFact]] = []
+    monitor._sink = lambda tag, item: seen.append((tag, item))
+    code = _app_swallow.__code__
+    first: TestTag = ("tests/test_x.py::test_first", 1, "call")
+    token = TEST.set(first)
+    try:
+        mock = Mock(side_effect=ValueError("raised by a mock"))
+        with pytest.raises(ValueError) as raised:
+            mock()
+        monitor._handled(code, 0, raised.value)
+        assert seen[-1][1].test_double is True
+
+        ordinary = ValueError("application error")
+        monitor._handled(code, 0, ordinary)
+        assert seen[-1][1].test_double is False
+        monitor._handled(code, 0, ordinary)
+        assert len(seen) == 3
+
+        second: TestTag = ("tests/test_x.py::test_second", 1, "call")
+        second_token = TEST.set(second)
+        try:
+            with pytest.raises(ValueError) as raised_again:
+                mock()
+            monitor._handled(code, 0, raised_again.value)
+        finally:
+            TEST.reset(second_token)
+        assert seen[-1][0] == second
+        assert seen[-1][1].test_double is True
+    finally:
+        TEST.reset(token)
+
+
+def test_only_doubles_keep_the_note_once() -> None:
+    assert _record(True, True) == [True]
 
 
 @pytest.fixture

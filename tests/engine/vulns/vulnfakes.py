@@ -23,11 +23,17 @@ class FakeResponse:
     def __init__(self, status: int, body: bytes | BaseException) -> None:
         self.status = status
         self._body = body
+        self._stream = io.BytesIO(body) if isinstance(body, bytes) else None
 
     def read(self, size: int = -1) -> bytes:
         if isinstance(self._body, BaseException):
             raise self._body
-        return io.BytesIO(self._body).read(size)
+        return self._stream.read(size)  # type: ignore[union-attr]
+
+    def read1(self, size: int = -1) -> bytes:
+        if isinstance(self._body, BaseException):
+            raise self._body
+        return self._stream.read1(size)  # type: ignore[union-attr]
 
     def __enter__(self) -> "FakeResponse":
         return self

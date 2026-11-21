@@ -260,7 +260,7 @@ sharpit insights list --fail-on insufficient
 
 ### Exit codes
 
-Exit codes follow BootUI 2.4.0 (`sharpit.cli.exit_codes.ExitCodes`):
+Exit codes follow BootUI 2.5.0 (`sharpit.cli.exit_codes.ExitCodes`):
 
 - `0` (`SUCCESS`): command succeeded and findings are below the gate threshold.
 - `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated; a refused MCP toggle exits 1.
@@ -289,6 +289,8 @@ Key CLI flags:
   0.3.0. Without it, the `rest-api` advisor is `SKIPPED` and a clean suite passes.
 - `--sharpit-verbose` (or `-vv`): List every finding in the terminal `gate counts:`; by default only failing ones are
   listed and advisor notes below the gate are summarised in one line.
+- The terminal `swallowed exceptions:` block groups findings by `except` clause and includes a note when a test double
+  raised the swallowed exception.
 - `--sharpit-report-only`: Run every gate and write the report, but findings fail nothing. Unknown reasons still exit 1.
 - `--sharpit-baseline=PATH` / `--sharpit-write-baseline=PATH`: Compare findings with a baseline, or write one.
 

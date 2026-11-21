@@ -179,7 +179,7 @@ Tools without severities (such as runtime activity or thread lists) or lacking e
 
 ## Exit Codes
 
-Exit codes follow BootUI 2.4.0 conventions (`ExitCodes`):
+Exit codes follow BootUI 2.5.0 conventions (`ExitCodes`):
 
 | Code | Label | Meaning |
 |---|---|---|

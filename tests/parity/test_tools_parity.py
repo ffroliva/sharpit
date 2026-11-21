@@ -12,10 +12,12 @@ from sharpit import install
 from sharpit.engine.tools import COMMANDS, TOOLS
 
 ROOT = Path(__file__).parents[1]
-FIXTURE_CURRENT = ROOT / "fixtures" / "bootui" / "2.4.0" / "tools.json"
-FIXTURE_PREVIOUS = ROOT / "fixtures" / "bootui" / "2.3.0" / "tools.json"
+FIXTURE_CURRENT = ROOT / "fixtures" / "bootui" / "2.5.0" / "tools.json"
+FIXTURE_PREVIOUS = ROOT / "fixtures" / "bootui" / "2.4.0" / "tools.json"
+FIXTURE_OLD = ROOT / "fixtures" / "bootui" / "2.3.0" / "tools.json"
 BOOTUI_TOOLS = json.loads(FIXTURE_CURRENT.read_text("utf-8"))["tools"]
 BOOTUI_TOOLS_PREVIOUS = json.loads(FIXTURE_PREVIOUS.read_text("utf-8"))["tools"]
+BOOTUI_TOOLS_OLD = json.loads(FIXTURE_OLD.read_text("utf-8"))["tools"]
 BOOTUI = {tool["name"]: tool for tool in BOOTUI_TOOLS}
 SHARPIT = {tool.name: tool for tool in TOOLS}
 
@@ -356,20 +358,17 @@ DESCRIPTION_MATCHED = (
     "get_github_dashboard",
     "get_loggers",
     "get_low_footprint",
-    "get_mappings",
     "get_metrics",
     "get_postgresql_report",
     "get_profile_diff",
 )
-# Tools whose description or summary BootUI changed from 2.3.0 to 2.4.0 and that sharpit has not adopted yet.
-# Each value is the lane that closes the gap by moving the tool into DESCRIPTION_ADOPTED.
-DESCRIPTION_GAPS = {
-    "get_security_report": "A3",
-    "get_transactions": "A2",
-    "security_scan": "A3",
+# BootUI 2.5.0 description changes not yet adopted by sharpit.
+DESCRIPTION_GAPS_25 = {
+    "get_mappings": "A2",
+    "get_request_profile": "B4",
 }
-# Tools whose 2.4.0 description or summary a lane has adopted.
-DESCRIPTION_ADOPTED: tuple[str, ...] = (
+# Tools whose 2.4.0 description changes sharpit adopted.
+DESCRIPTION_ADOPTED_24: tuple[str, ...] = (
     "get_exceptions",
     "get_runtime_insight",
     "get_runtime_insights",
@@ -389,7 +388,7 @@ def test_description_matched_is_complete() -> None:
     assert set(DESCRIPTION_MATCHED) == byte_equal
 
 
-def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
+def test_description_gaps_are_the_bootui_2_5_0_changes() -> None:
     previous = {tool["name"]: tool for tool in BOOTUI_TOOLS_PREVIOUS}
     changed = {
         name
@@ -397,9 +396,8 @@ def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
         if name not in previous
         or (tool["description"], tool.get("summary")) != (previous[name]["description"], previous[name].get("summary"))
     }
-    assert set(DESCRIPTION_GAPS) | set(DESCRIPTION_ADOPTED) == changed
-    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_ADOPTED))
-    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_MATCHED))
+    assert set(DESCRIPTION_GAPS_25) == changed
+    assert not (set(DESCRIPTION_GAPS_25) & set(DESCRIPTION_MATCHED))
 
 
 def test_matched_tools_ratchet() -> None:
@@ -408,7 +406,7 @@ def test_matched_tools_ratchet() -> None:
 
 
 def _added_sentences(name: str) -> list[str]:
-    previous = next(t for t in BOOTUI_TOOLS_PREVIOUS if t["name"] == name)["description"]
+    previous = next(t for t in BOOTUI_TOOLS_OLD if t["name"] == name)["description"]
     current = BOOTUI[name]["description"]
 
     def sentences(text: str) -> list[str]:
@@ -431,7 +429,7 @@ ADOPTED_PINNED_CHECKS: dict[str, tuple[str, ...]] = {
 
 
 # ported: McpToolDescriptionsTests.runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates (BootUI 2.4.0)
-@pytest.mark.parametrize("name", DESCRIPTION_ADOPTED)
+@pytest.mark.parametrize("name", DESCRIPTION_ADOPTED_24)
 def test_adopted_tool_descriptions_contain_2_4_0_changes(name: str) -> None:
     description = SHARPIT[name].description
     if name in ADOPTED_PINNED_CHECKS:

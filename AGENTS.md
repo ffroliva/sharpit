@@ -154,7 +154,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 - **Port BootUI, do not reinvent** (owner, 2026-11-12: "whatever we can directly port from BootUI we should; we don't
   need to recreate anything, just rewrite and adapt"). Before writing any code for a feature, read BootUI's own source
   for it at the pinned tag, in a BootUI clone, not this repo (`git -C <bootui clone> show v2.3.0:<path>` for 0.6.0;
-  `v2.4.0` for 0.7.0), and translate it: same structure, order of checks, thresholds, user-facing texts (env names
+  `v2.4.0` for 0.7.0; `v2.5.0` for 0.8.0), and translate it: same structure, order of checks, thresholds, user-facing texts (env names
   adapted) and tests (`# ported:`). Adapt only where Python/FastAPI/SQLAlchemy forces it or an owner ruling differs;
   each adaptation is one deviation row, with its reason, in the lane's matrix fragment
   (`docs/reference/matrix-updates/<lane>.tsv`). Never design from a summary of BootUI: read the lines. The safety model

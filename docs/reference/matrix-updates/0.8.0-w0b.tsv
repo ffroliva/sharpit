@@ -1,0 +1,1 @@
+route:GET /mappings/flat	partial	BootUI 2.5.0 adds basePath to the static response contract; sharpit support is tracked in A2.
