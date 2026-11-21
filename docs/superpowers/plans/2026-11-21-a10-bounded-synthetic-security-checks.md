@@ -56,10 +56,10 @@
 
 **Interfaces:** Defines the GET/OPTIONS evidence consumed by Tasks 2–4.
 
-- [ ] **Step 1:** Assert exactly GET then OPTIONS at `/__bootui_pentesting__/missing-resource`; GET has `Accept: text/html`; OPTIONS has `Origin: https://evil.example` and `Access-Control-Request-Method: GET`. Port the request-order assertion from `PentestingScannerTests.java:563` and add the `# ported:` citation to the pytest case.
-- [ ] **Step 2:** Pin the 8 KiB body byte budget (`BoundedBodyReader.java`), 8,192 decoded body-character ceiling, 64 header names, 128 values, 256 characters per name, 4,096 per value, 16 KiB total header characters, 2-second BootUI connect/request timeout, and `Redirect.NEVER`. Cite `PentestingLocalHttpResponse.java`, `JavaPentestingLocalHttpClient.java`, and the bounded reader beside tests; the ASGI adapter has no connect phase or redirects to follow.
-- [ ] **Step 3:** Assert overflow, Host rejection, and cooperative timeout become incomplete evidence; pin returned 3xx behavior to the BootUI rules (a 3xx alone is not incomplete). Include a synchronous blocker limitation test that does not claim in-process interruption.
-- [ ] **Step 4:** Run the named tests and `uv run python scripts/dev/red_check.py <node ids>`; commit tests and matrix rows with explicit `git add` and `git commit -s`.
+- [x] **Step 1:** Assert exactly GET then OPTIONS at `/__bootui_pentesting__/missing-resource`; GET has `Accept: text/html`; OPTIONS has `Origin: https://evil.example` and `Access-Control-Request-Method: GET`. Port the request-order assertion from `PentestingScannerTests.java:563` and add the `# ported:` citation to the pytest case.
+- [x] **Step 2:** Pin the 8 KiB body byte budget (`BoundedBodyReader.java`), 8,192 decoded body-character ceiling, 64 header names, 128 values, 256 characters per name, 4,096 per value, 16 KiB total header characters, 2-second BootUI connect/request timeout, and `Redirect.NEVER`. Cite `PentestingLocalHttpResponse.java`, `JavaPentestingLocalHttpClient.java`, and the bounded reader beside tests; the ASGI adapter has no connect phase or redirects to follow.
+- [x] **Step 3:** Assert overflow, Host rejection, and cooperative timeout become incomplete evidence; pin returned 3xx behavior to the BootUI rules (a 3xx alone is not incomplete). Include a synchronous blocker limitation test that does not claim in-process interruption.
+- [x] **Step 4:** Run the named tests and `uv run python scripts/dev/red_check.py <node ids>`; commit tests and matrix rows with explicit `git add` and `git commit -s`.
 
 ### Task 2: Implement the bounded in-process ASGI probe
 
@@ -69,11 +69,11 @@
 
 **Interfaces:** Adapter returns framework-neutral bounded evidence; engine imports no Starlette/FastAPI.
 
-- [ ] **Step 1:** Confirm Task 1 failures are named behavior assertions.
-- [ ] **Step 2:** Implement fixed GET then OPTIONS requests with BootUI headers and limits, literal loopback Host, redirects inapplicable to direct ASGI, and no socket use.
-- [ ] **Step 3:** Call the outermost host ASGI application as served, so host middleware runs; sharpit's mount `GuardMiddleware` is not on the fixed probe path. Test both facts. Classify `TrustedHostMiddleware` rejection and unavailable listener-added headers as incomplete, never clean. Preserve root path; treat unsupported streaming/response behavior as incomplete.
-- [ ] **Step 4:** Acquire single-flight with `SingleFlight.try_acquire()` for the async request lifetime. Apply BootUI's 2-second request budget to cooperative async work and cancel it on expiry; release the acquisition in `finally`. Test that an awaited handler exceeding the deadline is cancelled and a subsequent scan succeeds. State that synchronous code blocking the event loop stalls the host and cannot be interrupted in-process; do not promise a hard elapsed-time bound.
-- [ ] **Step 5:** Run focused tests and commit with explicit paths and `git commit -s`.
+- [x] **Step 1:** Confirm Task 1 failures are named behavior assertions.
+- [x] **Step 2:** Implement fixed GET then OPTIONS requests with BootUI headers and limits, literal loopback Host, redirects inapplicable to direct ASGI, and no socket use.
+- [x] **Step 3:** Call the outermost host ASGI application as served, so host middleware runs; sharpit's mount `GuardMiddleware` is not on the fixed probe path. Test both facts. Classify `TrustedHostMiddleware` rejection and unavailable listener-added headers as incomplete, never clean. Preserve root path; treat unsupported streaming/response behavior as incomplete.
+- [x] **Step 4:** Acquire single-flight with `SingleFlight.try_acquire()` for the async request lifetime. Apply BootUI's 2-second request budget to cooperative async work and cancel it on expiry; release the acquisition in `finally`. Test that an awaited handler exceeding the deadline is cancelled and a subsequent scan succeeds. State that synchronous code blocking the event loop stalls the host and cannot be interrupted in-process; do not promise a hard elapsed-time bound.
+- [x] **Step 5:** Run focused tests and commit with explicit paths and `git commit -s`.
 
 ### Task 3: Port checks, report DTO, and dismissals
 
@@ -83,12 +83,12 @@
 
 **Interfaces:** Consumes bounded evidence; produces BootUI-compatible report with sharpit's masking and dismissal behavior.
 
-- [ ] **Step 1:** Add registry order assertion against `PentestingCheckRegistry.java:35-64`; exclude retired IDs.
-- [ ] **Step 2:** Port active checks and named BootUI cases for headers, CSP, HSTS, framing, error disclosure, and technology disclosure. Add `# ported:` citations at test definitions.
-- [ ] **Step 3:** Assert complete DTO keys, nulls, camelCase, IDs, titles, severities, remediation, and stable order against a BootUI-derived contract projection. Unobserved listener headers and incomplete probes must not yield clean no-finding results. Keep the exact-comparison ASGI golden hand-derived because the BootUI listener capture includes socket/server-layer evidence absent from in-process ASGI.
-- [ ] **Step 4:** Require status 404 for the fixed missing-resource path. A non-404 status makes PT-A05-006 and other error-body-derived checks indeterminate and includes the status in evidence; add `test_non_404_synthetic_response_makes_error_rules_indeterminate`.
-- [ ] **Step 5:** Add PT ownership and test dismissal of an initial, cached, and scanned finding. `advisor_for()` currently owns only registered advisors (`engine/advisors/registry.py:52-74`); unknown IDs are refused by `owning_panel()` (`engine/advisors/dismissals.py:91-96`).
-- [ ] **Step 6:** Create separate hand-derived ASGI and BootUI rule-contract fixtures using fixture conventions; keep response secrets and live host content out. Run red check and focused tests, then commit.
+- [x] **Step 1:** Add registry order assertion against `PentestingCheckRegistry.java:35-64`; exclude retired IDs.
+- [x] **Step 2:** Port active checks and named BootUI cases for headers, CSP, HSTS, framing, error disclosure, and technology disclosure. Add `# ported:` citations at test definitions.
+- [x] **Step 3:** Assert complete DTO keys, nulls, camelCase, IDs, titles, severities, remediation, and stable order against a BootUI-derived contract projection. Unobserved listener headers and incomplete probes must not yield clean no-finding results. Keep the exact-comparison ASGI golden hand-derived because the BootUI listener capture includes socket/server-layer evidence absent from in-process ASGI.
+- [x] **Step 4:** Require status 404 for the fixed missing-resource path. A non-404 status makes PT-A05-006 and other error-body-derived checks indeterminate and includes the status in evidence; add `test_non_404_synthetic_response_makes_error_rules_indeterminate`.
+- [x] **Step 5:** Add PT ownership and test dismissal of an initial, cached, and scanned finding. `advisor_for()` currently owns only registered advisors (`engine/advisors/registry.py:52-74`); unknown IDs are refused by `owning_panel()` (`engine/advisors/dismissals.py:91-96`).
+- [x] **Step 6:** Create separate hand-derived ASGI and BootUI rule-contract fixtures using fixture conventions; keep response secrets and live host content out. Run red check and focused tests, then commit.
 
 ### Task 4: Wire GET and gated scan actions
 
@@ -98,11 +98,11 @@
 
 **Interfaces:** GET returns initial/cached report without invoking host code. POST returns the full report DTO; MCP `pentest_scan` and CLI `pentest scan` invoke the same action but return BootUI's compact scan summary (including `reportTool`, `scan`, `findingsFound`, `severityCounts`, `topFindings` capped at 10, `moreFindings`, and `evidence`). Report reads expose `get_pentest_report` and `pentest report`.
 
-- [ ] **Step 1:** Add tests for inactive 404, guard rejection, disabled/read-only refusal, GET purity using `no_side_effects`, and host call counts.
-- [ ] **Step 2:** Add MCP-off refusal, MCP read-only refusal, CLI action gates, and action catalogue/schema parity. Dispatch async probe work with the established `ctx.capture.loop` plus `asyncio.run_coroutine_threadsafe` pattern when the host loop is running; only use `asyncio.run` when no host loop exists. Assert `test_pentest_tools_are_classified_for_cli_fail_on_and_bootui_parity` through the existing fail-on and tool parity checks. BootUI entries are `tests/fixtures/bootui/2.5.0/tools.json` (including the compact scan response in `McpScanSummaries.java`); both MCP tools and CLI report/scan commands exist.
-- [ ] **Step 3:** Add overlap and failure-release tests; match BootUI single-flight behavior for cooperative probes. When MCP/CLI runs the scan from a worker, submit to the host loop and let the coroutine own and release its single-flight acquisition.
-- [ ] **Step 4:** Implement routes in `fastapi/routes/pentesting.py`, route composition, MCP and CLI parity using existing tools patterns. Add both tools to `ADVISOR_TOOLS` and tool parity membership/BootUI markers.
-- [ ] **Step 5:** Run focused tests and `red_check.py` before any `test:` commit; commit implementation with explicit paths and DCO sign-off.
+- [x] **Step 1:** Add tests for inactive 404, guard rejection, disabled/read-only refusal, GET purity using `no_side_effects`, and host call counts.
+- [x] **Step 2:** Add MCP-off refusal, MCP read-only refusal, CLI action gates, and action catalogue/schema parity. Dispatch async probe work with the established `ctx.capture.loop` plus `asyncio.run_coroutine_threadsafe` pattern when the host loop is running; only use `asyncio.run` when no host loop exists. Assert `test_pentest_tools_are_classified_for_cli_fail_on_and_bootui_parity` through the existing fail-on and tool parity checks. BootUI entries are `tests/fixtures/bootui/2.5.0/tools.json` (including the compact scan response in `McpScanSummaries.java`); both MCP tools and CLI report/scan commands exist.
+- [x] **Step 3:** Add overlap and failure-release tests; match BootUI single-flight behavior for cooperative probes. When MCP/CLI runs the scan from a worker, submit to the host loop and let the coroutine own and release its single-flight acquisition.
+- [x] **Step 4:** Implement routes in `fastapi/routes/pentesting.py`, route composition, MCP and CLI parity using existing tools patterns. Add both tools to `ADVISOR_TOOLS` and tool parity membership/BootUI markers.
+- [x] **Step 5:** Run focused tests and `red_check.py` before any `test:` commit; commit implementation with explicit paths and DCO sign-off.
 
 ### Task 5: Parity, docs, and lane gates
 
@@ -110,17 +110,17 @@
 
 **Files:** `tests/parity/routes_status.json`, `docs/reference/PARITY.md`, A10 matrix, design §14, user docs, relevant tests.
 
-- [ ] **Step 1:** Mark pentesting report/scan route and tool/CLI parity according to implemented coverage; add the BootUI CLI commands to `MATCHED_TOOLS` with `pytest.mark.bootui("cli:pentest report|scan")`, update the matched-tools pin, and update the existing dropped-tools row in `PARITY.md:132`. Mark `pentesting/captured.json` `n-a` with difference `golden contains an empty list; item shape cannot establish matched parity` if the route golden is still empty; otherwise classify its actual fixture shape.
-- [ ] **Step 2:** Verify scenario names map to tests, registry order and report golden match BootUI v2.5.0, and the asynchronous deadline limitation is accurately described.
-- [ ] **Step 3:** Run lane tests, `uv run ruff check`, `uv run ruff format --check`, and `uv run pyright`; report counts and results.
-- [ ] **Step 4:** Record final transport deviations in the matrix and spec §14; commit docs with explicit paths and `git commit -s`.
+- [x] **Step 1:** Mark pentesting report/scan route and tool/CLI parity according to implemented coverage; add the BootUI CLI commands to `MATCHED_TOOLS` with `pytest.mark.bootui("cli:pentest report|scan")`, update the matched-tools pin, and update the existing dropped-tools row in `PARITY.md:132`. Mark `pentesting/captured.json` `n-a` with difference `golden contains an empty list; item shape cannot establish matched parity` if the route golden is still empty; otherwise classify its actual fixture shape.
+- [x] **Step 2:** Verify scenario names map to tests, registry order and report golden match BootUI v2.5.0, and the asynchronous deadline limitation is accurately described.
+- [x] **Step 3:** Run lane tests, `uv run ruff check`, `uv run ruff format --check`, and `uv run pyright`; report counts and results.
+- [x] **Step 4:** Record final transport deviations in the matrix and spec §14; commit docs with explicit paths and `git commit -s`.
 
 ## Definition of done
 
 - [x] High-tier review acceptance is recorded before implementation.
-- [ ] All Critical/High scenarios have named passing tests; inactive, guard, read-only, and GET-purity gates hold.
-- [ ] BootUI probe sequence, retention limits, redirect behavior, rule registry, and report DTO are covered; ASGI and BootUI contract fixtures are distinct.
-- [ ] Secrets never escape; incomplete ASGI evidence never appears clean; synchronous event-loop blocking is documented as uninterruptible.
-- [ ] MCP and CLI report/scan actions match BootUI's distinct response shapes and use existing gates and parity classifications.
-- [ ] Parity status, A10 matrix, and design §14 reflect the implementation.
-- [ ] Lane tests and repository gates pass; live verification describes ASGI-only evidence.
+- [x] All Critical/High scenarios have named passing tests; inactive, guard, read-only, and GET-purity gates hold.
+- [x] BootUI probe sequence, retention limits, redirect behavior, rule registry, and report DTO are covered; ASGI and BootUI contract fixtures are distinct.
+- [x] Secrets never escape; incomplete ASGI evidence never appears clean; synchronous event-loop blocking is documented as uninterruptible.
+- [x] MCP and CLI report/scan actions match BootUI's distinct response shapes and use existing gates and parity classifications.
+- [x] Parity status, A10 matrix, and design §14 reflect the implementation.
+- [x] Lane tests and repository gates pass; live verification describes ASGI-only evidence.
