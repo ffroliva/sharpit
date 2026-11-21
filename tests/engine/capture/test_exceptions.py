@@ -136,7 +136,7 @@ def test_cause_chain():
     _record(store, implicit)
     detail = store.detail(next(g["id"] for g in _groups(store) if g["message"] == "wrapped"))
     assert detail is not None
-    assert [c["message"] for c in detail["causes"]] == ["invalid literal for int() with base 10: 'x'"]
+    assert [c["message"] for c in detail["causes"]] == ["invalid literal for int() with base 10: '******'"]  # scrubbed
 
 
 def test_suppressed_context_not_a_cause():

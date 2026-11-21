@@ -104,7 +104,9 @@ def test_scrubs_pydantic_rendered_message_only() -> None:
         def _check(cls, value: str) -> str:
             raise ValueError(f"bad note {value}")
 
-    shown = _shown(_raised(lambda: Payload.model_validate({"count": SENTINEL, "note": f"{SENTINEL}-note"})))
+    error = _raised(lambda: Payload.model_validate({"count": SENTINEL, "note": f"{SENTINEL}-note"}))
+
+    shown = _shown(RuntimeError(str(error)))  # a ValidationError has no args: its rendering reaches a message as text
 
     assert shown is not None
     assert SENTINEL not in shown

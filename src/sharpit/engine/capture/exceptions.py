@@ -3,7 +3,7 @@
 Three sources feed one store: the capture middleware (``request``), the wrapped exception handlers (``handler``) and
 the log handler (``log``). One exception is recorded once per request: ``mark_seen`` stores the request id on the
 exception, so a second source in the same request sees its own mark and skips it. Frames keep the file, function and
-line only, never locals. Messages are masked, then cut.
+line only, never locals. Messages are masked, then cut, and their binding literals are scrubbed when shown.
 """
 
 from __future__ import annotations
@@ -189,12 +189,12 @@ class _Group:
         self.status = "OPEN"
         self.regressions = 0
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, scrub: Callable[[str | None], str | None]) -> dict[str, Any]:
         last = self.occurrences[0] if self.occurrences else {}
         return {
             "id": self.id,
             "exceptionClassName": self.class_name,
-            "message": self.message,
+            "message": scrub(self.message),
             "count": self.count,
             "firstSeen": self.first_seen,
             "lastSeen": self.last_seen,
@@ -458,7 +458,7 @@ class ExceptionStore:
     def report(self) -> dict[str, Any]:
         with _guarded(self._lock):
             groups = sorted(self._groups.values(), key=lambda g: g.order, reverse=True)
-            summaries = [g.summary() for g in groups]
+            summaries = [g.summary(self.masker.scrub_literals) for g in groups]
             total = sum(g.count for g in groups)
         return {
             "available": self.unavailable_reason is None,
@@ -475,7 +475,7 @@ class ExceptionStore:
             found = [
                 {
                     "exceptionClassName": g.class_name,
-                    "message": g.message,
+                    "message": self.masker.scrub_literals(g.message),
                     "location": g.location,
                     "timestamp": o["timestamp"],
                     "thread": o["thread"],
@@ -496,9 +496,9 @@ class ExceptionStore:
             if group is None:
                 return None
             return {
-                "group": group.summary(),
+                "group": group.summary(self.masker.scrub_literals),
                 "frames": list(group.frames),
-                "causes": list(group.causes),
+                "causes": [{**c, "message": self.masker.scrub_literals(c["message"])} for c in group.causes],
                 "occurrences": list(group.occurrences),
             }
 
@@ -513,7 +513,7 @@ class ExceptionStore:
             if group is None:
                 return None
             group.status = status
-            updated = group.summary()
+            updated = group.summary(self.masker.scrub_literals)
         self._signal()
         return updated
 
