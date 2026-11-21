@@ -40,7 +40,7 @@ ROWS = {
         f"1 validation error for M\nc.{MASK}\n  Input should be a valid integer [type=int_parsing, input_value={MASK}",
     ),
     "uuid-found": (
-        f"invalid character: expected hex, found `{RAW[0]}` at 0 [type=uuid_parsing]",
+        "invalid character: expected hex, found `Z` at 0 [type=uuid_parsing]",
         f"invalid character: expected hex, found `{MASK}` at 0 [type=uuid_parsing]",
     ),
     "pydantic-assertion": (
@@ -66,7 +66,7 @@ def test_every_pattern_has_a_row_that_fails_without_it() -> None:
                 text = rest.sub(replacement, text)
             scrubbed.append(text)
 
-        assert any(RAW in text or "918273" in text for text in scrubbed), pattern.pattern
+        assert any(RAW in text or "918273" in text or "found `Z`" in text for text in scrubbed), pattern.pattern
 
 
 @pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.METADATA_ONLY])

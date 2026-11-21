@@ -400,7 +400,20 @@ _PYDANTIC_INPUT_VALUE = re.compile(r"(\binput_value=)(?:.*(, input_type=)|.*)")
 _PYDANTIC_CUSTOM_MESSAGE = re.compile(
     r"(\b(?:Value error|Assertion failed), )(?s:.*?( \[type=(?:value_error|assertion_error))|.*)"
 )
+# Pydantic v2 location line (``c.<key>``, ``d.0.<key>``) before its indented message: a dict key is caller input and
+# text cannot tell it from a nested field name, so every segment after the first is hidden except an index or ``[key]``.
+_PYDANTIC_LOC = re.compile(r"(?m)^([^\s.][^.\n]*+)(\.[^\n]*+)(?=\n {2}\S)")
+_UUID_CHAR = re.compile(r"(\bfound `)[^\r\n]*?(` at \d+)")
+
+
+def _after_loc_head(m: re.Match[str]) -> str:
+    kept = (s if s.isdigit() or s == "[key]" else MASK for s in m[2][1:].split("."))
+    return f"{m[1]}.{'.'.join(kept)}"
+
+
 _BINDING_LITERALS: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str]], ...] = (
+    (_PYDANTIC_LOC, _after_loc_head),
+    (_UUID_CHAR, lambda m: f"{m[1]}{MASK}{m[2]}"),
     (_INT_LITERAL, _quoted_mask),
     (_FLOAT_LITERAL, _quoted_mask),
     (_TIME_DATA, _quoted_mask),
