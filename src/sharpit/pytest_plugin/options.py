@@ -6,7 +6,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sharpit.engine.advisors.http_security import (
+    HeaderExpectation,
+    StatusExpectation,
+    parse_header_expectations,
+    parse_status_expectations,
+)
 from sharpit.engine.advisors.rules import SEVERITIES
+
+HEADER_OPTION = "--sharpit-required-response-header"
+STATUS_OPTION = "--sharpit-expected-status"
 
 
 def pytest_addoption(parser: Any) -> None:
@@ -49,6 +58,28 @@ def pytest_addoption(parser: Any) -> None:
         metavar="PATH",
         help="write a baseline after a complete run (the only way to write one)",
     )
+    group.addoption(
+        "--sharpit-http-security",
+        action="store_true",
+        default=None,
+        help="observe HTTP exchanges made through the sharpit_http_observed fixture",
+    )
+    group.addoption(
+        HEADER_OPTION,
+        action="append",
+        default=None,
+        dest="sharpit_required_response_header",
+        metavar="'METHOD ROUTE=HEADER'",
+        help="a response header the route must carry (repeatable; replaces the ini lines)",
+    )
+    group.addoption(
+        STATUS_OPTION,
+        action="append",
+        default=None,
+        dest="sharpit_expected_status",
+        metavar="'METHOD ROUTE=STATUS[,STATUS...]'",
+        help="the statuses the route may answer (repeatable; replaces the ini lines)",
+    )
     _add_ini(parser)
 
 
@@ -68,6 +99,11 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
     parser.addini("sharpit_report_only", "Report findings without gating pytest", type="bool", default=False)
     parser.addini("sharpit_baseline", "Baseline file to compare", default="")
+    parser.addini(
+        "sharpit_http_security", "Observe HTTP exchanges of sharpit_http_observed", type="bool", default=False
+    )
+    parser.addini("sharpit_required_response_headers", "METHOD ROUTE=HEADER lines", type="linelist", default=[])
+    parser.addini("sharpit_expected_statuses", "METHOD ROUTE=STATUS[,STATUS...] lines", type="linelist", default=[])
 
 
 @dataclass(frozen=True)
@@ -87,6 +123,9 @@ class PluginOptions:
     baseline: Path | None = None
     write_baseline: Path | None = None
     sarif: Path | None = None
+    http_security_enabled: bool = False
+    http_required_headers: tuple[HeaderExpectation, ...] = ()
+    http_expected_statuses: tuple[StatusExpectation, ...] = ()
 
 
 def _value(config: Any, option: Any, name: str, default: Any) -> Any:
@@ -99,6 +138,32 @@ def _value(config: Any, option: Any, name: str, default: Any) -> Any:
     except (ValueError, KeyError):
         configured = default
     return configured if selected is None else selected
+
+
+def _lines(config: Any, option: Any, cli: str, ini: str) -> list[str]:
+    """The expectation lines: the command line when it gives any, else the ini (never both)."""
+    given = getattr(option, cli, None)
+    if given:
+        return list(given)
+    try:
+        return list(config.getini(ini))
+    except (ValueError, KeyError):
+        return []
+
+
+def _http_security(config: Any, option: Any, enabled: bool) -> tuple[bool, tuple[Any, ...], tuple[Any, ...]]:
+    observe = bool(_value(config, option, "http_security", False))
+    headers = parse_header_expectations(
+        _lines(config, option, "sharpit_required_response_header", "sharpit_required_response_headers"), HEADER_OPTION
+    )
+    statuses = parse_status_expectations(
+        _lines(config, option, "sharpit_expected_status", "sharpit_expected_statuses"), STATUS_OPTION
+    )
+    if (headers or statuses) and not observe:
+        raise ValueError("response expectations need --sharpit-http-security (sharpit_http_security = true)")
+    if observe and not enabled:
+        raise ValueError("--sharpit-http-security requires --sharpit")
+    return observe, headers, statuses
 
 
 def resolve(config: Any) -> PluginOptions:
@@ -121,8 +186,10 @@ def resolve(config: Any) -> PluginOptions:
         raise ValueError("--sharpit-max-unattributed must be between 0 and 100")
     junit = _value(config, option, "junit", None)
     sarif = _value(config, option, "sarif", None)
+    enabled = bool(_value(config, option, "enabled", False))
+    observe, required_headers, expected_statuses = _http_security(config, option, enabled)
     return PluginOptions(
-        bool(_value(config, option, "enabled", False)),
+        enabled,
         Path(_value(config, option, "report", "sharpit-report.json")),
         Path(junit) if junit else None,
         None if maximum is None else int(maximum),
@@ -138,4 +205,7 @@ def resolve(config: Any) -> PluginOptions:
         Path(_value(config, option, "baseline", "")) if _value(config, option, "baseline", "") else None,
         Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
         Path(sarif) if sarif else None,
+        observe,
+        required_headers,
+        expected_statuses,
     )

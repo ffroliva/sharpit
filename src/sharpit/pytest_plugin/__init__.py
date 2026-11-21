@@ -41,6 +41,7 @@ from sharpit.pytest_plugin.apps import (
 from sharpit.pytest_plugin.apps import (
     run_advisors as _run_advisors_impl,
 )
+from sharpit.pytest_plugin.http_security import sharpit_http_observed as sharpit_http_observed
 from sharpit.pytest_plugin.marker import budget_for
 from sharpit.pytest_plugin.options import PluginOptions
 from sharpit.pytest_plugin.options import pytest_addoption as pytest_addoption
