@@ -239,7 +239,7 @@ ProfileSourceDto { sourceName: str, profile: str, properties: ConfigPropertyDto[
 Sources: `AC/web/MappingsController.java`, `ENG/mappings/MappingsService.java`, `AC/.../SpringMappingProvider`, `DTO/MappingsReport.java`, `DTO/MappingDto.java`.
 
 ```
-MappingsReport { total: int, mappings: MappingDto[], page: PageMetadata }
+MappingsReport { total: int, basePath: str, mappings: MappingDto[], page: PageMetadata }
 MappingDto { method: str, pattern: str, handler: str, produces: str|null, consumes: str|null }
 ```
 
@@ -247,13 +247,14 @@ MappingDto { method: str, pattern: str, handler: str, produces: str|null, consum
 - An empty method set becomes `"ANY"`. An empty pattern falls back to the predicate string or `"(any)"`.
 - `produces` and `consumes` are a comma-joined sorted list; a negated media type is prefixed `!`.
 - Rows are sorted by pattern, then method, then handler.
-- `q` matches method, pattern, handler, produces or consumes.
+- `q` matches method, pattern, composed `basePath` + pattern, handler, produces or consumes.
+- `basePath` is the normalized application prefix, or `""` at the root.
 - `total` is the unfiltered row count.
 - `handler` is a free-form string (Spring: `com.x.OwnerController#show(Integer)`). In Python use `module.func` / `Class.method`.
 - [JVM] `GET /bootui/api/mappings` (no `/flat`) returns the raw Spring Actuator descriptor, or 204 when there is none (`AC/web/ActuatorMappingsController`). Drop it.
 
 ```json
-{"total":58,"mappings":[{"method":"GET","pattern":"/owners/{ownerId}","handler":"org.sp.petclinic.owner.OwnerController#showOwner(int)","produces":null,"consumes":null}],
+{"total":58,"basePath":"","mappings":[{"method":"GET","pattern":"/owners/{ownerId}","handler":"org.sp.petclinic.owner.OwnerController#showOwner(int)","produces":null,"consumes":null}],
  "page":{"total":58,"matched":1,"offset":0,"limit":200,"returned":1,"hasMore":false}}
 ```
 

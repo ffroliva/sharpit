@@ -1,8 +1,8 @@
 {
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
-    "matched": 4,
-    "partial": 29,
+    "matched": 5,
+    "partial": 28,
     "missing": 33,
     "n-a": 30,
     "total": 96
@@ -432,8 +432,8 @@
       "golden": "mappings/flat.captured.json",
       "panel": "mappings",
       "route": "/sharpit/api/mappings/flat",
-      "status": "partial",
-      "difference": "BootUI 2.5.0 adds basePath; sharpit support is tracked in A2"
+      "status": "matched",
+      "difference": null
     },
     {
       "golden": "mcp-server/captured.json",

@@ -152,10 +152,11 @@ def test_documented_value_deviations_hold(client: TestClient):
 
 
 def test_mappings_flat_matches_contract_dto(client: TestClient):
-    # contract §4: MappingsReport { total, mappings: MappingDto[], page: PageMetadata }
+    # contract §4: MappingsReport { total, basePath, mappings: MappingDto[], page: PageMetadata }
     body = client.get("/sharpit/api/mappings/flat").json()
     assert keys(body) == {
         "total",
+        "basePath",
         "mappings", "mappings[].method", "mappings[].pattern", "mappings[].handler", "mappings[].produces",
         "mappings[].consumes",
         "page", "page.total", "page.matched", "page.offset", "page.limit", "page.returned", "page.hasMore",

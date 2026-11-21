@@ -7,7 +7,7 @@ The static capture uses BootUI tag `v2.5.0` at commit `c4458db8dd18c08074119f22a
 | Fixture | BootUI 2.4.0 | BootUI 2.5.0 | Source or reason |
 |---|---:|---:|---|
 | Panels | 65 | 65 | `BootUiPanels.java`; the panel catalogue is unchanged. |
-| Tools | 116 | 116 | `bootui-cli/src/main/resources/bootui-tools.json`; `get_mappings` adds `basePath` wording and `get_request_profile` adds authorization wording. Their sharpit descriptions remain documented gaps for A2 and B4. |
+| Tools | 116 | 116 | `bootui-cli/src/main/resources/bootui-tools.json`; A2 ports the `get_mappings` and `get_request_profile` descriptions. Authorization evidence remains tracked in B4. |
 | Route contracts | 82 reads, 78 actions, 269 starter mappings | 85 reads, 78 actions, 269 starter mappings | `BootUiApiContractCatalog.java`; the three added reads describe exception occurrences and their binding diagnostics. |
 | Properties | 209 | 212 | `BootUiProperties.java`; adds `bootui.vulnerabilities.scan-timeout=60s`, `bootui.http-exchanges.expose-request-id-header=true`, and `bootui.cli.instances-dir` with no default. |
 | Rule identifiers | 604 | 688 | Rule registries and `RestApiRules.java`; the captured union increases by 84. `rule-ids-diff.json` records 0 documentation-only and 32 Java-only identifiers. |
@@ -17,7 +17,7 @@ The tool names, input schemas, action flags, panel assignments, and all 269 star
 
 ## Status changes
 
-Route status remains grounded in the 2.3.0 live goldens. `/mappings/flat` changes from matched to partial against the 2.5.0 static contract because that contract now requires `basePath`; its 2.3.0 live payload still matches. The route counts change from 5 matched / 28 partial / 33 missing / 30 n-a to 4 / 29 / 33 / 30. The route matched-count pin is 4 until A2 adds `basePath`.
+Route status remains grounded in the 2.3.0 live goldens. A2 adds `basePath` to `/mappings/flat`, so the route matches both the 2.3.0 payload shape and the 2.5.0 static contract. The route counts are 5 matched / 28 partial / 33 missing / 30 n-a, and the matched-count pin is 5.
 
 The property status adds three missing rows because sharpit has no corresponding setting fields. `scan-timeout` is tracked in A5, the request-ID header property is tracked in A8, and instance discovery is outside this release because its lease-file behavior conflicts with the host application's no-write startup rule. The property counts change from 103 matched / 11 partial / 95 missing to 103 / 11 / 98.
 

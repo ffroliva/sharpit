@@ -358,15 +358,14 @@ DESCRIPTION_MATCHED = (
     "get_github_dashboard",
     "get_loggers",
     "get_low_footprint",
+    "get_mappings",
     "get_metrics",
     "get_postgresql_report",
     "get_profile_diff",
+    "get_request_profile",
 )
-# BootUI 2.5.0 description changes not yet adopted by sharpit.
-DESCRIPTION_GAPS_25 = {
-    "get_mappings": "A2",
-    "get_request_profile": "B4",
-}
+# BootUI 2.5.0 description changes are adopted by A2.
+DESCRIPTION_GAPS_25: dict[str, str] = {}
 # Tools whose 2.4.0 description changes sharpit adopted.
 DESCRIPTION_ADOPTED_24: tuple[str, ...] = (
     "get_exceptions",
@@ -396,7 +395,7 @@ def test_description_gaps_are_the_bootui_2_5_0_changes() -> None:
         if name not in previous
         or (tool["description"], tool.get("summary")) != (previous[name]["description"], previous[name].get("summary"))
     }
-    assert set(DESCRIPTION_GAPS_25) == changed
+    assert set(DESCRIPTION_GAPS_25) == changed - set(DESCRIPTION_MATCHED)
     assert not (set(DESCRIPTION_GAPS_25) & set(DESCRIPTION_MATCHED))
 
 
