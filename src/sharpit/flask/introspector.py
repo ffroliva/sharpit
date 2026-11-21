@@ -41,9 +41,9 @@ def _handler_name(value: object) -> str | None:
         module = object.__getattribute__(value, "__module__")
         qualname = object.__getattribute__(value, "__qualname__")
         return f"{module}:{qualname}" if isinstance(module, str) and isinstance(qualname, str) else None
-    attributes = type.__getattribute__(type(value), "__dict__")
-    module = attributes.get("__module__")
-    qualname = attributes.get("__qualname__")
+    target = type(value)
+    module = type.__getattribute__(target, "__module__")
+    qualname = type.__getattribute__(target, "__qualname__")
     if isinstance(module, str) and isinstance(qualname, str):
         return f"{module}:{qualname}"
     return None
