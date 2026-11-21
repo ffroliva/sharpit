@@ -386,7 +386,7 @@ def test_shape_keys_match_bootui():
 def test_unknown_id_404():
     _, _, client, _ = _one_group()
     for resp in (client.get(f"{API}/nope"), client.post(f"{API}/nope/status", json={"status": "RESOLVED"})):
-        assert (resp.status_code, resp.json()) == (404, {"error": "Unknown exception group 'nope'"})
+        assert (resp.status_code, resp.json()) == (404, {"error": "Unknown exception group"})
 
 
 @pytest.mark.parametrize(
@@ -474,7 +474,7 @@ def test_get_exceptions_mcp_no_side_effects(no_side_effects: SideEffectGuard):
         listed = _rpc(client, "get_exceptions", {})["result"]
         gid = listed["structuredContent"]["groups"][0]["id"]
         detail = _rpc(client, "get_exception_detail", {"id": f"  {gid}  "})["result"]
-        unknown = _rpc(client, "get_exception_detail", {"id": "does-not-exist"})
+        unknown = _rpc(client, "get_exception_detail", {"id": "S3NT1NEL"})
         missing = _rpc(client, "get_exception_detail", {})
         wrong = _rpc(client, "get_exception_detail", {"id": 1})
     app.state.sharpit.uninstall_capture()
@@ -485,7 +485,7 @@ def test_get_exceptions_mcp_no_side_effects(no_side_effects: SideEffectGuard):
     # ported: AbstractMcpConformanceTest.testMcpToolClientErrorIsReportedInBandInsteadOfInternalError
     assert "error" not in unknown
     assert unknown["result"]["isError"] is True
-    assert unknown["result"]["content"][0]["text"] == "Unknown exception group 'does-not-exist'"
+    assert unknown["result"]["content"][0]["text"] == "Unknown exception group"
     assert missing["error"] == {"code": -32602, "message": "Missing required argument: id"}
     assert wrong["error"] == {"code": -32602, "message": "Argument 'id' must be a string"}
     assert no_side_effects.violations == []

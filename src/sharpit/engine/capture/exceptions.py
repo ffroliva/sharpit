@@ -98,8 +98,8 @@ def mark_seen(exc: BaseException, request_id: str | None, slot: str = "") -> boo
         return True
 
 
-def unknown_group(gid: str) -> str:
-    return f"Unknown exception group '{gid}'"
+def unknown_group() -> str:
+    return "Unknown exception group"
 
 
 def _frames(exc: BaseException, limit: int | None = None) -> list[dict[str, Any]]:

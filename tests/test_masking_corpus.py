@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import sqlite3
 import threading
@@ -403,6 +404,8 @@ def test_binding_diagnostics_corpus_r1_through_r12_over_real_requests(tmp_path: 
         show_banner=False,
         state_dir=str(tmp_path / exposure),
         expose_values=exposure,
+        mcp_enabled="ON",
+        cli_enabled=True,
         panels={"exceptions": {"enabled": True}},
     )
     try:
@@ -418,16 +421,53 @@ def test_binding_diagnostics_corpus_r1_through_r12_over_real_requests(tmp_path: 
             details = [client.get(f"{API}/exceptions/{group['id']}").json() for group in listed["groups"]]
             occurrences = [item for detail in details for item in detail["occurrences"]]
             profiles = [client.get(f"{API}/activity/request/{item['requestId']}").json() for item in occurrences]
+            group = listed["groups"][0]
+            occurrence = next(item for item in details[0]["occurrences"] if item["bindingDiagnostics"])
+            request_id = occurrence["requestId"]
+
+            def mcp_tool(name: str, arguments: dict[str, str]) -> str:
+                return client.post(
+                    f"{API}/mcp",
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": name, "arguments": arguments},
+                    },
+                ).text
+
+            mcp_exception = mcp_tool("get_exception_detail", {"id": group["id"]})
+            mcp_profile = mcp_tool("get_request_profile", {"id": request_id})
+            cli_exception = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": group["id"]}).text
+            cli_profile = client.post(f"{API}/cli/tools/get_request_profile", json={"id": request_id}).text
+            error_body = client.get(f"{API}/exceptions/{SENTINEL}").text
+            mcp_error = mcp_tool("get_exception_detail", {"id": SENTINEL})
+            cli_error = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": SENTINEL}).text
+            jwt_error_body = client.get(f"{API}/exceptions/{JWT}").text
+            jwt_mcp_error = mcp_tool("get_exception_detail", {"id": JWT})
+            jwt_cli_error = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": JWT}).text
     finally:
         handle.uninstall_capture()
 
-    destinations = (str(listed), *(str(item) for item in details), *(str(item) for item in profiles))
-    for text in destinations:
-        assert "ordinary-secret-91" not in text
-    for text in destinations:
-        assert '"ctx"' not in text
-    for text in destinations:
-        assert '"input"' not in text
+    destinations = {
+        "exceptions list": str(listed),
+        "exception details": str(details),
+        "request profiles": str(profiles),
+        "MCP exception": mcp_exception,
+        "MCP profile": mcp_profile,
+        "CLI exception": cli_exception,
+        "CLI profile": cli_profile,
+    }
+    error_surfaces = {
+        "Sharpit error body": error_body,
+        "MCP error": mcp_error,
+        "CLI error": cli_error,
+        "JWT error body": jwt_error_body,
+        "JWT MCP error": jwt_mcp_error,
+        "JWT CLI error": jwt_cli_error,
+    }
+    _assert_binding_corpus_outputs(exposure, destinations, error_surfaces)
+    _write_binding_corpus_jsonl(tmp_path, exposure, destinations, error_surfaces)
     occurrence = next(item for item in occurrences if len(item["bindingDiagnostics"]) > 1)
     rows = occurrence["bindingDiagnostics"]
     assert len(rows) == 10
@@ -440,12 +480,41 @@ def test_binding_diagnostics_corpus_r1_through_r12_over_real_requests(tmp_path: 
         assert "Invalid" in {row["reason"] for row in rows}
     assert "json_invalid" in {row["reason"] for row in rows}
     assert "a_profile.email" in {row["fieldPath"] for row in rows}
-    if exposure == "FULL":
-        assert SENTINEL in str(rows)
-        assert JWT in str(rows)
-    else:
-        assert SENTINEL not in str(rows)
-        assert JWT not in str(rows)
+
+
+def _assert_binding_corpus_outputs(exposure: str, destinations: dict[str, str], error_surfaces: dict[str, str]) -> None:
+    for name, text in destinations.items():
+        assert "ordinary-secret-91" not in text, name
+    for name, text in destinations.items():
+        assert '"ctx"' not in text, name
+    for name, text in destinations.items():
+        assert '"input"' not in text, name
+    for name, text in error_surfaces.items():
+        assert all(value not in text for value in (SENTINEL, JWT)), name
+    for name, text in destinations.items():
+        present = {value for value in (SENTINEL, JWT) if value in text}
+        expected = {SENTINEL, JWT} if exposure == "FULL" and name in _BINDING_DIAGNOSTIC_SURFACES else set()
+        assert present == expected, name
+
+
+_BINDING_DIAGNOSTIC_SURFACES = {
+    "exception details",
+    "request profiles",
+    "MCP exception",
+    "MCP profile",
+    "CLI exception",
+    "CLI profile",
+}
+
+
+def _write_binding_corpus_jsonl(
+    tmp_path: Path, exposure: str, destinations: dict[str, str], error_surfaces: dict[str, str]
+) -> None:
+    rows = (*destinations.items(), *error_surfaces.items())
+    (tmp_path / f"binding-surfaces-{exposure}.jsonl").write_text(
+        "".join(json.dumps({"exposure": exposure, "surface": name, "text": text}) + "\n" for name, text in rows),
+        encoding="utf-8",
+    )
 
 
 def test_sentinel_never_leaks(

@@ -374,7 +374,7 @@ def _exception_routes(ctx: SharpitContext) -> list[BaseRoute]:
     def exception_detail(request: Request) -> Response:
         gid: str = request.path_params["id"]
         detail = _exception_store(ctx).detail(gid)
-        return json_response(detail) if detail is not None else error(404, unknown_group(gid))
+        return json_response(detail) if detail is not None else error(404, unknown_group())
 
     return [
         Route(f"{api}/exceptions", exceptions, methods=["GET", "DELETE"]),
@@ -400,7 +400,7 @@ def _exception_status_routes(ctx: SharpitContext) -> list[BaseRoute]:
             updated = _exception_store(ctx).set_status(gid, value if isinstance(value, str) else None)
         except ValueError as exc:  # checked before the group, as BootUI ExceptionsService.updateStatus
             return error(400, str(exc))
-        return json_response(updated) if updated is not None else error(404, unknown_group(gid))
+        return json_response(updated) if updated is not None else error(404, unknown_group())
 
     return [
         Route(f"{api}/exceptions/{{id}}/status", exception_status, methods=["POST"]),
