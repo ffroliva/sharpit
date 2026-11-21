@@ -38,6 +38,7 @@ from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sensors.lane import build_lane
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sqltext import is_database_exception
+from sharpit.fastapi.request_id_header import with_request_id_header
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -626,6 +627,12 @@ class CaptureMiddleware:
     def __init__(self, app: ASGIApp, ctx: SharpitContext) -> None:
         self.app = app
         self.ctx = ctx
+        settings = ctx.settings
+        self._request_id_header_enabled = (
+            settings.http_exchanges_expose_request_id_header
+            and panel_is_implemented("http-exchanges")
+            and settings.panels["http-exchanges"].enabled
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -714,8 +721,19 @@ class CaptureMiddleware:
                 try:
                     kind = message["type"]
                     if kind == "http.response.start":
+                        raw_headers = message.get("headers", ())
+                        response_headers = list(cast("Iterable[tuple[bytes, bytes]]", raw_headers))
+                        if not isinstance(raw_headers, list):
+                            message = {**message, "headers": response_headers}
+                        original_message = message
+                        if self._request_id_header_enabled:
+                            try:
+                                message = with_request_id_header(self.ctx, scope, message, info, response_headers)
+                            except Exception as exc:  # noqa: BLE001 - optional response decoration cannot alter host output
+                                wiring.hook_failed("request id response header", exc)
                         status = message["status"]
-                        response_headers = list(message.get("headers", ()))
+                        if message is not original_message:
+                            response_headers = message["headers"]
                     elif kind == "http.response.body":
                         size += len(message.get("body", b""))
                         if not message.get("more_body", False):

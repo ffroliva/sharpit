@@ -76,6 +76,7 @@ class SharpitSettings:
     cli_execution_timeout: float = 30.0
     # 0.2.0 (spec §12)
     http_exchanges_max_exchanges: int = 200
+    http_exchanges_expose_request_id_header: bool = True
     exceptions_max_groups: int = 100
     exceptions_max_occurrences_per_group: int = 25
     exceptions_max_stack_frames: int = 50

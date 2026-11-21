@@ -176,6 +176,12 @@ the statements section is `SKIPPED`. sharpit's own PostgreSQL tests run only aga
 JSON follows BootUI's contract: camelCase keys, every key present (nulls included), epoch milliseconds, no envelope.
 Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": "..."}`.
 
+Loopback and detected container-gateway application responses carry `X-Sharpit-Request-Id` by default when an HTTP
+exchange is recorded. Pass its value to `get_request_profile` to inspect that request. Set
+`SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the
+header. A same-host tunnel that adds no forwarding headers can expose it to outside callers, and a shared cache in
+front of the app can store it with the response.
+
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
