@@ -37,7 +37,8 @@ ROWS = {
     ),
     "pydantic-loc-key": (
         f"1 validation error for M\nc.{RAW}\n  Input should be a valid integer [type=int_parsing, input_value=1]",
-        f"1 validation error for M\nc.{MASK}\n  Input should be a valid integer [type=int_parsing, input_value={MASK}",
+        f"1 validation error for M\n{MASK}.{MASK}\n  Input should be a valid integer "
+        f"[type=int_parsing, input_value={MASK}",
     ),
     "uuid-found": (
         "invalid character: expected hex, found `Z` at 0 [type=uuid_parsing]",
@@ -84,7 +85,7 @@ def test_real_pydantic_dict_key_is_hidden_outside_full(exposure: Exposure) -> No
 
     assert shown is not None
     assert "planted-key-5" not in shown
-    assert "counts." in shown
+    assert f"{MASK}.{MASK}" in shown
     assert Masker(Exposure.FULL, True).scrub_literals(message) == message
     assert "counts.planted-key-5" in message
 
@@ -131,3 +132,36 @@ def test_exception_scrub_is_bounded_for_huge_input(hostile: str) -> None:
 
     assert scrubbed is not None
     assert time.perf_counter() - started < 3
+
+
+@pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.METADATA_ONLY])
+def test_real_pydantic_root_dict_key_is_hidden_outside_full(exposure: Exposure) -> None:
+    pydantic = pytest.importorskip("pydantic")
+    with pytest.raises(pydantic.ValidationError) as caught:
+        pydantic.TypeAdapter(dict[str, int]).validate_python({"my_secret_token_key": "not-an-int"})
+    message = str(caught.value)
+
+    shown = Masker(exposure, True).scrub_literals(message)
+
+    assert shown is not None
+    assert "my_secret_token_key" not in shown
+    assert Masker(Exposure.FULL, True).scrub_literals(message) == message
+
+
+def test_request_locations_and_indices_are_kept() -> None:
+    text = f"2 validation errors for M\nbody.0.{RAW}\n  Input should be a valid integer [type=int_parsing]"
+
+    assert f"\nbody.0.{MASK}\n" in str(scrub_binding_literals(text))
+
+
+def test_crlf_text_keeps_its_line_endings_and_indices() -> None:
+    text = (
+        "1 validation error for M\r\nitems.0.name\r\n  Input should be a valid integer "
+        f"[type=int_parsing, input_value='{RAW}', input_type=str]\r\n    For further information"
+    )
+
+    assert scrub_binding_literals(text) == (
+        "1 validation error for M\r\n"
+        f"{MASK}.0.{MASK}\r\n  Input should be a valid integer "
+        f"[type=int_parsing, input_value={MASK}, input_type=str]\r\n    For further information"
+    )
