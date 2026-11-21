@@ -19,8 +19,8 @@ def test_docs_table_matches_registry() -> None:
     rows = _rows()
     implemented = sorted(rule_id for rule_id, *_rest, status, _reason in rows if status == "implemented")
 
-    assert len(rows) == 48
-    assert sum(1 for row in rows if row[3] == "P") == 33
+    assert len(rows) == 46
+    assert sum(1 for row in rows if row[3] == "P") == 31
     assert implemented == sorted(r.definition.id for r in RULES)
 
 

@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from sharpit.engine.collectors.restapi.rules import RULES, SKIPPED_RULES
+from sharpit.engine.collectors.restapi.rules import RETIRED_RULES, RULES, SKIPPED_RULES
 from sharpit.engine.collectors.restapi.service import assess
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.spi import ApiModel
@@ -26,6 +26,6 @@ def test_restapi_findings_match_pre_split_golden():
         )
     golden = json.loads(Path(__file__).with_name("restapi_rules_split_golden.json").read_text(encoding="utf-8"))
     lane_rules = {"RAPI-ERR-004", "RAPI-ERR-005", "RAPI-ERR-007", "RAPI-ERR-008", "RAPI-ERR-010", "RAPI-ERR-011"}
-    expected_rule_ids = ({rule.id for rule in RULES} - SKIPPED_RULES.keys()) - lane_rules
+    expected_rule_ids = ({rule.id for rule in RULES} - SKIPPED_RULES.keys() - RETIRED_RULES) - lane_rules
     assert {finding["ruleId"] for finding in golden} == expected_rule_ids
     assert [f for f in actual if f["ruleId"] not in lane_rules] == golden

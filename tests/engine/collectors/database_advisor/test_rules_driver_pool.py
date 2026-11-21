@@ -112,34 +112,13 @@ def test_pool_rules_ignore_dialects_they_do_not_judge() -> None:
     # ported: DatabaseAdvisorPoolRulesTests.poolRulesIgnoreDialectsTheyDoNotJudge
     outcomes = [rule.check(_source("sqlite", driver="pysqlite", server={})) for rule in rules_driver_pool.RULES[2:]]
 
-    assert [isinstance(o, str) for o in outcomes] == [True, True, True, True]
-
-
-def test_a_pool_larger_than_the_usable_connections_fires_the_capacity_rule_and_not_the_share_rule() -> None:
-    # ported: DatabaseAdvisorPoolRulesTests.aPoolLargerThanTheUsableConnectionsFiresTheCapacityRuleAndNotTheShareRule
-    source = _source(pool=_pool(max_size=98))
-
-    assert _identities(_check("DB-POOL-002", source)) == ["ds=db|pool=maximum-size"]
-    assert _identities(_check("DB-POOL-004", source)) == []
+    assert [isinstance(o, str) for o in outcomes] == [True, True, True]
 
 
 def test_an_unbounded_overflow_exceeds_any_server_limit() -> None:
     source = _source(pool=_pool(max_size=None, unbounded=True))
 
     assert _identities(_check("DB-POOL-002", source)) == ["ds=db|pool=maximum-size"]
-
-
-def test_a_pool_over_half_the_usable_connections_fires_the_share_heuristic() -> None:
-    # ported: DatabaseAdvisorPoolRulesTests.aPoolOverHalfTheUsableConnectionsFiresTheShareHeuristicAtLowSeverity
-    source = _source(pool=_pool(max_size=49))
-
-    assert _identities(_check("DB-POOL-002", source)) == []
-    assert _identities(_check("DB-POOL-004", source)) == ["ds=db|pool=maximum-size"]
-
-
-def test_the_pool_share_boundary_uses_exact_integer_arithmetic() -> None:
-    # ported: DatabaseAdvisorPoolRulesTests.thePoolShareBoundariesUseExactIntegerArithmetic (97 usable: 48 fits)
-    assert _identities(_check("DB-POOL-004", _source(pool=_pool(max_size=48)))) == []
 
 
 def test_the_capacity_rules_need_a_readable_server_limit() -> None:

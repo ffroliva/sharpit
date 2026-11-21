@@ -54,8 +54,31 @@ def test_clean_routes_pass_every_rule():
         route("/v1/pets", ("POST",), "create_pet", status_code=201, has_body=True, response_model=Pet),
         route("/v1/pets/{pet_id}", ("DELETE",), "delete_pet", status_code=204, return_annotation=type(None)),
     ]
-    assert {r.id: r.status for r in scan(routes, APP_HANDLER)} == dict.fromkeys(
-        [r.id for r in scan([], APP_HANDLER)], "PASS"
+    assert {r.id: r.status for r in scan(routes, APP_HANDLER)} == {
+        rule.id: "SKIPPED" if rule.id in {"RAPI-ERR-011", "RAPI-NAME-002", "RAPI-DOC-001", "RAPI-DOC-002"} else "PASS"
+        for rule in scan([], APP_HANDLER)
+    }
+
+
+def test_retired_rapi_rules_are_skipped_with_bootui_reasons():
+    results = {
+        result.id: result
+        for result in scan([route("/v1/pet", return_annotation=list[Pet], summary=None, tags=())], APP_HANDLER)
+    }
+
+    assert results["RAPI-NAME-002"].status == "SKIPPED"
+    assert results["RAPI-NAME-002"].sample_violations == (
+        "Retired heuristic: English plural-suffix heuristics cannot establish resource cardinality or naming defects.",
+    )
+    assert results["RAPI-DOC-001"].status == "SKIPPED"
+    assert results["RAPI-DOC-001"].sample_violations == (
+        "Retired heuristic: OpenAPI generators derive operations from controller signatures without requiring explicit"
+        " @Operation annotations.",
+    )
+    assert results["RAPI-DOC-002"].status == "SKIPPED"
+    assert results["RAPI-DOC-002"].sample_violations == (
+        "Retired heuristic: OpenAPI generators group operations automatically without requiring explicit @Tag"
+        " annotations.",
     )
 
 
@@ -73,11 +96,6 @@ def test_clean_routes_pass_every_rule():
         ("RAPI-MAP-011", route("/v1/a/{a}/b/{b}/c/{c}/d/{d}"), route("/v1/a/{a}/b/{b}/c/{c}")),
         ("RAPI-NAME-001", route("/v1/getPets"), route("/v1/blog/post/{id}")),  # name001DoesNotFlagAmbiguousNoun...
         ("RAPI-NAME-001", route("/v1/create-pet", ("POST",)), route("/v1/pets")),
-        (
-            "RAPI-NAME-002",
-            route("/v1/pet", return_annotation=list[Pet]),
-            route("/v1/history", return_annotation=list[Pet]),
-        ),
         ("RAPI-NAME-003", route("/v1/petTypes"), route("/v1/pet-types")),
         ("RAPI-NAME-003", route("/v1/pet_types"), route("/v1/pet-types/{pet_type}")),  # variables are not segments
         (
@@ -121,20 +139,14 @@ def test_clean_routes_pass_every_rule():
             route(return_annotation=list[Pet], query_params=("page",)),
         ),
         ("RAPI-PAGE-001", route(return_annotation=list[Pet]), route(return_annotation=list[Pet], methods=("POST",))),
-        ("RAPI-DOC-001", route(summary=None), route(summary=None, description="From the docstring")),
-        ("RAPI-DOC-002", route(tags=()), route(tags=("pets",))),
     ],
 )
 # ported: RestApiRulesTests.routingRulesFlagBadController
-# ported: RestApiRulesTests.phase2RulesFlagBadPhase2Controller
 # ported: RestApiRulesTests.namingRulesFlagVerbsAndCase
 # ported: RestApiRulesTests.name001DoesNotFlagAmbiguousNounSegments
-# ported: RestApiRulesTests.name002DoesNotFlagUncountableNouns
-# ported: RestApiRulesTests.responseRulesFlagCreationAndScalarReads
 # ported: RestApiRulesTests.responseEdgeRulesFlagStatusMismatches
 # ported: RestApiRulesTests.payloadRulesFlagEntitiesAndCollections
 # ported: RestApiRulesTests.paginationRuleFlagsUnpaginatedCollectionRead
-# ported: RestApiRulesTests.documentationRulesAreSkippedWithoutSpringdocAndFireWithIt
 @pytest.mark.bootui("rule:RAPI-MAP-001")
 @pytest.mark.bootui("rule:RAPI-MAP-003")
 @pytest.mark.bootui("rule:RAPI-MAP-005")
@@ -142,7 +154,6 @@ def test_clean_routes_pass_every_rule():
 @pytest.mark.bootui("rule:RAPI-MAP-010")
 @pytest.mark.bootui("rule:RAPI-MAP-011")
 @pytest.mark.bootui("rule:RAPI-NAME-001")
-@pytest.mark.bootui("rule:RAPI-NAME-002")
 @pytest.mark.bootui("rule:RAPI-NAME-003")
 @pytest.mark.bootui("rule:RAPI-RESP-001")
 @pytest.mark.bootui("rule:RAPI-RESP-002")
@@ -150,8 +161,6 @@ def test_clean_routes_pass_every_rule():
 @pytest.mark.bootui("rule:RAPI-DTO-001")
 @pytest.mark.bootui("rule:RAPI-DTO-002")
 @pytest.mark.bootui("rule:RAPI-PAGE-001")
-@pytest.mark.bootui("rule:RAPI-DOC-001")
-@pytest.mark.bootui("rule:RAPI-DOC-002")
 def test_rule_positive_and_negative(rule_id: str, bad: ApiRouteInfo, good: ApiRouteInfo):
     assert len(found(rule_id, [bad])) == 1, found(rule_id, [bad])
     assert found(rule_id, [good]) == []
@@ -166,13 +175,6 @@ def test_duplicate_route_mapping():
         "GET /v1/pets with matching dispatch conditions handled by app.pets:read_pets, app.pets:read_pets_again"
     ]
     assert found("RAPI-MAP-002", [first, route("/v1/pets", ("POST",), "create_pet", status_code=201)]) == []
-
-
-def test_name002_does_not_flag_uncountable_or_irregular():
-    # ported: name002DoesNotFlagUncountableNouns
-    for path in ("/v1/history", "/v1/people", "/v1/news", "/v1/data", "/v1/owners/{id}/pets"):
-        assert found("RAPI-NAME-002", [route(path, return_annotation=list[Pet])]) == [], path
-    assert found("RAPI-NAME-002", [route("/v1/pet", return_annotation=Pet)]) == []  # not a collection
 
 
 def test_versioning_rules():

@@ -145,20 +145,14 @@ def test_arch_code_002_generic_exceptions(tmp_path: Path) -> None:
 
 @pytest.mark.bootui("rule:ARCH-CODE-004")
 def test_arch_code_004_joda_time(tmp_path: Path) -> None:
-    # ported from the rule class ArchitectureRules.NoJodaTimeRule
-    # Fires on pytz imports (Python analogue of legacy Joda-Time)
+    # Retired rule IDs remain reserved and no longer emit findings.
     fired = _scan(
         tmp_path / "fire",
         {
             "dates.py": "import pytz\n",
         },
     )
-    assert "ARCH-CODE-004" in fired
-    finding = fired["ARCH-CODE-004"][0]
-    assert finding.rule_id == "ARCH-CODE-004"
-    assert finding.severity == "INFO"
-    assert finding.target == "app.dates:1"
-    assert finding.message == "app.dates:1 pytz import"
+    assert "ARCH-CODE-004" not in fired
 
     # Does not fire on standard library zoneinfo
     passed = _scan(
@@ -400,22 +394,15 @@ def test_arch_code_017_direct_thread_instantiation(tmp_path: Path) -> None:
 
 
 @pytest.mark.bootui("rule:ARCH-CODE-018")
-def test_arch_code_018_assert_detail_message(tmp_path: Path) -> None:
-    # ported: ArchitectureRulesTests.assertionsShouldHaveDetailMessageFlagsMessagelessAssertion
-    # ported: ArchitectureRulesTests.assertionsShouldHaveDetailMessagePassesForMessageBearingAssertion
-    # Fires on assert statements without detail message
+def test_arch_code_018_assert_detail_message_is_retired(tmp_path: Path) -> None:
+    # Retired rule IDs remain reserved and no longer emit findings.
     fired = _scan(
         tmp_path / "fire",
         {
             "check.py": "def check(x):\n    assert x > 0\n",
         },
     )
-    assert "ARCH-CODE-018" in fired
-    finding = fired["ARCH-CODE-018"][0]
-    assert finding.rule_id == "ARCH-CODE-018"
-    assert finding.severity == "INFO"
-    assert finding.target == "app.check:2"
-    assert finding.message == "app.check:2 assert without message"
+    assert "ARCH-CODE-018" not in fired
 
     # Does not fire when detail message is provided
     passed = _scan(

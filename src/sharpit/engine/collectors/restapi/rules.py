@@ -123,9 +123,9 @@ RULES: tuple[RuleDefinition, ...] = (
         "Consider plural collection names",
         NAMING,
         "INFO",
-        "An English-language spelling heuristic suggests a singular path for a collection return declaration. It does"
-        " not establish runtime resource cardinality or an HTTP requirement.",
-        "Consider plural collection names if that matches the project's language and naming convention.",
+        "Retired heuristic: an English-language suffix check on the last path segment cannot distinguish resource"
+        " collections from sub-resource filters, streams, version segments, or uncountable nouns.",
+        "Choose collection and sub-resource path names according to the API's domain vocabulary.",
         REST_GUIDELINES,
     ),
     RuleDefinition(
@@ -301,9 +301,9 @@ RULES: tuple[RuleDefinition, ...] = (
         "Consider explicit operation documentation",
         ERRORS_DOCS,
         "INFO",
-        "Some handlers have no summary, description or docstring. Generated or static documentation may already"
-        " describe them.",
-        "Consider a summary or docstring where it adds useful information beyond the generated documentation.",
+        "Retired heuristic: OpenAPI generators derive operations from controller signatures without requiring"
+        " explicit @Operation annotations.",
+        "Consider @Operation summaries/descriptions only where they add information beyond generated documentation.",
         _FASTAPI + "path-operation-configuration/",
     ),
     RuleDefinition(
@@ -311,8 +311,9 @@ RULES: tuple[RuleDefinition, ...] = (
         "Consider explicit operation grouping",
         ERRORS_DOCS,
         "INFO",
-        "Some handlers have no tags, so the generated OpenAPI document groups them under 'default'.",
-        "Consider tags on the route or its APIRouter when they improve the OpenAPI grouping.",
+        "Retired heuristic: OpenAPI generators group operations by controller or resource automatically without"
+        " requiring explicit @Tag annotations.",
+        "Consider explicit tags only when custom grouping is needed beyond the generator's default.",
         _FASTAPI + "path-operation-configuration/#tags",
     ),
 )
@@ -320,16 +321,18 @@ RULES: tuple[RuleDefinition, ...] = (
 _SPRING = "Reads Spring or JAX-RS annotation metadata that FastAPI routes do not have."
 _DEEP = "Needs body, schema or error-contract analysis beyond declared route metadata; not ported to sharpit."
 SKIPPED_RULES: Mapping[str, str] = {
-    "RAPI-MAP-004": "FastAPI has no class-level base path; APIRouter prefixes are already applied to each path.",
+    "RAPI-MAP-004": "Retired heuristic: class-level base paths are a code-layout preference, not an HTTP contract"
+    " requirement.",
     "RAPI-MAP-006": _SPRING,
     "RAPI-MAP-008": _DEEP,
     "RAPI-MAP-009": "FastAPI refuses duplicate path parameter names when the route is built.",
     "RAPI-NAME-004": _DEEP,
     "RAPI-RESP-003": _SPRING,
-    "RAPI-RESP-004": _DEEP,
+    "RAPI-RESP-004": "Retired heuristic: scalar GET responses are valid HTTP representations.",
     "RAPI-RESP-005": _DEEP,
     "RAPI-RESP-007": _SPRING,
-    "RAPI-RESP-008": _DEEP,
+    "RAPI-RESP-008": "Retired heuristic: @ResponseStatus(CREATED) declarations cannot express response headers on"
+    " Spring, and Location is not universally required by RFC 9110.",
     "RAPI-RESP-009": "Starlette serves HEAD from the GET handler; there are no dedicated HEAD handlers to review.",
     "RAPI-VALID-001": "Pydantic validates nested request models by default.",
     "RAPI-VALID-002": _DEEP,
@@ -340,10 +343,12 @@ SKIPPED_RULES: Mapping[str, str] = {
     "RAPI-DTO-005": "A Java type rule (java.time); not applicable to Python.",
     "RAPI-PAGE-002": _SPRING,
     "RAPI-PAGE-003": _DEEP,
-    "RAPI-VER-002": _SPRING,
+    "RAPI-VER-002": "Retired heuristic: omitting mapping-level consumes on standard JSON endpoints is idiomatic and"
+    " still constrained by framework message converters.",
     "RAPI-VER-003": _SPRING,
     "RAPI-VER-004": _DEEP,
-    "RAPI-VER-005": _SPRING,
+    "RAPI-VER-005": "Retired heuristic: method-specific produces declarations on specialized endpoints do not require"
+    " redundant produces attributes on sibling handlers.",
     "RAPI-VER-006": _DEEP,
     "RAPI-ERR-002": "A Java throws-declaration rule; Python has no checked exceptions.",
     "RAPI-ERR-003": _SPRING,
@@ -357,7 +362,15 @@ SKIPPED_RULES: Mapping[str, str] = {
     " Content-Type (a body on GET/HEAD/DELETE is RAPI-MAP-007).",
 }
 RULE_IDS = frozenset(r.id for r in RULES)
-RETIRED_RULES = frozenset({"RAPI-ERR-011"})  # BootUI 2.3.0 keeps the id but the rule is SKIPPED: never evaluated
+RETIRED_RULES = frozenset({"RAPI-ERR-011", "RAPI-NAME-002", "RAPI-DOC-001", "RAPI-DOC-002"})
+RETIRED_RULE_REASONS: Mapping[str, str] = {
+    "RAPI-NAME-002": "Retired heuristic: English plural-suffix heuristics cannot establish resource cardinality or"
+    " naming defects.",
+    "RAPI-DOC-001": "Retired heuristic: OpenAPI generators derive operations from controller signatures without"
+    " requiring explicit @Operation annotations.",
+    "RAPI-DOC-002": "Retired heuristic: OpenAPI generators group operations automatically without requiring explicit"
+    " @Tag annotations.",
+}
 
 # --- heuristics (RestApiRules constants) ----------------------------------------------------------------------------
 
@@ -390,6 +403,9 @@ def evaluate(
     found: dict[str, list[Violation]] = {}
     errored: set[str] = set()
     for rule in RULES:
+        if rule.id in RETIRED_RULES:
+            found[rule.id] = []
+            continue
         try:
             if rule.id in rules_errors.CHECKS:
                 found[rule.id] = rules_errors.CHECKS[rule.id](own, exception_handlers, error_contract=error_contract)
@@ -424,7 +440,12 @@ def scan(
     error_contract: Sequence[ErrorContractEntry] = (),
 ) -> list[RuleResult]:
     found = violations(routes, exception_handlers, error_contract=error_contract)
-    return [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES]
+    return [
+        RuleResult.skipped(rule, RETIRED_RULE_REASONS.get(rule.id))
+        if rule.id in RETIRED_RULES
+        else RuleResult.evaluate(rule, found[rule.id])
+        for rule in RULES
+    ]
 
 
 FASTAPI_ERR_001 = RuleDefinition(

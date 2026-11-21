@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-# an app whose rest-api findings are LOW (RAPI-DTO-002) and INFO (RAPI-DOC-001): notes under the default HIGH gate
+# an app whose rest-api findings include LOW (RAPI-DTO-002): notes under the default HIGH gate
 NOTES_APP = """
 from fastapi import FastAPI
 app = FastAPI()
@@ -35,7 +35,7 @@ def test_verbose_keeps_advisor_notes(pytester: pytest.Pytester) -> None:
     )
 
     stdout = result.stdout.str()
-    assert "  RAPI-DOC-001: 3" in stdout
+    assert "  RAPI-DTO-002: 3" in stdout
     assert "advisor notes in" not in stdout
 
 

@@ -49,9 +49,8 @@ _PG_SQL = {
     "WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relpersistence = 'u' AND NOT EXISTS "
     "(SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') "
     "ORDER BY 1",
-    # reset_val: the role/database/server value, not the statement timeout the advisor's own read sets
-    "settings": "SELECT name, reset_val AS setting FROM pg_settings "
-    "WHERE name IN ('idle_in_transaction_session_timeout', 'statement_timeout')",
+    # Read the server value, not the transaction-local timeout on the advisor's read.
+    "settings": "SELECT name, reset_val AS setting FROM pg_settings WHERE name = 'idle_in_transaction_session_timeout'",
 }
 _MYSQL_SQL = {
     "engines": "SELECT TABLE_NAME AS tbl, ENGINE AS engine FROM information_schema.TABLES "
@@ -298,10 +297,4 @@ RULES = (
           "Set a limit on the role the application uses, unless it only runs short, trusted transactions.",
           "https://www.postgresql.org/docs/current/runtime-config-client.html",
           _setting("idle_in_transaction_session_timeout", "idle_in_transaction_session_timeout is 0.")),
-    _rule("DB-SERVER-002", "PostgreSQL has no statement timeout", "Server", "LOW",
-          "Fires when statement_timeout is 0 for the role (pg_settings.reset_val, not the advisor's own read): the "
-          "server never aborts a runaway statement.",
-          "Set a limit on the role the application's requests use; a migration role may need none.",
-          "https://www.postgresql.org/docs/current/runtime-config-client.html",
-          _setting("statement_timeout", "statement_timeout is 0.")),
 )  # fmt: skip

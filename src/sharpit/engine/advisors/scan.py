@@ -233,8 +233,15 @@ class AdvisorScan:
             occurrences.setdefault(finding.rule_id, []).append(
                 (finding.fingerprint, finding.message, finding.identity or finding.target)
             )
+        skip_reasons = getattr(done.detail, "skip_reasons", {})
         results = [
-            RuleResult.skipped(rule) if rule.id in done.skipped else RuleResult.evaluate(rule, found[rule.id])
+            (
+                RuleResult.skipped(rule, mask(self._masker, skip_reasons[rule.id]))
+                if rule.id in skip_reasons
+                else RuleResult.skipped(rule)
+            )
+            if rule.id in done.skipped
+            else RuleResult.evaluate(rule, found[rule.id])
             for rule in self.rules
             if rule.id in found or rule.id in done.skipped
         ]

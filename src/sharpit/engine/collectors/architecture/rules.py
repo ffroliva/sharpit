@@ -16,6 +16,7 @@ from sharpit.engine.collectors.architecture.graph import ImportEdge, ImportGraph
 _PACKAGE_STRUCTURE = "Package structure"
 _CODING_PRACTICES = "Coding practices"
 _SHARPIT_URL = "https://github.com/ffroliva/sharpit"
+RETIRED_RULE_IDS = frozenset({"ARCH-CODE-004", "ARCH-CODE-018"})
 
 RULES: tuple[RuleDefinition, ...] = (
     RuleDefinition(
@@ -57,17 +58,6 @@ RULES: tuple[RuleDefinition, ...] = (
             "Raising generic Exception or BaseException obscures error causes and hinders specific error handling."
         ),
         recommendation="Define or use specific exception subclasses describing the error condition.",
-        learn_more_url=_SHARPIT_URL,
-    ),
-    RuleDefinition(
-        id="ARCH-CODE-004",
-        name="Classes should not use Joda-Time",
-        category=_CODING_PRACTICES,
-        severity="INFO",
-        description=(
-            "Legacy third-party timezone libraries such as pytz are superseded by the standard zoneinfo module."
-        ),
-        recommendation="Migrate from pytz to standard library zoneinfo.",
         learn_more_url=_SHARPIT_URL,
     ),
     RuleDefinition(
@@ -154,18 +144,6 @@ RULES: tuple[RuleDefinition, ...] = (
         severity="MEDIUM",
         description="Directly creating threading.Thread instances bypasses concurrency limits and thread pools.",
         recommendation="Use concurrent.futures.ThreadPoolExecutor or async tasks instead of raw threads.",
-        learn_more_url=_SHARPIT_URL,
-    ),
-    RuleDefinition(
-        id="ARCH-CODE-018",
-        name="Assertions should have a detail message",
-        category=_CODING_PRACTICES,
-        severity="INFO",
-        description=(
-            "Assertions in production code without messages provide unhelpful traceback diagnostics and may be stripped"
-            " under -O."
-        ),
-        recommendation="Provide an informative message in assert statements or use explicit conditional checks.",
         learn_more_url=_SHARPIT_URL,
     ),
     RuleDefinition(
@@ -282,7 +260,6 @@ def _eval_module_ast(
     for node in ast.walk(tree):
         _check_standard_streams(mod_name, node, out.setdefault("ARCH-CODE-001", []))
         _check_generic_exceptions(mod_name, node, out.setdefault("ARCH-CODE-002", []))
-        _check_joda_time(mod_name, node, out.setdefault("ARCH-CODE-004", []))
         if not is_main:
             _check_terminate_jvm(mod_name, node, out.setdefault("ARCH-CODE-006", []))
         _check_jdk_internal_apis(mod_name, node, base_pkgs, out.setdefault("ARCH-CODE-007", []))
@@ -293,7 +270,6 @@ def _eval_module_ast(
             _check_test_frameworks(mod_name, node, out.setdefault("ARCH-CODE-013", []))
         _check_mutable_globals(mod_name, node, out.setdefault("ARCH-CODE-014", []))
         _check_instantiate_thread(mod_name, node, out.setdefault("ARCH-CODE-017", []))
-        _check_assert_detail(mod_name, node, out.setdefault("ARCH-CODE-018", []))
         if parts & (_SERVICE_PKGS | _REPO_PKGS):
             _check_web_transport_imports(mod_name, node, out.setdefault("ARCH-SPRING-008", []))
 
@@ -337,25 +313,6 @@ def _check_generic_exceptions(mod_name: str, node: ast.AST, out: list[Finding]) 
                     f"{mod_name}:{node.lineno} raises {exc_id}",
                 )
             )
-
-
-def _check_joda_time(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
-    if isinstance(node, ast.Import):
-        out.extend(
-            Finding(
-                "ARCH-CODE-004", ADVISOR, "INFO", f"{mod_name}:{node.lineno}", f"{mod_name}:{node.lineno} pytz import"
-            )
-            for alias in node.names
-            if alias.name == "pytz" or alias.name.startswith("pytz.")
-        )
-    elif (
-        isinstance(node, ast.ImportFrom) and node.module and (node.module == "pytz" or node.module.startswith("pytz."))
-    ):
-        out.append(
-            Finding(
-                "ARCH-CODE-004", ADVISOR, "INFO", f"{mod_name}:{node.lineno}", f"{mod_name}:{node.lineno} pytz import"
-            )
-        )
 
 
 def _check_terminate_jvm(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
@@ -538,19 +495,6 @@ def _check_instantiate_thread(mod_name: str, node: ast.AST, out: list[Finding]) 
                     f"{mod_name}:{node.lineno} directly instantiates Thread",
                 )
             )
-
-
-def _check_assert_detail(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
-    if isinstance(node, ast.Assert) and node.msg is None:
-        out.append(
-            Finding(
-                "ARCH-CODE-018",
-                ADVISOR,
-                "INFO",
-                f"{mod_name}:{node.lineno}",
-                f"{mod_name}:{node.lineno} assert without message",
-            )
-        )
 
 
 def _check_web_transport_imports(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
