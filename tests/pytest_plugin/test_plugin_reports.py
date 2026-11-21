@@ -147,6 +147,6 @@ def test_default_terminal_counts_notes_but_reports_keep_findings(pytester: pytes
     cases = ET.parse(pytester.path / "report.xml").getroot().findall("testcase")
     assert f"sharpit: {len(rules)} advisor notes in report.json" in stdout
     assert "  RAPI-DOC-001" not in stdout
-    assert "RAPI-DOC-001" in rules
+    assert "RAPI-DOC-001" not in rules
     assert "RAPI-DTO-002" in rules
     assert len(cases) == len(rules) + 1

@@ -24,7 +24,7 @@ MCP tool). `GET
 
 ## Rules
 
-BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are dropped with the reason shown.
+BootUI registers 46 checks. `P` marks a check sharpit ports (31); the others are dropped with the reason shown.
 `Status` says which lane implements a ported check.
 
 | Rule | Title | Family | Port | Status | Reason |
