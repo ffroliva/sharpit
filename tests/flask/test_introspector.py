@@ -141,3 +141,43 @@ def test_route_introspection_has_no_side_effects(no_side_effects: Any) -> None:
     introspector.routes()
     introspector.providers()
     no_side_effects.verify()
+
+
+def test_routes_and_app_metadata_do_not_read_dynamic_flask_attributes() -> None:
+    class RecordingFlask(Flask):
+        accesses: list[str] = []
+
+        def __getattribute__(self, name: str) -> object:
+            if name != "accesses":
+                object.__getattribute__(self, "accesses").append(name)
+            return object.__getattribute__(self, name)
+
+    app = RecordingFlask("safe-static", static_folder=None)
+    RecordingFlask.accesses.clear()
+
+    introspector = _introspector(app)
+    introspector.routes()
+    introspector.app_info()
+
+    assert RecordingFlask.accesses == []
+
+
+def test_routes_do_not_evaluate_rule_properties() -> None:
+    accesses: list[str] = []
+
+    class Rule:
+        @property
+        def rule(self) -> str:
+            accesses.append("rule")
+            return "/unsafe"
+
+        endpoint = "unsafe"
+        methods = {"GET"}
+
+    app = Flask("unsafe-rule", static_folder=None)
+    app.url_map = type("Map", (), {"iter_rules": lambda _self: [Rule()]})()  # type: ignore[assignment]
+    app.view_functions["unsafe"] = lambda: "unsafe"
+
+    _introspector(app).routes()
+
+    assert accesses == []
