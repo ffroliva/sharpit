@@ -121,6 +121,7 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.vulnerabilities.osv-base-uri"),
     pytest.mark.bootui("prop:bootui.vulnerabilities.osv-enabled"),
     pytest.mark.bootui("prop:bootui.vulnerabilities.request-timeout"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.scan-timeout"),
 ]
 
 
