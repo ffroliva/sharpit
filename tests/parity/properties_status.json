@@ -1028,8 +1028,8 @@
     },
     {
       "name": "bootui.vulnerabilities.scan-timeout",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for vulnerabilities_scan_timeout"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.websockets.capturing",

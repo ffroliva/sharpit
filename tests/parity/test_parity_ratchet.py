@@ -10,7 +10,7 @@ from pathlib import Path
 
 PARITY = Path(__file__).parent
 ROUTES_MATCHED_PIN = 4  # mappings/flat adds basePath in the 2.5.0 static contract; A2 ports it
-PROPERTIES_MATCHED_PIN = 103
+PROPERTIES_MATCHED_PIN = 104
 
 
 def test_matched_routes_ratchet() -> None:
