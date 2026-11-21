@@ -130,6 +130,7 @@ TIMING_MODULES = (
     "test_traces_overhead.py",
     "test_transactions_overhead.py",  # lane R-transactions
     "test_sink_overhead.py",  # lane P-sink-mask-memo
+    "test_http_security_overhead.py",  # lane T1: the HTTP security observer, observed vs bare exchange
     "test_journal.py",  # lane W5a-J: the journal append budgets
     "test_sql_journal_overhead.py",  # lane W5a P-sql: journal on vs off per statement
     "test_sensors_overhead.py",  # lane W6-S3: the audit hook and processes sensor, per event
