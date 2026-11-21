@@ -114,6 +114,21 @@ def test_http_security_observer_requires_sharpit(pytester: pytest.Pytester) -> N
     assert "requires --sharpit" in stderr
 
 
+def test_http_security_configured_routes_are_normalized(pytester: pytest.Pytester) -> None:
+    options = _options(
+        pytester,
+        "--sharpit",
+        "--sharpit-http-security",
+        HEADER,
+        "GET /items/<int:id>/<path:p>=X-A",
+        STATUS,
+        "GET /u/{uid:int}=200",
+    )
+
+    assert _field(options, "http_required_headers") == (("GET", "/items/{id}/{p}", "x-a"),)
+    assert _field(options, "http_expected_statuses") == (("GET", "/u/{uid}", (200,)),)
+
+
 def test_http_security_cli_expectations_replace_ini(pytester: pytest.Pytester) -> None:
     pytester.makeini("""
         [pytest]

@@ -45,7 +45,7 @@ def _split(line: str, option: str, shape: str) -> tuple[str, str, str]:
     method, route, value = method.strip().upper(), route.strip(), value.strip()
     if not (method and route and value):
         raise ValueError(f"{option} {line!r}: expected {shape}")
-    return method, route, value
+    return method, normalize_route(route), value  # the observers' template form, so a Flask-style route matches
 
 
 def parse_header_expectations(lines: Iterable[str], option: str) -> tuple[HeaderExpectation, ...]:
