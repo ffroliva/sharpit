@@ -5,12 +5,24 @@ import HttpProbe from '../../src/views/HttpProbe.svelte';
 import { harness, json, page, panel, readOnly, until } from './support';
 
 const result = { status: 200, statusText: 'OK', headers: { 'content-type': 'application/json' }, body: '{"a":1}', durationMs: 7, error: null, truncated: false };
-const mappings = { total: 1, basePath: '/service', mappings: [{ method: 'POST', pattern: '/owners/{id}', handler: 'app.owner', produces: null, consumes: null }], page: page(1) };
+const mappings = {
+  total: 2,
+  basePath: '/service',
+  mappings: [
+    { method: 'POST', pattern: '/owners/{id}', handler: 'app.owner', produces: 'application/json', consumes: 'application/json' },
+    { method: 'GET', pattern: '/health', handler: 'app.health', produces: 'text/plain', consumes: null },
+  ],
+  page: page(2),
+};
 const h = harness();
 
 function serve(reply: () => Response = () => json(200, result)) {
   h.route((url, init) => {
-    if (url.startsWith('api/mappings/flat')) return json(200, mappings);
+    if (url.startsWith('api/mappings/flat')) {
+      const q = new URLSearchParams(url.split('?')[1] ?? '').get('q')?.toLowerCase() ?? '';
+      const rows = mappings.mappings.filter((route) => `${route.method} ${route.pattern} ${route.handler}`.toLowerCase().includes(q));
+      return json(200, { ...mappings, mappings: rows, page: page(rows.length) });
+    }
     if (url === 'api/http-probe' && init?.method === 'POST') return reply();
     return undefined;
   });
@@ -24,13 +36,61 @@ const type = (sel: string, value: string, ev = 'input') => {
 const send = () => [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'Send')!;
 const body = (n = 0) => JSON.parse(String(h.fetchMock.mock.calls.filter(([, i]) => i?.method === 'POST')[n]![1]!.body));
 
-it('picks a declared route with its method and effective base path', async () => {
+// ported: HttpProbe.loadsDeclaredRoutesOnPickerFocusComposesBasePathPrefillsHeadersBodyAndHighlightsPathPlaceholdersWithoutAutoSending
+it('loads routes on picker focus and selects with the effective base path', async () => {
   serve();
   h.mount(HttpProbe, { panel: panel('http-probe') });
-  await until(() => expect(h.target.querySelectorAll('select[aria-label="Declared route"] option')).toHaveLength(2));
-  type('select[aria-label="Declared route"]', 'POST /service/owners/{id}', 'change');
+  expect(h.fetchMock).toHaveLength(0);
+  expect(h.target.querySelectorAll('#probe-route-picker')).toHaveLength(1);
+  const picker = h.target.querySelector<HTMLInputElement>('#probe-route-picker')!;
+  picker.dispatchEvent(new Event('focus'));
+  await until(() => expect(h.target.querySelectorAll('[role="option"]')).toHaveLength(2));
+  expect(h.calls('GET')).toEqual(['api/mappings/flat?limit=50']);
+  type('#probe-route-picker', 'POST');
+  await until(() => expect(h.calls('GET')).toHaveLength(2));
+  expect(h.calls('GET')[1]).toBe('api/mappings/flat?limit=50&q=POST');
+  await until(() => expect(h.target.querySelectorAll('[role="option"]')).toHaveLength(1));
+  picker.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  flushSync();
+  expect(picker.getAttribute('aria-activedescendant')).toBe('probe-route-option-0');
+  picker.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  flushSync();
+  expect(document.activeElement).toBe(h.target.querySelector<HTMLInputElement>('#probe-path'));
+  h.target.querySelector<HTMLInputElement>('#probe-path')!.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+  flushSync();
+  expect(h.calls('POST')).toHaveLength(0);
   expect(h.target.querySelector<HTMLSelectElement>('select[aria-label="Method"]')!.value).toBe('POST');
   expect(h.target.querySelector<HTMLInputElement>('input[aria-label="Path"]')!.value).toBe('/service/owners/{id}');
+  expect(h.text()).toContain('Replace any {parameter} placeholders before sending.');
+  expect(h.calls('POST')).toHaveLength(0);
+  send().click();
+  await until(() => expect(h.text()).toContain('200 OK'));
+  expect(body()).toEqual({ method: 'POST', path: '/service/owners/{id}', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: '{}' });
+  type('textarea[aria-label="Headers"]', 'content-type: application/custom');
+  send().click();
+  await until(() => expect(h.calls('POST')).toHaveLength(2));
+  expect(body(1).headers).toEqual({ Accept: 'application/json', 'content-type': 'application/custom' });
+});
+
+// ported: HttpProbe.recoversCleanlyWhenBlurredWhileARouteLookupIsStillInFlight
+it('retries route loading after blur cancels an in-flight request', async () => {
+  serve();
+  let resolveFirst!: (response: Response) => void;
+  const firstResponse = new Promise<Response>((resolve) => {
+    resolveFirst = resolve;
+  });
+  h.fetchMock.mockImplementationOnce(() => firstResponse);
+  h.mount(HttpProbe, { panel: panel('http-probe') });
+  const picker = h.target.querySelector<HTMLInputElement>('#probe-route-picker')!;
+  picker.dispatchEvent(new Event('focus'));
+  expect(h.calls('GET')).toHaveLength(1);
+  picker.dispatchEvent(new Event('blur'));
+  resolveFirst(json(200, mappings));
+  await Promise.resolve();
+  await Promise.resolve();
+  picker.dispatchEvent(new Event('focus'));
+  await until(() => expect(h.target.querySelectorAll('[role="option"]')).toHaveLength(2));
+  expect(h.calls('GET')).toHaveLength(2);
 });
 
 it('sends method, path, headers and body, and shows status, timing, headers and the pretty body', async () => {

@@ -1,3 +1,3 @@
 mappings:basePath	adapted	FastAPI exposes the ASGI application's root_path through AppInfo; the empty string represents the root mount, instead of composing framework-specific prefixes.
-ui:http-probe.route-picker	adapted	Route choices use the application's basePath and declared method/path; route templates with parameters require user values before sending.
+ui:http-probe.route-picker	adapted	Svelte uses a keyboard-accessible combobox backed by q and limit=50; selecting a route applies its basePath, method, media headers and an empty JSON body when needed, without sending. Route parameters remain editable in the path field.
 tool:get_request_profile.authorizations	partial	The ported tool description includes authorization evidence, but sharpit has no request-journal authorization source; this remains with lane B4.
