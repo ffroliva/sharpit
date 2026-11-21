@@ -593,6 +593,25 @@ def test_capture_rules_marks_java_retired_sets_rapi_definitions_and_doc_retired(
         '            "Choose names.",\n'
         "            RestApiRuleHelp.RESOURCES_DOCS));\n"
         "    }\n"
+        "    @Override\n"
+        "    RestApiRuleResultDto doEvaluate(RestApiContext context) {\n"
+        "        return RestApiRuleSupport.skipped(\n"
+        "            definition(),\n"
+        '            "Retired heuristic: literal resource names are valid.");\n'
+        "    }\n"
+        "}\n"
+        "final class ExplicitOperationDocumentationRule extends AbstractRestApiRule {\n"
+        "    ExplicitOperationDocumentationRule() {\n"
+        "        super(new RestApiRuleDefinition(\n"
+        '            "RAPI-DOC-002", "Consider operation documentation", RestApiCategory.ERROR_HANDLING, "INFO",\n'
+        '            "Documentation may be generated automatically.", "Add useful detail.",\n'
+        "            RestApiRuleHelp.OPENAPI_OPERATION_DOCS));\n"
+        "    }\n"
+        "    @Override\n"
+        "    RestApiRuleResultDto doEvaluate(RestApiContext context) {\n"
+        "        return RestApiRuleSupport.skipped(definition(),\n"
+        '            "Retired heuristic: generated docs already cover the operation.");\n'
+        "    }\n"
         "}\n",
         encoding="utf-8",
     )
@@ -611,6 +630,12 @@ def test_capture_rules_marks_java_retired_sets_rapi_definitions_and_doc_retired(
         "SEC-AUTH-003": True,
     }
     assert all(r["retiredExplanation"] for r in rules_data["rules"])
+    assert next(r for r in rules_data["rules"] if r["id"] == "RAPI-DOC-002")["retiredExplanation"] == (
+        "Retired heuristic: generated docs already cover the operation."
+    )
+    assert next(r for r in rules_data["rules"] if r["id"] == "RAPI-NAME-002")["retiredExplanation"] == (
+        "Retired heuristic: literal resource names are valid."
+    )
     assert diff_data.get("inDocOnlyCount") == len(diff_data["inDocOnly"])
     assert diff_data.get("inJavaOnlyCount") == len(diff_data["inJavaOnly"])
 
@@ -687,6 +712,7 @@ def test_capture_properties_reads_defaults_from_source_and_keeps_cli_max(tmp_pat
         "    }\n"
         "    public static class Cli {\n"
         "        private int maxConcurrentCalls = McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS;\n"
+        "        private int maxResults = 200;\n"
         "        private String instancesDir;\n"
         "    }\n"
         "}\n",
@@ -751,7 +777,9 @@ def test_capture_properties_reads_defaults_from_source_and_keeps_cli_max(tmp_pat
     assert (
         props["bootui.dev-services.log-tail-bytes"].get("defaultValueSource") == "BootUiProperties.java:4 (64 * 1024)"
     )
-    assert props["bootui.cli.instances-dir"].get("defaultValueSource") == "BootUiProperties.java:8"
+    assert props["bootui.cli.instances-dir"].get("defaultValueSource") == "BootUiProperties.java:9"
+    assert props["bootui.cli.max-results"]["defaultValue"] == 200
+    assert props["bootui.cli.max-results"].get("defaultValueSource") == "BootUiProperties.java:8"
 
 
 def test_capture_tests_handles_windows_long_paths_and_arch_tests(tmp_path: Path) -> None:
