@@ -85,3 +85,32 @@ def test_model_of_exposes_flask_routes_to_the_advisor() -> None:
 
     assert model is not None
     assert [route.path for route in model.routes] == ["/ready"]
+
+
+def test_malformed_autodetected_flask_map_is_unknown(pytester: Any) -> None:
+    import json
+
+    pytester.makepyfile(
+        appmod="""
+        from flask import Flask
+        app = Flask('broken', static_folder=None)
+        app.url_map = object()
+        """
+    )
+    pytester.makepyfile("import appmod\ndef test_empty(): pass")
+
+    pytester.runpytest(
+        "--sharpit",
+        "--sharpit-require-app",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+    )
+
+    report = json.loads((pytester.path / "report.json").read_text())
+    run = next(item for item in report["advisors"] if item["advisor"] == "rest-api")
+
+    assert run["status"] == "UNKNOWN"
+    assert (
+        run["reason"] == "app appmod:app has no application routes; rest-api skipped (pass --sharpit-app module:attr)"
+    )
