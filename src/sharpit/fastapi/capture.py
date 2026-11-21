@@ -153,6 +153,13 @@ def _record_exception(
     from sharpit.fastapi.binding_diagnostics import route_for_scope, validation_details
 
     full = ctx is not None and ctx.settings.expose_values.value == "FULL"
+    template = (
+        _route_template(info.scope, str(info.scope.get("root_path", "")), host_app)
+        if info is not None and info.scope is not None
+        else None
+    )
+    if template is not None and info is not None:
+        info.path = template
     route = route_for_scope(info.scope if info is not None else None, host_app)
     message, diagnostics, truncated = validation_details(exc, route, full)
     store.record(

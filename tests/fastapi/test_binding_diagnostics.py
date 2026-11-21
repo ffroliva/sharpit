@@ -473,3 +473,30 @@ def test_replaced_422_handlers_remain_byte_identical(
     assert actual.status_code == original.status_code
     assert actual.headers == original.headers
     assert actual.content == original.content
+
+
+@pytest.mark.parametrize("exposure", ("MASKED", "METADATA_ONLY", "FULL"))
+def test_invalid_path_parameter_is_not_echoed_in_exception_group_path(tmp_path: Any, exposure: str) -> None:
+    app = FastAPI()
+
+    @app.get("/items/{item_id}")
+    def item(item_id: int) -> dict[str, int]:  # pyright: ignore[reportUnusedFunction]
+        return {"item_id": item_id}
+
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        state_dir=str(tmp_path / exposure),
+        expose_values=exposure,
+        panels={"exceptions": {"enabled": True}},
+    )
+    try:
+        with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+            response = client.get("/items/S3NT1NEL9f3c")
+            groups = client.get("/sharpit/api/exceptions").json()["groups"]
+    finally:
+        handle.uninstall_capture()
+
+    assert response.status_code == 422
+    assert groups[0]["lastRequestPath"] == "/items/{item_id}"
