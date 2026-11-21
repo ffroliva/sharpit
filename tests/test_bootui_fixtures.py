@@ -640,6 +640,31 @@ def test_capture_rules_marks_java_retired_sets_rapi_definitions_and_doc_retired(
     assert diff_data.get("inJavaOnlyCount") == len(diff_data["inJavaOnly"])
 
 
+def test_capture_keeps_live_rest_rule_active_when_only_description_says_retired(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    source = tmp_path / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """package io.github.jdubois.bootui.engine.restapi;
+final class LiveRule extends AbstractRestApiRule {
+    LiveRule() {
+        super(new RestApiRuleDefinition(
+            "RAPI-ERR-007", "Live rule", RestApiCategory.ERROR_HANDLING, "INFO",
+            "Retired heuristic: description only", "Review this rule.", RestApiRuleHelp.RETRY_AFTER_DOCS));
+    }
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return RestApiRuleSupport.fromViolations(context, definition(), new AdvisorFindings());
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    assert "RAPI-ERR-007" not in capture_bootui._collect_java_retired_rules(str(tmp_path))
+
+
 def test_capture_routes_records_starter_mappings_count_and_excludes_inherited_from_gaps(tmp_path: Path) -> None:
     from scripts import capture_bootui
 
