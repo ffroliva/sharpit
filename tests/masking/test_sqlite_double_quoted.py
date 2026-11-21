@@ -71,10 +71,13 @@ def test_every_sqlite_surface_hides_the_double_quoted_run(
 ) -> None:
     masker = Masker(exposure, True)
     engine = sa.create_engine("sqlite://")
-    with engine.connect() as conn, pytest.raises(sa.exc.OperationalError) as caught:
-        conn.exec_driver_sql(
-            statement.replace(" FROM t", " FROM nope") if " FROM t" in statement else f"{statement} FROM nope"
-        )
+    failing = statement.replace(" FROM t", " FROM nope") if " FROM t" in statement else f"{statement} FROM nope"
+    conn = engine.connect()
+    try:
+        with pytest.raises(sa.exc.OperationalError) as caught:
+            conn.exec_driver_sql(failing)
+    finally:
+        conn.close()
     error = str(caught.value)
     assert "[SQL: " in error
     assert SECRET in error  # the real SQLAlchemy block names the run, so the next asserts have something to hide
