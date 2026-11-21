@@ -421,7 +421,7 @@ class McpServer:
         ``api_path`` is the API prefix as the client reached it (root path included); the setting by default.
         """
         settings = self.ctx.settings
-        infos = [tool_info(self.ctx, t) for t in self.tools if not t.action or t.name == "pentest_scan"]
+        infos = [tool_info(self.ctx, t) for t in self.tools if t.on_mcp]
         return {
             "enabled": self.enabled,
             "configuredMode": settings.mcp_enabled,
@@ -482,9 +482,7 @@ class McpServer:
             "initialize": self._initialize,
             "ping": lambda _params, _scope: {},
             "notifications/cancelled": self._cancelled,
-            "tools/list": lambda _params, _scope: {
-                "tools": [_describe(t) for t in self.tools if not t.action or t.name == "pentest_scan"]
-            },
+            "tools/list": lambda _params, _scope: {"tools": [_describe(t) for t in self.tools if t.on_mcp]},
             "tools/call": self._call_tool,
             "prompts/list": lambda _params, _scope: {
                 "prompts": [

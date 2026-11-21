@@ -113,6 +113,11 @@ class Tool:
     handler: Callable[[CallContext, dict[str, Any]], dict[str, Any]]
     default_limit: int | None = None  # an absent ``limit`` (None: the via's max results); still capped by it
 
+    @property
+    def on_mcp(self) -> bool:
+        """Read tools and BootUI's one MCP action tool; every other action stays CLI-only."""
+        return not self.action or self.name == "pentest_scan"
+
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------
 

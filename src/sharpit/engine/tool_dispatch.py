@@ -168,7 +168,7 @@ def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any
     if not isinstance(name, str) or not name:
         raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing tool name")
     tool = next(
-        (t for t in catalogue if t.name == name and (via == "cli" or not t.action or t.name == "pentest_scan")),
+        (t for t in catalogue if t.name == name and (via == "cli" or t.on_mcp)),
         None,
     )
     if tool is None:
