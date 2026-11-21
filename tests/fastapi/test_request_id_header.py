@@ -60,6 +60,20 @@ def test_request_id_header_requires_property_panel_and_trusted_peer(monkeypatch:
     assert HEADER not in forwarded.headers
 
 
+def test_request_id_header_skips_disabled_per_response_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER", "false")
+    app, _ = _app()
+
+    def unexpected_header_check(*_args: object) -> object:
+        pytest.fail("request-id header check ran while disabled")
+
+    monkeypatch.setattr("sharpit.fastapi.capture.with_request_id_header", unexpected_header_check)
+
+    response = TestClient(app, client=LOCAL).get("/ok")
+
+    assert HEADER not in response.headers
+
+
 def test_request_id_header_matches_guard_after_outer_client_rewrite() -> None:
     # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     app, handle = _app()
