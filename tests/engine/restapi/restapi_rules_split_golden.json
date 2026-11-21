@@ -15,11 +15,6 @@
     "location": "GET /v1/petTypes app.types:read_types"
   },
   {
-    "ruleId": "RAPI-DOC-002",
-    "message": "other.owners:read_owners [GET /v1/owners] \u2014 no tags",
-    "location": "GET /v1/owners other.owners:read_owners"
-  },
-  {
     "ruleId": "RAPI-MAP-001",
     "message": "app.pets:read_pets [POST GET /v1/pets] \u2014 GET combined with POST",
     "location": "GET /v1/pets | POST /v1/pets app.pets:read_pets"
@@ -70,16 +65,6 @@
     "location": "GET /v1/getPets app.pets:read_pets"
   },
   {
-    "ruleId": "RAPI-NAME-002",
-    "message": "app.pets:read_pets [GET /v1/pet] \u2014 singular collection name 'pet'",
-    "location": "GET /v1/pet app.pets:read_pets"
-  },
-  {
-    "ruleId": "RAPI-PAGE-001",
-    "message": "app.pets:read_pets [GET /v1/pet] \u2014 collection response without limit/offset/page/cursor parameters",
-    "location": "GET /v1/pet app.pets:read_pets"
-  },
-  {
     "ruleId": "RAPI-NAME-003",
     "message": "app.pets:read_pets [GET /v1/petTypes] \u2014 segment 'petTypes' is not lowercase kebab-case",
     "location": "GET /v1/petTypes app.pets:read_pets"
@@ -128,15 +113,5 @@
     "ruleId": "RAPI-ERR-001",
     "message": "No application-wide exception handler was registered in app.exception_handlers for 1 route handler(s).",
     "location": "application"
-  },
-  {
-    "ruleId": "RAPI-DOC-001",
-    "message": "app.pets:read_pets [GET /v1/pets] \u2014 no summary or description",
-    "location": "GET /v1/pets app.pets:read_pets"
-  },
-  {
-    "ruleId": "RAPI-DOC-002",
-    "message": "app.pets:read_pets [GET /v1/pets] \u2014 no tags",
-    "location": "GET /v1/pets app.pets:read_pets"
   }
 ]

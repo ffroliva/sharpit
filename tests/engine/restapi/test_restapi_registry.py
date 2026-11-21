@@ -7,7 +7,7 @@ never reads the boot-ui repository.
 from pathlib import Path
 
 from sharpit.engine.advisors.dismissals import owning_panel
-from sharpit.engine.collectors.restapi.rules import RULES, SKIPPED_RULES
+from sharpit.engine.collectors.restapi.rules import RETIRED_RULES, RULES, SKIPPED_RULES
 
 IDS_FILE = Path(__file__).parents[2] / "fixtures" / "restapi" / "rest_api_check_ids.txt"
 PORTED = [
@@ -56,6 +56,33 @@ def test_registry_covers_every_documented_id():
     assert set(ported).isdisjoint(SKIPPED_RULES)
     assert set(ported) | set(SKIPPED_RULES) == set(documented)
     assert all(reason.strip() for reason in SKIPPED_RULES.values())
+
+
+def test_bootui_retired_rest_rules_keep_retired_definitions_and_skip_reasons() -> None:
+    rules = {rule.id: rule for rule in RULES}
+    assert {"RAPI-NAME-002", "RAPI-DOC-001", "RAPI-DOC-002"} <= RETIRED_RULES
+    assert {key: rules[key].description for key in ("RAPI-NAME-002", "RAPI-DOC-001", "RAPI-DOC-002")} == {
+        "RAPI-NAME-002": "Retired heuristic: an English-language suffix check on the last path segment cannot "
+        "distinguish resource collections from sub-resource filters, streams, version segments, or uncountable nouns.",
+        "RAPI-DOC-001": "Retired heuristic: OpenAPI generators derive operations from controller signatures without "
+        "requiring explicit @Operation annotations.",
+        "RAPI-DOC-002": "Retired heuristic: OpenAPI generators group operations by controller or resource "
+        "automatically without requiring explicit @Tag annotations.",
+    }
+    assert {
+        key: SKIPPED_RULES[key]
+        for key in ("RAPI-MAP-004", "RAPI-RESP-004", "RAPI-RESP-008", "RAPI-VER-002", "RAPI-VER-005")
+    } == {
+        "RAPI-MAP-004": "Retired heuristic: class-level base paths are a code-layout preference, not an HTTP contract "
+        "requirement.",
+        "RAPI-RESP-004": "Retired heuristic: scalar GET responses are valid HTTP representations.",
+        "RAPI-RESP-008": "Retired heuristic: @ResponseStatus(CREATED) declarations cannot express response headers on "
+        "Spring, and Location is not universally required by RFC 9110.",
+        "RAPI-VER-002": "Retired heuristic: omitting mapping-level consumes on standard JSON endpoints is idiomatic "
+        "and still constrained by framework message converters.",
+        "RAPI-VER-005": "Retired heuristic: method-specific produces declarations on specialized endpoints do not "
+        "require redundant produces attributes on sibling handlers.",
+    }
 
 
 def test_severities_match_bootui_calibration():

@@ -21,7 +21,7 @@ from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
 MYSQL_URL = os.environ.get("SHARPIT_TEST_MYSQL_URL", "")
-PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001", "DB-SERVER-002")
+PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001")
 MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
 
 
@@ -150,18 +150,6 @@ def test_server_001_idle_in_transaction_without_limit() -> None:
     source = _source("postgresql", settings=_fact({"name": "idle_in_transaction_session_timeout", "setting": "0"}))
 
     assert _targets(_check("DB-SERVER-001", source)) == ["db/idle_in_transaction_session_timeout"]
-
-
-def test_server_002_no_statement_timeout() -> None:
-    source = _source("postgresql", settings=_fact({"name": "statement_timeout", "setting": "0"}))
-
-    assert _targets(_check("DB-SERVER-002", source)) == ["db/statement_timeout"]
-
-
-def test_server_002_a_limit_passes() -> None:
-    source = _source("postgresql", settings=_fact({"name": "statement_timeout", "setting": "30000"}))
-
-    assert _check("DB-SERVER-002", source) == []
 
 
 def test_server_001_unreported_setting_skips() -> None:

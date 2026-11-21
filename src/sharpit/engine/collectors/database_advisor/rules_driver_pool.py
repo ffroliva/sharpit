@@ -15,7 +15,6 @@ from sharpit.engine.collectors.database_advisor.catalog import Outcome, Pool, Ru
 
 DRIVER = "Driver"
 POOL = "Connection pool"
-POOL_SHARE_PERCENT = 50
 
 
 _LIBPQ_STYLE = frozenset({"psycopg", "psycopg2", "pg8000"})  # no connect timeout unless one is configured
@@ -166,20 +165,6 @@ def _exceeds_server(source: Source) -> Outcome:
     return [(source.name, text, f"ds={source.name}|pool=maximum-size")]
 
 
-def _server_share(source: Source) -> Outcome:
-    fit = _fit(source)
-    if isinstance(fit, str):
-        return fit
-    usable, size = fit
-    if size is None or _exceeds(usable, size) or size * 100 <= usable * POOL_SHARE_PERCENT:
-        return []
-    text = (
-        f"Datasource `{source.name}`: the pool's maximum size {size} is over {POOL_SHARE_PERCENT}% of the {usable} "
-        "usable connections; a second instance would not fit. Heuristic. Evidence: effective."
-    )
-    return [(source.name, text, f"ds={source.name}|pool=maximum-size")]
-
-
 RULES = (
     Rule(
         RuleDefinition(
@@ -263,23 +248,5 @@ RULES = (
             "https://docs.sqlalchemy.org/en/20/core/pooling.html#setting-pool-recycle",
         ),
         _unlimited_lifetime,
-    ),
-    Rule(
-        RuleDefinition(
-            "DB-POOL-004",
-            "Connection pool leaves no headroom for a second instance",
-            POOL,
-            "LOW",
-            f"Detects a pool on a PostgreSQL, MySQL or MariaDB datasource whose maximum size is more than "
-            f"{POOL_SHARE_PERCENT} percent of the connections the server lets an ordinary role hold (see DB-POOL-002 "
-            "for how they are counted), yet still fits. It is a heuristic that assumes a second instance of the "
-            "application will open a pool of the same size on the same server; it knows nothing about other clients. "
-            "It stays quiet when DB-POOL-002 reports the datasource.",
-            "Size the pool for the application's real concurrency rather than the server's capacity, so every "
-            "instance and the other clients fit together. Dismiss this finding when the application never runs more "
-            "than one instance on this server, or when a connection proxy multiplexes the connections.",
-            "https://docs.sqlalchemy.org/en/20/core/pooling.html#sqlalchemy.pool.QueuePool",
-        ),
-        _server_share,
     ),
 )

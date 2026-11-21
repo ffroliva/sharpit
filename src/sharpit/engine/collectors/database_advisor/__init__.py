@@ -10,6 +10,8 @@ from sharpit.engine.collectors.database_advisor import (
     rules_vendor,
 )
 
+RETIRED_RULE_IDS = frozenset({"DB-POOL-004", "DB-SERVER-002"})
+
 RULES = (
     *rules_schema.RULES,
     *rules_vendor.RULES,

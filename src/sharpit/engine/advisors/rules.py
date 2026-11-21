@@ -49,8 +49,8 @@ class RuleResult(RuleDefinition):
         )
 
     @classmethod
-    def skipped(cls, rule: RuleDefinition) -> RuleResult:
-        return cls(**_definition(rule), status="SKIPPED")
+    def skipped(cls, rule: RuleDefinition, reason: str | None = None) -> RuleResult:
+        return cls(**_definition(rule), status="SKIPPED", sample_violations=() if reason is None else (reason,))
 
     def to_dto(self) -> dict[str, Any]:
         return {
