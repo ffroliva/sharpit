@@ -2,9 +2,7 @@
 ``queryBatchChunk``, ``queryBatchRequest`` and ``fetchVulnerability``).
 
 Only the stdlib ``urllib`` is used. Every request carries the configured timeout and nothing retries. The opener is
-injectable for tests and is built lazily, never at import or definition time. The urllib timeout bounds each socket
-operation (connect, each read), not the whole request: a server trickling bytes can hold a request longer, up to the
-body cap.
+injectable for tests and is built lazily, never at import or definition time.
 
 Dropped from ``OsvVulnerabilityScannerTests`` (JVM/adapter-only): ``singleArgConstructorUsesConfiguredOsvBaseUri``
 (Spring property binding), ``fetchesManyDistinctAdvisoriesConcurrentlyWithoutLosingOrMisattributingAny`` and
@@ -26,8 +24,6 @@ from typing import Any, Protocol, cast
 
 from sharpit.engine.collectors.vulns.deadline import ScanDeadline
 from sharpit.engine.collectors.vulns.inventory import Package
-
-# shortcut: urllib times socket operations; trickling can outlast deadline. Upgrade for whole-request cancellation.
 
 ECOSYSTEM = "PyPI"
 MAX_QUERYBATCH_SIZE = 1000  # OSV.dev rejects larger batches with HTTP 400
@@ -52,12 +48,41 @@ class QueryResult:
     complete: set[Package]  # every page fetched (BootUI completedPackages)
 
 
-def request_json(opener: Opener, request: urllib.request.Request, timeout: float, max_bytes: int, what: str) -> Any:
+def request_json(
+    opener: Opener,
+    request: urllib.request.Request,
+    timeout: float,
+    max_bytes: int,
+    what: str,
+    deadline: ScanDeadline | None = None,
+) -> Any:
     """Send ``request`` and parse its JSON body; any failure raises ``OsvError``."""
     try:
         with opener.open(request, timeout=timeout) as response:
             status = int(getattr(response, "status", 200))
-            body = cast(bytes, response.read(max_bytes + 1))
+            chunks: list[bytes] = []
+            size = 0
+            while True:
+                remaining = deadline.remaining() if deadline is not None else timeout
+                if deadline is not None and remaining <= 0:
+                    raise OsvError("OSV scan deadline exceeded")
+                sock = getattr(
+                    getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None), "settimeout", None
+                )
+                if sock is not None:
+                    sock(remaining if deadline is not None else timeout)
+                chunk = cast(bytes, response.read(min(64 * 1024, max_bytes + 1 - size)))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+                if size > max_bytes:
+                    break
+                if deadline is not None and deadline.check_expired():
+                    raise OsvError("OSV scan deadline exceeded")
+            body = b"".join(chunks)
+    except OsvError:
+        raise
     except urllib.error.HTTPError as error:
         raise OsvError(f"{what} returned HTTP {error.code}") from error
     except (OSError, ValueError, http.client.HTTPException) as error:  # URLError, timeouts, IncompleteRead...
@@ -166,7 +191,12 @@ class OsvClient:
             raise OsvError("OSV scan deadline exceeded") from error
         try:
             root = request_json(
-                self._open(), request, budget.timeout if budget else self._timeout, QUERYBATCH_MAX_BYTES, "OSV query"
+                self._open(),
+                request,
+                budget.timeout if budget else self._timeout,
+                QUERYBATCH_MAX_BYTES,
+                "OSV query",
+                deadline,
             )
         except OsvError as error:
             if deadline is not None and (
@@ -195,6 +225,7 @@ class OsvClient:
                 budget.timeout if budget else self._timeout,
                 ADVISORY_MAX_BYTES,
                 f"OSV advisory {id}",
+                deadline,
             )
         except OsvError as error:
             if deadline is not None and (

@@ -122,6 +122,51 @@ def test_non_timeout_failure_does_not_become_a_deadline_when_budget_is_capped():
     assert deadline.check_expired() is False
 
 
+def test_trickling_response_stops_at_deadline_and_is_reported_partial():
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    class Response:
+        status = 200
+
+        def __init__(self, clock: Clock) -> None:
+            self.clock = clock
+            self.reads = 0
+            self.closed = False
+
+        def read(self, _size: int = -1) -> bytes:
+            self.reads += 1
+            self.clock.now += 1.0
+            return b"{" if self.reads < 10 else b""
+
+        def close(self) -> None:
+            self.closed = True
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            self.close()
+
+    class Opener:
+        def __init__(self, response: Response) -> None:
+            self.response = response
+
+        def open(self, *_args: Any, **_kwargs: Any) -> Response:
+            return self.response
+
+    clock = Clock()
+    response = Response(clock)
+    scanner = client(Opener(response), timeout=10.0)
+    with pytest.raises(OsvError, match="OSV scan deadline exceeded"):
+        scanner.querybatch([WIDGET], ScanDeadline(2.0, clock))
+    assert response.reads == 2
+    assert response.closed is True
+
+
 # ported: OsvVulnerabilityScanner.queryBatch (no packages, no request)
 def test_empty_input_sends_nothing(no_side_effects):
     opener = replies()

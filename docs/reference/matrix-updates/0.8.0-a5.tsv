@@ -4,4 +4,3 @@ PackageUrls	n-a	Maven package URL production has no PyPI counterpart in sharpit'
 VulnerabilityReach	n-a	BootUI runtime reach depends on Code Inventory and Maven dependency edges, neither of which sharpit exposes for PyPI.
 AdvisorySymbols	n-a	BootUI symbols are populated from Maven/Code Inventory evidence; PyPI advisory symbols remain unavailable.
 malicious-package-summary	missing	No MAL- or malicious-package guidance exists in sharpit; no malicious-package feature is added.
-scan.deadline.urllib-socket-timeout	partial	urllib applies its timeout to each socket operation; a server that keeps trickling bytes can exceed the whole-scan deadline until the bounded body read completes.

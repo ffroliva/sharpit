@@ -148,7 +148,12 @@ class EpssClient:
             raise _EpssError("OSV scan deadline exceeded") from error
         try:
             root = request_json(
-                self._open(), request, budget.timeout if budget else self._timeout, EPSS_MAX_BYTES, "EPSS query"
+                self._open(),
+                request,
+                budget.timeout if budget else self._timeout,
+                EPSS_MAX_BYTES,
+                "EPSS query",
+                deadline,
             )
         except OsvError as error:
             if deadline is not None and (
