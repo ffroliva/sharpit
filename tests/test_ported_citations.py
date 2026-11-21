@@ -4,139 +4,139 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "bootui" / "2.5.0" / "bootui-tests.json"
 CITATION = re.compile(r"#\s*ported:\s*([\w$]+)\.([\w$]+)")
 MARKER = re.compile(r"#\s*ported:")
-UNRESOLVED_CITATIONS = frozenset(
-    {
-        ("AdvisorScanState", "java"),
-        ("AdvisorViolationException", "parseInteger"),
-        ("ArchitectureRulesTests", "applicationClassesShouldNotDependOnTestFrameworks"),
-        ("ArchitectureRulesTests", "assertionsShouldHaveADetailMessage"),
-        ("ArchitectureRulesTests", "assertionsShouldHaveDetailMessageFlagsMessagelessAssertion"),
-        ("ArchitectureRulesTests", "assertionsShouldHaveDetailMessagePassesForMessageBearingAssertion"),
-        ("ArchitectureRulesTests", "classesShouldNotAccessJdkInternalApis"),
-        ("ArchitectureRulesTests", "classesShouldNotAccessStandardStreams"),
-        ("ArchitectureRulesTests", "classesShouldNotDirectlyInstantiateThread"),
-        ("ArchitectureRulesTests", "classesShouldNotForciblyTerminateTheJvm"),
-        ("ArchitectureRulesTests", "classesShouldNotHavePublicMutableStaticFields"),
-        ("ArchitectureRulesTests", "classesShouldNotThrowGenericExceptions"),
-        ("ArchitectureRulesTests", "classesShouldNotUseJodaTime"),
-        ("ArchitectureRulesTests", "classesShouldNotUseLegacyDateAndTimeClasses"),
-        ("ArchitectureRulesTests", "controllersShouldNotDependOnRepositories"),
-        ("ArchitectureRulesTests", "exceptionsShouldBeNamedEndingWithException"),
-        ("ArchitectureRulesTests", "internalPackagesShouldNotBeAccessedFromOtherModules"),
-        ("ArchitectureRulesTests", "loggersShouldBePrivateFinalOrContainerManaged"),
-        ("ArchitectureRulesTests", "packagesShouldBeFreeOfCycles"),
-        ("ArchitectureRulesTests", "repositoriesShouldNotDependOnControllers"),
-        ("ArchitectureRulesTests", "repositoriesShouldNotDependOnServices"),
-        ("ArchitectureRulesTests", "servicesAndRepositoriesShouldNotDependOnWebRequestTypes"),
-        ("ArchitectureRulesTests", "servicesShouldNotDependOnControllers"),
-        ("ArchitectureScannerTests", "scanRefreshesCachedReportAndAppliesDismissals"),
-        ("BootUiAutoConfiguration", "bootUiSqlTraceRecorder"),
-        ("BootUiMcpServiceTests", "unknownTool"),
-        ("CliService", "status"),
-        ("CvssV3BaseScore", "roundUp"),
-        ("DatabaseAdvisorPoolRulesTests", "aPoolLargerThanTheUsableConnectionsFiresTheCapacityRuleAndNotTheShareRule"),
-        ("DatabaseAdvisorPoolRulesTests", "aPoolOverHalfTheUsableConnectionsFiresTheShareHeuristicAtLowSeverity"),
-        ("DatabaseAdvisorPoolRulesTests", "thePoolShareBoundariesUseExactIntegerArithmetic"),
-        ("DatabaseConnectionPoolsServiceTests", "reportsPoolLibraryPresentAndImplementation"),
-        ("DependencyReports", "canonicalCveId"),
-        ("DependencyReports", "epssCveChunks"),
-        ("DependencyReports", "normalizeSeverity"),
-        ("EvidenceRing", "add"),
-        ("EvidenceRing", "lost"),
-        ("ExceptionsControllerTests", "reportCarriesNullCaughtInCodeWithoutSensor"),
-        ("ExceptionsService", "parseStatus"),
-        ("FlywayService", "migrate"),
-        ("HttpExchangesService", "matches"),
-        ("HttpExchangesService", "statusFamily"),
-        ("HttpExchangesServiceTests", "recordsRouteAndRetention"),
-        ("HttpRouteSummaryServiceTests", "limitsTopRoutesPerCriterionAndKeepsPinnedRoute"),
-        ("HttpRouteSummaryServiceTests", "summarizeGroupsByMethodAndRouteAndComputesPercentiles"),
-        ("InsightsSnapshot", "of"),
-        ("LiveActivityAssembler", "toSqlEntry"),
-        ("LiveActivityControllerTests", "warnsWhenJournalFiltersUsedAgainstBuffers"),
-        ("LiveActivityServiceTests", "requestProfileIncludes220Collections"),
-        ("LogTailStoreTests", "setsMessageOmittedWhenMetadataOnly"),
-        ("McpAgentViews", "INVENTORY_DEFAULT_LIMIT"),
-        ("McpAgentViewsTests", "sqlTracesAndLogTailFilterAndPage"),
-        ("McpAgentViewsTests", "vulnerabilitiesCompactsDependenciesAndAdvisories"),
-        ("McpAgentViewsTests", "vulnerabilitiesQueryMatchesAnyDependency"),
-        ("McpArguments", "normalize"),
-        ("McpDispatcher", "callTool"),
-        ("McpProtocolTests", "acceptsProgressTokenMeta"),
-        ("McpScanSummaries", "postgresql"),
-        ("McpToolCatalog", "Entry"),
-        ("McpToolDescriptions", "COMMON"),
-        ("MySqlComparisonTests", "changesBetweenReads"),
-        ("MySqlDataSourceDetectionTests", "nonMySqlSkipped"),
-        ("MySqlMariaDbTests", "mariaDbCapabilitiesDiffer"),
-        ("MySqlRowLimitsTests", "rowLimitsTruncateAndFlag"),
-        ("MySqlValuesTests", "performanceSchemaOffIsADiagnostic"),
-        ("MySqlValuesTests", "sessionCurrentStatementMasked"),
-        ("MySqlValuesTests", "statementTextMasked"),
-        ("OsvVulnerabilityScanner", "fetchEpssChunk"),
-        ("OsvVulnerabilityScanner", "fetchEpssPage"),
-        ("OsvVulnerabilityScanner", "fetchVulnerability"),
-        ("OsvVulnerabilityScanner", "queryBatch"),
-        ("OsvVulnerabilityScanner", "queryBatchChunk"),
-        ("OsvVulnerabilityScanner", "queryBatchRequest"),
-        ("OsvVulnerabilityScanner", "stringArray"),
-        ("PagedList", "java"),
-        ("PostgresHelpersTests", "queryTextCollapsesWhitespaceAndTruncatesTo400Chars"),
-        ("PostgresHelpersTests", "queryTextMasksSingleQuotedEscapeAndDollarQuotedLiterals"),
-        ("PostgresHelpersTests", "queryTextMasksUnterminatedStringLiterals"),
-        ("PostgresHelpersTests", "queryTextPreservesParameterPlaceholdersAndIdentifiers"),
-        ("PostgresHelpersTests", "queryTextRespectsExposureLevel"),
-        ("PostgresInsightServiceTests", "noDataSourceIsDisabled"),
-        ("PostgresInsightServiceTests", "readsEverySectionFromAHealthyServer"),
-        ("PostgresRowLimitsTests", "defaultLimitsMatchPropertiesContract"),
-        ("PostgresRowLimitsTests", "rejectsIntegerMaxValueWhichCannotReadOneRowPastTheLimit"),
-        ("PostgresRowLimitsTests", "rejectsNonPositiveLimits"),
-        ("PostgresTestDataSources", "QueryKind"),
-        (
-            "RestApiRuleAccuracyTests",
-            "documentationRecognizesTagContainersAndOperationTagsWithoutRequiringAnnotationsForGeneration",
-        ),
-        ("RestApiRulesTests", "documentationRulesAreSkippedWithoutSpringdocAndFireWithIt"),
-        ("RestApiRulesTests", "name002DoesNotFlagUncountableNouns"),
-        ("RestApiRulesTests", "phase2RulesFlagBadPhase2Controller"),
-        ("RestApiRulesTests", "responseRulesFlagCreationAndScalarReads"),
-        ("RestApiScanner", "applyDismissals"),
-        ("RestApiScanner", "evaluate"),
-        ("RestApiScanner", "java"),
-        ("RestApiScannerTests", "noControllersIsConfirmedEmpty"),
-        ("RuntimeInsightsService", "java"),
-        ("RuntimeInsightsService", "sqlCapture"),
-        ("RuntimeInsightsService", "visibleEntries"),
-        ("SecurityRulesTests", "hardcodedSecretProperty"),
-        ("SecurityRulesTests", "noOpPasswordEncoder"),
-        ("SecurityRulesTests", "securityDebugEnabled"),
-        ("SecurityRulesTests", "securityDebugLoggingProduction"),
-        ("SecurityRulesTests", "weakBcryptStrength"),
-        ("SecurityRulesTests", "weakPasswordEncoder"),
-        ("SeverityOrder", "occurrenceCounts"),
-        ("SqlStatementNormalizerTests", "leavesAnUnterminatedDollarRunAloneRatherThanSwallowingTheStatement"),
-        ("SqlTraceControllerSupport", "recording"),
-        ("SqlTraceRecorder", "isSlow"),
-        ("SqlTraceRecorder", "topStatements"),
-        ("SqlTraceRecorder", "truncate"),
-        ("SqlTraceReport", "unavailable"),
-        ("SqlTraceStoreTests", "recordsDurationMicrosAndRetention"),
-        ("SqlTracingProxies", "categoryOf"),
-        ("StaticSecurityAnalysisDetectorTests", "ignoresAnalyzerExamplesInsideGradleStringsAndCatalogComments"),
-        ("TracesControllerTests", "clearRemovesTelemetry"),
-        ("TracesControllerTests", "detailReturnsTrace"),
-        ("TracesControllerTests", "listDelegatesToService"),
-        ("TracesControllerTests", "unknownTraceIsNotFound"),
-        ("VulnerabilityReportServiceTests", "includesRuntimeReachAndAdvisorySymbolFields"),
-        ("test_mysql_live_tests", "py"),
-    }
-)
+UNRESOLVED_CITATION_ITEMS = {
+    ("AdvisorScanState", "java"),
+    ("AdvisorViolationException", "parseInteger"),
+    ("ArchitectureRulesTests", "applicationClassesShouldNotDependOnTestFrameworks"),
+    ("ArchitectureRulesTests", "assertionsShouldHaveADetailMessage"),
+    ("ArchitectureRulesTests", "assertionsShouldHaveDetailMessageFlagsMessagelessAssertion"),
+    ("ArchitectureRulesTests", "assertionsShouldHaveDetailMessagePassesForMessageBearingAssertion"),
+    ("ArchitectureRulesTests", "classesShouldNotAccessJdkInternalApis"),
+    ("ArchitectureRulesTests", "classesShouldNotAccessStandardStreams"),
+    ("ArchitectureRulesTests", "classesShouldNotDirectlyInstantiateThread"),
+    ("ArchitectureRulesTests", "classesShouldNotForciblyTerminateTheJvm"),
+    ("ArchitectureRulesTests", "classesShouldNotHavePublicMutableStaticFields"),
+    ("ArchitectureRulesTests", "classesShouldNotThrowGenericExceptions"),
+    ("ArchitectureRulesTests", "classesShouldNotUseJodaTime"),
+    ("ArchitectureRulesTests", "classesShouldNotUseLegacyDateAndTimeClasses"),
+    ("ArchitectureRulesTests", "controllersShouldNotDependOnRepositories"),
+    ("ArchitectureRulesTests", "exceptionsShouldBeNamedEndingWithException"),
+    ("ArchitectureRulesTests", "internalPackagesShouldNotBeAccessedFromOtherModules"),
+    ("ArchitectureRulesTests", "loggersShouldBePrivateFinalOrContainerManaged"),
+    ("ArchitectureRulesTests", "packagesShouldBeFreeOfCycles"),
+    ("ArchitectureRulesTests", "repositoriesShouldNotDependOnControllers"),
+    ("ArchitectureRulesTests", "repositoriesShouldNotDependOnServices"),
+    ("ArchitectureRulesTests", "servicesAndRepositoriesShouldNotDependOnWebRequestTypes"),
+    ("ArchitectureRulesTests", "servicesShouldNotDependOnControllers"),
+    ("ArchitectureScannerTests", "scanRefreshesCachedReportAndAppliesDismissals"),
+    ("BootUiAutoConfiguration", "bootUiSqlTraceRecorder"),
+    ("BootUiMcpServiceTests", "unknownTool"),
+    ("CliService", "status"),
+    ("CvssV3BaseScore", "roundUp"),
+    ("DatabaseAdvisorPoolRulesTests", "aPoolLargerThanTheUsableConnectionsFiresTheCapacityRuleAndNotTheShareRule"),
+    ("DatabaseAdvisorPoolRulesTests", "aPoolOverHalfTheUsableConnectionsFiresTheShareHeuristicAtLowSeverity"),
+    ("DatabaseAdvisorPoolRulesTests", "thePoolShareBoundariesUseExactIntegerArithmetic"),
+    ("DatabaseConnectionPoolsServiceTests", "reportsPoolLibraryPresentAndImplementation"),
+    ("DependencyReports", "canonicalCveId"),
+    ("DependencyReports", "epssCveChunks"),
+    ("DependencyReports", "normalizeSeverity"),
+    ("EvidenceRing", "add"),
+    ("EvidenceRing", "lost"),
+    ("ExceptionsControllerTests", "reportCarriesNullCaughtInCodeWithoutSensor"),
+    ("ExceptionsService", "parseStatus"),
+    ("FlywayService", "migrate"),
+    ("HttpExchangesService", "matches"),
+    ("HttpExchangesService", "statusFamily"),
+    ("HttpExchangesServiceTests", "recordsRouteAndRetention"),
+    ("HttpRouteSummaryServiceTests", "limitsTopRoutesPerCriterionAndKeepsPinnedRoute"),
+    ("HttpRouteSummaryServiceTests", "summarizeGroupsByMethodAndRouteAndComputesPercentiles"),
+    ("InsightsSnapshot", "of"),
+    ("LiveActivityAssembler", "toSqlEntry"),
+    ("LiveActivityControllerTests", "warnsWhenJournalFiltersUsedAgainstBuffers"),
+    ("LiveActivityServiceTests", "requestProfileIncludes220Collections"),
+    ("LogTailStoreTests", "setsMessageOmittedWhenMetadataOnly"),
+    ("McpAgentViews", "INVENTORY_DEFAULT_LIMIT"),
+    ("McpAgentViewsTests", "sqlTracesAndLogTailFilterAndPage"),
+    ("McpAgentViewsTests", "vulnerabilitiesCompactsDependenciesAndAdvisories"),
+    ("McpAgentViewsTests", "vulnerabilitiesQueryMatchesAnyDependency"),
+    ("McpArguments", "normalize"),
+    ("McpDispatcher", "callTool"),
+    ("McpProtocolTests", "acceptsProgressTokenMeta"),
+    ("McpScanSummaries", "postgresql"),
+    ("McpToolCatalog", "Entry"),
+    ("McpToolDescriptions", "COMMON"),
+    ("MySqlComparisonTests", "changesBetweenReads"),
+    ("MySqlDataSourceDetectionTests", "nonMySqlSkipped"),
+    ("MySqlMariaDbTests", "mariaDbCapabilitiesDiffer"),
+    ("MySqlRowLimitsTests", "rowLimitsTruncateAndFlag"),
+    ("MySqlValuesTests", "performanceSchemaOffIsADiagnostic"),
+    ("MySqlValuesTests", "sessionCurrentStatementMasked"),
+    ("MySqlValuesTests", "statementTextMasked"),
+    ("OsvVulnerabilityScanner", "fetchEpssChunk"),
+    ("OsvVulnerabilityScanner", "fetchEpssPage"),
+    ("OsvVulnerabilityScanner", "fetchVulnerability"),
+    ("OsvVulnerabilityScanner", "queryBatch"),
+    ("OsvVulnerabilityScanner", "queryBatchChunk"),
+    ("OsvVulnerabilityScanner", "queryBatchRequest"),
+    ("OsvVulnerabilityScanner", "stringArray"),
+    ("PagedList", "java"),
+    ("PostgresHelpersTests", "queryTextCollapsesWhitespaceAndTruncatesTo400Chars"),
+    ("PostgresHelpersTests", "queryTextMasksSingleQuotedEscapeAndDollarQuotedLiterals"),
+    ("PostgresHelpersTests", "queryTextMasksUnterminatedStringLiterals"),
+    ("PostgresHelpersTests", "queryTextPreservesParameterPlaceholdersAndIdentifiers"),
+    ("PostgresHelpersTests", "queryTextRespectsExposureLevel"),
+    ("PostgresInsightServiceTests", "noDataSourceIsDisabled"),
+    ("PostgresInsightServiceTests", "readsEverySectionFromAHealthyServer"),
+    ("PostgresRowLimitsTests", "defaultLimitsMatchPropertiesContract"),
+    ("PostgresRowLimitsTests", "rejectsIntegerMaxValueWhichCannotReadOneRowPastTheLimit"),
+    ("PostgresRowLimitsTests", "rejectsNonPositiveLimits"),
+    ("PostgresTestDataSources", "QueryKind"),
+    (
+        "RestApiRuleAccuracyTests",
+        "documentationRecognizesTagContainersAndOperationTagsWithoutRequiringAnnotationsForGeneration",
+    ),
+    ("RestApiRulesTests", "documentationRulesAreSkippedWithoutSpringdocAndFireWithIt"),
+    ("RestApiRulesTests", "name002DoesNotFlagUncountableNouns"),
+    ("RestApiRulesTests", "phase2RulesFlagBadPhase2Controller"),
+    ("RestApiRulesTests", "responseRulesFlagCreationAndScalarReads"),
+    ("RestApiScanner", "applyDismissals"),
+    ("RestApiScanner", "evaluate"),
+    ("RestApiScanner", "java"),
+    ("RestApiScannerTests", "noControllersIsConfirmedEmpty"),
+    ("RuntimeInsightsService", "java"),
+    ("RuntimeInsightsService", "sqlCapture"),
+    ("RuntimeInsightsService", "visibleEntries"),
+    ("SecurityRulesTests", "hardcodedSecretProperty"),
+    ("SecurityRulesTests", "noOpPasswordEncoder"),
+    ("SecurityRulesTests", "securityDebugEnabled"),
+    ("SecurityRulesTests", "securityDebugLoggingProduction"),
+    ("SecurityRulesTests", "weakBcryptStrength"),
+    ("SecurityRulesTests", "weakPasswordEncoder"),
+    ("SeverityOrder", "occurrenceCounts"),
+    ("SqlStatementNormalizerTests", "leavesAnUnterminatedDollarRunAloneRatherThanSwallowingTheStatement"),
+    ("SqlTraceControllerSupport", "recording"),
+    ("SqlTraceRecorder", "isSlow"),
+    ("SqlTraceRecorder", "topStatements"),
+    ("SqlTraceRecorder", "truncate"),
+    ("SqlTraceReport", "unavailable"),
+    ("SqlTraceStoreTests", "recordsDurationMicrosAndRetention"),
+    ("SqlTracingProxies", "categoryOf"),
+    ("StaticSecurityAnalysisDetectorTests", "ignoresAnalyzerExamplesInsideGradleStringsAndCatalogComments"),
+    ("TracesControllerTests", "clearRemovesTelemetry"),
+    ("TracesControllerTests", "detailReturnsTrace"),
+    ("TracesControllerTests", "listDelegatesToService"),
+    ("TracesControllerTests", "unknownTraceIsNotFound"),
+    ("VulnerabilityReportServiceTests", "includesRuntimeReachAndAdvisorySymbolFields"),
+    ("test_mysql_live_tests", "py"),
+}
+UNRESOLVED_CITATIONS = frozenset(UNRESOLVED_CITATION_ITEMS)
 UNRESOLVED_LABELS = frozenset(
     {
         "...UnexpectedArguments",
@@ -227,12 +227,29 @@ UNRESOLVED_LABELS = frozenset(
 
 
 def _unresolved(citations: list[tuple[str, str]], inventory: dict[str, list[str]]) -> list[str]:
-    methods: dict[str, set[str]] = {}
+    classes: dict[str, list[tuple[str, set[str]]]] = {}
     for name, items in inventory.items():
-        methods.setdefault(name.rsplit(".", 1)[-1], set()).update(items)
-    return [
-        f"{class_name}.{method}" for class_name, method in citations if method not in methods.get(class_name, set())
-    ]
+        classes.setdefault(name.rsplit(".", 1)[-1], []).append((name, set(items)))
+    unresolved = []
+    for class_name, method in citations:
+        matches = classes.get(class_name, [])
+        if len(matches) != 1:
+            detail = "ambiguous" if matches else "unresolved"
+            unresolved.append(f"{class_name}.{method} ({detail} class name)")
+        elif method not in matches[0][1]:
+            unresolved.append(f"{class_name}.{method}")
+    return unresolved
+
+
+def _allowlist_errors(unresolved: set[str], allowed: tuple[tuple[str, str], ...]) -> list[str]:
+    entries = [f"{class_name}.{method}" for class_name, method in allowed]
+    unresolved = {item.split(" (", maxsplit=1)[0] for item in unresolved}
+    errors = [f"new unresolved citation: {item}" for item in sorted(unresolved - set(entries))]
+    errors.extend(f"stale unresolved citation: {item}" for item in sorted(set(entries) - unresolved))
+    errors.extend(
+        f"duplicate allowlist citation: {item}" for item, count in sorted(Counter(entries).items()) if count > 1
+    )
+    return errors
 
 
 def test_ported_citations_resolve_in_bootui_test_inventory() -> None:
@@ -251,9 +268,38 @@ def test_ported_citations_resolve_in_bootui_test_inventory() -> None:
                 citations.extend(match.groups() for match in matches)
             else:
                 labels.add(line[marker.end() :].strip())
-    unresolved = {tuple(item.split(".", maxsplit=1)) for item in _unresolved(citations, inventory)}
-    assert unresolved == UNRESOLVED_CITATIONS
+    unresolved = set(_unresolved(citations, inventory))
+    assert not _allowlist_errors(unresolved, UNRESOLVED_CITATION_ITEMS)
     assert labels == UNRESOLVED_LABELS
+    assert len(UNRESOLVED_CITATION_ITEMS) == len(UNRESOLVED_CITATIONS)
+
+
+def test_new_unresolved_citation_is_rejected_by_allowlist() -> None:
+    assert _allowlist_errors({"PlantedTests.missingMethod"}, (("ExistingTests", "knownGap"),)) == [
+        "new unresolved citation: PlantedTests.missingMethod",
+        "stale unresolved citation: ExistingTests.knownGap",
+    ]
+
+
+def test_stale_unresolved_citation_is_rejected_by_allowlist() -> None:
+    assert _allowlist_errors(set(), (("NowResolvedTests", "wasMissing"),)) == [
+        "stale unresolved citation: NowResolvedTests.wasMissing"
+    ]
+
+
+def test_duplicate_allowlist_entry_is_reported() -> None:
+    entries = (("RepeatedTests", "gap"), ("RepeatedTests", "gap"))
+    assert _allowlist_errors({"RepeatedTests.gap"}, entries) == ["duplicate allowlist citation: RepeatedTests.gap"]
+
+
+def test_duplicate_simple_class_name_is_ambiguous() -> None:
+    assert _unresolved(
+        [("SqlTraceSerializationTests", "onlyInQuarkus")],
+        {
+            "io.bootui.autoconfigure.sqltrace.SqlTraceSerializationTests": ["serialize"],
+            "io.bootui.quarkus.sqltrace.SqlTraceSerializationTests": ["onlyInQuarkus"],
+        },
+    ) == ["SqlTraceSerializationTests.onlyInQuarkus (ambiguous class name)"]
 
 
 def test_unresolved_citation_names_the_missing_method() -> None:
