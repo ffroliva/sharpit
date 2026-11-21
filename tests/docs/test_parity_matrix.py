@@ -45,7 +45,7 @@ def _matrix() -> dict[str, str]:
         "tools": f"| MCP/CLI tools | 54 | 71 | 71 | {len(ours)} | 116 | 116 | {len(bootui_tools)} |",
         "names": f"| Tools under BootUI's exact names | 45 | 62 | 62 | {len(ours & bootui_tools)} | - | - | - |",
         "panels": f"| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | {len(PANELS)} "
-        f"({_listed_panels()} listed in the console) | 65 (Spring) | 65 (Spring) |",
+        f"({_listed_panels()} listed in the console) | 65 (Spring) | 65 (Spring) | {bootui_panels} (Spring) |",
         "insights": f"| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | "
         f"{len(evaluating)} of {len(KINDS)} registered | 28 | 28 | 29 |",
         "routes": f"| BootUI API routes served, of the {applicable} that apply to Python | not measured | "

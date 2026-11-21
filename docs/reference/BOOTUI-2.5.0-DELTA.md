@@ -21,6 +21,6 @@ Route status remains grounded in the 2.3.0 live goldens. `/mappings/flat` change
 
 The property status adds three missing rows because sharpit has no corresponding setting fields. `scan-timeout` is tracked in A5, the request-ID header property is tracked in A8, and instance discovery is outside this release because its lease-file behavior conflicts with the host application's no-write startup rule. The property counts change from 103 matched / 11 partial / 95 missing to 103 / 11 / 98.
 
-The citation inventory test records the 120 unique `# ported:` class/method citations that are not present in the 2.5.0 inventory in `tests/test_ported_citations.py`. These citations remain visible for follow-up; none is removed silently.
+The citation inventory test records 120 unique class/method citations and 83 unqualified `# ported:` labels that cannot be resolved against the 2.5.0 inventory in `tests/test_ported_citations.py`. These citations remain listed for follow-up; none is removed silently.
 
 The 2.5.0 live golden capture remains deferred until BootUI runs in the reference application with its databases.
