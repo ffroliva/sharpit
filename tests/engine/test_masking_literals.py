@@ -35,6 +35,14 @@ ROWS = {
         f"Value error, bad {RAW} [type=value_error, input_value=1]",
         f"Value error, {MASK} [type=value_error, input_value={MASK}",
     ),
+    "pydantic-loc-key": (
+        f"1 validation error for M\nc.{RAW}\n  Input should be a valid integer [type=int_parsing, input_value=1]",
+        f"1 validation error for M\nc.{MASK}\n  Input should be a valid integer [type=int_parsing, input_value={MASK}",
+    ),
+    "uuid-found": (
+        f"invalid character: expected hex, found `{RAW[0]}` at 0 [type=uuid_parsing]",
+        f"invalid character: expected hex, found `{MASK}` at 0 [type=uuid_parsing]",
+    ),
     "pydantic-assertion": (
         f"Assertion failed, {RAW} [type=assertion_error]",
         f"Assertion failed, {MASK} [type=assertion_error]",
@@ -59,6 +67,26 @@ def test_every_pattern_has_a_row_that_fails_without_it() -> None:
             scrubbed.append(text)
 
         assert any(RAW in text or "918273" in text for text in scrubbed), pattern.pattern
+
+
+@pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.METADATA_ONLY])
+def test_real_pydantic_dict_key_is_hidden_outside_full(exposure: Exposure) -> None:
+    pydantic = pytest.importorskip("pydantic")
+
+    class Model(pydantic.BaseModel):
+        counts: dict[str, int]
+
+    with pytest.raises(pydantic.ValidationError) as caught:
+        Model(counts={"planted-key-5": "x"})
+    message = str(caught.value)
+
+    shown = Masker(exposure, True).scrub_literals(message)
+
+    assert shown is not None
+    assert "planted-key-5" not in shown
+    assert "counts." in shown
+    assert Masker(Exposure.FULL, True).scrub_literals(message) == message
+    assert "counts.planted-key-5" in message
 
 
 def test_scrub_returns_none_and_empty_text_unchanged() -> None:
