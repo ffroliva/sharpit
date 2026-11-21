@@ -23,7 +23,7 @@ def test_n_plus_one_fails_on_flask_sqlalchemy(pytester: pytest.Pytester) -> None
             assert fixed.test_client().get('/authors').status_code == 200
         """
     )
-    result = pytester.runpytest_inprocess(
+    result = pytester.runpytest_subprocess(
         "--sharpit",
         "--sharpit-no-advisors",
         "--sharpit-allow-unknown",
