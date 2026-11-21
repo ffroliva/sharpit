@@ -14,7 +14,7 @@ from werkzeug.routing import Map
 from flask import Flask
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 
-_PARAMETER = re.compile(r"<(?:(?:[^<>:]+):)?([^<>:]+)>")
+_PARAMETER = re.compile(r"<(?:[^<>:]+:)?([^<>:]+)>")
 _MISSING = object()
 
 
