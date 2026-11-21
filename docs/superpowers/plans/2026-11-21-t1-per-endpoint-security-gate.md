@@ -4,11 +4,9 @@
 
 **Goal:** Add an opt-in pytest advisor that evaluates only explicitly configured response expectations against HTTP requests host tests already make, and reports incomplete observation as unknown or partial.
 
-**Architecture:** Keep observation and framework adapters in `sharpit.pytest_plugin/`; keep normalized facts and findings in the existing engine test-session/advisor path without importing pytest or web frameworks into the engine. Observe in-process FastAPI/Starlette and Flask test traffic passively, omit sensitive values before facts are stored, and reuse existing findings, xdist aggregation, severity, report-only, baseline, terminal, JSON, SARIF and JUnit paths.
+**Architecture:** Keep observation and framework adapters in `sharpit.pytest_plugin/`; keep normalized facts and findings in the existing engine test-session/advisor path without importing pytest or web frameworks into the engine. Observe only apps explicitly registered through a pytest fixture before their first request. FastAPI/Starlette and Flask adapters wrap the exact app supplied to the fixture; automatic app discovery does not imply observation. Omit sensitive values before facts are stored, and reuse existing findings, xdist aggregation, severity, report-only, baseline, terminal, JSON, SARIF and JUnit paths.
 
 **Tech Stack:** Python 3.12+, pytest, pytest-xdist, Starlette/FastAPI and Flask test extras; existing sharpit findings and test-session reporting.
-
-**Predict verdict:** GO WITH CONDITIONS, 8/10. Conditions are encoded below and in the scenario artifact.
 
 ## Global Constraints
 
@@ -21,7 +19,7 @@
 - **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
 - Dependencies point inward; `engine/` never imports pytest, FastAPI or Starlette. No module under `src/` may exceed 1000 lines.
 - Port BootUI where it has a counterpart. T1 has none; do not invent `# ported:` citations or BootUI goldens. Record its explicit sharpit-only deviation in the lane matrix.
-- Every defect found becomes a regression test seen red first; tests use one condition per assert. Tests run with `-n` (use `-n 4` on this shared machine). Never weaken tests or raise an overhead budget.
+- Every defect found becomes a regression test seen red first; tests use one condition per assert. Tests run with `-n auto` by default; lower worker counts are selected from current machine load. Never weaken tests or raise an overhead budget.
 
 ## Risk register
 
@@ -32,77 +30,80 @@
 | High | Route metadata is mistaken for an authorization contract or unsupported observation is called a pass | Evaluate only explicit expectations; mark missing app, hidden route or unsupported wrapper unknown/partial. |
 | High | FastAPI and Flask paths produce inconsistent attribution or alter test-client behavior | Normalize method, canonical route, status and header names in pytest-facing adapters; prove both adapters and an opaque-wrapper fallback. |
 | High | Findings gate the run incorrectly or baselines hide unknown coverage | Use a separate advisor/rule path from `test-runtime`; reuse current xdist and report semantics; baseline only stable route/rule fingerprints and refuse partial/unknown writes. |
-| High | Per-request overhead grows with payload size or report output | Never read/copy bodies or header values; bound metadata and measure observer-on/off overhead with the production capture seam. |
+| High | Per-request overhead grows with payload size or report output | Never read/copy bodies or header values; bound metadata and measure observer-on/off overhead with the production pytest wrapper. |
 
 ## File map
 
 - `src/sharpit/pytest_plugin/options.py`: dedicated observer opt-in and explicit response-expectation configuration.
-- `src/sharpit/pytest_plugin/http_security.py` (new): lifecycle, FastAPI/Starlette and Flask observation adapters, and safe attribution to the active test attempt.
-- `src/sharpit/engine/testsession/http_security.py` (new): framework-free normalized facts and evaluation, if the engine owns the advisor contract after the freeze task; otherwise keep the smallest pure evaluator under `engine/advisors/` following the existing registry.
+- `src/sharpit/pytest_plugin/http_security.py` (new): lifecycle and safe attribution to the active test attempt. It accepts only an explicitly registered app fixture before first use.
+- `src/sharpit/pytest_plugin/http_security_asgi.py` (new): FastAPI/Starlette ASGI wrapper.
+- `src/sharpit/pytest_plugin/http_security_flask.py` (new): Flask WSGI wrapper.
+- `src/sharpit/engine/advisors/http_security.py` (new): framework-free normalized facts and explicit expectation evaluation, registered through the existing advisor registry.
 - `src/sharpit/engine/advisors/`: advisor/rule registration and stable finding IDs, reusing `Finding` and `AdvisorRun`.
-- `tests/pytest_plugin/test_http_security.py` (new): opt-in, adapter, attribution, omission and host-behavior tests.
-- `tests/engine/testsession/test_http_security.py` (new, only if pure evaluation is added): explicit expectation and bounded-fact behavior.
+- `tests/pytest_plugin/test_http_security.py` (new): opt-in, fixture registration, adapter, attribution, omission and host-behavior tests.
+- `tests/pytest_plugin/test_http_security_overhead.py` (new): isolated paired observer-off/on budget measurement; register this module in `tests/conftest.py` `TIMING_MODULES`.
+- `tests/engine/advisors/test_http_security.py` (new): explicit expectation and bounded-fact behavior.
 - `tests/engine/test_import_boundary.py`: no change expected; its existing gate proves the dependency direction.
 - `docs/security-advisor-checks.md`: document the HTTP observer advisor and its in-process evidence boundary.
-- `docs/reference/matrix-updates/0.8.0-t1.tsv`: explicit no-BootUI-counterpart deviation.
+- `docs/reference/matrix-updates/0.8.0-t1.tsv`: explicit no-BootUI-counterpart deviation and rule status.
 
 ## Task 1: Freeze opt-in and expectation contract
 
 **Files:** `src/sharpit/pytest_plugin/options.py`, `tests/pytest_plugin/test_http_security.py`, `docs/reference/matrix-updates/0.8.0-t1.tsv`, `docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md` §14.
 
-**Interfaces:** Adds `--sharpit-http-security` and `sharpit_http_security` (default false). Adds repeatable `--sharpit-required-response-header "METHOD ROUTE=HEADER"` / `sharpit_required_response_headers` and `--sharpit-expected-status "METHOD ROUTE=STATUS"` / `sharpit_expected_statuses` (pytest linelists); route matching uses the canonical route and header names compare case-insensitively. No implicit policy.
+**Interfaces:** Adds `--sharpit-http-security` and `sharpit_http_security` (default false). Adds fixture opt-in plus repeatable `--sharpit-required-response-header "METHOD ROUTE=HEADER"` / `sharpit_required_response_headers` and `--sharpit-expected-status "METHOD ROUTE=STATUS"` / `sharpit_expected_statuses` (pytest linelists); route matching uses one normalized template syntax (`{name}`) for both adapters, and header names compare case-insensitively. No implicit policy. Unobserved configured expectations yield UNKNOWN coverage and prevent baseline writes.
 
 - [ ] **Step 1:** Add `test_http_security_observer_disabled_by_default` asserting resolved options leave observation disabled when `--sharpit` is enabled without the dedicated option. Read the not-yet-added field with `getattr(options, "http_security_enabled", None)` so the red is an assertion, not an `AttributeError`.
-- [ ] **Step 2:** Run `uv run pytest -q -n 4 tests/pytest_plugin/test_http_security.py::test_http_security_observer_disabled_by_default`; expect `assert None is False` because the option is not registered yet.
-- [ ] **Step 3:** Add the two opt-in settings and validate each configured expectation as `METHOD ROUTE=HEADER`; reject blank method, route or header with pytest's configuration error.
+- [ ] **Step 2:** Run `uv run pytest -q -n auto tests/pytest_plugin/test_http_security.py::test_http_security_observer_disabled_by_default`; expect `assert None is False` because the option is not registered yet.
+- [ ] **Step 3:** Add the explicit observer option and fixture contract, plus the two settings; validate each configured expectation as `METHOD ROUTE=HEADER`; reject blank method, route or header with pytest's configuration error.
 - [ ] **Step 4:** Add `test_http_security_option_and_ini_expectations_resolve` and `test_http_security_invalid_expectation_is_rejected`; verify defaults, CLI precedence, header/status policy parsing and malformed values. Statuses must be integers from 100 through 599.
-- [ ] **Step 5:** Record the no-BootUI-counterpart deviation in the lane matrix and spec §14; run the three tests and the existing option tests with `-n 4`; commit `feat: add opt-in HTTP security test settings`.
+- [ ] **Step 5:** Record the no-BootUI-counterpart deviation in the lane matrix and spec §14; run the three tests and the existing option tests with `-n auto`; commit `feat: add opt-in HTTP security test settings`.
 
 ## Task 2: Add bounded facts and explicit expectation evaluation
 
-**Files:** `src/sharpit/engine/testsession/http_security.py` (new), advisor registration under `src/sharpit/engine/advisors/`, `tests/engine/testsession/test_http_security.py` (new).
+**Files:** `src/sharpit/engine/advisors/http_security.py` (new), advisor registration under `src/sharpit/engine/advisors/`, `src/sharpit/engine/testsession/facts.py`, `src/sharpit/engine/testsession/sink.py`, and `tests/engine/advisors/test_http_security.py` (new).
 
-**Interfaces:** A fact contains only test-attempt identity, method, canonical route or unknown, status, and response-header names. Evaluation produces stable route/header findings for configured missing headers and compares observed statuses only with explicitly configured status expectations; an observed 500 without such an expectation is diagnostic evidence only. No raw header values, query strings, request/response bodies or exception messages occur in facts.
+**Interfaces:** A fact contains only test-attempt identity, method, canonical route or unknown, status, and response-header names. Facts are serialized through `PhaseFacts`/`TestFacts` in `engine/testsession/facts.py` and the existing sink path so xdist worker-to-controller transfer preserves them; controller evaluation runs once after merge. Evaluation produces `HTTP-SEC-001` HIGH for missing configured headers and `HTTP-SEC-002` HIGH for unexpected configured statuses. A 500 without a status expectation is evidence only, not a finding. Distinct missing headers have distinct fingerprint identities. Unobserved configured expectations produce UNKNOWN coverage. Unknown routes use `None`; raw paths are never stored. No raw header values, query strings, bodies, exception text, or node IDs enter HTTP facts.
 
-- [ ] **Step 1:** Add `test_http_security_rule_is_registered` through the existing advisor registry, then add `test_http_security_missing_configured_response_header_finding`, `test_http_security_expected_status_suppresses_finding`, `test_http_security_observed_500_is_diagnostic_only`, and `test_http_security_facts_do_not_accept_values_or_bodies` through the existing report model; assert exact rule, route, severity and omission behavior without importing the not-yet-created module.
-- [ ] **Step 2:** Run the registry test with `-n 4`; expect the assertion that `HTTP-SEC-001` is registered to fail. Run the behavior tests after their public report path exists and require assertion failures, never collection or import errors.
-- [ ] **Step 3:** Implement the smallest normalized fact and evaluator using existing `Finding`, `AdvisorRun`, severity and fingerprint conventions; do not add a new report format.
-- [ ] **Step 4:** Run these tests plus adjacent advisor and test-session tests with `-n 4`; commit `feat: evaluate explicit HTTP response expectations`.
+- [ ] **Step 1:** Add `test_http_security_rule_is_registered` through the existing advisor registry, then add `test_http_security_missing_configured_response_header_finding`, `test_http_security_expected_status_suppresses_finding`, `test_http_security_unexpected_status_finding`, `test_http_security_observed_500_is_diagnostic_only`, `test_http_security_multiple_missing_headers_have_distinct_fingerprints`, `test_http_security_unobserved_expectation_is_unknown`, and `test_http_security_facts_do_not_accept_values_or_bodies` through the existing report model; assert exact rule, route, severity and omission behavior without importing the not-yet-created module.
+- [ ] **Step 2:** Run the registry test with `-n auto`; expect the assertion that `HTTP-SEC-001` is registered to fail. Run the behavior tests after their public report path exists and require assertion failures, never collection or import errors.
+- [ ] **Step 3:** Implement the normalized fact and evaluator using existing `Finding`, `AdvisorRun`, severity and fingerprint conventions; use distinct rules `HTTP-SEC-001` (HIGH, missing header) and `HTTP-SEC-002` (HIGH, unexpected status); both rule definitions are added to the advisor registry and matrix. Keep observed 500 without configured mismatch as evidence only; do not add a diagnostic rule or report format.
+- [ ] **Step 4:** Run these tests plus adjacent advisor and test-session tests with `-n auto`; commit `feat: evaluate explicit HTTP response expectations`.
 
 ## Task 3: Observe FastAPI and Starlette test traffic
 
-**Files:** `src/sharpit/pytest_plugin/http_security.py` (new), `src/sharpit/pytest_plugin/__init__.py`, `src/sharpit/pytest_plugin/session.py`, `tests/pytest_plugin/test_http_security.py`.
+**Files:** `src/sharpit/pytest_plugin/http_security.py`, `src/sharpit/pytest_plugin/http_security_asgi.py`, `src/sharpit/pytest_plugin/__init__.py`, `src/sharpit/pytest_plugin/session.py`, `tests/pytest_plugin/test_http_security.py`.
 
-**Interfaces:** A pytest-facing ASGI adapter wraps the selected app only when explicitly enabled, attributes each observed exchange to the current test attempt, and records only normalized facts. Requests to sharpit's own mount are excluded. Middleware order and every ASGI message remain unchanged.
+**Interfaces:** A pytest-facing ASGI adapter wraps only the exact app supplied to the explicit registration fixture before its first request, attributes each observed exchange to the current test attempt, and records only normalized facts. Requests to sharpit's own mount are excluded. Middleware order and every ASGI message remain unchanged.
 
-- [ ] **Step 1:** Add `test_http_security_observer_attributes_fastapi_request_to_test_attempt`, `test_http_security_observer_excludes_sharpit_mount`, and `test_http_security_observer_preserves_host_middleware_response` using the existing pytest app/report harness; assert the expected fact, mount exclusion and response equality without importing the new adapter.
-- [ ] **Step 2:** Run the attribution test with `-n 4`; expect its fact assertion to fail because the current plugin records no HTTP observation. Confirm collection succeeds and the failure is an assertion.
-- [ ] **Step 3:** Implement the ASGI adapter using the existing test-attempt lifecycle; pass through each receive/send message unchanged and do not read body contents.
+- [ ] **Step 1:** Add `test_http_security_fixture_registers_before_first_request`, `test_http_security_late_registration_is_unknown`, `test_http_security_multiple_apps_observe_only_registered_app`, `test_http_security_observer_attributes_fastapi_request_to_test_attempt`, `test_http_security_observer_excludes_sharpit_mount`, and `test_http_security_observer_preserves_host_middleware_response` using the explicit app-registration fixture and existing report harness; assert the expected fact, mount exclusion and response equality without importing the new adapter.
+- [ ] **Step 2:** Run the attribution test with `-n auto`; expect its fact assertion to fail because the current plugin records no HTTP observation. Confirm collection succeeds and the failure is an assertion.
+- [ ] **Step 3:** Implement the ASGI adapter installed only by the explicit fixture before the app receives its first request. If the app has already started or a client does not use the registered app, report UNKNOWN. Pass through each receive/send message unchanged and do not read body contents. When `sharpit.install()` is also present, the pytest wrapper observes independently and never reads from or duplicates the runtime exchange buffer.
 - [ ] **Step 4:** Add `test_http_security_observer_unknown_when_app_or_route_unobservable` for missing app, root path and opaque route metadata; assert non-passing `UNKNOWN`/`PARTIAL` status rather than a clean pass.
-- [ ] **Step 5:** Run the FastAPI/Starlette advisor and plugin tests with `-n 4`; commit `feat: observe FastAPI test exchanges safely`.
+- [ ] **Step 5:** Run the FastAPI/Starlette advisor and plugin tests with `-n auto`; commit `feat: observe FastAPI test exchanges safely`.
 
 ## Task 4: Observe Flask test traffic or report it unknown
 
-**Files:** `src/sharpit/pytest_plugin/http_security.py`, `tests/pytest_plugin/test_http_security.py`.
+**Files:** `src/sharpit/pytest_plugin/http_security.py`, `src/sharpit/pytest_plugin/http_security_flask.py`, `tests/pytest_plugin/test_http_security.py`.
 
-**Interfaces:** Flask adapter emits the same normalized facts from the in-process test-client path. It does not import Flask at plugin import time, mutate app configuration or replace response semantics. Unsupported wrappers report unknown.
+**Interfaces:** Flask adapter emits the same normalized facts only when the app is explicitly registered through the fixture before first use. It does not import Flask at plugin import time, mutate app configuration or replace response semantics. Unsupported wrappers, late registration and unregistered clients report UNKNOWN. Both adapters normalize route parameters to `{name}`.
 
-- [ ] **Step 1:** Add `test_http_security_observer_attributes_flask_request_to_test_attempt` and `test_http_security_flask_opaque_wrapper_reports_unknown` through the existing plugin/report harness, asserting response equality and the normalized fact or explicit unknown status.
-- [ ] **Step 2:** Run the attribution test with `-n 4`; expect its fact assertion to fail while Flask observation is absent. Confirm collection succeeds and the failure is an assertion.
-- [ ] **Step 3:** Implement a Flask adapter that discovers Flask only through loaded modules and instruments only the active in-process request path; ensure teardown restores all hooks even after an exception. If this cannot be done without changing host behavior, keep the adapter absent and return `UNKNOWN` rather than claiming parity.
+- [ ] **Step 1:** Add `test_http_security_flask_fixture_registers_exact_app`, `test_http_security_observer_attributes_flask_request_to_test_attempt` and `test_http_security_flask_opaque_wrapper_reports_unknown` through the existing plugin/report harness, asserting response equality and the normalized fact or explicit unknown status.
+- [ ] **Step 2:** Run the attribution test with `-n auto`; expect its fact assertion to fail while Flask observation is absent. Confirm collection succeeds and the failure is an assertion.
+- [ ] **Step 3:** Implement the Flask adapter for the exact app registered by the fixture; do not discover or patch other loaded apps; ensure teardown restores all hooks even after an exception. If this cannot be done without changing host behavior, keep the adapter absent and return `UNKNOWN` rather than claiming parity.
 - [ ] **Step 4:** Run these tests on the lowest and latest Flask versions supported by the project; commit `feat: observe Flask test exchanges safely` only if both pass, otherwise commit the explicit unknown-coverage behavior as `fix: report unsupported Flask HTTP observation`.
 
 ## Task 5: Preserve values by omission and bound collection
 
-**Files:** `src/sharpit/pytest_plugin/http_security.py`, `src/sharpit/engine/testsession/http_security.py`, `tests/pytest_plugin/test_http_security.py`, `tests/engine/testsession/test_http_security.py`.
+**Files:** `src/sharpit/pytest_plugin/http_security.py`, `src/sharpit/pytest_plugin/http_security_asgi.py`, `src/sharpit/pytest_plugin/http_security_flask.py`, `src/sharpit/engine/testsession/facts.py`, `src/sharpit/engine/testsession/sink.py`, `tests/pytest_plugin/test_http_security.py`, `tests/engine/advisors/test_http_security.py`.
 
 **Interfaces:** Facts and findings store no header values, credentials, query values, body bytes or exception text. Route and header-name metadata are bounded; unsupported or over-limit observations are incomplete rather than silently complete.
 
-- [ ] **Step 1:** Add `test_http_security_observer_omits_secrets_and_response_body` with canaries in authorization, cookie, query, response cookie and exception text; assert each is absent from in-memory facts, terminal, JSON, SARIF and JUnit output.
-- [ ] **Step 2:** Add `test_http_security_observer_bounds_metadata_for_large_runs` with many requests and over-limit metadata; assert the configured cap and explicit partial status.
-- [ ] **Step 3:** Run both tests with `-n 4`; expect an assertion that the fact/report differs from the required safe bounded result. Confirm the red is not a collection, import or attribute error.
+- [ ] **Step 1:** Add `test_http_security_observer_omits_secrets_and_response_body` with canaries in authorization, cookie, query, response cookie and secret-shaped route path; assert HTTP facts and sinks omit those values and bodies. Assert exception text is not retained by HTTP observation; test existing exception masking separately because the test-session sink intentionally reports masked exception facts. Do not use node IDs as HTTP finding identity or retain them in the new fact type.
+- [ ] **Step 2:** Add `test_http_security_facts_survive_json_round_trip` and `test_http_security_observer_bounds_metadata_for_large_runs` with many requests and over-limit metadata; assert the configured cap and explicit partial status.
+- [ ] **Step 3:** Run both tests with `-n auto`; expect an assertion that the fact/report differs from the required safe bounded result. Confirm the red is not a collection, import or attribute error.
 - [ ] **Step 4:** Ensure omission occurs when constructing facts, before findings or sinks; apply existing text cleaning only to safe fixed labels.
-- [ ] **Step 5:** Run masking, reporting and docs security-advisor tests with `-n 4`; commit `fix: omit sensitive HTTP observation data`.
+- [ ] **Step 5:** Run masking, reporting and docs security-advisor tests with `-n auto`; commit `fix: omit sensitive HTTP observation data`.
 
 ## Task 6: Integrate advisor, xdist and baselines
 
@@ -111,26 +112,26 @@
 **Interfaces:** The advisor has a separate stable ID from `test-runtime`. Existing severity threshold, report-only, xdist aggregation, baseline comparison and complete-run baseline-write rules apply. Informational request coverage does not accidentally become a test-runtime gate.
 
 - [ ] **Step 1:** Add `test_http_security_report_merges_xdist_findings_and_baselines`, `test_http_security_baseline_accepts_only_stable_fingerprints`, `test_http_security_malformed_baseline_fails_closed`, and `test_http_security_partial_run_refuses_baseline_write`.
-- [ ] **Step 2:** Run the four tests with `-n 4`; expect failures where the advisor is absent or current report/baseline behavior is not connected.
+- [ ] **Step 2:** Run the four tests with `-n auto`; expect failures where the advisor is absent or current report/baseline behavior is not connected.
 - [ ] **Step 3:** Register the advisor with existing session merge and sink paths; preserve current behavior for every other advisor and pytest exit code.
-- [ ] **Step 4:** Run the HTTP advisor, xdist merge, baseline, report-only, SARIF, JUnit and terminal tests with `-n 4`; commit `feat: integrate HTTP security findings with pytest reports`.
+- [ ] **Step 4:** Run the HTTP advisor, xdist merge, baseline, report-only, SARIF, JUnit and terminal tests with `-n auto`; commit `feat: integrate HTTP security findings with pytest reports`.
 
 ## Task 7: Measure observer overhead and document the evidence boundary
 
-**Files:** the production observation adapter, its existing overhead-budget test module (or `tests/pytest_plugin/test_http_security.py` if no HTTP budget module exists), `docs/security-advisor-checks.md`.
+**Files:** the production observation adapter, `tests/pytest_plugin/test_http_security_overhead.py`, `tests/conftest.py`, `docs/security-advisor-checks.md`.
 
-**Interfaces:** Mandatory paired observer-off/on measurement uses the production capture seam, constant work per observed request, and no body or header-value copies. Documentation states that in-process tests do not establish proxy/TLS coverage or generic authorization, tenant ownership or validation behavior.
+**Interfaces:** Mandatory paired observer-off/on measurement uses the production pytest wrapper, constant work per observed request, and no body or header-value copies. Documentation states that in-process tests do not establish proxy/TLS coverage or generic authorization, tenant ownership or validation behavior.
 
-- [ ] **Step 1:** Add `test_http_security_observer_overhead_within_budget` using the production adapter and the repository's existing paired-budget convention; run it on the untouched implementation to record baseline time.
+- [ ] **Step 1:** Add `test_http_security_observer_overhead_within_budget` in `tests/pytest_plugin/test_http_security_overhead.py`, register it in `TIMING_MODULES`, and use the production adapter and repository paired-budget convention; run it on the untouched implementation to record baseline time.
 - [ ] **Step 2:** Add documentation for the explicit option, response-header expectation syntax, stable finding, unknown/partial outcomes and limits. Document sharpit-only status; do not use a BootUI port citation.
-- [ ] **Step 3:** Run the budget test with `-n 0` only if the existing overhead-test convention requires isolation; otherwise use `-n 4`. Do not raise any existing budget.
-- [ ] **Step 4:** Run `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`, affected tests with `-n 4`, and docs tests under `tests/docs/`; commit `docs: document HTTP security test evidence`.
+- [ ] **Step 3:** Run the budget test with the existing overhead-test convention; choose `-n` from current load. Do not raise any existing budget.
+- [ ] **Step 4:** Run `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`, affected tests with `-n auto`, and docs tests under `tests/docs/`; commit `docs: document HTTP security test evidence`.
 
 ## Definition of done
 
 - [ ] All task steps are checked; each Critical/High scenario has its named test.
 - [ ] Disabled-by-default behavior, app behavior preservation, omission-before-storage, route/test attribution, FastAPI and Flask or explicit unknown coverage, xdist, baseline refusal and mandatory overhead are verified.
 - [ ] The advisor evaluates only explicit policy; it does not infer authentication, ownership, input validity or response-body disclosure from route metadata or observed status.
-- [ ] `/sharpit:check` and the lane's doc and targeted tests are green; the high-tier LLM council reviews this plan before implementation begins.
+- [ ] `/sharpit:check` and the lane's doc and targeted tests are green; the council reviews this plan before implementation begins.
 - [ ] The deviation is recorded in the matrix and later merged into `docs/reference/PARITY.md`.
 - [ ] No implementation code is added in the planning lane.

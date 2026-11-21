@@ -1,1 +1,3 @@
-advisor:HTTP-SEC-001	n-a	Sharpit-only pytest HTTP security observer; BootUI 2.5.0 has no equivalent per-test observation or configured response-header expectation contract.
+feature:http-security-observer	n-a	Sharpit-only pytest HTTP security observer; BootUI 2.5.0 has no equivalent per-test observation or configured endpoint expectation contract.
+rule:HTTP-SEC-001	n-a	Sharpit-only rule for a configured missing response header (HIGH); no BootUI 2.5.0 counterpart.
+rule:HTTP-SEC-002	n-a	Sharpit-only rule for a configured unexpected status (HIGH); no BootUI 2.5.0 counterpart.
