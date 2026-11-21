@@ -101,7 +101,9 @@ def test_a_sign_off_after_text_on_the_same_line_fails() -> None:
 
 def test_a_second_sign_off_from_another_person_does_not_hide_the_author_s() -> None:
     commit = _commit(
-        "fix: a thing\n\nSigned-off-by: Grace Hopper <grace@example.org>\nSigned-off-by: Ada Lovelace <ada@example.org>\n"
+        "fix: a thing\n\n"
+        "Signed-off-by: Grace Hopper <grace@example.org>\n"
+        "Signed-off-by: Ada Lovelace <ada@example.org>\n"
     )
     assert _failures(commit) == []
 
