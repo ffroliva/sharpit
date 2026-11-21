@@ -69,6 +69,8 @@ class MonitoringCapture:
         self._sink: SwallowedSink | None = None
         self._on_error = on_error
         self._failed = False
+        self._double_test: TestTag | None = None
+        self._ordinary_exceptions: set[SwallowedFact] = set()
 
     def attach(self, sink: SwallowedSink) -> CaptureStatus:
         tool = allocator.claim()
@@ -98,8 +100,17 @@ class MonitoringCapture:
         try:
             fact = _fact(code, offset, type(exc), self._root, self._cwd)
             if fact is not None and self._sink is not None:
-                # only a swallowing clause pays for it: the verdict is kept, the exception and its text are not
-                self._sink(test, replace(fact, test_double=True) if raised_by_test_double(exc) else fact)
+                if test != self._double_test:
+                    self._double_test = test
+                    self._ordinary_exceptions.clear()
+                if fact in self._ordinary_exceptions:
+                    self._sink(test, fact)
+                else:
+                    test_double = raised_by_test_double(exc)
+                    # Recheck doubles so a later real exception can clear the note.
+                    if not test_double:
+                        self._ordinary_exceptions.add(fact)
+                    self._sink(test, replace(fact, test_double=True) if test_double else fact)
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code
             if not self._failed and self._on_error is not None:
                 self._failed = True
