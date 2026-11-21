@@ -102,9 +102,10 @@ def _swallowed_findings(
             tail = f"identity {identity}"
         else:
             tail = f"its identity {_UNSTORABLE}; {_FINGERPRINT_ROUTE.format(_fingerprint(identity, node))}"
+        double = f"{TEST_DOUBLE_NOTE}; " if fact.test_double else ""
         message = (
             f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged); "
-            f"{tail}"
+            f"{double}{tail}"
         )
         found.append(
             _finding(

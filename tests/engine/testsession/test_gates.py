@@ -676,3 +676,26 @@ def test_swallowed_message_says_when_a_test_double_raised_it() -> None:
         "TypeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged); "
         f"{DOUBLE_NOTE}; identity app/weeks.py:21:TypeError"
     ]
+
+
+def test_a_test_double_does_not_lower_the_severity() -> None:
+    fact = SwallowedFact("app/weeks.py:21", "TypeError", True, test_double=True)
+
+    found = _swallowed_findings(_facts(call=PhaseFacts(swallowed=[fact])))
+
+    assert [f["severity"] for f in found] == ["HIGH"]
+    assert fails(found[0]) is True
+
+
+def test_the_test_double_verdict_survives_the_worker_json() -> None:
+    fact = SwallowedFact("app/weeks.py:21", "TypeError", True, test_double=True)
+
+    assert SwallowedFact.from_json(fact.to_json()).test_double is True
+    assert SwallowedFact.from_json(fact.to_json()).type_name == "TypeError"
+
+
+def test_a_fact_from_an_earlier_worker_is_not_a_test_double() -> None:
+    data = SwallowedFact("app/weeks.py:21", "TypeError", True).to_json()
+    del data["testDouble"]
+
+    assert SwallowedFact.from_json(data).test_double is False

@@ -11,7 +11,7 @@ import functools
 import os
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import CodeType
 from typing import Any, cast
@@ -20,6 +20,7 @@ from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.sensors import TOOL_IDS as _TOOL_IDS
 from sharpit.engine.sensors import MonitoringTool, allocator
+from sharpit.engine.testsession.doubles import raised_by_test_double
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SwallowedFact
 from sharpit.engine.testsession.swallowed import PROGRAMMING_ERRORS, site_identity, swallowing_site
 
@@ -97,7 +98,8 @@ class MonitoringCapture:
         try:
             fact = _fact(code, offset, type(exc), self._root, self._cwd)
             if fact is not None and self._sink is not None:
-                self._sink(test, fact)
+                # only a swallowing clause pays for it: the verdict is kept, the exception and its text are not
+                self._sink(test, replace(fact, test_double=True) if raised_by_test_double(exc) else fact)
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code
             if not self._failed and self._on_error is not None:
                 self._failed = True
@@ -112,6 +114,9 @@ def record(sink: Any, tag: TestTag, fact: SwallowedFact) -> None:
     phase = cast("PhaseFacts", current.phases.setdefault(tag[2], PhaseFacts()))
     if fact not in phase.swallowed:
         phase.swallowed.append(fact)
+    elif not fact.test_double:  # one real raise means the clause's code did run: it clears the double's note
+        index = phase.swallowed.index(fact)
+        phase.swallowed[index] = replace(phase.swallowed[index], test_double=False)
 
 
 def attach_session(config: Any, state: Any) -> None:

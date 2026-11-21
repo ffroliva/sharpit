@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The pytest plugin names a swallowed exception a test double raised (a `unittest.mock` frame on its traceback, or a text naming `MagicMock`, `AsyncMock` or `Mock`): the finding adds "a test double raised this, so this code path did not run" and keeps its severity. The exception text decides this and is never stored or written; the worker facts carry one boolean, `testDouble`. The terminal summary lists swallowed-exception findings once per `except` clause, with its test count, most tests first (`swallowed exceptions: 13 clauses, 95 tests`), instead of one line per test (#68).
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

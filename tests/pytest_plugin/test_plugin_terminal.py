@@ -252,3 +252,8 @@ def test_a_clause_a_test_double_reached_in_some_tests_counts_them() -> None:
         "  a.py:3: 2 tests, 1 raised by a test double",
     ]
 
+
+def test_other_rules_are_not_summarised_as_swallowed() -> None:
+    other = {"ruleId": "sharpit.n-plus-one", "target": "SELECT 1", "testNodeId": "t::a", "message": "m"}
+
+    assert _summary([other]) == []

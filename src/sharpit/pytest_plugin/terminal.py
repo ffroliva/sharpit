@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME_GATES
-from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE
+from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE, SWALLOWED, TEST_DOUBLE_NOTE
 from sharpit.engine.testsession.report import TEST_RUNTIME, finding_fails
 from sharpit.pytest_plugin.apps import AUTODETECT, DETECTED_BY, advisor_assessors, skip_reason
 
@@ -66,7 +66,32 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
 
 
 def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
-    """Swallowed-exception findings, one line per ``except`` clause, not per test."""
+    """Swallowed-exception findings, one line per ``except`` clause, not per test: the clauses and the distinct tests
+    they failed, then each clause with its own test count, most tests first and by location after that. A test a test
+    double (see ``TEST_DOUBLE_NOTE``) broke is named; the lines read the report's findings only."""
+    clauses: dict[str, dict[str, bool]] = {}  # location -> test node id -> whether a test double raised it there
+    for finding in findings:
+        if finding["ruleId"] != SWALLOWED:
+            continue
+        doubles = clauses.setdefault(finding["target"], {})
+        node = finding["testNodeId"]
+        # a test counts once per clause; one real raise among its attempts clears the note
+        doubles[node] = doubles.get(node, True) and TEST_DOUBLE_NOTE in finding["message"]
+    if not clauses:
+        return
+    tests = {node for doubles in clauses.values() for node in doubles}
+    terminalreporter.write_line(f"swallowed exceptions: {_count(len(clauses), 'clause')}, {_count(len(tests), 'test')}")
+    for location, doubles in sorted(clauses.items(), key=lambda item: (-len(item[1]), item[0])):
+        raised = sum(doubles.values())
+        if raised == len(doubles):
+            note = f", {TEST_DOUBLE_NOTE}"
+        else:
+            note = f", {raised} raised by a test double" if raised else ""
+        terminalreporter.write_line(f"  {location}: {_count(len(doubles), 'test')}{note}")
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
 
 
 # an app SKIPPED or UNKNOWN was not assessed, so it proves nothing
