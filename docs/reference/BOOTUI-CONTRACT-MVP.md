@@ -683,6 +683,7 @@ McpToolInfo { name: str, description: str, panel: str, action: bool, panelEnable
 | `bootui.show-banner` | `true` | Print the URL at startup. |
 | `bootui.vulnerabilities.osv-enabled` | `true` | Extra gate for scans. |
 | `bootui.vulnerabilities.request-timeout` | `10s` | Per OSV request. |
+| `bootui.vulnerabilities.scan-timeout` | `60s` | Whole vulnerability scan deadline. |
 | `bootui.vulnerabilities.max-packages` | `500` | Batch cap; excess goes to `packagesSkipped`. |
 | `bootui.vulnerabilities.max-advisories` | `200` | Detail-fetch cap. |
 | `bootui.vulnerabilities.osv-base-uri` | `https://api.osv.dev` | OSV base (stub in tests). |

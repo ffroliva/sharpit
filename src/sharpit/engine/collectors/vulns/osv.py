@@ -24,7 +24,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
+from sharpit.engine.collectors.vulns.deadline import ScanDeadline
 from sharpit.engine.collectors.vulns.inventory import Package
+
+# shortcut: urllib times socket operations; trickling can outlast deadline. Upgrade for whole-request cancellation.
 
 ECOSYSTEM = "PyPI"
 MAX_QUERYBATCH_SIZE = 1000  # OSV.dev rejects larger batches with HTTP 400
@@ -69,6 +72,11 @@ def request_json(opener: Opener, request: urllib.request.Request, timeout: float
         raise OsvError(f"{what} returned malformed JSON") from error
 
 
+def is_request_timeout(error: OsvError) -> bool:
+    cause = error.__cause__
+    return isinstance(cause, TimeoutError) or isinstance(getattr(cause, "reason", None), TimeoutError)
+
+
 class OsvClient:
     def __init__(self, base_uri: str, timeout: float, opener: Opener | None = None) -> None:
         self._base_uri = base_uri.rstrip("/") + "/"  # joined with relative paths, so a base path is kept
@@ -80,14 +88,17 @@ class OsvClient:
             self._opener = urllib.request.build_opener()
         return self._opener
 
-    def querybatch(self, pkgs: Sequence[Package]) -> QueryResult:
+    def querybatch(self, pkgs: Sequence[Package], deadline: ScanDeadline | None = None) -> QueryResult:
         """Query OSV in chunks of 1000. A failure before any chunk completed raises ``OsvError``; a later failure
         puts that chunk's unfinished packages and every later package in ``failed`` (BootUI ``queryBatch``)."""
         result = QueryResult({}, [], False, set())
         for start in range(0, len(pkgs), MAX_QUERYBATCH_SIZE):
+            if start and deadline is not None and deadline.check_expired():
+                result.failed = list(pkgs[start:])
+                break
             chunk = list(pkgs[start : start + MAX_QUERYBATCH_SIZE])
             try:
-                ids, failed, truncated, complete = self._query_chunk(chunk)
+                ids, failed, truncated, complete = self._query_chunk(chunk, deadline)
             except OsvError:
                 if start == 0:
                     raise
@@ -101,14 +112,18 @@ class OsvClient:
                 break
         return result
 
-    def _query_chunk(self, chunk: list[Package]) -> tuple[dict[Package, list[str]], list[Package], bool, set[Package]]:
+    def _query_chunk(
+        self, chunk: list[Package], deadline: ScanDeadline | None = None
+    ) -> tuple[dict[Package, list[str]], list[Package], bool, set[Package]]:
         ids: dict[Package, list[str]] = {pkg: [] for pkg in chunk}
         seen: dict[Package, set[str]] = {pkg: set() for pkg in chunk}
         complete: set[Package] = set()
         pending: list[tuple[Package, str | None]] = [(pkg, None) for pkg in chunk]
         for page in range(MAX_QUERY_BATCH_PAGES):
+            if page and deadline is not None and deadline.check_expired():
+                return ids, [pkg for pkg, _ in pending], False, complete
             try:
-                results = self._query_page(pending)
+                results = self._query_page(pending, deadline)
             except OsvError:
                 if page == 0:
                     raise
@@ -130,7 +145,9 @@ class OsvClient:
                 return ids, [], False, complete
         return ids, [], True, complete
 
-    def _query_page(self, pending: list[tuple[Package, str | None]]) -> list[dict[str, Any]]:
+    def _query_page(
+        self, pending: list[tuple[Package, str | None]], deadline: ScanDeadline | None = None
+    ) -> list[dict[str, Any]]:
         queries: list[dict[str, Any]] = []
         for pkg, token in pending:
             query: dict[str, Any] = {"package": {"name": pkg.name, "ecosystem": ECOSYSTEM}, "version": pkg.version}
@@ -143,19 +160,53 @@ class OsvClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        root = request_json(self._open(), request, self._timeout, QUERYBATCH_MAX_BYTES, "OSV query")
+        try:
+            budget = deadline.request_budget(self._timeout) if deadline is not None else None
+        except TimeoutError as error:
+            raise OsvError("OSV scan deadline exceeded") from error
+        try:
+            root = request_json(
+                self._open(), request, budget.timeout if budget else self._timeout, QUERYBATCH_MAX_BYTES, "OSV query"
+            )
+        except OsvError as error:
+            if deadline is not None and (
+                deadline.check_expired()
+                or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
+            ):
+                deadline.mark_expired()
+                raise OsvError("OSV scan deadline exceeded") from error
+            raise
+        if deadline is not None and deadline.check_expired():
+            deadline.mark_expired()
+            raise OsvError("OSV scan deadline exceeded")
         return _validate_results(root, len(pending))
 
-    def vuln(self, id: str) -> dict[str, Any]:
+    def vuln(self, id: str, deadline: ScanDeadline | None = None) -> dict[str, Any]:
         """``GET /v1/vulns/{id}``; any failure, or a body that is not a JSON object, raises ``OsvError``."""
         url = urllib.parse.urljoin(self._base_uri, "v1/vulns/" + urllib.parse.quote(id, safe=""))
-        doc = request_json(
-            self._open(),
-            urllib.request.Request(url, method="GET"),
-            self._timeout,
-            ADVISORY_MAX_BYTES,
-            f"OSV advisory {id}",
-        )
+        try:
+            budget = deadline.request_budget(self._timeout) if deadline is not None else None
+        except TimeoutError as error:
+            raise OsvError("OSV scan deadline exceeded") from error
+        try:
+            doc = request_json(
+                self._open(),
+                urllib.request.Request(url, method="GET"),
+                budget.timeout if budget else self._timeout,
+                ADVISORY_MAX_BYTES,
+                f"OSV advisory {id}",
+            )
+        except OsvError as error:
+            if deadline is not None and (
+                deadline.check_expired()
+                or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
+            ):
+                deadline.mark_expired()
+                raise OsvError("OSV scan deadline exceeded") from error
+            raise
+        if deadline is not None and deadline.check_expired():
+            deadline.mark_expired()
+            raise OsvError("OSV scan deadline exceeded")
         if not isinstance(doc, dict):
             raise OsvError(f"OSV advisory {id} is not a JSON object")
         return cast(dict[str, Any], doc)

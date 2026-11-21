@@ -18,6 +18,7 @@ records copy mutable Java lists; ``interpret`` reads the advisory dict once and 
 from __future__ import annotations
 
 import functools
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -36,6 +37,7 @@ _REFERENCE_PRIORITY = ("ADVISORY", "FIX")
 _MAX_ALIASES = 20
 _MAX_REFERENCES = 20
 _MAX_FIXED_VERSIONS = 10
+_CVE_ID = re.compile(r"CVE-[0-9]{4}-[0-9]{4,}", re.IGNORECASE)
 
 
 @dataclass
@@ -86,7 +88,7 @@ def interpret(advisory: Any, pkg: Package, requested_id: str) -> Finding | None:
         return None
     doc = cast(dict[str, Any], advisory)
     vuln_id = _text(doc, "id")
-    if vuln_id != requested_id or _text(doc, "withdrawn") is not None:
+    if vuln_id is None or vuln_id != requested_id or _text(doc, "withdrawn") is not None:
         return None
     severity, score, fixed, unresolved = _evaluate(doc, pkg)
     return Finding(
@@ -95,7 +97,7 @@ def interpret(advisory: Any, pkg: Package, requested_id: str) -> Finding | None:
         details=_text(doc, "details"),
         severity=severity,
         score=score,
-        aliases=_strings(doc.get("aliases"))[:_MAX_ALIASES],
+        aliases=_aliases(doc, vuln_id),
         references=_references(doc.get("references")),
         fixed_versions=fixed,
         fix_available=fix_available(pkg.version, fixed),
@@ -243,14 +245,28 @@ class _Timeline:
                 affected = False
         return _Applicability.MATCHED if affected else _Applicability.NOT_MATCHED
 
-    def closing_fix(self, raw: str) -> str | None:
+    def closing_fixes(self, raw: str) -> list[str]:
         if self.evaluate(raw) is not _Applicability.MATCHED:
-            return None
+            return []
+        return self.fixes_after(raw)
+
+    def fixes_after(self, raw: str) -> list[str]:
         version = _version(raw)
-        for event in self.events:
-            if event.kind == "fixed" and version is not None and version < event.version:
-                return event.raw
-        return None
+        return [
+            event.raw
+            for event in self.events
+            if event.kind == "fixed" and version is not None and version < event.version
+        ]
+
+    def is_bounded(self, raw: str) -> bool:
+        if self.evaluate(raw) is not _Applicability.MATCHED:
+            return False
+        if self.limits and any(limit is not None for limit in self.limits):
+            return True
+        version = _version(raw)
+        return version is not None and any(
+            event.kind == "last_affected" and version <= event.version for event in self.events
+        )
 
 
 def _compare_events(left: _Event, right: _Event) -> int:
@@ -264,8 +280,9 @@ def _compare_events(left: _Event, right: _Event) -> int:
 
 
 class _Entry:
-    def __init__(self, affected: _Affected) -> None:
+    def __init__(self, affected: _Affected, exact_package: bool) -> None:
         self.affected = affected
+        self.exact_package = exact_package
         self.timelines = [_Timeline(r) for r in affected.ranges]
 
     def evaluate(self, version: str) -> tuple[_Applicability, bool]:
@@ -298,13 +315,14 @@ def _evaluate(doc: dict[str, Any], pkg: Package) -> tuple[str, float | None, lis
             and item.ecosystem == ECOSYSTEM
             and (item.name == "*" or canonicalize_name(item.name) == pkg.name)
         ):
-            matching.append(_Entry(item))
+            matching.append(_Entry(item, canonicalize_name(item.name) == pkg.name))
 
     applicable = False
     unresolved = unknown_identity
     package_severity_supplied = False
     score: float | None = None
-    candidates: list[str] = []
+    candidate_streams: list[list[str]] = []
+    bounded_branch = False
     for entry in matching:
         applicability, entry_unresolved = entry.evaluate(pkg.version)
         unresolved |= entry_unresolved
@@ -312,23 +330,45 @@ def _evaluate(doc: dict[str, Any], pkg: Package) -> tuple[str, float | None, lis
             applicable = True
             package_severity_supplied |= bool(entry.affected.severity)
             score = _maximum(score, _highest_score(entry.affected.severity))
-            candidates += [fix for t in entry.timelines if (fix := t.closing_fix(pkg.version)) is not None]
+            for timeline in entry.timelines:
+                fixes = timeline.closing_fixes(pkg.version)
+                if fixes:
+                    candidate_streams.append(fixes)
+                if entry.exact_package and timeline.is_bounded(pkg.version):
+                    bounded_branch = True
     unresolved |= not applicable
     if not package_severity_supplied:
         score = _highest_score(_severities(doc))
 
-    verified: list[str] = []
-    for candidate in candidates:
-        if not fix_available(pkg.version, [candidate]):
-            continue
-        unaffected = bool(matching) and all(
-            entry.evaluate(candidate)[0] is _Applicability.NOT_MATCHED for entry in matching
-        )
-        # missing package identity might describe the proposed target; it cannot verify an upgrade
-        if unaffected and not unknown_identity:
-            verified.append(candidate)
+    verified = _verify_candidates(pkg.version, matching, unknown_identity, candidate_streams)
+    if not verified and bounded_branch:
+        cross_branch_streams = [
+            fixes
+            for entry in matching
+            if entry.exact_package
+            for timeline in entry.timelines
+            if (fixes := timeline.fixes_after(pkg.version))
+        ]
+        verified = _verify_candidates(pkg.version, matching, unknown_identity, cross_branch_streams)
     severity = severity_from_text(_database_severity(doc)) if score is None else severity_for(score)
     return severity, score, _order_fixed_versions(verified), unresolved
+
+
+def _verify_candidates(
+    installed: str, matching: list[_Entry], unknown_identity: bool, candidate_streams: list[list[str]]
+) -> list[str]:
+    verified: list[str] = []
+    for fixes in candidate_streams:
+        for candidate in fixes:
+            if not fix_available(installed, [candidate]):
+                continue
+            unaffected = bool(matching) and all(
+                entry.evaluate(candidate)[0] is _Applicability.NOT_MATCHED for entry in matching
+            )
+            if unaffected and not unknown_identity:
+                verified.append(candidate)
+                break
+    return verified
 
 
 def _database_severity(doc: dict[str, Any]) -> str | None:
@@ -383,6 +423,22 @@ def _strings(node: Any) -> list[str]:
     if not isinstance(node, list):
         return []
     return list(dict.fromkeys(v for v in cast(list[Any], node) if isinstance(v, str) and v.strip()))
+
+
+def _aliases(doc: dict[str, Any], own_id: str) -> list[str]:
+    aliases = list(
+        dict.fromkeys(
+            alias.strip() for key in ("aliases", "upstream") for alias in _strings(doc.get(key)) if alias.strip()
+        )
+    )
+    aliases = [alias for alias in aliases if alias != own_id]
+    return sorted(aliases, key=_alias_priority)[:_MAX_ALIASES]
+
+
+def _alias_priority(alias: str) -> int:
+    if _CVE_ID.fullmatch(alias):
+        return 0
+    return 1 if alias.upper().startswith("GHSA-") else 2
 
 
 def _version(raw: str | None) -> Version | None:

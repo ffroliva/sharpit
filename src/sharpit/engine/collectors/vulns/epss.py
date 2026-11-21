@@ -16,7 +16,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sharpit.engine.collectors.vulns.osv import MAX_QUERY_BATCH_PAGES, Opener, OsvError, request_json
+from sharpit.engine.collectors.vulns.deadline import ScanDeadline
+from sharpit.engine.collectors.vulns.osv import (
+    MAX_QUERY_BATCH_PAGES,
+    Opener,
+    OsvError,
+    is_request_timeout,
+    request_json,
+)
 from sharpit.engine.collectors.vulns.osv import text_field as _text
 
 CVE_PARAMETER_MAX_LENGTH = 2000  # FIRST.org's documented limit on the comma-joined cve parameter
@@ -75,23 +82,27 @@ class EpssClient:
             self._opener = urllib.request.build_opener()
         return self._opener
 
-    def scores(self, cve_ids: Sequence[str]) -> EpssResult:
+    def scores(self, cve_ids: Sequence[str], deadline: ScanDeadline | None = None) -> EpssResult:
         """Scores for the CVEs EPSS has data on; never raises (BootUI ``applyEpss``)."""
         scores: dict[str, tuple[float, float]] = {}
         try:
             for chunk in epss_cve_chunks(cve_ids):
-                self._fetch_chunk(chunk, scores)
+                self._fetch_chunk(chunk, scores, deadline)
         except (OsvError, _EpssError):
             return EpssResult(scores, failed=True)
         return EpssResult(scores, failed=False)
 
-    def _fetch_chunk(self, cve_ids: list[str], scores: dict[str, tuple[float, float]]) -> None:
+    def _fetch_chunk(
+        self, cve_ids: list[str], scores: dict[str, tuple[float, float]], deadline: ScanDeadline | None = None
+    ) -> None:
         requested = set(cve_ids)
         seen: set[str] = set()
         offset = 0
         expected_total: int | None = None
         for _ in range(min(MAX_QUERY_BATCH_PAGES, len(cve_ids))):
-            root = self._fetch_page(cve_ids, offset)
+            if deadline is not None and deadline.check_expired():
+                raise _EpssError("OSV scan deadline exceeded")
+            root = self._fetch_page(cve_ids, offset, deadline)
             data = cast(list[Any], root["data"])
             invalid = False
             for row in data:
@@ -128,10 +139,28 @@ class EpssClient:
                 raise _EpssError("EPSS pagination made no progress")
         raise _EpssError("EPSS pagination exceeded its safety bound")
 
-    def _fetch_page(self, cve_ids: list[str], offset: int) -> dict[str, Any]:
+    def _fetch_page(self, cve_ids: list[str], offset: int, deadline: ScanDeadline | None = None) -> dict[str, Any]:
         query = f"cve={','.join(cve_ids)}&limit={len(cve_ids)}&offset={offset}"
         request = urllib.request.Request(urllib.parse.urljoin(self._base_uri, "data/v1/epss?" + query), method="GET")
-        root = request_json(self._open(), request, self._timeout, EPSS_MAX_BYTES, "EPSS query")
+        try:
+            budget = deadline.request_budget(self._timeout) if deadline is not None else None
+        except TimeoutError as error:
+            raise _EpssError("OSV scan deadline exceeded") from error
+        try:
+            root = request_json(
+                self._open(), request, budget.timeout if budget else self._timeout, EPSS_MAX_BYTES, "EPSS query"
+            )
+        except OsvError as error:
+            if deadline is not None and (
+                deadline.check_expired()
+                or (budget is not None and budget.capped_by_deadline and is_request_timeout(error))
+            ):
+                deadline.mark_expired()
+                raise _EpssError("OSV scan deadline exceeded") from error
+            raise
+        if deadline is not None and deadline.check_expired():
+            deadline.mark_expired()
+            raise _EpssError("OSV scan deadline exceeded")
         if not isinstance(root, dict) or not isinstance(cast(dict[str, Any], root).get("data"), list):
             raise _EpssError("EPSS response did not contain a data array")
         return cast(dict[str, Any], root)

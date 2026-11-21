@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from vulnfakes import FakeOpener, fixture_text, replies
 
+from sharpit.engine.collectors.vulns.deadline import ScanDeadline
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient, OsvError, QueryResult
 
@@ -78,6 +79,47 @@ def test_recorded_querybatch_maps_ids_to_packages(no_side_effects):
         truncated=False,
         complete={jinja, markupsafe},
     )
+
+
+# ported: OsvVulnerabilityScannerTests.degradesToPartialAndRetainsEarlierQuerybatchPagesWhenWholeScanDeadlineExpiresMidBody  # noqa: E501
+def test_query_page_deadline_keeps_prior_ids_and_fails_only_pending_packages():
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    first, second = Package("first", "1", None), Package("second", "1", None)
+    calls = 0
+
+    def answer(_request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return 200, json.dumps(
+                {"results": [{"vulns": [{"id": "V-1"}], "next_page_token": "next"}, {"vulns": [{"id": "V-2"}]}]}
+            )
+        clock.now = 2.0
+        return 200, '{"results":[{"vulns":[{"id":"V-3"}]}]}'
+
+    opener = FakeOpener(answer)
+    result = client(opener, timeout=10.0).querybatch([first, second], ScanDeadline(2.0, clock))
+    assert result.ids[first] == ["V-1"]
+    assert result.ids[second] == ["V-2"]
+    assert result.failed == [first]
+    assert opener.timeouts == [2.0, 2.0]
+
+
+def test_non_timeout_failure_does_not_become_a_deadline_when_budget_is_capped():
+    class Clock:
+        def __call__(self) -> float:
+            return 0.0
+
+    deadline = ScanDeadline(2.0, Clock())
+    with pytest.raises(OsvError, match="OSV query returned HTTP 503"):
+        client(replies((503, "unavailable")), timeout=10.0).querybatch([WIDGET], deadline)
+    assert deadline.check_expired() is False
 
 
 # ported: OsvVulnerabilityScanner.queryBatch (no packages, no request)

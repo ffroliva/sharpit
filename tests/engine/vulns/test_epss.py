@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from vulnfakes import FakeOpener, fixture_text, replies
 
+from sharpit.engine.collectors.vulns.deadline import ScanDeadline
 from sharpit.engine.collectors.vulns.epss import EpssClient, EpssResult, canonical_cve_id, epss_cve_chunks
 
 BASE = "http://epss.test"
@@ -264,3 +265,41 @@ def test_base_uri_path_is_kept(no_side_effects, base: str):
     opener = replies((200, fixture_text("epss/CVE-2024-34064.json")))
     EpssClient(base, 2.0, opener=opener).scores(["CVE-2024-34064"])
     assert opener.requests[0].full_url == "http://epss.test/mirror/data/v1/epss?cve=CVE-2024-34064&limit=1&offset=0"
+
+
+# ported: OsvVulnerabilityScannerTests.degradesToPartialAndRetainsEarlierEpssChunksWhenWholeScanDeadlineExpiresDuringEpss  # noqa: E501
+def test_deadline_keeps_earlier_epss_chunk_scores():
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    cves = [f"CVE-2024-{index:05}" for index in range(160)]
+    chunks = epss_cve_chunks(cves)
+    calls = 0
+
+    def answer(request: urllib.request.Request):
+        nonlocal calls
+        calls += 1
+        values = query(request)["cve"].split(",")
+        clock.now = 1.5 if calls == 1 else 2.0
+        return 200, json.dumps({"data": [{"cve": cve, "epss": "0.1", "percentile": "0.2"} for cve in values]})
+
+    opener = FakeOpener(answer)
+    result = client(opener, timeout=10.0).scores(cves, ScanDeadline(2.0, clock))
+    assert result.failed is True
+    assert len(result.scores) == len(chunks[0])
+    assert opener.timeouts == [2.0, 0.5]
+
+
+def test_transport_failure_with_capped_budget_does_not_mark_deadline_expired():
+    class Clock:
+        def __call__(self) -> float:
+            return 0.0
+
+    deadline = ScanDeadline(2.0, Clock())
+    result = client(replies((503, "unavailable")), timeout=10.0).scores(["CVE-2024-0001"], deadline)
+    assert result.failed is True
+    assert deadline.check_expired() is False
