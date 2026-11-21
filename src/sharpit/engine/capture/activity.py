@@ -36,7 +36,7 @@ REPORT_KEYS = ("available", "entries", "typeCounts", "kpis", "sources", "warning
 PROFILE_KEYS = (
     "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
     "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",
-    "approximate", "authorizations", "baselineComparison",
+    "approximate",
 )  # fmt: skip
 EVICTED = "Request is no longer in the buffer"
 NO_SOURCE = "Live Activity has no source: request capture is not installed and no other source is available"
@@ -311,7 +311,7 @@ def _unavailable_profile(reason: str) -> dict[str, Any]:
     profile.update(
         available=False, unavailableReason=reason, sql=[], sqlGroups=[], sqlCorrelationApproximate=False,
         exceptions=[], security=[], notes=[], restCalls=[], cacheAccesses=[], sections=[], correlationTiers=[],
-        approximate=False, authorizations=[], baselineComparison=None,
+        approximate=False,
     )  # fmt: skip
     return profile
 
@@ -351,8 +351,6 @@ def request_profile(ctx: SharpitContext, request_id: str) -> dict[str, Any]:
         "sections": [],
         "correlationTiers": [],
         "approximate": approximate,
-        "authorizations": [],
-        "baselineComparison": None,
     }
 
 
