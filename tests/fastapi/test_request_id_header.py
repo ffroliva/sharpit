@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.testclient import TestClient
 from starlette.responses import Response
 
+from fastapi import FastAPI, HTTPException
 from sharpit import install
-from sharpit.settings import load_settings
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo
 from sharpit.fastapi.capture import wiring_of
+from sharpit.fastapi.request_id_header import with_request_id_header
+from sharpit.settings import PanelSettings, load_settings
 
 HEADER = "X-Sharpit-Request-Id"
 LOCAL = ("127.0.0.1", 50000)
@@ -22,9 +24,9 @@ def _app(**settings: object) -> tuple[FastAPI, object]:
 
 
 def test_request_id_header_matches_exchange_and_request_profile() -> None:
-    # ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues
+    # ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     app, _handle = _app()
-    with TestClient(app, client=LOCAL) as client:
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
         response = client.get("/ok")
         assert HEADER in response.headers
         request_id = response.headers[HEADER]
@@ -38,7 +40,7 @@ def test_request_id_header_matches_exchange_and_request_profile() -> None:
 
 
 def test_request_id_header_requires_property_panel_and_trusted_peer(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues
+    # ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     trusted, _ = _app()
     assert HEADER in TestClient(trusted, client=LOCAL).get("/ok").headers
 
@@ -46,13 +48,19 @@ def test_request_id_header_requires_property_panel_and_trusted_peer(monkeypatch:
     disabled_property, _ = _app()
     monkeypatch.delenv("SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER")
     disabled_panel, _ = _app(panels={"http-exchanges": {"enabled": False}})
+    live_panel, live_handle = _app()
+    live_panel_client = TestClient(live_panel, client=LOCAL)
+    assert HEADER in live_panel_client.get("/ok").headers
+    assert isinstance(live_handle.context.settings.panels, dict)
+    live_handle.context.settings.panels["http-exchanges"] = PanelSettings(enabled=False)
 
     assert HEADER not in TestClient(disabled_property, client=LOCAL).get("/ok").headers
     assert HEADER not in TestClient(disabled_panel, client=LOCAL).get("/ok").headers
+    assert HEADER not in live_panel_client.get("/ok").headers
 
 
 def test_request_id_header_uses_guard_trust_and_rejects_forwarded_headers() -> None:
-    # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues
+    # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     app, _ = _app(trusted_proxies=("10.0.0.0/8",), allow_non_localhost=True)
 
     assert HEADER in TestClient(app, client=LOCAL).get("/ok").headers
@@ -76,7 +84,7 @@ def test_request_id_header_preserves_application_value_case_insensitively() -> N
 
 
 def test_request_id_header_is_absent_from_sharpit_inactive_and_suspended_requests() -> None:
-    # ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues
+    # ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     app, handle = _app()
     active = TestClient(app, client=LOCAL).get("/ok")
     hook = next(h for h in handle.context.capture.hooks.hooks() if h.name == "capture-middleware")
@@ -145,19 +153,17 @@ def test_request_id_header_is_present_on_handled_errors_and_absent_on_server_500
     client = TestClient(app, client=LOCAL, raise_server_exceptions=False)
 
     handled = client.get("/handled-error")
-    server_error = client.get("/server-error")
+    error_response = client.get("/server-error")
 
     assert handled.status_code == 418
     assert HEADER in handled.headers
-    assert server_error.status_code == 500
-    assert HEADER not in server_error.headers
+    assert error_response.status_code == 500
+    assert HEADER not in error_response.headers
 
 
 def test_request_id_header_ids_are_generated_internally() -> None:
     app, _ = _app()
-    response = TestClient(app, client=LOCAL).get(
-        "/ok", headers={HEADER: "inbound-value", "X-Request-ID": "caller"}
-    )
+    response = TestClient(app, client=LOCAL).get("/ok", headers={HEADER: "inbound-value", "X-Request-ID": "caller"})
 
     assert HEADER in response.headers
     assert response.headers[HEADER] != "inbound-value"
@@ -165,8 +171,45 @@ def test_request_id_header_ids_are_generated_internally() -> None:
 
 
 def test_request_id_header_invalid_property_fails_closed_with_warning() -> None:
+    # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     settings = load_settings({}, {"SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER": "invalid"})
 
     assert hasattr(settings, "http_exchanges_expose_request_id_header")
     assert settings.http_exchanges_expose_request_id_header is False
     assert any("Ignoring invalid SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER" in w for w in settings.warnings)
+
+
+def test_request_id_header_failure_is_reported_without_changing_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
+    import sharpit.fastapi.request_id_header as request_id_header
+
+    app, handle = _app()
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+    failures: list[tuple[str, BaseException]] = []
+    monkeypatch.setattr(wiring, "hook_failed", lambda hook, exc: failures.append((hook, exc)))
+    monkeypatch.setattr(request_id_header.guard, "is_trusted_source", lambda *_: (_ for _ in ()).throw(RuntimeError()))
+
+    response = TestClient(app, client=LOCAL).get("/ok")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert HEADER not in response.headers
+    assert [hook for hook, _ in failures] == ["request id response header"]
+
+
+def test_request_id_header_copies_application_headers() -> None:
+    # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
+    _app_instance, handle = _app()
+    original_headers = [(b"x-app", b"kept")]
+    message = {"type": "http.response.start", "status": 200, "headers": original_headers}
+    scope = {"type": "http", "method": "GET", "client": LOCAL, "headers": [], "scheme": "http"}
+    token = REQUEST.set(RequestInfo("request-id", handle.context.context_id, "GET", "/ok", None, 0, None))
+    try:
+        decorated = with_request_id_header(handle.context, scope, message)
+    finally:
+        REQUEST.reset(token)
+
+    assert original_headers == [(b"x-app", b"kept")]
+    assert decorated["headers"] is not original_headers
+    assert decorated["headers"][-1] == (b"x-sharpit-request-id", b"request-id")
