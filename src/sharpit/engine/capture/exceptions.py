@@ -280,12 +280,16 @@ class ExceptionStore:
         request: RequestInfo | None,
         thread: str | None,
         message_override: str | None = None,
+        message_override_always: bool = False,
+        binding_diagnostics: list[dict[str, object]] | None = None,
+        binding_diagnostics_truncated: bool = False,
     ) -> None:
         if not isinstance(exc, Exception) or getattr(_BUSY, "on", False):  # CancelledError, KeyboardInterrupt
             return
         if not mark_seen(exc, request.id if request is not None else None, self._slot):
             return
-        self._record(exc, source, request, thread, message_override)
+        self._record(exc, source, request, thread, message_override, message_override_always,
+                     binding_diagnostics, binding_diagnostics_truncated)
         self._signal()
 
     def _offer(self, build: Callable[[], dict[str, object]]) -> None:
@@ -303,6 +307,9 @@ class ExceptionStore:
         request: RequestInfo | None,
         thread: str | None,
         message_override: str | None,
+        message_override_always: bool,
+        binding_diagnostics: list[dict[str, object]] | None,
+        binding_diagnostics_truncated: bool,
     ) -> None:
         leaves = exception_leaves(exc)
         exc, extra = (leaves[0], leaves[1:]) if leaves else (exc, [])
@@ -315,13 +322,13 @@ class ExceptionStore:
             causes.append(
                 {
                     "exceptionClassName": class_name(type(cause)),
-                    "message": self._text(cause),
+                    "message": None if message_override_always else self._text(cause),
                     "frames": cause_frames,
                     "commonFrames": _common(cause_frames, frames),
                 }
             )
-        message = self._text(exc)
-        if message is None and message_override and not is_database_exception(exc):
+        message = None if message_override_always else self._text(exc)
+        if message_override and (message_override_always or message is None) and not is_database_exception(exc):
             message = self._message(message_override)
         key = fingerprint(exc, walked)
         chosen = _chosen(walked)
@@ -338,6 +345,8 @@ class ExceptionStore:
             "source": source,
             "traceId": request.id if request else None,
             "requestId": request.id if request else None,
+            "bindingDiagnostics": binding_diagnostics or [],
+            "bindingDiagnosticsTruncated": binding_diagnostics_truncated,
         }
         gid = hashlib.sha256(key.encode()).hexdigest()[:16]
         with _guarded(self._lock):
@@ -412,6 +421,8 @@ class ExceptionStore:
                     "thread": o["thread"],
                     "handler": o["handler"],
                     "source": o["source"],
+                    "bindingDiagnostics": o["bindingDiagnostics"],
+                    "bindingDiagnosticsTruncated": o["bindingDiagnosticsTruncated"],
                 }
                 for g in self._groups.values()
                 for o in g.occurrences

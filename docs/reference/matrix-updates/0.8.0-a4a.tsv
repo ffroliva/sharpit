@@ -1,0 +1,3 @@
+binding-diagnostics	adapted	FastAPI extracts only Pydantic type/loc values in the adapter and redacts unknown path segments at capture time because route metadata and exposure are adapter-specific; BootUI SpringBindingDiagnosticsExtractor and ExceptionStore
+binding-error-type	adapted	Unknown Pydantic custom error types become Invalid below FULL because validator-defined reason strings are untrusted; BootUI SpringBindingDiagnosticsExtractorTests
+validation-message	adapted	Every exposure stores only the validation error count because Pydantic's rendered exception includes input, msg, and ctx; BootUI 52ae2b63f

@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, StreamingRespon
 
 from conftest import SideEffectGuard
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from sharpit import install
 from sharpit.engine.capture.exceptions import GROUP_KEYS, ExceptionStore
 from sharpit.fastapi.adapter import SharpitHandle
@@ -246,7 +247,7 @@ def test_custom_404_handler_unwrapped():
         assert _groups(client) == []
 
 
-def test_http_exception_handler_unwrapped():
+def test_http_exception_handler_unwrapped_and_validation_handler_captures():
     app = FastAPI()
     before = dict(app.exception_handlers)
 
@@ -259,11 +260,12 @@ def test_http_exception_handler_unwrapped():
         return n
 
     _install(app)
-    assert all(app.exception_handlers[k] is v for k, v in before.items())  # HTTPException, validation errors
+    assert all(app.exception_handlers[k] is v for k, v in before.items() if k is not RequestValidationError)
+    assert app.exception_handlers[RequestValidationError] is not before[RequestValidationError]
     with _client(app) as client:
         assert client.get("/teapot").status_code == 418
         assert client.get("/invalid?n=x").status_code == 422
-        assert _groups(client) == []
+        assert len(_groups(client)) == 1
 
 
 def test_cancelled_error_never_recorded():
@@ -365,7 +367,10 @@ def test_shape_keys_match_bootui():
     assert tuple(detail["frames"][0]) == ("declaringClass", "methodName", "fileName", "lineNumber", "applicationFrame")
     assert tuple(detail["occurrences"][0]) == (
         "timestamp", "thread", "requestMethod", "requestPath", "handler", "source", "traceId", "requestId",
+        "bindingDiagnostics", "bindingDiagnosticsTruncated",
     )  # fmt: skip
+    assert detail["occurrences"][0]["bindingDiagnostics"] == []
+    assert detail["occurrences"][0]["bindingDiagnosticsTruncated"] is False
     assert detail["occurrences"][0]["requestId"] == detail["occurrences"][0]["traceId"]
 
 
