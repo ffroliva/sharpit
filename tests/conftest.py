@@ -209,16 +209,26 @@ def get_paths() -> list[str]:
 def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
     """Every file and directory under root as path -> (mtime_ns, size); directories map to None."""
     snap: dict[str, tuple[int, int] | None] = {}
-    for base, dirs, files in os.walk(root):
+    pending = [str(root)]
+    while pending:
+        base = pending.pop()
         # pytest-cache-files-*: pytest's own atomic staging dir, which another xdist worker's cache writer may create in
         # the shared cwd mid-test; only that prefix is skipped, never a write the code under test makes
         staging = base == str(root)  # top level only: where pytest stages its cache next to the rootdir
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not (staging and d.startswith("pytest-cache-files-"))]
-        for name in dirs:
-            snap[os.path.join(base, name)] = None
-        for name in files:
-            st = os.stat(os.path.join(base, name))
-            snap[os.path.join(base, name)] = (st.st_mtime_ns, st.st_size)
+        try:
+            entries = list(os.scandir(base))
+        except OSError:  # a missing root or a directory removed mid-walk: os.walk skipped it too
+            continue
+        for entry in entries:
+            if entry.is_dir():
+                if entry.name in _SKIP_DIRS or (staging and entry.name.startswith("pytest-cache-files-")):
+                    continue
+                snap[entry.path] = None
+                if not entry.is_symlink():  # os.walk lists a symlinked directory but does not descend
+                    pending.append(entry.path)
+            else:
+                st = entry.stat()  # the listing already carries the stat on Windows: no syscall per file
+                snap[entry.path] = (st.st_mtime_ns, st.st_size)
     return snap
 
 
