@@ -665,6 +665,37 @@ final class LiveRule extends AbstractRestApiRule {
     assert "RAPI-ERR-007" not in capture_bootui._collect_java_retired_rules(str(tmp_path))
 
 
+def test_capture_marks_guarded_rest_retirement_as_retired(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    source = tmp_path / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """package io.github.jdubois.bootui.engine.restapi;
+final class DeprecatedEndpointsRule extends AbstractRestApiRule {
+    DeprecatedEndpointsRule() {
+        super(new RestApiRuleDefinition(
+            "RAPI-DOC-003", "Signal endpoint deprecation", RestApiCategory.ERROR_HANDLING, "INFO",
+            "Retired heuristic: framework evidence cannot infer all documentation.",
+            "Review generated docs.", RestApiRuleHelp.DEPRECATION_DOCS));
+    }
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().openApiKnown())
+            return missingEvidence(context, "Required framework evidence could not be read.");
+        return RestApiRuleSupport.skipped(
+            definition(), "Retired heuristic: explicit annotations do not prove missing signals.");
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    assert capture_bootui._collect_java_retired_rules(str(tmp_path)).get("RAPI-DOC-003") == (
+        "Retired heuristic: explicit annotations do not prove missing signals."
+    )
+
+
 def test_capture_routes_records_starter_mappings_count_and_excludes_inherited_from_gaps(tmp_path: Path) -> None:
     from scripts import capture_bootui
 
