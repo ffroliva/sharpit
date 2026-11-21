@@ -1,0 +1,4 @@
+pentesting:transport	adapted	Use in-process ASGI for BootUI's fixed loopback GET then OPTIONS probes to preserve the no-socket boundary; listener-added headers and TLS are unobservable and dependent results are incomplete.
+pentesting:deadline	adapted	Apply a deadline to cooperative asynchronous host calls; a synchronous host callable blocking the event loop cannot be interrupted in-process and is reported as a transport limitation.
+pentesting:trusted-host	adapted	Send BootUI's literal loopback Host; a host TrustedHost rejection is incomplete evidence rather than a scan of its 400 error page.
+pentesting:body-evidence	adapted	Do not expose raw body, exception text, or unsafe response header values; retain only bounded sanitized evidence to preserve sharpit's masking boundary.

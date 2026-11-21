@@ -4,45 +4,48 @@
 
 | Dimension | Coverage |
 |---|---|
-| D1 Safe mode fails closed | Active: the new POST action must be unreachable while sharpit is inactive. |
-| D2 Activation and access guard | Active: scan must follow the existing guard order and panel read-only rules. |
-| D3 Secret masking | Active: host response headers and error bodies may contain credentials or implementation details. |
-| D4 BootUI contract parity | Active: report DTO, rule order, IDs, severity, and evidence must match v2.5.0 within the documented transport adaptation. |
-| D5 Framework introspection drift | Active: ASGI scope, middleware, and response handling vary by Starlette/FastAPI version; test supported floor and current dependency. |
-| D6 No side effects on GET or MCP | Active: report GET must not invoke host handlers or probes; there is no MCP scan tool unless BootUI has one. |
-| D7 OSV/EPSS network failures | Skipped: A10 does not use the vulnerability service or OSV/EPSS. |
-| D8 Host-app integration | Active: middleware, root path, lifespan, and mounted route interactions affect an in-process ASGI request. |
-| D9 Scale and limits | Active: response body/header retention and the probe deadline must remain bounded on large or slow host responses. |
-| D10 MCP and CLI parity | Active: CLI exposure is only in scope if BootUI's catalogue exposes this action; MCP is read-only by default and must not gain a scan action without a BootUI counterpart. |
+| D1 Safe mode fails closed | Active: scan POST must be unreachable while sharpit is inactive. |
+| D2 Activation and access guard | Active: preserve guard order, enabled panel, and read-only refusal. |
+| D3 Secret masking | Active: host response headers and error bodies may contain credentials. |
+| D4 BootUI contract parity | Active: preserve report DTO, rule order, IDs, severities, and evidence within the documented transport adaptation. |
+| D5 Framework drift | Active: ASGI scope, middleware, and response behavior vary across supported versions. |
+| D6 Read purity | Active: report GET never invokes the host or probe. MCP reads share this property. |
+| D7 OSV/EPSS failures | Skipped: this lane does not use vulnerability feeds. |
+| D8 Host integration | Active: middleware, root path, and mounted route interactions affect the synthetic request. |
+| D9 Scale and limits | Active: response retention and cooperative async deadline are bounded. A synchronous host callable that blocks the event loop cannot be interrupted in-process; report this limit and do not claim a hard deadline. |
+| D10 MCP and CLI parity | Active: BootUI exposes `get_pentest_report` and `pentest_scan` through MCP and `pentest report` and `pentest scan` through CLI. Port these with the normal gates. |
 
 ## Worst-case trace (input, file:line steps, what it found or why a finding was withdrawn)
 
-**Input:** a local client sends `POST /sharpit/api/pentesting/scan` while the host app has broad CORS and an exception handler that returns a large body containing a credential.
+**Input:** a scan POST runs against a host that emits a listener-only `Server` header, rejects the synthetic Host, then blocks synchronously on another request.
 
-1. `src/sharpit/fastapi/adapter.py:61-75` defines `SharpitMount`, which preserves ownership of the mount path; `adapter.py:249` constructs the mount. The host catch-all cannot take ownership of a path routed inside that mount.
-2. `src/sharpit/fastapi/routes/__init__.py:682` assembles the current route set. It has no pentesting route, so the proposed POST currently reaches the active sub-app's 404 path (`adapter.py:226-231`); there is no scan, host invocation, or disclosure today.
-3. For a future endpoint, `GuardMiddleware` is declared at `adapter.py:96` and its decision path must be followed before dispatch. The route must also use the existing panel gate/action pattern; current implementation cannot be traced because the feature does not exist.
-4. Pinned BootUI v2.5.0 `PentestingScanner.java` builds a fixed synthetic path, sends GET with `Accept: text/html`, and sends OPTIONS with a fixed CORS preflight; it runs both only from `scan()` under `SingleFlightAction`. Its source says the action sends two requests. This contradicts the prediction's one-GET summary. Do not claim parity or implement probe count until the council resolves this against the source and its tests.
-5. BootUI `PentestingChecks.java` turns failed/truncated observations into incomplete evidence; verbose error checks inspect markers in a bounded body. Returning the host's body or exception text would make a credential-containing failure leak, so sharpit output must contain only bounded sanitized evidence and must report truncation/failure as incomplete.
+1. `src/sharpit/fastapi/adapter.py:96` installs the guard middleware; `src/sharpit/fastapi/routes/__init__.py:702` composes the current routes. No pentesting route exists yet, so current behavior remains the mount's 404 (`adapter.py:226-231`).
+2. BootUI `PentestingScanner.java` at v2.5.0 builds the fixed missing-resource path and sends GET then OPTIONS. GET uses `Accept: text/html`; OPTIONS uses `Origin: https://evil.example` and `Access-Control-Request-Method: GET` (`bootui-engine/.../PentestingScanner.java:40-45,151-171`). Its test asserts the two methods in order (`PentestingScannerTests.java:562-563`). The one-GET description is incorrect.
+3. The in-process ASGI call bypasses Uvicorn's response layer. Uvicorn adds `Server` when configured (`uvicorn/config.py:499`); BootUI's PT-A05-011 checks `Server` and `X-Powered-By` (`PentestingChecks.java:860-906`). Missing listener-only headers therefore mean unobserved evidence, not a clean result.
+4. Starlette `TrustedHostMiddleware` returns `400 Invalid host header` when the synthetic Host is not allowed (`starlette/middleware/trustedhost.py:42-47`). Treat this response as incomplete evidence before evaluating missing-header rules.
+5. `src/sharpit/engine/singleflight.py:61-75` keeps a flight until caller and workers finish. Async cancellation can release only cooperative work. A synchronous callable blocking the event loop prevents timeout delivery; the in-process guarantee must state this limitation and must not promise that such code is stopped.
 
-**Finding:** no current sharpit behavior is being withdrawn; the endpoint does not exist. The real pre-implementation gap is the predicted probe count versus BootUI's GET+OPTIONS contract. Record the resolution as a condition before code; preserve fail-closed and output-masking gates either way.
+**Finding:** the design needs the BootUI two-request contract, incomplete results for evidence the ASGI layer cannot observe, explicit Host rejection handling, and a cooperative-only deadline statement. No current behavior is withdrawn because the endpoint is not implemented.
 
 ## Scenario table
 
 | # | Dimension | Scenario | Severity | Expected behaviour | Test |
 |---|---|---|---|---|---|
-| 1 | D1 | Inactive sharpit receives scan POST | Critical | Every path under the mount remains 404; no app probe runs. | Integration |
-| 2 | D2 | Scan POST targets a disabled or read-only pentesting panel | Critical | Existing panel gate returns the contract denial; no host request runs. | Integration |
-| 3 | D2 | Cross-site request or rejected Host reaches scan POST | Critical | Guard rejects in existing order before action execution. | Integration |
-| 4 | D3 | Synthetic response includes `Authorization`, `Set-Cookie`, secret text, and a stack trace | Critical | Output omits raw body, exception text, and unsafe header values; findings retain only sanitized rule evidence. | Unit |
-| 5 | D4 | Report serialization includes null DTO fields and stable rule order | High | Every contract key is present, camelCase, and findings preserve BootUI IDs/order/severity. | Golden |
-| 6 | D5/D8 | Host has `root_path`, middleware, and lifespan; synthetic request is invoked | High | ASGI scope and middleware behavior are explicit; unsupported lifespan/stream behavior is incomplete, not a clean pass or host crash. | Integration |
-| 7 | D6 | GET report is requested before and after scan | Critical | GET does not invoke host app, probe runner, socket, filesystem, logger mutation, or environ mutation. | Integration |
-| 8 | D8 | Host GET handler raises and host middleware raises | High | Scan reports an incomplete probe and remains usable; host application continues serving requests. | Integration |
-| 9 | D9 | Host returns oversized headers/body or stalls past deadline | High | Retention and elapsed time are bounded; truncation/timeout is explicit incomplete evidence. | Unit |
-| 10 | D10 | CLI or MCP requests scan action | High | CLI is added only if BootUI has the corresponding tool; MCP stays without scan action unless BootUI exposes it. | Unit |
-| 11 | D2/D9 | Two scan actions overlap; first raises during probe | High | Second gets the existing busy response; lock releases after failure and a later scan succeeds. | Integration |
-| 12 | D4 | A BootUI rule includes raw server/version disclosure in evidence | High | Rule preserves ID and severity while evidence is sanitized and bounded. | Golden |
+| 1 | D1 | Inactive sharpit receives scan POST | Critical | All mount paths return 404; no probe runs. | Integration |
+| 2 | D2 | Scan targets disabled or read-only panel | Critical | Existing panel denial; no host invocation. | Integration |
+| 3 | D2 | Cross-site request or rejected Host reaches scan | Critical | Guard rejects before action. | Integration |
+| 4 | D3 | Probe response contains secrets and stack text | Critical | Raw values and exception text never leave the probe. | Unit |
+| 5 | D4 | Report includes null DTO fields and stable rule order | High | Complete camelCase contract and BootUI order/IDs/severities. | Golden |
+| 6 | D5/D8 | Probe runs with root path and host middleware | High | Explicit ASGI scope; unsupported behavior is incomplete. | Integration |
+| 7 | D6 | Report GET before and after scan | Critical | No host invocation, probe, socket, filesystem, logger, or environ side effect. | Integration |
+| 8 | D6/D8 | Explicit scan invokes host middleware | Medium | One GET and one OPTIONS may produce host-side access logs, telemetry, metrics, or cookies as ordinary host request effects; only the explicit gated action permits them. | Integration |
+| 9 | D8 | Host raises or returns a TrustedHost 400 | High | Report incomplete evidence; no false header findings; host remains usable. | Integration |
+| 10 | D9 | Oversized body/header or cooperative async handler exceeds deadline | High | Apply BootUI bounds and report truncation/timeout as incomplete. Synchronous event-loop blocking remains an explicit transport limit. | Unit |
+| 11 | D10 | MCP and CLI report/scan requests | High | Catalog matches BootUI; reads are passive; actions require enablement, guard, panel, read-only, and single-flight gates. | Integration |
+| 12 | D2/D9 | Scans overlap or a probe fails | High | Concurrent action receives busy response; failed cooperative probe releases the flight. | Integration |
+| 13 | D4 | Listener-only disclosure header is absent in ASGI | High | Report the dependent result as incomplete, never as a clean pass. | Integration |
+| 14 | D4 | Check registry order is changed | Medium | Independent assertion catches order drift. | Unit |
+| 15 | D4 | Report content is dismissed | Medium | PT rule ownership and cached/initial/scanned dismissal application match advisor behavior. | Integration |
 
 ## Must-cover before merge (Critical + High): one pytest name per row
 
@@ -51,21 +54,20 @@
 - `test_pentesting_scan_is_rejected_by_guard_before_probe`
 - `test_findings_never_echo_response_secrets_or_exception_text`
 - `test_pentesting_report_golden_has_complete_dto_and_bootui_order`
-- `test_asgi_probe_scope_handles_root_path_and_unsupported_lifespan_as_incomplete`
+- `test_asgi_probe_scope_handles_root_path_and_unsupported_response_as_incomplete`
 - `test_pentesting_report_get_does_not_invoke_host_or_probe`
-- `test_host_probe_exceptions_become_incomplete_evidence`
-- `test_probe_response_and_deadline_limits_report_incomplete_evidence`
-- `test_scan_action_catalogue_matches_bootui_without_read_only_mcp_action`
+- `test_explicit_scan_invokes_only_the_two_expected_host_requests`
+- `test_host_probe_exceptions_and_trusted_host_rejections_become_incomplete`
+- `test_probe_response_limits_and_cooperative_deadline_report_incomplete_evidence`
+- `test_listener_only_headers_are_incomplete_not_clean`
+- `test_pentesting_mcp_and_cli_actions_match_bootui_gates`
 - `test_pentesting_scan_singleflight_releases_after_probe_failure`
-- `test_server_disclosure_evidence_is_sanitized_and_bounded`
-
-These names are acceptance criteria; task decomposition may combine tests only when one assertion still names each behavior.
 
 ## Deferred (Medium + Low): file as issues
 
-- Cosmetic differences in how a browser renders the report: UI is not specified by A10's prediction; defer unless the 2.5.0 contract requires a new surface.
-- Large-scale route metadata limits beyond the fixed synthetic request: A10 does not enumerate routes; do not broaden scope into the general security advisor.
+- Browser presentation details beyond the report contract.
+- Route inventory or broad security-advisor checks outside the fixed synthetic request.
 
 ## Known-issues cross-reference
 
-No A10 known-issue entry exists in the checked-in known-issues registry. Resolve the GET+OPTIONS versus one-GET mismatch in the A10 council before implementation. The prediction's `A10-transport` and `A10-body` deviations are proposed, not yet accepted; if retained, record them in the A10 matrix fragment and spec §14.
+No A10 known-issue entry exists in the checked-in registry. The in-process ASGI transport cannot observe headers added below the application by a server listener and cannot interrupt synchronous host code that blocks the event loop. These limits are explicit in the report and deviation matrix.
