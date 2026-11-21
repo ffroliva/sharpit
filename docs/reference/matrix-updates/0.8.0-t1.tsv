@@ -1,0 +1,1 @@
+advisor:HTTP-SEC-001	n-a	Sharpit-only pytest HTTP security observer; BootUI 2.5.0 has no equivalent per-test observation or configured response-header expectation contract.

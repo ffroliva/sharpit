@@ -434,6 +434,8 @@ If `identity.key` was already committed, remove it from Git manually; `.gitignor
 | BootUI's MCP unavailable-tool error carries `data` {tool, panel, reason} (`McpDispatcher.unavailableTool`) | sharpit's answers the same code and message ("Tool not available in this application: <tool>. Its <Panel> panel is unavailable: <reason>") with no `data` member: sharpit's `RpcError` has no data field. Known gap of the W6 floor | W6-S2, 2026-11-11: adding `data` touches every protocol error path; the message already names tool, panel and reason |
 | `SqlTraceEntryDto.requestPhase` is `FILTERS`, `HANDLER`, `RESPONSE` or null (request phases from `RequestPhases`) | sharpit records no request phase (null inside a request), and labels a statement run outside a request `STARTUP` or `SHUTDOWN` while sharpit's lifespan wrapper observes the host's lifespan starting up or shutting down; with no observed lifespan, or after startup, it stays null (unknown) | ruling (h), W9 task 4: startup SQL is the one place sharpit can say where a statement ran without request phases; a label without an observed lifespan would be a guess |
 
+| BootUI HTTP exchange recording | opt-in pytest observation of existing in-process test requests with explicit response expectations | BootUI has no per-test observer or configured endpoint expectation contract; no synthetic requests, raw values, bodies or inferred authorization policy |
+
 ## 15. Coordinator's calls (owner to check)
 
 1. "REA" = REA tool for runtime evidence + Replica for process.
