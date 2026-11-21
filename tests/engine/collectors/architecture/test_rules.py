@@ -34,6 +34,18 @@ def test_rule_packages_free_of_cycles(tmp_path: Path) -> None:
     assert len(findings.get("ARCH-PKG-001", [])) >= 1
 
 
+def test_package_cycle_roots_keep_shared_multisegment_prefix(tmp_path: Path) -> None:
+    # ported: ArchitectureRulesTests.packageCyclesDetectCrossRootCyclesAcrossSharedMultiSegmentPrefixAndNeverCollapseSingleSegmentPrefix
+    pkg = tmp_path / "com" / "acme"
+    _write(pkg / "inventory" / "__init__.py", "import com.acme.order\n")
+    _write(pkg / "order" / "__init__.py", "import com.acme.inventory\n")
+    index = appsource.build_index(pkg.parent, thread=False)
+
+    findings = evaluate_rules(index, build_graph(index, "com"))
+
+    assert len(findings.get("ARCH-PKG-001", [])) == 1
+
+
 # ported: ArchitectureRulesTests.internalPackagesShouldNotBeAccessedFromOtherModules
 def test_rule_internal_packages(tmp_path: Path) -> None:
     pkg = tmp_path / "app_internal"
