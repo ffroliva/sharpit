@@ -29,10 +29,10 @@ def _table(name: str, *columns: dict[str, Any], pk: tuple[str, ...] = ("id",), f
             "primaryKey": list(pk), "foreignKeys": list(fks), "indexes": list(indexes)}  # fmt: skip
 
 
-def _source(*tables: dict[str, Any], status: str = "AVAILABLE") -> Source:
-    catalog = {"dialect": "sqlite", "tables": list(tables), "tableCount": len(tables), "truncated": False,
+def _source(*tables: dict[str, Any], status: str = "AVAILABLE", dialect: str = "sqlite") -> Source:
+    catalog = {"dialect": dialect, "tables": list(tables), "tableCount": len(tables), "truncated": False,
                "complete": True, "diagnostics": [], "server": {}}  # fmt: skip
-    return Source("db", "sqlite", "pysqlite", status, None, catalog if status != "FAILED" else {})
+    return Source("db", dialect, "driver", status, None, catalog if status != "FAILED" else {})
 
 
 def _check(rule_id: str, source: Source) -> Outcome:
@@ -116,6 +116,19 @@ def test_foreign_key_type_mismatch_uses_the_referenced_column() -> None:
     child = _table("lines", _column("id"), _column("order_code", "VARCHAR(10)"), fks=(fk,))
 
     assert _targets(_check("DB-SCHEMA-004", _source(PARENT, child))) == ["db/lines.order_code"]
+
+
+def test_postgresql_serial_aliases_match_their_integer_types():
+    # ported: DatabaseAdvisorSchemaRulesTests.postgresSerialTypesAndUnboundedSentinelsAreComparedAccurately
+    parent = _table("orders", _column("id", "INTEGER"))
+    child = _table(
+        "lines",
+        _column("order_id", "SERIAL"),
+        pk=(),
+        fks=(_fk("fk_order", ["order_id"], "orders", ["id"]),),
+    )
+
+    assert _targets(_check("DB-SCHEMA-004", _source(parent, child, dialect="postgresql"))) == []
 
 
 def test_identical_declarations_are_not_a_type_mismatch() -> None:
