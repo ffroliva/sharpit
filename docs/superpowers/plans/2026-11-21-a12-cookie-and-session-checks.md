@@ -6,337 +6,483 @@
 **Goal:** Replace the pending cookie and session entries of the A10 pentesting scan with the nine BootUI v2.5.0 cookie
 checks, reporting cookie names and flags only and never cookie values.
 
-**Architecture:** A10's bounded GET response is the only cookie source; no request is added. The probe adapter hands
-each raw `Set-Cookie` text to a framework-free parser in the pentesting engine package at capture time. The parser
-returns a value-free `CookieObservation`, and the raw text is dropped, so `SyntheticResponse` never holds a cookie
-value. Seven checks evaluate those observations (and `Cache-Control` for PT-A02-008). Two metadata checks evaluate
-`SessionMiddleware` facts that the scan action reads statically from the existing security facts. Report order,
-DTOs, dismissals and the action gates are A10's and do not change.
+**Architecture:** A10's bounded GET response is the only cookie source; no request is added. Lane A11 (merged first)
+supplies the bounded-header function, per-name completeness, the assessment helpers and the masked-evidence callable;
+this lane reuses them and adds none of its own. The probe passes the bounded headers through one framework-free split
+that turns each raw `Set-Cookie` text into a value-free `CookieObservation` and removes `set-cookie` from the header map,
+so `SyntheticResponse` never holds a cookie value. Seven checks evaluate those observations (and `Cache-Control` for
+PT-A02-008). Two metadata checks evaluate `SessionMiddleware` facts that the scan action reads statically through one
+shared reader, which lane A13 also uses. Report order, DTOs, dismissals and the action gates are A10's and do not change.
 
 **Predict verdict:** GO WITH CONDITIONS, 7/10. Conditions folded in: values stripped at collection time, per-surface
-planted-value tests, observed evidence kept distinct from configuration evidence, failure and truncation kept
-indeterminate, no new request, no cookie decoder.
-
-**Review gate:** Complete the required high-tier review of this plan and record its disposition before Task 1. The
-gate covers the value boundary, the name-label policy, per-name header incompleteness, and the metadata-check
-adaptation to `SessionMiddleware`.
+planted-value tests in every exposure, observed evidence kept distinct from configuration evidence, failure and
+truncation kept indeterminate, no new request, no cookie decoder.
 
 ## Review disposition
 
-- Pending: to be recorded before implementation begins.
+Plan review on 2026-11-21: approved with eight changes, all folded into this revision.
+
+| Change | Where |
+|---|---|
+| Merge order A10, A11, A12; reuse A11's completeness and header helpers instead of adding copies | Merge order; Tasks 3-4 |
+| PT-A02-007 and PT-A02-008 are active, HTTP-derived checks; the nine-check scope stands | Scenario, Scope |
+| `CookieObservation` keeps no attribute value (closed `SameSite` enum, `path_is_root`) | Interfaces; Task 1 |
+| Secret check on the full name before the 80-character shortening; padded-base64 residual pinned | Task 1-2 |
+| PT-A02-008 evidence rebuilt from parsed directives, never the raw `Cache-Control` text | Task 9-10 |
+| BootUI's gap wording, no new limitation text | Tasks 9-10, 12 |
+| Capture-middleware surface and an assertion that A12's limitation strings survive the 20-entry cut | Task 13 |
+| Per-group check tasks, split surface tasks; Flask recorded as a deviation note | Task list; deviation rows |
+
+Verified before writing (BootUI at tag `v2.5.0`, `bootui-engine/.../engine/pentesting/`; `Checks` is
+`PentestingChecks.java`, `Support` is `PentestingCheckSupport.java`, `Assessment` is `PentestingAssessment.java`,
+`Registry` is `PentestingCheckRegistry.java`):
+
+- `Registry.java:61-62` registers `CookiePrefixRequirementsCheck` and `CacheableSetCookieCheck` as active; both are
+  `HTTP_SYNTHETIC` (`Checks.java:2568-2582`, `2634-2645`). Only PT-A02-004 and PT-A02-006 are `SPRING_METADATA`
+  (`Checks.java:1671-1727`).
+- `Support.cookieName` (`:90-98`) keeps the whole first segment as the name when `=` is at index 0 or absent, so a
+  literal port puts a value in a target and evidence (`Checks.java:416, 498, 1018, 1051`).
+- `Support.boundedLabel` (`:327-333`) maps control and whitespace runs to `_` and shortens past 80 characters to 77
+  plus `...`. `sharpit.engine.masking.is_secret_value` fullmatches the stripped text (`masking.py:92`): a 152-character
+  JWT-shaped name is secret, its 77-character cut with `...` is not (run with `uv run python -c`).
+- `Checks.java:2668, 2678, 2693` put the joined raw `Cache-Control` text into PT-A02-008 evidence; A10's module
+  invariant (`checks.py:3-4`) is that header values are never echoed.
+- `Assessment.java:59-65` is `retainedHeaders` with the gap `<METHOD> required response headers were incomplete.`;
+  `Assessment.java:85-91` is `cookies`, which drops deletion cookies; `Assessment.java:41-44` is the configuration gap
+  `Framework configuration evidence was incomplete.`
+- Starlette 1.10.0 `middleware/sessions.py`: `https_only: bool = False` (`:25`) adds `secure` only when truthy
+  (`:34-36`); the value is `b64encode(json)` of signed session data (`:70`); a clear writes the value `null` with a 1970
+  `expires` (`:82-87`), which `Support.isDeletionCookie` (`:162-184`) does not treat as a deletion.
+- Flask 3.1.3 `flask/app.py:194,196`: `SESSION_COOKIE_SECURE` defaults to `False` and `SESSION_COOKIE_SAMESITE` to
+  `None`, so an explicit false cannot be told from the default. `src/sharpit/flask/` has no pentesting code.
+- Capture records pass through `masker.mask_header` (`engine/capture/exchanges.py:55-59`, `traces.py:110-116`); the
+  capture middleware is added to the host app (`fastapi/capture.py:483`), which the probe calls. `report.py:413-414`
+  keeps at most 20 limitations of 240 characters.
+- `introspector.py:878-882` writes the mount path into a limitation, so `SecurityFacts.limitations` text is never copied.
+
+## Merge order
+
+A10, then A11, then A12 (this branch is stacked on A10 and is rebased onto A11 before Task 1 while it is unpushed,
+merged in otherwise), then A13. A11 adds `SyntheticResponse.incomplete_header_names`, `header_inventory_incomplete`,
+`headers_complete(*names)`; `headers.bound_headers` and `headers.joined`; `assessment.retained_headers` and
+`required_headers`; the evidence sanitiser and `cors.make_echo(masker)`; the required keyword-only `masker` of
+`PentestingService.scan`. This lane reuses all of them and defines no equivalent. The shared edits (the pending
+sentence in `report.py`, the A02 description, the pending-text test, `0.8.0-a10.tsv`, `PARITY.md`, spec section 14)
+are resolved by the lane that merges second, which edits only its own words.
 
 ## Global Constraints
 
 - Reads have no side effects; no GET route and no read MCP or CLI tool opens a socket, writes a file, changes a logger
-  level, changes `os.environ`, invokes the host application, or reads middleware facts to build a result.
-- Actions follow BootUI: the checks run only inside the existing scan action, behind its gates (enabled console,
-  guard chain, enabled panel, panel not read-only, MCP or CLI enabled, single-flight).
-- Secrets are masked before output; a cookie value, a raw `Set-Cookie` line, an attribute value and secret-key
-  material never appear in an observation, report, error, log, MCP result, CLI output or persisted file.
-- Python `>=3.12`; runtime dependencies exactly `starlette` and `packaging`; the engine imports no Starlette or
-  FastAPI; no new module under `src/` exceeds 1000 lines; ratchets only go down.
+  level, changes `os.environ`, invokes the host application, or reads security facts.
+- Actions follow BootUI: the checks run only inside the existing scan action, behind its gates (enabled console, guard
+  chain, enabled panel, panel not read-only, MCP or CLI enabled, single-flight).
+- A cookie value, a raw `Set-Cookie` line, an attribute value, a raw `Cache-Control` text and a `SecurityFacts.limitations`
+  text never appear in an observation, report, error, log, MCP result, CLI output or persisted file. A cookie name and a
+  mount path are the only host-chosen text reaching evidence, and each passes through A11's `echo` before the 240-character
+  cut; fixed BootUI text is never masked.
+- Python `>=3.12`; runtime dependencies exactly `starlette` and `packaging`; the engine imports no Starlette or FastAPI;
+  no module under `src/` exceeds 1000 lines; ruff C901 counts only go down.
 - Every ported test cites its BootUI source with `# ported: <Class>.<method>`.
-- Every test command is targeted: `uv run pytest -q -n 4 <files>`. The full suite is not run locally.
-- Before every `test:` commit: `uv run python scripts/dev/red_check.py <node ids>`; the red is an assertion, never an
-  import or collection error.
+- Every test command is targeted: `uv run pytest -q -n 4 <files>`; `export UV_LINK_MODE=copy`. The full suite is not run
+  locally.
+- **Red first, wrong-value stubs.** Before every `test:` commit run `uv run python scripts/dev/red_check.py <node ids>`;
+  the red is an assertion, never an import, collection or `TypeError`. A stub returns the wrong state in both
+  directions: it fires where the test expects silence and is wrong where the test expects a finding, so a `[]` stub is
+  not allowed. Every absence assertion is paired with the presence assertion of the finding or label it would appear in.
+- Value-boundary and exposure tests use the real `Masker` in `MASKED`, `METADATA_ONLY` and `FULL`, with run-time
+  canaries (`uuid4`).
 
 ## Risk register
 
 | Severity | Risk | Mitigation |
 |---|---|---|
-| Critical | A cookie value reaches output through a name label (`<value>; Secure`, `=<value>`) | Names are RFC 6265 tokens only; anything else is `(unnamed)`; tests 2-3 of the scenario. |
-| Critical | Raw values stay on `SyntheticResponse` or in its `repr` | The probe routes `Set-Cookie` through the parser; `headers` never holds `set-cookie`; repr test. |
-| Critical | Parser failure text contains input | Parser is total and raises nothing; the probe's generic failure text is unchanged. |
-| High | A dropped over-long cookie reads as "no cookie" | Per-name incompleteness on the response; cookie result PARTIAL with a limitation; the dropped cookie is not named. |
-| High | Configuration evidence is mistaken for observed cookies | Separate evidence objects, targets name the middleware option, coverage text distinguishes them. |
-| High | Starlette default `https_only=False` flagged as "explicitly false" | Only a keyword passed as `False` sets the new fact; default and absent options stay silent. |
-| Medium | Merge conflicts with the CORS lane in `report.py` and the matrix | Edit only the cookie words of shared sentences; own matrix file. |
+| Critical | A cookie value reaches output through a name (`<value>; Secure`, `=<value>`, a JWT-shaped long name) | `(unnamed)` for a first segment without `=` at index above 0; secret check on the full name before shortening; echo on output; surface tests in three exposures. |
+| Critical | Raw values stay on `SyntheticResponse` or in its `repr` | `split_cookies` removes `set-cookie`; observation holds no text beyond the label; repr test. |
+| Critical | PT-A02-008 evidence echoes `Cache-Control` text | Evidence rebuilt from a closed directive vocabulary; `x-token=<canary>` test. |
+| Critical | `SameSite=`, `Path=` or extension values retained | Closed `SameSite` enum and `path_is_root`; canary test over `repr`. |
+| Critical | A mount path or facts limitation text reaches the report | Mount path through `echo`; limitation text never copied; fixed BootUI gap. |
+| High | A dropped over-long cookie reads as "no cookie" | A11's per-name incompleteness; BootUI gap string; the dropped cookie is never named. |
+| High | Configuration evidence is mistaken for observed cookies | Separate evidence, targets name the middleware option, coverage text distinguishes them. |
+| High | Starlette's default `https_only=False` flagged as explicit | Only a keyword passed as `False` sets the new fact. |
+| High | A12's limitation strings are cut by the 20-entry limit | Worst-case set test that asserts each A12 string survives. |
+| Medium | Facts read twice per scan (A12 and A13) | One shared reader; call-count test. |
 
 ## File map
 
-- `src/sharpit/engine/collectors/pentesting/cookie_observation.py` (new): `CookieObservation`, `parse_set_cookie`.
-- `src/sharpit/engine/collectors/pentesting/cookie_checks.py` (new): the seven observed checks, the two metadata
-  checks, `SessionEvidence`, `session_evidence(facts)`.
-- `src/sharpit/engine/collectors/pentesting/evidence.py`: `cookies`, `incomplete_headers`, `inventory_incomplete`,
-  `headers_complete(*names)` on `SyntheticResponse` (defaults keep A10 constructors valid).
-- `src/sharpit/fastapi/pentesting_probe.py`: capture-time routing of `Set-Cookie` and per-name incompleteness.
-- `src/sharpit/fastapi/introspection_security.py`: one new fact name in `_session_flags`.
-- `src/sharpit/fastapi/routes/pentesting.py`, `engine/collectors/pentesting/service.py`, `report.py`: session evidence
-  into the scan, cookie findings into the report, text and coverage updates.
+- `src/sharpit/engine/collectors/pentesting/cookie_observation.py` (new): `SameSite`, `CookieObservation`,
+  `parse_set_cookie`, `split_cookies`.
+- `src/sharpit/engine/collectors/pentesting/cookie_checks.py` (new): the seven observed checks, `observed`.
+- `src/sharpit/engine/collectors/pentesting/cache_control.py` (new): `parse_cache_control`, `directive_summary`; reuses
+  `checks._split_outside_quotes` (already the port of `splitOutsideQuotes`).
+- `src/sharpit/engine/collectors/pentesting/session_cookie.py` (new): `SessionCookieConfig`, `SessionEvidence`,
+  `session_evidence`, `configured`.
+- `src/sharpit/engine/collectors/pentesting/evidence.py`: one new field, `SyntheticResponse.cookies`.
+- `src/sharpit/engine/collectors/pentesting/report.py`, `service.py`: cookie findings and gaps in the report, the
+  `session` keyword, text and coverage updates.
+- `src/sharpit/fastapi/pentesting_probe.py`: call `split_cookies` after `bound_headers`.
+- `src/sharpit/fastapi/pentesting_exposure.py` (new here; A13 extends it): `read_security_facts(introspector) ->
+  SecurityFacts | None`, the single per-scan read, `except Exception`, `None` on failure or absence.
+- `src/sharpit/fastapi/introspection_security.py`: one new flag name in `_session_flags`.
+- `src/sharpit/fastapi/routes/pentesting.py`: read the facts once, build `SessionEvidence`, pass `session` to `scan`.
 - Tests: `tests/engine/collectors/pentesting/test_cookie_observation.py`, `test_cookie_checks.py`,
-  `test_session_cookie_config.py`; `tests/fastapi/test_pentesting_cookie_probe.py`,
-  `test_pentesting_cookie_surfaces.py`; additions to `tests/fastapi/test_introspector_security.py` and
-  `tests/engine/collectors/pentesting/test_pentesting_report.py`.
-- `tests/fixtures/bootui/2.5.0/pentesting/`: extend the BootUI rule-contract projection and the hand-derived ASGI
-  golden with cookie cases; fixtures use fake non-secret values.
-- `docs/reference/matrix-updates/0.8.0-a12.tsv`, `docs/reference/PARITY.md`, design spec §14, user docs.
+  `test_cache_control.py`, `test_session_cookie_config.py`; `tests/fastapi/test_pentesting_cookie_probe.py`,
+  `test_pentesting_cookie_surfaces.py`, `test_pentesting_cookie_hidden_surfaces.py`; additions to
+  `tests/fastapi/test_introspector_security.py` and `tests/engine/collectors/pentesting/test_pentesting_report.py`.
+- `tests/fixtures/bootui/2.5.0/pentesting/`: extend the rule-contract projection and the hand-derived ASGI golden with
+  cookie cases (fake non-secret values; the two fixtures stay separate as in A10).
+- `docs/reference/matrix-updates/0.8.0-a12.tsv`, `0.8.0-a10.tsv` (remove the `pentesting:cookie-pending` row only),
+  `docs/reference/PARITY.md`, design spec section 14, user documentation.
 
 ## Interfaces
 
 ```python
+class SameSite(StrEnum):
+    LAX = "lax"; STRICT = "strict"; NONE = "none"; OTHER = "other"   # OTHER: any other value, including bare or empty
+
 @dataclass(frozen=True)
 class CookieObservation:
-    name: str                    # safe label: RFC 6265 token <= 80 chars, "(redacted)" or "(unnamed)"
-    attributes: frozenset[str]   # lowercase names present, closed set: secure, httponly, domain, samesite, path, max-age, expires
-    same_site: str | None        # last SameSite value, lowercased; "" for a bare attribute; None when absent
-    path: str | None             # last Path value; None when absent
-    deletion: bool               # BootUI isDeletionCookie, decided before the value is dropped
+    name: str                     # BootUI label, "(unnamed)" or "(redacted)"; the only text kept from the header
+    attributes: frozenset[str]    # presence, closed set: secure, httponly, domain, samesite, path
+    same_site: SameSite | None    # last SameSite value, classified; None when absent
+    path_is_root: bool            # last Path value, trimmed, equals "/" (BootUI cookieAttributeValue)
+    deletion: bool                # Support.isDeletionCookie, decided before the text is dropped
 
-def parse_set_cookie(raw: str) -> CookieObservation: ...   # total; never raises; never retains raw
+def parse_set_cookie(raw: str) -> CookieObservation: ...      # total; never raises; retains no raw text
+def split_cookies(headers: Mapping[str, tuple[str, ...]]) -> tuple[dict[str, tuple[str, ...]], tuple[CookieObservation, ...]]
+def observed(get: SyntheticResponse, gaps: list[str], echo: Callable[[str], str]) -> list[Finding]
 ```
 
-`SyntheticResponse` gains `cookies: tuple[CookieObservation, ...] = ()`, `incomplete_headers: frozenset[str] =
-frozenset()`, `inventory_incomplete: bool = False`, and `headers_complete(*names) -> bool` (BootUI
-`headersComplete`). `scanned_report(get, options, scanned_at=None, session=None)` and `PentestingService.scan(...,
-session=None)` accept `SessionEvidence | None`; `None` means no configuration evidence was supplied (no finding, no
-limitation), which keeps A10 callers unchanged. The scan route always supplies a value.
+`SyntheticResponse.cookies: tuple[CookieObservation, ...] = ()`. Completeness is A11's: `headers_complete("set-cookie")`
+reads the names `bound_headers` recorded as dropped. `scanned_report(..., session=None)` and
+`PentestingService.scan(..., *, masker, session=None)` take `SessionEvidence | None`; `None` means no configuration
+evidence was supplied (no finding, no gap), which keeps A10 and A11 callers valid. The scan route always supplies one.
 
-## Deviation rows (written to `0.8.0-a12.tsv` in Task 10)
+## Deviation rows (written to `0.8.0-a12.tsv` in Task 14)
 
 | Key | Status | Deviation | Reason |
 |---|---|---|---|
-| `pentesting:cookie-values` | adapted | `Set-Cookie` values and raw header text are discarded at capture; only a name label and the closed attribute facts are retained; `SyntheticResponse.headers` has no `set-cookie` key | Safety model 3 |
-| `pentesting:cookie-names` | adapted | A name is shown only when it is an RFC 6265 token (at most 80 characters, BootUI's label bound) and not secret-shaped; a first segment without `=`, an empty name or a non-token is `(unnamed)`, a secret-shaped token is `(redacted)`. BootUI shows the whole first segment, which can be a value | Safety model 3 |
-| `pentesting:session-config` | adapted | PT-A02-004 and PT-A02-006 read `SessionMiddleware(https_only=..., same_site=...)` keyword options from the static security facts instead of `server.servlet.session.cookie.*`; "explicitly false" means the keyword was passed as `False` (Starlette's default is also false); IDs, titles, severities and confidence are BootUI's; target, evidence and recommendation name the middleware option instead of a Spring property; positional or unreadable options are indeterminate | Spring properties do not exist |
-| `pentesting:cookie-overlap` | adapted | The Security panel rules SEC-SESSION-002 and SEC-SESSION-004 stay as they are; the pentesting checks report separate evidence under their own IDs, as BootUI does for its Security and Pentesting panels | No duplicate claims |
-| `pentesting:cookie-pending` | resolved | The A10 row is removed in this lane's docs commit; the CORS row stays | The seven GET-derived checks are evaluated |
+| `pentesting:cookie-values` | adapted | `Set-Cookie` values and raw header text are discarded at the probe boundary; only the observation is kept and `SyntheticResponse.headers` has no `set-cookie` key | Safety model 3 (forced) |
+| `pentesting:cookie-attributes` | adapted | `SameSite` is a closed enum and `Path` a boolean; no attribute value is retained. BootUI's checks read only those classifications (`Checks.java:458-467`, `2603-2608`) | Safety model 3 (forced) |
+| `pentesting:cookie-name-unnamed` | adapted | A first segment with no `=` at index above 0 is `(unnamed)`; BootUI shows the whole segment, which can be a value | Safety model 3 (forced) |
+| `pentesting:cookie-name-redacted` | default taken, owner to confirm | A name that `is_secret_value` matches, tested on the full name before the 80-character shortening, is `(redacted)`; the engine otherwise treats names as non-secret, so this is stricter than it. Severity logic sees an INFO label | Fail closed |
+| `pentesting:cookie-name-echo` | adapted | Names and mount paths pass through A11's `echo`; under `METADATA_ONLY` they read `[masked]`; classification runs on the unmasked label | A11 rule, safety model 3 (forced) |
+| `pentesting:cookie-name-residual` | default taken, owner to confirm | A nameless padded base64 value (`dGVzdA==; Secure`) keeps the unpadded part as its label, as RFC 6265bis reads a name; pinned by a test | Not distinguishable from a name |
+| `pentesting:cache-control-evidence` | default taken, owner to confirm | PT-A02-008 evidence lists the recognised directive names (numeric arguments for `max-age`, `s-maxage`, `stale-*` only) and a count of other directives, not the raw header text | A10 invariant; masking cannot keep the text readable |
+| `pentesting:session-config` | adapted | PT-A02-004 and PT-A02-006 read `SessionMiddleware(https_only=..., same_site=...)` keyword options from the static security facts instead of `server.servlet.session.cookie.*`; "explicitly false" means the keyword was passed as `False`; target, evidence and recommendation name the middleware option; IDs, titles, severities, confidence and categories are BootUI's | Spring properties do not exist (forced) |
+| `pentesting:session-config-gap` | default taken, owner to confirm | Facts that are absent or carry any limitation record BootUI's gap `Framework configuration evidence was incomplete.` and no limitation text; counting every limitation, not only session-related ones, is the conservative default | Text may carry a mount path (text forced; count is the default) |
+| `pentesting:session-clear-cookie` | parity note | Starlette's clear writes the value `null` with a 1970 `expires`; BootUI's rule does not treat it as a deletion, so it is evaluated like any cookie | Ported faithfully |
+| `pentesting:flask-session-config` | deviation note | Not ported for Flask: `app.config` always holds `SESSION_COOKIE_SECURE` and `SESSION_COOKIE_SAMESITE` with defaults, so an explicit false is undetectable, and the Flask adapter has no pentesting scan | Python/Flask forces |
+| `pentesting:cookie-overlap` | adapted | The Security panel rules SEC-SESSION-002 and SEC-SESSION-004 stay; the pentesting checks report separate evidence under their own IDs, as BootUI's two panels do | No duplicate claims |
+| `pentesting:cookie-pending` | resolved | The A10 row is removed; the cookie words leave the pending text | The checks are evaluated |
 
-## Task 1: Freeze the cookie observation contract and the value boundary
+## Task 1: Freeze the value-free observation contract
 
 **Commit:** `test: define the value-free cookie observation contract`
 
-**Files:** `tests/engine/collectors/pentesting/test_cookie_observation.py`; stubs `cookie_observation.py` and the
-`SyntheticResponse` fields, so failures are assertions.
+**Files:** `tests/engine/collectors/pentesting/test_cookie_observation.py`; wrong-value stub `cookie_observation.py`; the
+`cookies` field of `SyntheticResponse`.
 
-**Interfaces:** Produces `CookieObservation` and `parse_set_cookie` signatures consumed by Tasks 2-6.
+**Stub:** `parse_set_cookie` is BootUI's literal `cookieName` (the whole first segment as the name, attribute presence
+by substring, no deletion), the wrong-value shape the tests rule out.
 
-- [ ] **Step 1:** Add `CookieObservation` and a `parse_set_cookie` stub that returns an observation named
-  `"(stub)"`; add the three new `SyntheticResponse` fields with defaults and `headers_complete` returning `True`.
-- [ ] **Step 2:** Write the observation tests of the scenario: `test_cookie_value_never_enters_an_observation` (value
-  canary built with `uuid4` at run time; asserts the canary is in no field and not in `repr`),
-  `test_segment_without_equals_is_unnamed_and_discarded`, `test_empty_name_is_unnamed_and_discarded`,
-  `test_extension_and_domain_attribute_values_are_not_retained`, `test_non_token_and_oversized_names_are_labelled_safely`,
-  `test_secret_shaped_name_is_redacted` (JWT and vendor-token shapes through `engine.masking.is_secret_value`),
-  `test_parser_is_total_on_malformed_input` (empty, only `;`, control characters, 1 MiB text, lone surrogates).
-- [ ] **Step 3:** Port the parsing cases. `# ported: PentestingScannerTests.cookiesUsePresenceFlagsAndLastSameSiteAttribute`
-  (`Secure=false` and `HttpOnly=false` count as present, last `SameSite` wins),
+- [ ] **Step 1:** Observation tests: `test_cookie_value_never_enters_an_observation` (canary absent from every field and
+  `repr`; the label `NAME` is present), `test_segment_without_equals_is_unnamed` (`<canary>; Secure`),
+  `test_empty_name_is_unnamed` (`=<canary>; Secure`), `test_attribute_values_are_never_retained` (`SameSite=<canary>`,
+  `Path=/<canary>`, `Domain=`, `Foo=<canary>`: canary absent from `repr`; `same_site` is `SameSite.OTHER`;
+  `path_is_root` false), `test_label_follows_bootui_bound_and_replaces_whitespace` (control and whitespace runs to `_`,
+  81 characters to 77 plus `...`), `test_secret_shaped_name_is_redacted_before_shortening` (a 152-character JWT-shaped
+  name gives `(redacted)`, not a 77-character prefix; vendor-token shapes; the shortened text of a non-secret name is
+  unchanged), `test_padded_base64_without_a_name_keeps_the_unpadded_label` (pins the residual of the deviation row),
+  `test_parser_is_total_on_malformed_input` (empty, only `;`, control characters, 1 MiB text, lone surrogates: each
+  returns the observation with name `(unnamed)`, no attributes and no deletion).
+- [ ] **Step 2:** Port the parsing cases as `test_attribute_parsing_uses_presence_whole_names_and_last_samesite` and
+  `test_deletion_cookies_are_marked_and_non_deletions_are_not` (attribute names also compare as Java
+  `equalsIgnoreCase`). `# ported: PentestingScannerTests.cookiesUsePresenceFlagsAndLastSameSiteAttribute`
+  (`Secure=false` and `HttpOnly=false` count as present; last `SameSite` wins; a bare attribute is the empty value),
   `# ported: PentestingScannerTests.cookieAttributeParsingRequiresWholeAttributeNames` (`Securely`, `HttpOnlyFlag`,
-  `SameSitePolicy=Lax`), and `# ported: PentestingScannerTests.deletionCookiesAreIgnoredWhilePrefixedAndAdditionalSessionCookieNamesAreRecognized`
-  for the deletion cases (`Max-Age=0`, `Max-Age=-1`, blank value with 1970 `Expires`; quoted `Max-Age="-1"` and
-  `Max-Age=3600` over a 1970 `Expires` are not deletions). Cite `PentestingCheckSupport.java:90-98,162-184,257-290`
-  beside the cases.
-- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting/test_cookie_observation.py`; confirm
-  assertion reds, then `uv run python scripts/dev/red_check.py <node ids>`; commit with explicit `git add` and
-  `git commit -s`.
+  `SameSitePolicy=Lax`), and the deletion cases of
+  `# ported: PentestingScannerTests.deletionCookiesAreIgnoredWhilePrefixedAndAdditionalSessionCookieNamesAreRecognized`
+  (`Max-Age=0`, `Max-Age=-1`, blank, `""` or `deleted` value with a 1970 `Expires`; quoted `Max-Age="-1"` and a
+  20-digit `Max-Age` fall through to the `Expires` rule; `Max-Age=3600` over a 1970 `Expires` is not a deletion).
+  Add `test_starlette_session_clear_is_not_a_deletion_cookie` (`session=null; expires=Thu, 01 Jan 1970 ...`).
+  Cite `Support.java:90-98, 162-184, 257-290` beside the cases.
+- [ ] **Step 3:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting/test_cookie_observation.py`; confirm
+  assertion reds, then `red_check.py <node ids>`; commit with explicit `git add` and `git commit -s`.
 
 ## Task 2: Implement the parser
 
 **Commit:** `feat: parse Set-Cookie into value-free observations`
 
-**Files:** `src/sharpit/engine/collectors/pentesting/cookie_observation.py`, `evidence.py`.
+**Files:** `src/sharpit/engine/collectors/pentesting/cookie_observation.py`.
 
-- [ ] **Step 1:** Implement `parse_set_cookie`: split on `;`, take the first segment's text before the first `=` as
-  the candidate name (token characters per RFC 6265 `token`, trimmed); no `=` or empty candidate gives `(unnamed)`;
-  more than 80 characters is shortened as BootUI's bounded label (77 characters and `...`); a secret-shaped token
-  gives `(redacted)`. Collect only the closed attribute set from the remaining segments with BootUI's rules (presence
-  by whole attribute name, case-insensitive; value after `=`; last occurrence wins). Compute `deletion` from the
-  `Max-Age` and `Expires` text and the blank-or-`""`-or-`deleted` value before returning; keep none of that text.
-- [ ] **Step 2:** Implement `SyntheticResponse.headers_complete(*names)` as BootUI `headersComplete`: false when the
-  inventory is incomplete or a requested lowercase name is in `incomplete_headers`.
-- [ ] **Step 3:** Run the Task 1 file and the A10 evidence and report tests
-  (`tests/engine/collectors/pentesting`); commit.
+- [ ] **Step 1:** Implement `parse_set_cookie` with A11's `java_trim` and `java_is_blank`. A blank text gives
+  `(unnamed)`. The first segment is `raw.split(";", 1)[0]`; the name text is the part before the first `=` only when
+  that `=` is at index above 0, otherwise `(unnamed)`; a blank name is `(unnamed)`. Trim the name, return `(redacted)`
+  when `masking.is_secret_value` is true on the full trimmed name, then apply `boundedLabel` (control and whitespace runs
+  to `_`, over 80 characters to 77 plus `...`). Attribute segments are `raw.split(";")[1:]`, trimmed; names compare as
+  Java `equalsIgnoreCase`; presence needs the whole name; the value is the last occurrence per `cookieAttributeValue`.
+  `same_site` classifies the last value case-insensitively; `path_is_root` is the last `Path` value equal to `/`.
+- [ ] **Step 2:** Compute `deletion` as `isDeletionCookie`: a `Max-Age` that parses as Java `Long.parseLong` (optional
+  sign, decimal digits, 64-bit range) decides at or below zero; anything else falls through to the blank-value-and-1970
+  rule. Keep none of that text. Wrap the body so the function never raises and never puts input in a message.
+- [ ] **Step 3:** Run the Task 1 file and `tests/engine/collectors/pentesting`; commit.
 
-## Task 3: Freeze the probe cookie boundary
+## Task 3: Freeze the probe boundary and the cookie surfaces of the report
 
-**Commit:** `test: pin the cookie boundary of the synthetic probe`
+**Commit:** `test: pin the cookie value boundary of the probe and the report surfaces`
 
-**Files:** `tests/fastapi/test_pentesting_cookie_probe.py`.
+**Files:** `tests/fastapi/test_pentesting_cookie_probe.py`, `tests/fastapi/test_pentesting_cookie_surfaces.py`; stubs
+`cookie_observation.split_cookies` and `cookie_checks.observed`, and the call of `observed` in `scanned_report`.
 
-- [ ] **Step 1:** Using a test ASGI app that emits raw header tuples, assert
-  `test_set_cookie_values_never_reach_the_synthetic_response` (canary absent from `headers`, `cookies`, `repr`,
-  `str`), `test_synthetic_response_repr_holds_no_header_text`, and
-  `test_duplicate_set_cookie_headers_become_ordered_observations` (arrival order, deletion cookies kept as
-  observations with `deletion` true).
-- [ ] **Step 2:** Assert `test_overlong_cookie_value_marks_set_cookie_incomplete_only` (a 4097-character value is not
-  an observation, `headers_complete("set-cookie")` is false, `headers_complete("cache-control")` stays true, the
-  other cookies are retained; `# ported: PentestingScannerTests.incompleteFieldsDoNotInventMissingCookieFlagsOrEffectivePolicies`)
-  and `test_header_budgets_count_raw_cookie_text_before_parsing` (128-value, 64-name and 16 KiB limits still count
-  the raw text; `# ported: PentestingLocalHttpResponse` limits, `PentestingLocalHttpResponse.java:20-135`).
-- [ ] **Step 3:** Run `uv run pytest -q -n 4 tests/fastapi/test_pentesting_cookie_probe.py tests/fastapi/test_pentesting_probe.py`;
-  confirm assertion reds; `red_check.py`; commit.
+**Stubs:** `split_cookies` returns the headers unchanged and no observations (raw `set-cookie` stays on the response).
+`observed` is the literal port: for each raw `set-cookie` value in `get.headers` it emits PT-A02-001 with target
+`Set-Cookie <whole first segment>` and evidence naming it, and ignores `echo`. Both are the wrong-value shapes.
 
-## Task 4: Route `Set-Cookie` through the parser at capture time
+- [ ] **Step 1:** Probe boundary, with a test ASGI app that emits raw header tuples:
+  `test_set_cookie_values_never_reach_the_synthetic_response` (canary absent from `headers`, `cookies`, `repr`, `str`;
+  the cookie name is present as an observation), `test_synthetic_response_repr_holds_no_header_text`,
+  `test_duplicate_set_cookie_headers_become_ordered_observations` (arrival order; deletion cookies kept with `deletion`
+  true), `test_overlong_cookie_value_marks_set_cookie_incomplete_only` (a 4097-character value is not an observation,
+  `headers_complete("set-cookie")` is false, `headers_complete("cache-control")` stays true, other cookies retained;
+  `# ported: PentestingScannerTests.incompleteFieldsDoNotInventMissingCookieFlagsOrEffectivePolicies`),
+  `test_header_budgets_apply_to_raw_cookie_text_before_parsing` (128 values, 64 names, 16 KiB still count raw text).
+- [ ] **Step 2:** Surfaces, real `Masker`, one parametrised case per surface and exposure (`MASKED`, `METADATA_ONLY`,
+  `FULL`): POST scan body, cached GET report body, MCP `pentest_scan` summary, MCP `get_pentest_report`, CLI
+  `pentest scan` and `pentest report` (tool endpoint and command output). The host sets a well-formed
+  `session=<canary>; Path=/; HttpOnly` (its PT-A02-001 finding must be present, with the name `session` in `MASKED` and
+  `FULL` and `[masked]` in `METADATA_ONLY`), a name-less `<canary>; Secure`, an empty-name `=<canary>; Secure`,
+  `Foo=<canary>`, `SameSite=<canary>`, `Path=/<canary>`, a JWT-shaped 152-character name, and an over-long value.
+  `FULL` is the discriminating exposure: values are dropped by the parser, not masked. Reuse the client factory of
+  `tests/fastapi/test_pentesting_api.py:23-68`.
+- [ ] **Step 3:** Run both files plus `tests/fastapi/test_pentesting_probe.py`; confirm assertion reds;
+  `red_check.py`; commit.
+
+## Task 4: Route `Set-Cookie` through the split at the probe boundary
 
 **Commit:** `feat: discard cookie values at the probe boundary`
 
-**Files:** `src/sharpit/fastapi/pentesting_probe.py`.
+**Files:** `cookie_observation.py`, `src/sharpit/fastapi/pentesting_probe.py`, `cookie_checks.py` (stub moves to reading
+`get.cookies`), `evidence.py`.
 
-- [ ] **Step 1:** In `_Capture._retain`, keep the existing budget accounting on the raw text, then for the name
-  `set-cookie` call `parse_set_cookie(value)` and store only the observation; the raw value is never stored in
-  `capture.headers`. Record the header name in an `incomplete_headers` set wherever a value or the name is dropped
-  (over-limit value, null-equivalent, value count, character budget) and set `inventory_incomplete` where BootUI sets
-  `headerInventoryIncomplete` (name count, name length, blank name, header-character budget). `headers_truncated`
-  keeps its current meaning.
-- [ ] **Step 2:** Build the frozen `SyntheticResponse` with the new fields; the Host-rejection and failure paths keep
-  their current generic texts.
-- [ ] **Step 3:** Run the Task 3 file plus `tests/fastapi/test_pentesting_probe.py` and
-  `tests/fastapi/test_pentesting_api.py`; commit.
+- [ ] **Step 1:** Implement `split_cookies`: parse every `set-cookie` value in arrival order, return the header map
+  without that key and the observations. Budget accounting stays in A11's `bound_headers`, which runs first on the raw
+  text, so a dropped value is recorded by name and never parsed.
+- [ ] **Step 2:** In the probe, call `split_cookies` on the bounded headers before building the frozen response, and set
+  `SyntheticResponse.cookies`. The raw lists are never stored on the capture object past this call. The Host-rejection
+  and failure paths keep their generic texts.
+- [ ] **Step 3:** Change the `observed` stub to read `get.cookies` and emit one wrong-value finding per cookie
+  (`PT-A02-001`, `INFO`, target and evidence `stub`), so Task 3 surfaces turn green for the right reason while the
+  checks stay red until Tasks 6, 8 and 10.
+- [ ] **Step 4:** Run the Task 3 files and `tests/fastapi/test_pentesting_api.py`; commit.
 
-## Task 5: Freeze the seven observed-cookie checks
+## Task 5: Freeze the flag checks (PT-A02-001, PT-A05-005, PT-A02-002, PT-A02-003)
 
-**Commit:** `test: port the BootUI observed cookie checks`
+**Commit:** `test: port the BootUI HttpOnly, SameSite and Secure cookie checks`
 
-**Files:** `tests/engine/collectors/pentesting/test_cookie_checks.py`; stub `cookie_checks.py` with `observed(get,
-limitations)` returning `[]`.
+**Files:** `tests/engine/collectors/pentesting/test_cookie_checks.py` (group 1).
 
-**Interfaces:** `observed(get: SyntheticResponse, limitations: list[str]) -> list[Finding]`, evaluated on the GET
-response only.
+- [ ] **Step 1:** Port by named BootUI case with `# ported:` lines; IDs, titles, severities, confidence, category,
+  recommendation and learn-more text from `Checks.java:389-503` and `992-1023`:
+  `test_missing_httponly_is_medium_for_session_names_and_info_for_csrf_and_other`
+  (`conventionalCsrfCookieWithoutHttpOnlyIsAnInformationalReviewHint` and the severity loop of
+  `deletionCookiesAreIgnoredWhilePrefixedAndAdditionalSessionCookieNamesAreRecognized`: `__Host-SESSION`,
+  `__Secure-JSESSIONID`, `q_session`, `q_session_admin`, `remember-me` MEDIUM), `test_samesite_missing_or_unrecognised_is_flagged`
+  (`none` is recognised; `Lax ` trimmed), `test_missing_secure_is_flagged`,
+  `test_samesite_none_without_secure_is_flagged` (`cookieCheckFlagsSameSiteNoneWithoutSecure`),
+  `test_deletion_cookies_feed_no_flag_check`, `test_flag_findings_name_the_echoed_label_and_classify_the_unmasked_one`
+  (a recording `echo` shows each target and evidence name went through it before the 240-character cut; severity follows
+  the unmasked label), `test_redacted_and_unnamed_labels_are_info_severity`.
+- [ ] **Step 2:** Run the file; confirm assertion reds (the stub is wrong in both directions); `red_check.py`; commit.
 
-- [ ] **Step 1:** Port by named BootUI case, each with its `# ported:` line and the IDs, titles, severities,
-  confidence, category, recommendation and learn-more text taken from the `PentestingChecks.java` lines in the scenario
-  scope table:
-  - PT-A02-001: `conventionalCsrfCookieWithoutHttpOnlyIsAnInformationalReviewHint` and the severity loop of
-    `deletionCookiesAreIgnoredWhilePrefixedAndAdditionalSessionCookieNamesAreRecognized` (`__Host-SESSION`,
-    `__Secure-JSESSIONID`, `q_session`, `q_session_admin`, `remember-me` are MEDIUM; the CSRF text and name-based
-    INFO cases; `PentestingChecks.java:405-439`).
-  - PT-A05-005 (`:458-472`; `none` is a recognised value), PT-A02-002 (`:491-502`), PT-A02-003
-    (`cookieCheckFlagsSameSiteNoneWithoutSecure`).
-  - PT-A02-007 (`cookiePrefixRequirementsCheckFlagsViolationsAndAllowsCompliantCookies`; evaluated over the unfiltered
-    observation list, `:2589`; `__host-` lowercase is not a prefix).
-  - PT-A05-064 (`sessionCookieMissingPrefixCheckFlagsSecureSessionCookieWithoutPrefix`,
-    `sessionCookieMissingPrefixCheckStaysSilentWhenPrefixOrSecureIsMissing`,
-    `sessionCookiePrefixCheckDoesNotClassifyEveryHttpOnlyCookieAsASession`).
-  - PT-A02-008 (`cacheableSetCookieCheckDistinguishesPublicSharedAndSessionMaxAgeCaching`: all listed
-    `Cache-Control` forms; reuse `checks._split_outside_quotes`, which already ports `splitOutsideQuotes`).
-  - Evidence and target texts follow BootUI (`"Set-Cookie " + name`, quoting the label).
-- [ ] **Step 2:** Add the indeterminate and edge tests of the scenario:
-  `test_failed_or_rejected_get_leaves_cookie_checks_indeterminate`,
-  `test_incomplete_set_cookie_inventory_keeps_cookie_result_partial` (retained cookies still evaluated, limitation
-  recorded, the dropped cookie unnamed), `test_cache_control_incomplete_does_not_manufacture_a_finding`,
-  `test_planted_value_is_absent_from_every_finding_field` (canary in value, nameless token, empty name, extension
-  attribute).
-- [ ] **Step 3:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting/test_cookie_checks.py`; confirm
-  assertion reds; `red_check.py`; commit.
+## Task 6: Implement the flag checks
 
-## Task 6: Implement the observed checks and report wiring
+**Commit:** `feat: evaluate the BootUI cookie flag checks on the synthetic GET`
 
-**Commit:** `feat: evaluate BootUI cookie checks on the synthetic GET`
+**Files:** `cookie_checks.py`, `report.py`, `service.py`.
 
-**Files:** `cookie_checks.py`, `report.py`, `tests/engine/collectors/pentesting/test_pentesting_report.py`.
+- [ ] **Step 1:** Implement the four rules over non-deletion observations (BootUI `Assessment.cookies`), in BootUI's
+  order of checks and strings; target `"Set-Cookie " + echo(name)`; findings keep arrival order within a rule and the
+  report's stable sort by `RULE_ORDER` orders rules.
+- [ ] **Step 2:** Gate with `assessment.retained_headers("GET", get, ("set-cookie",), gaps)` (A11): an unavailable
+  response yields nothing and the gap is BootUI's `GET required response headers were incomplete.`; retained cookies are
+  still evaluated when the inventory is incomplete. In `scanned_report` call `observed` after `_get_findings`, inside
+  the `checks.available(get)` branch, with the `echo` that `PentestingService.scan` builds from `masker` (A11).
+- [ ] **Step 3:** Run the Task 3 and Task 5 files and `tests/engine/collectors/pentesting`; commit.
 
-- [ ] **Step 1:** Implement `observed`: a response that is unavailable (`checks.available` false) yields nothing;
-  non-deletion observations feed PT-A02-001, PT-A05-005, PT-A02-002, PT-A02-003, PT-A05-064 and PT-A02-008; PT-A02-007
-  reads all observations; PT-A02-008 runs only when `headers_complete("cache-control")` and an observed cookie exist.
-  When `headers_complete("set-cookie")` is false, append the limitation `"Set-Cookie response headers exceeded a
-  bounded retention limit; cookie results are incomplete."`. Findings keep arrival order within a rule; the report's
-  stable sort by `RULE_ORDER` orders rules.
-- [ ] **Step 2:** In `scanned_report`, call `observed` inside the `checks.available(get)` branch after
-  `_get_findings`, so a truncated unrelated header does not suppress cookie checks and the cookie checks do not
-  depend on A10's early return.
-- [ ] **Step 3:** Replace the cookie pending text: remove only the words "and cookie and session checks" from the
-  limitation sentence and "cookie," from the A02 description; do not edit the CORS words. Update
-  `test_cors_and_cookie_checks_are_reported_as_pending_not_unavailable` to assert the cookie words are gone and the
-  CORS words remain. Add coverage text from BootUI's `scopeLimitations` (`PentestingCheckRegistry.java`,
-  `scopeLimitations`): A02 ends with "Cookie issuance on other routes and actual CORS resource responses were not
-  tested." (CORS phrase unchanged if the CORS lane has not changed it) and A04 states the BootUI no-finding text for
-  cookie and transport checks plus "No observed Set-Cookie does not establish that the application has no sessions."
-- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting` and
-  `tests/fastapi/test_pentesting_api.py`; commit.
+## Task 7: Freeze the prefix checks (PT-A02-007, PT-A05-064)
 
-## Task 7: Freeze the session-configuration checks
+**Commit:** `test: port the BootUI cookie prefix checks`
+
+**Files:** `test_cookie_checks.py` (group 2).
+
+- [ ] **Step 1:** `test_prefix_requirements_are_checked_for_host_and_secure_cookies`
+  (`cookiePrefixRequirementsCheckFlagsViolationsAndAllowsCompliantCookies`; evaluated over the unfiltered observations,
+  `Checks.java:2584-2591`, so a deletion cookie is checked; `__host-` lowercase is not a prefix; `Path=/` is
+  `path_is_root`; evidence names the violations only),
+  `test_session_cookie_prefix_check_needs_secure_session_name_without_prefix`
+  (`sessionCookieMissingPrefixCheckFlagsSecureSessionCookieWithoutPrefix`,
+  `sessionCookieMissingPrefixCheckStaysSilentWhenPrefixOrSecureIsMissing`,
+  `sessionCookiePrefixCheckDoesNotClassifyEveryHttpOnlyCookieAsASession`; `Checks.java:1025-1064`).
+- [ ] **Step 2:** Run; confirm assertion reds; `red_check.py`; commit.
+
+## Task 8: Implement the prefix checks
+
+**Commit:** `feat: evaluate the BootUI cookie prefix checks`
+
+**Files:** `cookie_checks.py`.
+
+- [ ] **Step 1:** Implement PT-A02-007 over all observations and PT-A05-064 over non-deletion observations.
+- [ ] **Step 2:** Run the Task 7 file and `tests/engine/collectors/pentesting`; commit.
+
+## Task 9: Freeze the Cache-Control check and the indeterminate cases (PT-A02-008)
+
+**Commit:** `test: port the BootUI cacheable Set-Cookie check`
+
+**Files:** `tests/engine/collectors/pentesting/test_cache_control.py`, `test_cookie_checks.py` (group 3); stubs
+`cache_control.py` (`directive_summary` returns the raw joined text, `parse_cache_control` all-false) and the PT-A02-008
+branch of `observed`.
+
+- [ ] **Step 1:** `test_cacheable_set_cookie_distinguishes_public_shared_and_session_max_age`
+  (`cacheableSetCookieCheckDistinguishesPublicSharedAndSessionMaxAgeCaching`: `public`, `s-maxage`, positive `max-age`,
+  `private`, `no-store`, quoted `private="Set-Cookie"` and `no-cache="Set-Cookie"`, escaped quotes, numeric overflow;
+  HIGH, MEDIUM for session names with a positive `max-age`, silent for the safe forms),
+  `test_cache_control_evidence_is_rebuilt_from_directives` (`public, x-token=<canary>` and `private="<canary>"` keep the
+  finding, name the recognised directives and count the others, and never contain the canary; each directive keeps its
+  spelling case-folded; presence assertions first), `test_cache_control_incomplete_does_not_manufacture_a_finding`
+  (gap `GET required response headers were incomplete.`).
+- [ ] **Step 2:** `test_failed_or_rejected_get_leaves_cookie_checks_indeterminate` (failed, timed-out and Host-rejected
+  GET: no cookie finding, no pass claim, A10's incomplete finding stands),
+  `test_incomplete_set_cookie_inventory_keeps_cookie_result_partial` (retained cookies still evaluated, exactly BootUI's
+  gap string, the dropped cookie unnamed), `test_cookie_gaps_are_bootuis_strings_and_deduplicated`.
+- [ ] **Step 3:** Run; confirm assertion reds; `red_check.py`; commit.
+
+## Task 10: Implement PT-A02-008, the report text and the coverage
+
+**Commit:** `feat: evaluate the cacheable Set-Cookie check and update the cookie report text`
+
+**Files:** `cache_control.py`, `cookie_checks.py`, `checks.py` (docstring only), `report.py`,
+`tests/engine/collectors/pentesting/test_pentesting_report.py`.
+
+- [ ] **Step 1:** Implement `parse_cache_control` (BootUI `parseCacheControl` over `checks._split_outside_quotes`) and
+  `directive_summary(values)`: recognised names (`public`, `private`, `no-cache`, `no-store`, `no-transform`,
+  `must-revalidate`, `proxy-revalidate`, `must-understand`, `immutable`, `max-age`, `s-maxage`, `stale-while-revalidate`,
+  `stale-if-error`) lowercased, a `=digits` argument kept only for the numeric ones and at most 10 digits, other
+  directives counted as `N other directive(s)`. PT-A02-008 runs when `assessment.required_headers("GET", get,
+  ("cache-control",), gaps)` is available and a non-deletion cookie exists; evidence is BootUI's sentence with the
+  rebuilt summary and `echo(name)`.
+- [ ] **Step 2:** In `checks.py` extend only the docstring sentence: header and body values are never echoed there, and
+  the cookie and CORS evidence, which echo only masked names and origins, lives in `cookie_checks.py` and `cors.py`.
+- [ ] **Step 3:** Remove the cookie words from the pending limitation and the A02 description as A11 left them (leave the
+  CORS words as merged), and add BootUI's scope suffixes where A11 has not: A02 ends with `Cookie issuance on other
+  routes and actual CORS resource responses were not tested.`; A04 ends with `No observed Set-Cookie does not establish
+  that the application has no sessions.` (`Registry.java:319-330`). Update the A11 version of
+  `test_cors_and_cookie_checks_are_reported_as_pending_not_unavailable` into
+  `test_cookie_pending_text_is_replaced_and_no_pending_wording_remains`.
+- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py`;
+  commit.
+
+## Task 11: Freeze the session-configuration checks
 
 **Commit:** `test: port the BootUI session cookie configuration checks`
 
 **Files:** `tests/engine/collectors/pentesting/test_session_cookie_config.py`, an addition to
-`tests/fastapi/test_introspector_security.py`; stub `SessionEvidence`, `session_evidence`, `configured`.
+`tests/fastapi/test_introspector_security.py`; stubs `session_cookie.session_evidence` and `configured`.
 
-**Interfaces:** `SessionEvidence(configs: tuple[SessionCookieConfig, ...], limitation: str | None)`;
-`SessionCookieConfig(mount: str | None, https_only_false: bool, same_site_none: bool)`;
-`session_evidence(facts: SecurityFacts | None) -> SessionEvidence`;
-`configured(session: SessionEvidence | None, limitations) -> list[Finding]`.
+**Interfaces:** `SessionCookieConfig(mount: str | None, https_only_false: bool, same_site_none: bool)`;
+`SessionEvidence(configs: tuple[SessionCookieConfig, ...], complete: bool)`; `session_evidence(facts: SecurityFacts |
+None) -> SessionEvidence` (`complete` is false when `facts` is `None` or carries any limitation; the text is not read);
+`configured(session, gaps, echo) -> list[Finding]`.
 
-- [ ] **Step 1:** Port the BootUI cases to `SessionMiddleware` options. `# ported: SpringPentestingObservationCollectorTests.metadataChecksStaySilentForSafeConfiguration`
-  (`SpringPentestingObservationCollectorTests.java:533-550`: no PT-A02-004 or PT-A02-006 for a safe configuration) and
-  `# ported: SpringPentestingObservationCollectorTests.metadataChecksFlagAdditionalLowFalsePositiveSpringSettings`
-  (`:625-655`: SameSite none with secure false gives PT-A02-006). Tests:
-  `test_explicit_https_only_false_is_flagged_and_default_is_not`,
-  `test_same_site_none_with_secure_disabled_is_flagged` (also the `https_only=True` and `same_site="lax"` silent
-  cases), `test_unreadable_session_options_leave_metadata_checks_indeterminate` (positional options, no facts,
-  non-FastAPI app: limitation, no finding, no pass), and a mounted sub-app case that names the mount path.
-- [ ] **Step 2:** Add `test_https_only_false_flag_is_read_from_keyword_only` to the introspection tests: a keyword
-  `https_only=False` yields the new fact, an absent keyword and `True` do not, and no option value (including
+**Stubs:** `session_evidence` returns one config with `https_only_false` and `same_site_none` true and `complete` true
+for any input; `configured` returns one PT-A02-004 finding with severity `INFO` and evidence `stub` for any input and
+records no gap.
+
+- [ ] **Step 1:** Port to `SessionMiddleware` options. `# ported: SpringPentestingObservationCollectorTests.metadataChecksStaySilentForSafeConfiguration`
+  (`:533-550`) and `# ported: SpringPentestingObservationCollectorTests.metadataChecksFlagAdditionalLowFalsePositiveSpringSettings`
+  (`:625-655`). Tests: `test_explicit_https_only_false_is_flagged_and_default_is_not`,
+  `test_same_site_none_with_secure_disabled_is_flagged` (also `https_only=True` and `same_site="lax"` silent),
+  `test_unreadable_session_options_leave_metadata_checks_indeterminate` (facts `None`, positional options, a non-FastAPI
+  app and a limitation whose text carries a mount-path canary: BootUI's gap string, no finding, no pass, canary absent),
+  `test_mounted_sub_app_finding_names_the_echoed_mount_path` (the mount path goes through `echo`; under
+  `METADATA_ONLY` it reads `[masked]`).
+- [ ] **Step 2:** `test_https_only_false_flag_is_read_from_keyword_only` in the introspection tests: a keyword
+  `https_only=False` yields the new flag, an absent keyword and `True` do not, and no option value (including
   `secret_key`) appears in the facts.
-- [ ] **Step 3:** Run both files with `uv run pytest -q -n 4`; confirm assertion reds; `red_check.py`; commit.
+- [ ] **Step 3:** Run both files; confirm assertion reds; `red_check.py`; commit.
 
-## Task 8: Implement the metadata checks and wire the scan
+## Task 12: Implement the metadata checks and wire the scan
 
 **Commit:** `feat: evaluate session cookie configuration in the pentesting scan`
 
-**Files:** `introspection_security.py`, `cookie_checks.py`, `report.py`, `service.py`, `fastapi/routes/pentesting.py`.
+**Files:** `introspection_security.py`, `session_cookie.py`, `report.py`, `service.py`, `fastapi/pentesting_exposure.py`,
+`fastapi/routes/pentesting.py`.
 
-- [ ] **Step 1:** In `_session_flags`, add `https_only_false` when the keyword is present and `is False`; the reader
-  keeps returning fact names only. Existing `https_only` and `same_site_none` behavior is unchanged, so the Security
-  panel rules are unchanged.
-- [ ] **Step 2:** Implement `session_evidence` and `configured`: PT-A02-004 for each `https_only_false`; PT-A02-006
-  for each config with `same_site_none` and `https_only_false`. Keep BootUI titles, severities (LOW; MEDIUM),
-  confidence (Medium; High) and categories (A04; A02); target, evidence and recommendation name the
-  `SessionMiddleware` option and the mount path when present, never an option value.
-- [ ] **Step 3:** In the scan route, read facts as the Security tools do (the duck-typed `security_facts` of the
-  introspector, a static read), build `SessionEvidence`, and pass it through `service.scan` to `scanned_report`;
-  facts that are absent or carry `limitations` set the evidence limitation. A non-empty limitation adds the
-  limitation text and makes the scan PARTIAL without inventing a finding. The scan action and its gates are
-  unchanged; no read path builds session evidence.
-- [ ] **Step 4:** Run the Task 7 files, `tests/engine/collectors/pentesting`,
-  `tests/fastapi/test_pentesting_api.py` and `tests/fastapi/test_introspector_security.py`; commit.
+- [ ] **Step 1:** In `_session_flags` add `https_only_false` when the keyword is present and `is False`; existing flags
+  keep their behaviour, so the Security panel rules are unchanged.
+- [ ] **Step 2:** Implement `session_evidence` and `configured`: PT-A02-004 for each `https_only_false`; PT-A02-006 for
+  each config with `same_site_none` and `https_only_false`; BootUI titles, severities (LOW; MEDIUM), confidence (Medium;
+  High) and categories (A04; A02); target, evidence and recommendation name the `SessionMiddleware` option and the
+  echoed mount path, never an option value. When `complete` is false, append `Framework configuration evidence was
+  incomplete.` (`Assessment.java:41-44`), which makes the scan PARTIAL without a finding.
+- [ ] **Step 3:** Add `read_security_facts(introspector)` to `pentesting_exposure.py` with A13's name, signature and
+  module: one `security_facts()` read through the duck-typed attribute used by `engine/tools04/security.py:33`, wrapped
+  in `except Exception`, `None` on failure or absence. The scan function calls it once and passes `session_evidence(facts)`
+  to `service.scan`. The action and its gates are unchanged; no read path calls it.
+- [ ] **Step 4:** Run the Task 11 files, `tests/engine/collectors/pentesting`, `tests/fastapi/test_pentesting_api.py` and
+  `tests/fastapi/test_introspector_security.py`; commit.
 
-## Task 9: Prove the surfaces, the gates and the controls
+## Task 13: Prove the hidden surfaces, the gates and the controls
 
-**Commit:** `test: assert no cookie value on any pentesting output surface`
+**Commit:** `test: assert no cookie value on any hidden pentesting surface`
 
-**Files:** `tests/fastapi/test_pentesting_cookie_surfaces.py`.
+**Files:** `tests/fastapi/test_pentesting_cookie_hidden_surfaces.py`, `tests/engine/collectors/pentesting/test_pentesting_report.py`.
 
-- [ ] **Step 1:** `test_planted_cookie_value_is_absent_from_every_output_surface`: a host that sets cookies with a
-  run-time canary in a value, a name-less token, an empty name, an extension attribute and an over-long value; one
-  parametrised case each for POST scan body, cached GET report body, MCP `pentest_scan` summary, MCP
-  `get_pentest_report`, CLI `pentest scan` and `pentest report` (tool endpoint and command output), an error body
-  (409 and 504 paths), captured log records (`caplog`, stderr) and every file under `SHARPIT_STATE_DIR`. Reuse the
-  client factory pattern of `tests/fastapi/test_pentesting_api.py:23-68`.
-- [ ] **Step 2:** `test_cookie_checks_are_scan_action_only_and_read_only_denied`: GET and read tools make no host
-  call, open no socket (`no_side_effects`), and never read middleware facts; read-only panel, disabled panel, MCP off,
-  inactive and cross-site scans refuse before any host call (`# ported:` none; AGENTS action gates).
-- [ ] **Step 3:** Prove the controls by deletion: temporarily make the parser return the raw first segment as the
-  name, then keep a raw value in `SyntheticResponse.headers`, then drop the per-name incompleteness; each change must
-  fail a named test here or in Tasks 1-6. Record the failing test names in the commit body and restore the code.
-- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/fastapi/test_pentesting_cookie_surfaces.py tests/fastapi/test_pentesting_api.py`;
-  commit.
+These cases are absence-only, so their red evidence is a control-deletion run: apply each wrong-value mutation below in
+the working tree, run `red_check.py` on the named tests in the mutated tree, restore the file with `git checkout --
+<path>`, and record the test names in the commit body.
 
-## Task 10: Contract fixtures, parity and documentation
+- [ ] **Step 1:** `test_planted_cookie_value_is_absent_from_every_hidden_surface`: with the Task 3 host, one case each
+  for error bodies (409 and 504 paths), captured log records (`caplog`, stderr) and every file under
+  `SHARPIT_STATE_DIR`, in all three exposures. `test_probe_exchange_and_trace_records_are_free_of_the_canary`: a positive
+  control first (the probe exchange is recorded), then no canary in the exchange and trace records at `MASKED` and
+  `METADATA_ONLY`; `FULL` is excluded because `mask_header` shows values there by design for all captured traffic.
+- [ ] **Step 2:** `test_cookie_checks_are_scan_action_only_and_read_only_denied`: GET and read tools make no host call,
+  open no socket (`no_side_effects`) and never call `security_facts`; a read-only panel, a disabled panel, MCP off,
+  an inactive console and a cross-site scan refuse before any host call; `test_one_scan_reads_security_facts_once`.
+- [ ] **Step 3:** `test_limitations_added_by_this_lane_survive_the_cut`: build the worst-case scan (A10's fixed lines,
+  A11's, and this lane's two gaps) and assert each of this lane's strings is present after `_unique_limitations`, not
+  only that the count is at most 20.
+- [ ] **Step 4:** Mutations, each failing a named test: M1 the parser returns the raw first segment as the name; M2
+  `split_cookies` returns the headers unchanged; M3 the `echo` is skipped on a cookie name; M4 `directive_summary`
+  returns the raw text; M5 `observed` reads the middleware facts in a read path; M6 the per-name incompleteness is
+  dropped; M7 `session_evidence` copies the limitation text. Record each test name; restore.
+- [ ] **Step 5:** Run `uv run pytest -q -n 4` on the two files; `red_check.py` per mutation; commit.
+
+## Task 14: Contract fixtures, parity and documentation
 
 **Commit:** `docs: document the cookie and session checks of the pentesting scan`
 
 **Files:** `tests/fixtures/bootui/2.5.0/pentesting/*`, `tests/engine/collectors/pentesting/test_pentesting_report.py`,
-`docs/reference/matrix-updates/0.8.0-a12.tsv`, `docs/reference/matrix-updates/0.8.0-a10.tsv` (remove the
-`pentesting:cookie-pending` row only), `docs/reference/PARITY.md`, design spec §14, user documentation.
+`docs/reference/matrix-updates/0.8.0-a12.tsv`, `0.8.0-a10.tsv` (remove the `pentesting:cookie-pending` row only),
+`docs/reference/PARITY.md`, design spec section 14, user documentation.
 
-- [ ] **Step 1:** Extend the BootUI-derived rule-contract projection with the nine checks' fields
-  (`test_cookie_rules_follow_registry_order_and_bootui_contract`) and the hand-derived ASGI golden with a
-  cookie-setting response using fake non-secret values; keep the two fixtures separate as in A10.
-- [ ] **Step 2:** Add `test_cookie_pending_text_is_replaced_and_cors_pending_text_remains`.
-- [ ] **Step 3:** Write the five deviation rows above to `0.8.0-a12.tsv`, mirror them in spec §14, update the
+- [ ] **Step 1:** Extend the rule-contract projection with the nine checks (`test_cookie_rules_follow_registry_order_and_bootui_contract`)
+  and the hand-derived ASGI golden with a cookie-setting response using fake non-secret values.
+- [ ] **Step 2:** Write the deviation rows above to `0.8.0-a12.tsv`, mirror them in spec section 14, update the
   pentesting row of `PARITY.md`, and describe in the user documentation what the cookie checks observe (one GET, names
   and flags only, in-process ASGI evidence, no TLS edge) and what the configuration checks read.
-- [ ] **Step 4:** Run the lane tests (`uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py tests/fastapi/test_pentesting_probe.py tests/fastapi/test_pentesting_cookie_probe.py tests/fastapi/test_pentesting_cookie_surfaces.py tests/fastapi/test_introspector_security.py tests/engine/collectors/security/test_rules_transport.py tests/parity`),
-  `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`; report counts. Commit docs with explicit paths
-  and `git commit -s`.
+- [ ] **Step 3:** Run the lane tests (`uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py tests/fastapi/test_pentesting_probe.py tests/fastapi/test_pentesting_cookie_probe.py tests/fastapi/test_pentesting_cookie_surfaces.py tests/fastapi/test_pentesting_cookie_hidden_surfaces.py tests/fastapi/test_introspector_security.py tests/engine/collectors/security/test_rules_transport.py tests/parity`),
+  `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`; report counts. Commit with explicit paths and
+  `git commit -s`.
 
 ## Definition of done
 
-- [ ] High-tier review disposition is recorded before Task 1.
-- [ ] Every Critical and High scenario row has a named passing test; every value-bearing surface has a planted-value
-  case; each control was proven by deletion.
+- [ ] Every Critical and High scenario row has a named passing test; every output surface has a planted-value case in
+  `MASKED`, `METADATA_ONLY` and `FULL`; each control was proven by mutation.
 - [ ] The seven observed checks and two metadata checks match the BootUI v2.5.0 IDs, titles, severities, confidence,
   categories and order, with observed and configuration evidence kept separate.
-- [ ] Failure, rejection, truncation and unreadable configuration never read as a clean result.
-- [ ] The A10 cookie "pending" text and matrix row are replaced; the CORS text is untouched.
+- [ ] Failure, rejection, truncation and unreadable configuration never read as a clean result, and the gap strings
+  are BootUI's.
+- [ ] The cookie pending text and matrix row are replaced; the CORS wording is as A11 merged it.
 - [ ] Lane tests, ruff and pyright pass; live verification states that evidence is ASGI-only, one GET, names and flags
   only.
