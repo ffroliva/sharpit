@@ -22,8 +22,10 @@ def _fk(name: str | None, columns: list[str], table: str, referred: list[str], *
 
 
 def _table(name: str, *columns: dict[str, Any], pk: tuple[str, ...] = ("id",), fks: tuple[dict[str, Any], ...] = (),
-           indexes: tuple[dict[str, Any], ...] = (), truncated: bool = False) -> dict[str, Any]:  # fmt: skip
-    return {"schema": None, "name": name, "truncated": truncated, "columns": list(columns) or [_column("id")],
+           indexes: tuple[dict[str, Any], ...] = (), truncated: bool = False,
+           pk_name: str | None = None) -> dict[str, Any]:  # fmt: skip
+    return {"schema": None, "name": name, "truncated": truncated, "primaryKeyName": pk_name,
+            "columns": list(columns) or [_column("id")],
             "primaryKey": list(pk), "foreignKeys": list(fks), "indexes": list(indexes)}  # fmt: skip
 
 
@@ -126,10 +128,20 @@ def test_identical_declarations_are_not_a_type_mismatch() -> None:
 
 def test_unique_index_on_the_primary_key_columns_is_reported() -> None:
     # ported: DatabaseAdvisorSchemaRulesTests.primaryKeyBackingIndexIsNeverGuessedFromItsNameOrColumns
-    table = _table("orders", _column("id"), _column("code"), indexes=(
-        _index("uq_id", "id", unique=True), _index("uq_code", "code", unique=True), _index("ix_id", "id")))  # fmt: skip
+    table = _table("orders", _column("id"), _column("code"), pk_name="pk_orders", indexes=(
+        _index("pk_orders", "id", unique=True), _index("uq_id", "id", unique=True),
+        _index("uq_code", "code", unique=True), _index("ix_id", "id")))  # fmt: skip
 
     assert _targets(_check("DB-SCHEMA-005", _source(table))) == ["db/orders.uq_id"]
+
+
+def test_unique_index_without_observed_primary_key_backing_is_not_called_redundant() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.tablesWithOnlyNonUniqueSecondaryIndexesOrUnrelatedUniqueIndexesDoNotTriggerUnknownBackingDiagnostics
+    table = _table("orders", _column("id"), _column("customer_id"), indexes=(
+        _index("uq_id", "id", unique=True), _index("ix_customer", "customer_id"),
+        _index("uq_customer", "customer_id", unique=True)))  # fmt: skip
+
+    assert _targets(_check("DB-SCHEMA-005", _source(table))) == []
 
 
 def test_duplicate_foreign_keys_need_identical_pairs_and_actions() -> None:

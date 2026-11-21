@@ -154,17 +154,37 @@ def _foreign_key_type_mismatch(source: Source) -> Outcome:
 def _unique_index_duplicating_primary_key(source: Source) -> Outcome:
     if (reason := unreadable(source)) is not None:
         return reason
-    return [
-        (
-            _where(source, t, f".{ix['name']}"),
-            f"Datasource `{source.name}`: unique index `{ix['name']}` on `{t['name']}` repeats the primary key's "
-            "columns.",
-            _identity(source, t, f"index={ix['name']}"),
+    hits: list[Hit] = []
+    for table in source.tables:
+        if table["truncated"] or not table["primaryKey"] or not table.get("primaryKeyName"):
+            continue
+        backing = next(
+            (
+                index
+                for index in table["indexes"]
+                if index["name"] == table["primaryKeyName"]
+                and index["unique"]
+                and _plain(index)
+                and index["columns"] == table["primaryKey"]
+            ),
+            None,
         )
-        for t in source.tables
-        for ix in t["indexes"]
-        if t["primaryKey"] and ix["unique"] and _plain(ix) and ix["columns"] == t["primaryKey"]
-    ]
+        if backing is None:
+            continue
+        hits.extend(
+            (
+                _where(source, table, f".{index['name']}"),
+                f"Datasource `{source.name}`: unique index `{index['name']}` on `{table['name']}` repeats the primary key's "
+                "columns.",
+                _identity(source, table, f"index={index['name']}"),
+            )
+            for index in table["indexes"]
+            if index["name"] != backing["name"]
+            and index["unique"]
+            and _plain(index)
+            and index["columns"] == table["primaryKey"]
+        )
+    return hits
 
 
 def _duplicate_foreign_key(source: Source) -> Outcome:

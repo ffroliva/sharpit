@@ -198,7 +198,8 @@ def _table(conn: Any, inspector: Any, name: str, bounds: CatalogBounds) -> tuple
             }
             for c in columns[: bounds.columns]
         ],
-        "primaryKey": list(inspector.get_pk_constraint(name).get("constrained_columns") or []),
+        "primaryKey": list((pk := inspector.get_pk_constraint(name)).get("constrained_columns") or []),
+        "primaryKeyName": pk.get("name"),
         "foreignKeys": [
             {
                 "name": fk.get("name"),
