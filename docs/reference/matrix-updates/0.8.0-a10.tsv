@@ -2,3 +2,5 @@ pentesting:transport	adapted	Use in-process ASGI for BootUI's fixed loopback GET
 pentesting:deadline	adapted	Apply a deadline to cooperative asynchronous host calls; a synchronous host callable blocking the event loop cannot be interrupted in-process and is reported as a transport limitation.
 pentesting:trusted-host	adapted	Send BootUI's literal loopback Host; a host TrustedHost rejection is incomplete evidence rather than a scan of its 400 error page.
 pentesting:body-evidence	adapted	Do not expose raw body, exception text, or unsafe response header values; retain only bounded sanitized evidence to preserve sharpit's masking boundary.
+pentesting:non-404	adapted	Require the fixed missing-resource probe to return 404 before evaluating error-body checks; other statuses make those checks indeterminate with status evidence so catch-all routes cannot appear clean.
+pentesting:event-loop	adapted	Run the in-process ASGI probe as cooperative async work on the request event loop; acquire SingleFlight.try_acquire and release in finally after cancellation, while synchronous code blocking that loop stalls the host and cannot be interrupted.
