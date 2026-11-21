@@ -93,11 +93,13 @@ have no rows.
 A sharpit-only advisor, `http-security`, evaluates response expectations that the host configures against the HTTP
 requests the host's own tests already make. It has no BootUI counterpart: BootUI's HTTP Probe sends a request of its
 own, and sharpit's observer sends none. It is evaluated once per run by the pytest controller and appears in the report,
-JUnit, SARIF and terminal output like any advisor; `--sharpit-no-advisors` turns it off with the others.
+JUnit, SARIF and terminal output like any advisor; `--sharpit-no-advisors` turns it off with the others, and it
+cannot be combined with configured expectations.
 
 It is opt-in on two levels: `--sharpit` (or `sharpit = true`) for the session, and `--sharpit-http-security` (or
-`sharpit_http_security = true`) for the observer. Configuring an expectation without the second, or the second without
-the first, is a pytest usage error at configure time.
+`sharpit_http_security = true`) for the observer. Configuring an expectation without the second, the second without
+the first, or an expectation together with `--sharpit-no-advisors` (`sharpit_advisors = false`) is a pytest usage
+error at configure time: an expectation the host wrote is never silently skipped.
 
 ### Handing the app to the observer
 
@@ -151,7 +153,7 @@ a whole. A line is `METHOD ROUTE=VALUE`, split on the first space and the last `
 Methods are upper-cased, header names compare case-insensitively, repeated lines deduplicate, and the statuses of one
 route are unioned (any listed status satisfies it; statuses are integers from 100 to 599). A route is the template the
 framework matched, written `{name}` for both frameworks (`<int:item_id>` in Flask and `{item_id:int}` in Starlette
-normalize to `{item_id}`). A header expectation and a status expectation for one route are independent policies. There
+normalize to `{item_id}`; a configured route is normalized the same way, so either spelling matches). A header expectation and a status expectation for one route are independent policies. There
 is no implicit policy: nothing is inferred from route metadata, an observed status or a body.
 
 ### Evaluation and findings
@@ -170,8 +172,13 @@ applies to error and not-modified responses of the same route: a test that delib
 omits the header must target a route without that expectation. An observed 500 with no status expectation is evidence
 only, never a finding.
 
+Dismissals are not available for `HTTP-SEC-001` and `HTTP-SEC-002`: a dismissal belongs to the console's stored state,
+and the pytest gate does not read it. To accept a known finding, record it in a baseline (`--sharpit-baseline`). Two
+apps that share a route template share one policy key, because the key is the method and the template.
+
 A configured expectation with incomplete evidence is **UNKNOWN**, never PARTIAL, and fails the gate unless
-`--sharpit-allow-unknown` is set:
+`--sharpit-allow-unknown` is set (that option also tolerates incomplete evidence from a bound exceeded, so a violation
+dropped by a bound can then pass):
 
 - `no matching exchange`: the run was complete and no observed exchange matched (including the fixture never being
   called, or only a wrapper the observer cannot see into);
