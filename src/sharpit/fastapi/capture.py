@@ -715,12 +715,13 @@ class CaptureMiddleware:
                 try:
                     kind = message["type"]
                     if kind == "http.response.start":
+                        message = {**message, "headers": list(message.get("headers", ()))}
                         try:
-                            message = with_request_id_header(self.ctx, scope, message)
+                            message = with_request_id_header(self.ctx, scope, message, info)
                         except Exception as exc:  # noqa: BLE001 - optional response decoration cannot alter host output
                             wiring.hook_failed("request id response header", exc)
                         status = message["status"]
-                        response_headers = list(message.get("headers", ()))
+                        response_headers = message["headers"]
                     elif kind == "http.response.body":
                         size += len(message.get("body", b""))
                         if not message.get("more_body", False):

@@ -198,18 +198,64 @@ def test_request_id_header_failure_is_reported_without_changing_response(monkeyp
     assert [hook for hook, _ in failures] == ["request id response header"]
 
 
-def test_request_id_header_copies_application_headers() -> None:
+def test_request_id_header_uses_explicit_info_when_request_context_is_unset_and_copies_headers() -> None:
     # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     _app_instance, handle = _app()
     original_headers = [(b"x-app", b"kept")]
     message = {"type": "http.response.start", "status": 200, "headers": original_headers}
     scope = {"type": "http", "method": "GET", "client": LOCAL, "headers": [], "scheme": "http"}
-    token = REQUEST.set(RequestInfo("request-id", handle.context.context_id, "GET", "/ok", None, 0, None))
-    try:
-        decorated = with_request_id_header(handle.context, scope, message)
-    finally:
-        REQUEST.reset(token)
+    info = RequestInfo("request-id", handle.context.context_id, "GET", "/ok", None, 0, None)
+    assert REQUEST.get() is None
+    decorated = with_request_id_header(handle.context, scope, message, info)
 
+    assert dict(decorated["headers"]).get(b"x-sharpit-request-id") == b"request-id"
     assert original_headers == [(b"x-app", b"kept")]
     assert decorated["headers"] is not original_headers
-    assert decorated["headers"][-1] == (b"x-sharpit-request-id", b"request-id")
+
+
+def test_request_id_header_uses_capture_info_without_request_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sharpit.fastapi.request_id_header as request_id_header
+
+    class MissingRequestContext:
+        @staticmethod
+        def get() -> None:
+            return None
+
+    monkeypatch.setattr(request_id_header, "REQUEST", MissingRequestContext(), raising=False)
+    app, _ = _app()
+
+    client = TestClient(app, base_url="http://localhost", client=LOCAL)
+    response = client.get("/ok")
+
+    assert HEADER in response.headers
+    exchange = client.get("/sharpit/api/http-exchanges").json()["exchanges"][0]
+    assert response.headers[HEADER] == exchange["requestId"]
+
+
+def test_request_id_header_preserves_one_shot_application_headers() -> None:
+    app = FastAPI()
+
+    @app.get("/generator")
+    def generator_response() -> Response:
+        response = Response("ok")
+        response.raw_headers = iter([(b"x-app", b"kept")])  # type: ignore[assignment]
+        return response
+
+    install(app, enabled="ON", show_banner=False)
+
+    response = TestClient(app, client=LOCAL).get("/generator")
+
+    assert response.headers.get("x-app") == "kept"
+
+
+# ported: RequestCorrelationFilterTests.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
+def test_request_id_header_obeys_container_gateway_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sharpit.fastapi.request_id_header as request_id_header
+
+    gateway = "172.18.0.1"
+    monkeypatch.setattr(request_id_header.guard, "detect_container_gateway", lambda: gateway)
+    automatic, _ = _app(trust_container_gateway="AUTO")
+    disabled, _ = _app(trust_container_gateway="OFF")
+
+    assert HEADER in TestClient(automatic, client=(gateway, 50000)).get("/ok").headers
+    assert HEADER not in TestClient(disabled, client=(gateway, 50000)).get("/ok").headers

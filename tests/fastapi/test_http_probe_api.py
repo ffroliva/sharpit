@@ -520,6 +520,7 @@ def test_only_allow_listed_headers_returned_and_location_token_masked(handle: li
                 "Set-Cookie": "session=secret",
                 "Authorization": "Bearer secret",
                 "X-Custom": "no",
+                "X-Sharpit-Request-Id": "request-id",
                 "Location": "/next?token=abc",
                 "Content-Type": "text/plain",
             },
@@ -528,7 +529,12 @@ def test_only_allow_listed_headers_returned_and_location_token_masked(handle: li
     _install(app, handle)
     with _client(app) as client:
         result = _probe(client, "/headers").json()
-    assert result["headers"] == {"content-type": "text/plain", "content-length": "2", "location": f"/next?token={MASK}"}
+    assert result["headers"].get("x-sharpit-request-id") == "request-id"
+    assert {name: value for name, value in result["headers"].items() if name != "x-sharpit-request-id"} == {
+        "content-type": "text/plain",
+        "content-length": "2",
+        "location": f"/next?token={MASK}",
+    }
 
 
 def test_probe_location_header_is_capped_by_utf8_bytes(handle: list[SharpitHandle]):

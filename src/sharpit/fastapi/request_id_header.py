@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 from starlette.types import Message, Scope
 
 from sharpit.engine import guard
-from sharpit.engine.capture.correlation import REQUEST
+from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.panels import panel_is_implemented
 
 if TYPE_CHECKING:
@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 HEADER = b"x-sharpit-request-id"
 
 
-def with_request_id_header(ctx: SharpitContext, scope: Scope, message: Message) -> Message:
+def with_request_id_header(ctx: SharpitContext, scope: Scope, message: Message, info: RequestInfo) -> Message:
+    headers = cast("list[tuple[bytes, bytes]]", message["headers"])
     settings = ctx.settings
     if (
         not settings.http_exchanges_expose_request_id_header
@@ -26,12 +27,7 @@ def with_request_id_header(ctx: SharpitContext, scope: Scope, message: Message) 
     ):
         return message
 
-    headers = message.get("headers", ())
     if any(name.lower() == HEADER for name, _ in headers):
-        return message
-
-    info = REQUEST.get()
-    if info is None:
         return message
 
     client = scope.get("client")
