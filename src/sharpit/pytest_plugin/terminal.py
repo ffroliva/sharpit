@@ -53,6 +53,7 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
         terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
     if not worst:
         terminalreporter.write_line("  (none)")
+    _write_swallowed(terminalreporter, shown)
     path = config.option.sharpit_report or config.getini("sharpit_report")
     terminalreporter.write_line(f"report: {path}")
     if notes and not state.options.verbose:
@@ -62,6 +63,10 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
     if would_fail is not None:
         terminalreporter.write_line(f"sharpit report-only: {would_fail} tests would fail, status {data['status']}")
     _write_coverage(terminalreporter, state, data)
+
+
+def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
+    """Swallowed-exception findings, one line per ``except`` clause, not per test."""
 
 
 # an app SKIPPED or UNKNOWN was not assessed, so it proves nothing

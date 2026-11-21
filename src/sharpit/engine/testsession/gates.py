@@ -20,6 +20,8 @@ N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
 SWALLOWED = "sharpit.swallowed-exception"
 UNBOUNDED_READ = "sharpit.unbounded-read"
+# said by a swallowed-exception finding whose exception a test double raised (issue 68); the severity is unchanged
+TEST_DOUBLE_NOTE = "a test double raised this, so this code path did not run"
 # a relationship site that starts with this names the declaration, not the load: no application frame was on the stack
 LAZY_LOAD_OUTSIDE_APP = "outside application code"
 # PEP 249 error classes (sqlite3, the DB-API drivers and SQLAlchemy keep these names): a failed query swallowed into a

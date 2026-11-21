@@ -660,3 +660,19 @@ def test_the_worker_identity_travels_in_the_fact_json() -> None:
     fact = SwallowedFact("app/weeks.py:21", "AttributeError", True, IDENTITY, "/repo/app/weeks.py:21")
 
     assert SwallowedFact.from_json(fact.to_json()) == fact
+
+
+# --- #68: a swallowed exception a test double raised says so --------------------------------------------------------
+
+DOUBLE_NOTE = "a test double raised this, so this code path did not run"
+
+
+def test_swallowed_message_says_when_a_test_double_raised_it() -> None:
+    fact = SwallowedFact("app/weeks.py:21", "TypeError", True, test_double=True)
+
+    found = _swallowed_findings(_facts(call=PhaseFacts(swallowed=[fact])))
+
+    assert [f["message"] for f in found] == [
+        "TypeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged); "
+        f"{DOUBLE_NOTE}; identity app/weeks.py:21:TypeError"
+    ]
