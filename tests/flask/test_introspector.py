@@ -6,7 +6,8 @@ import importlib
 from importlib.metadata import version
 from typing import Any
 
-from werkzeug.routing import BaseConverter
+from werkzeug.routing import BaseConverter, Map
+from werkzeug.routing import Rule as WerkzeugRule
 
 from flask import Flask
 from sharpit.engine.spi import AppInfo, RouteInfo
@@ -165,17 +166,21 @@ def test_routes_and_app_metadata_do_not_read_dynamic_flask_attributes() -> None:
 def test_routes_do_not_evaluate_rule_properties() -> None:
     accesses: list[str] = []
 
-    class Rule:
-        @property
-        def rule(self) -> str:
-            accesses.append("rule")
-            return "/unsafe"
+    class Rule(WerkzeugRule):
+        def __init__(self) -> None:
+            super().__init__("/unsafe", endpoint="unsafe")
 
-        endpoint = "unsafe"
-        methods = {"GET"}
+        @property
+        def methods(self) -> set[str]:
+            accesses.append("methods")
+            return {"GET"}
+
+        @methods.setter
+        def methods(self, value: set[str] | None) -> None:
+            object.__setattr__(self, "_methods", value)
 
     app = Flask("unsafe-rule", static_folder=None)
-    app.url_map = type("Map", (), {"iter_rules": lambda _self: [Rule()]})()  # type: ignore[assignment]
+    app.url_map = Map([Rule()])
     app.view_functions["unsafe"] = lambda: "unsafe"
 
     _introspector(app).routes()
