@@ -10,7 +10,7 @@ checks, reporting cookie names and flags only and never cookie values.
 supplies the bounded-header function, per-name completeness, the assessment helpers, and, inside `cors.py`, the
 masked-evidence callable and the evidence sanitiser. Task 0 of this lane moves those two into the shared module
 `pentesting/echo.py` (this lane merges before A13, so it is the first lane to need them outside CORS); every finding of
-this lane passes through that sanitiser, and no copy is made. The probe passes the bounded headers through one framework-free split
+this lane, the two session-configuration findings included, passes through that sanitiser, and no copy is made. The probe passes the bounded headers through one framework-free split
 that turns each raw `Set-Cookie` text into a value-free `CookieObservation` and removes `set-cookie` from the header map,
 so `SyntheticResponse` never holds a cookie value. Seven checks evaluate those observations (and `Cache-Control` for
 PT-A02-008). Two metadata checks evaluate `SessionMiddleware` facts that the scan action reads statically through one
@@ -46,6 +46,16 @@ Second plan review on 2026-11-21: approved with changes, all folded into this re
 | "Every exposure" is reconciled with the capture exclusion under `FULL`: the exception is stated as decision, rationale and consequence | Global Constraints; Task 13; deviation rows |
 | `boundedLabel` uses an explicit ASCII class, with a non-breaking-space test | Tasks 1-2 |
 
+Third plan review on 2026-11-21: approved with changes, all folded into this revision.
+
+| Change | Where |
+|---|---|
+| PT-A02-004 and PT-A02-006 pass through the same sanitiser; the sanitiser test covers all nine rules, with a mount path over 240 characters containing LF | Architecture; Global Constraints; Tasks 7, 12; M8b |
+| Capture-record assertions use the cookie canary only; `Cache-Control` values are recorded as sent in `MASKED` and `FULL` (checked with the real `Masker`), added to the stated exception, its deviation row and a pinned test | Global Constraints; Task 13; deviation rows |
+| `public, private="<canary>"` keeps PT-A02-008; `private="<canary>"` alone is silent | Task 9; scenario row 37 |
+| The PT-A02-008 presence assertion moves to its own surfaces file, red until Task 10, so the Task 3 files are green when Tasks 4, 6 and 8 expect it | Task 3; Tasks 4, 6, 10 |
+| Task 0 records A11's actual names, re-exports `make_echo` without an F401, and imports the sanitiser by name | Task 0; File map |
+
 Verified before writing (BootUI at tag `v2.5.0`, `bootui-engine/.../engine/pentesting/`; `Checks` is
 `PentestingChecks.java`, `Support` is `PentestingCheckSupport.java`, `Assessment` is `PentestingAssessment.java`,
 `Registry` is `PentestingCheckRegistry.java`):
@@ -78,9 +88,10 @@ Verified before writing (BootUI at tag `v2.5.0`, `bootui-engine/.../engine/pente
 A10, then A11, then A12 (this branch is stacked on A10 and is rebased onto A11 before Task 1 while it is unpushed,
 merged in otherwise), then A13. A11 adds `SyntheticResponse.incomplete_header_names`, `header_inventory_incomplete`,
 `headers_complete(*names)`; `headers.bound_headers` and `headers.joined`; `assessment.retained_headers` and
-`required_headers`; the evidence sanitiser and `make_echo(masker)` (in `cors.py`); the required keyword-only `masker` of
-`PentestingService.scan`. This lane reuses all of them and defines no equivalent; its Task 0 only moves the sanitiser
-and `make_echo` into `pentesting/echo.py` (behaviour unchanged), and lane A13, which merges after this one, uses that
+`required_headers`; the evidence sanitiser (`_clean`) and `make_echo(masker)`, with the `Echo` alias and
+`MASKED_PLACEHOLDER` (all in `cors.py`); the required keyword-only `masker` of `PentestingService.scan`. This lane
+reuses all of them and defines no equivalent; its Task 0 only moves them into `pentesting/echo.py` (behaviour
+unchanged; `_clean` becomes the public `sanitize_evidence`), and lane A13, which merges after this one, uses that
 module without a move of its own. The shared edits (the pending
 sentence in `report.py`, the A02 description, the pending-text test, `0.8.0-a10.tsv`, `PARITY.md`, spec section 14)
 are resolved by the lane that merges second, which edits only its own words.
@@ -94,16 +105,21 @@ are resolved by the lane that merges second, which edits only its own words.
 - A cookie value, a raw `Set-Cookie` line, an attribute value, a raw `Cache-Control` text and a `SecurityFacts.limitations`
   text never appear in an observation, report, error, log, MCP result, CLI output or persisted file of the scan, in every
   exposure. A cookie name and a mount path are the only host-chosen text reaching evidence, and each passes through the
-  shared `echo` and then the whole evidence string through `echo.sanitize_evidence` (CR, LF and TAB runs to one space,
-  Java trim, 240 characters with `...`, BootUI `PentestingCheckSupport.evidence`); fixed BootUI text is never masked.
-- **FULL exception for capture records.** Decision: the probe exchange recorded by the host's capture middleware is not
-  excluded or rewritten; under `FULL` its `Set-Cookie` value is shown, as for every captured exchange. Rationale:
-  `FULL` is the explicit opt-in to unmasked text, `Masker.mask_header` shows header values there by design for all
-  captured traffic, the probe is an ordinary in-process request, and changing header masking or suppressing probe
-  exchanges is a masking change that needs `/sharpit:predict` and `/sharpit:llm-council --tier high`. Consequence: the
-  value guarantee holds for everything the scan itself produces in all three exposures, and for capture records in
-  `MASKED` and `METADATA_ONLY`; under `FULL` the capture panel shows the probe's cookie as it shows any host response.
-  Recorded as deviation row `pentesting:cookie-capture-full`; Task 13 pins both sides.
+  shared `echo` and then the whole evidence string through `sanitize_evidence` (imported by name from `pentesting/echo.py`;
+  CR, LF and TAB runs to one space, Java trim, 240 characters with `...`, BootUI `PentestingCheckSupport.evidence`);
+  fixed BootUI text is never masked. All nine rules, `session_cookie.configured` included, use it.
+- **Capture-record exception.** Decision: the probe exchange recorded by the host's capture middleware is not excluded
+  or rewritten. Under `FULL` its `Set-Cookie` value is shown, as for every captured exchange; in every exposure but
+  `METADATA_ONLY` its `Cache-Control` value is recorded as the host sent it, because `Masker.mask_header` does not
+  treat `Cache-Control` as sensitive (run against the real `Masker`: unchanged in `MASKED` and `FULL`, empty in
+  `METADATA_ONLY`; `Set-Cookie` is `******` in `MASKED`). Rationale: `FULL` is the explicit opt-in to unmasked text,
+  header masking decides per header name for all captured traffic, the probe is an ordinary in-process request, and
+  changing header masking or suppressing probe exchanges is a masking change that needs `/sharpit:predict` and
+  `/sharpit:llm-council --tier high`. Consequence: the value guarantee holds for everything the scan itself produces in
+  all three exposures (pentesting evidence never echoes a `Cache-Control` value), and for the cookie value in capture
+  records in `MASKED` and `METADATA_ONLY`; under `FULL` the capture panel shows the probe's cookie, and in `MASKED` and
+  `FULL` its `Cache-Control`, as it shows any host response. Capture-record assertions therefore use the cookie-value
+  canary only. Recorded as deviation row `pentesting:cookie-capture-full`; Task 13 pins both sides.
 - Python `>=3.12`; runtime dependencies exactly `starlette` and `packaging`; the engine imports no Starlette or FastAPI;
   no module under `src/` exceeds 1000 lines; ruff C901 counts only go down.
 - Every ported test cites its BootUI source with `# ported: <Class>.<method>`.
@@ -129,23 +145,25 @@ are resolved by the lane that merges second, which edits only its own words.
 | High | Configuration evidence is mistaken for observed cookies | Separate evidence, targets name the middleware option, coverage text distinguishes them. |
 | High | Starlette's default `https_only=False` flagged as explicit | Only a keyword passed as `False` sets the new fact. |
 | High | A12's limitation strings are cut by the 20-entry limit | Worst-case set test that asserts each A12 string survives. |
-| High | A finding's evidence exceeds BootUI's 240-character cut (PT-A02-007 with three violations is 233 characters plus the name) | Every finding passes `echo.sanitize_evidence`; an all-violations `__Host-` cookie pins the cut. |
+| High | A finding's evidence exceeds BootUI's 240-character cut (PT-A02-007 with three violations is 233 characters plus the name; a mount path in PT-A02-004 and -006 is host text of any length and may hold LF) | Every finding of all nine rules passes `sanitize_evidence`; an all-violations `__Host-` cookie and a mount path over 240 characters with LF pin the cut. |
 | High | A raising `security_facts()` leaks its message or crashes the scan | `read_security_facts` catches `Exception`, logs nothing, returns `None`; red-first unit tests with a canary message. |
-| Medium | A cookie value reaches a capture record under `FULL` | Stated exception (Global Constraints); `MASKED` and `METADATA_ONLY` pinned; deviation row. |
+| Medium | A cookie value reaches a capture record under `FULL`, or a `Cache-Control` value reaches one under `MASKED` or `FULL` | Stated exception (Global Constraints); the cookie value in `MASKED` and `METADATA_ONLY` pinned; capture assertions use the cookie canary only; deviation row. |
 | Medium | Python `\s` is Unicode and relabels a name BootUI keeps | Explicit ASCII class in `boundedLabel`; non-breaking-space test. |
 | Medium | Facts read twice per scan (A12 and A13) | One shared reader; call-count test. |
 
 ## File map
 
-- `src/sharpit/engine/collectors/pentesting/echo.py` (new, the one shared home, Task 0): `make_echo(masker)` and
-  `sanitize_evidence(text)`, moved unchanged out of A11's `cors.py`; `cors.py` only imports them.
+- `src/sharpit/engine/collectors/pentesting/echo.py` (new, the one shared home, Task 0): `Echo`, `MASKED_PLACEHOLDER`,
+  `make_echo(masker)` and `sanitize_evidence(text)` (A11's `_clean`, renamed public), with the constants it uses,
+  moved unchanged out of A11's `cors.py`. `cors.py` imports `Echo`, `sanitize_evidence` and `make_echo` by name and
+  re-exports `make_echo` (`make_echo as make_echo`), which A11's tests and `service.py` call as `cors.make_echo`.
 - `src/sharpit/engine/collectors/pentesting/cookie_observation.py` (new): `SameSite`, `CookieObservation`,
   `parse_set_cookie`, `split_cookies`.
 - `src/sharpit/engine/collectors/pentesting/cookie_checks.py` (new): the seven observed checks, `observed`.
 - `src/sharpit/engine/collectors/pentesting/cache_control.py` (new): `parse_cache_control`, `directive_summary`; reuses
   `checks._split_outside_quotes` (already the port of `splitOutsideQuotes`).
-- `src/sharpit/engine/collectors/pentesting/session_cookie.py` (new): `SessionCookieConfig`, `SessionEvidence`,
-  `session_evidence`, `configured`.
+- `src/sharpit/engine/collectors/pentesting/session_cookie.py` (new; the stub is created in Task 7): `SessionCookieConfig`,
+  `SessionEvidence`, `session_evidence`, `configured`; it imports `sanitize_evidence` by name from `echo.py`.
 - `src/sharpit/engine/collectors/pentesting/evidence.py`: one new field, `SyntheticResponse.cookies`.
 - `src/sharpit/engine/collectors/pentesting/report.py`, `service.py`: cookie findings and gaps in the report, the
   `session` keyword, text and coverage updates.
@@ -158,7 +176,8 @@ are resolved by the lane that merges second, which edits only its own words.
 - Tests: `tests/engine/collectors/pentesting/test_evidence_echo.py`, `tests/fastapi/test_pentesting_exposure_adapter.py`
   (A13 adds its own cases to this file), `tests/engine/collectors/pentesting/test_cookie_observation.py`, `test_cookie_checks.py`,
   `test_cache_control.py`, `test_session_cookie_config.py`; `tests/fastapi/test_pentesting_cookie_probe.py`,
-  `test_pentesting_cookie_surfaces.py`, `test_pentesting_cookie_hidden_surfaces.py`; additions to
+  `test_pentesting_cookie_surfaces.py`, `test_pentesting_cache_control_surfaces.py`,
+  `test_pentesting_cookie_hidden_surfaces.py`; additions to
   `tests/fastapi/test_introspector_security.py` and `tests/engine/collectors/pentesting/test_pentesting_report.py`.
 - `tests/fixtures/bootui/2.5.0/pentesting/`: extend the rule-contract projection and the hand-derived ASGI golden with
   cookie cases (fake non-secret values; the two fixtures stay separate as in A10).
@@ -182,8 +201,9 @@ class CookieObservation:
 def parse_set_cookie(raw: str) -> CookieObservation: ...      # total; never raises; retains no raw text
 def split_cookies(headers: Mapping[str, tuple[str, ...]]) -> tuple[dict[str, tuple[str, ...]], tuple[CookieObservation, ...]]
 def observed(get: SyntheticResponse, gaps: list[str], echo: Callable[[str], str]) -> list[Finding]
-# every finding is built as checks.finding(rule, target, echo.sanitize_evidence(evidence)); the echo is applied to the
-# name first, so the sanitiser sees the whole sentence
+# every finding is built as checks.finding(rule, target, sanitize_evidence(evidence)), with sanitize_evidence imported by
+# name from echo.py (never reached through the `echo` parameter, which shadows the module); the echo callable is applied
+# to the name first, so the sanitiser sees the whole sentence
 ```
 
 `SyntheticResponse.cookies: tuple[CookieObservation, ...] = ()`. Completeness is A11's: `headers_complete("set-cookie")`
@@ -202,7 +222,7 @@ evidence was supplied (no finding, no gap), which keeps A10 and A11 callers vali
 | `pentesting:cookie-name-echo` | adapted | Names and mount paths pass through A11's `echo`; under `METADATA_ONLY` they read `[masked]`; classification runs on the unmasked label | A11 rule, safety model 3 (forced) |
 | `pentesting:cookie-name-residual` | default taken, owner to confirm | A nameless padded base64 value (`dGVzdA==; Secure`) keeps the unpadded part as its label, as RFC 6265bis reads a name; pinned by a test | Not distinguishable from a name |
 | `pentesting:cache-control-evidence` | default taken, owner to confirm | PT-A02-008 evidence lists the recognised directive names (numeric arguments for `max-age`, `s-maxage`, `stale-*` only) and a count of other directives, not the raw header text | A10 invariant; masking cannot keep the text readable |
-| `pentesting:cookie-capture-full` | default taken, owner to confirm | Under `FULL` the capture middleware records the probe exchange with its `Set-Cookie` value, as for any captured exchange; `MASKED` and `METADATA_ONLY` records hold no value | `FULL` is the opt-in to unmasked text; changing header masking is a separate predict and council decision |
+| `pentesting:cookie-capture-full` | default taken, owner to confirm | The capture middleware records the probe exchange like any captured exchange: under `FULL` with its `Set-Cookie` value, and under `MASKED` and `FULL` with its `Cache-Control` value as the host sent it (`mask_header` does not treat that header as sensitive); `MASKED` and `METADATA_ONLY` records hold no cookie value; pentesting evidence never echoes either header value | `FULL` is the opt-in to unmasked text and header masking decides per header name for all traffic; changing it is a separate predict and council decision |
 | `pentesting:session-config` | adapted | PT-A02-004 and PT-A02-006 read `SessionMiddleware(https_only=..., same_site=...)` keyword options from the static security facts instead of `server.servlet.session.cookie.*`; "explicitly false" means the keyword was passed as `False`; target, evidence and recommendation name the middleware option; IDs, titles, severities, confidence and categories are BootUI's | Spring properties do not exist (forced) |
 | `pentesting:session-config-gap` | default taken, owner to confirm | Facts that are absent or carry any limitation record BootUI's gap `Framework configuration evidence was incomplete.` and no limitation text; counting every limitation, not only session-related ones, is the conservative default | Text may carry a mount path (text forced; count is the default) |
 | `pentesting:session-clear-cookie` | parity note | Starlette's clear writes the value `null` with a 1970 `expires`; BootUI's rule does not treat it as a deletion, so it is evaluated like any cookie | Ported faithfully |
@@ -214,28 +234,41 @@ evidence was supplied (no finding, no gap), which keeps A10 and A11 callers vali
 
 **Commit:** `refactor: move the pentesting evidence echo and sanitiser to a shared module`
 
-**Precondition:** A11 has merged into this branch. If A11 already put `make_echo` and the sanitiser in a shared module,
-use that module's name throughout this plan and skip this task; this plan assumes they sit in `cors.py`. Lane A13's
-plan names `echo.py` and drops its own Task 0 because this task creates the module first.
+**Precondition:** A11 has merged into this branch. Names read from A11's `cors.py` (working tree on top of
+`82640fd8`; its plan only says "the evidence sanitiser" and `make_echo(masker)`): the sanitiser is the private
+`_clean(text)` with its constants `_RUNS` (`[\r\n\t]+`) and `_MAX_EVIDENCE_CHARS` (240); the echo factory is
+`make_echo(masker)` with the alias `Echo = Callable[[str], str]` and `MASKED_PLACEHOLDER = "[masked]"`; A11's tests and
+`service.py` call it as `cors.make_echo`. Re-read these names at the merge point and use A11's actual ones if they
+differ; if A11 already put them in a shared module, use that module's name throughout this plan and skip this task.
+Lane A13's plan names `echo.py` and drops its own Task 0 because this task creates the module first.
 
 **Files:** `engine/collectors/pentesting/echo.py`, `engine/collectors/pentesting/cors.py`,
 `tests/engine/collectors/pentesting/test_evidence_echo.py`.
 
-**Interfaces:** `make_echo(masker) -> Callable[[str], str]` (the masked fragment, or `[masked]` when `masker.mask_text`
-returns `None`) and `sanitize_evidence(text) -> str`. Behaviour is A11's, unchanged; only the home changes. The module
-imports no `Masker` class and no HTTP code (`tests/engine/test_import_boundary.py`).
+**Interfaces:** `make_echo(masker) -> Echo` (the masked fragment, or `[masked]` when `masker.mask_text` returns `None`)
+and `sanitize_evidence(text) -> str` (A11's `_clean`, renamed because other modules now call it). Behaviour is A11's,
+unchanged; only the home and the sanitiser's name change. The module imports no `Masker` class at runtime and no HTTP
+code (`tests/engine/test_import_boundary.py`).
+
+**Import rules (ruff F401 clean).** `cors.py` imports `Echo`, `sanitize_evidence` and `make_echo` from `echo.py` by name
+and replaces its `_clean(` call sites with `sanitize_evidence(`. `make_echo` is not used inside `cors.py`, so it is
+re-exported with `from sharpit.engine.collectors.pentesting.echo import make_echo as make_echo`, which keeps
+`cors.make_echo` working for A11's tests and `service.py` with no edit to them. Every other module, including
+`cookie_checks.py` and `session_cookie.py`, imports `sanitize_evidence` by name; none calls `echo.sanitize_evidence`,
+because functions that take a parameter named `echo` shadow the module (the call would raise `AttributeError`).
 
 **Stub for the red run:** `echo.py` with `make_echo` returning the identity function and `sanitize_evidence` returning
 its input, so the tests fail on their assertions and not on an import.
 
 - [ ] **Step 1:** Write `test_evidence_echo.py` with the behaviour A11's tests already pin, against the shared module:
   `test_sanitizer_collapses_cr_lf_and_tab_runs_to_one_space`, `test_sanitizer_trims_java_whitespace`,
-  `test_sanitizer_cuts_at_240_characters_with_an_ellipsis` (237 characters plus `...`), and one echo test per exposure
-  (`MASKED` shows the fragment, `METADATA_ONLY` gives `[masked]`, `FULL` shows it) with the real `Masker`.
+  `test_sanitizer_cuts_at_240_characters_with_an_ellipsis` (237 characters plus `...`), one echo test per exposure
+  (`MASKED` shows the fragment, `METADATA_ONLY` gives `[masked]`, `FULL` shows it) with the real `Masker`, and
+  `test_cors_reexports_make_echo` (`cors.make_echo is echo.make_echo`).
   `# ported: PentestingCheckSupport.evidence` (`PentestingCheckSupport.java:51-63`).
 - [ ] **Step 2:** Run the file against the stub, confirm assertion reds, `red_check.py`. Then move the code from
-  `cors.py` into `echo.py`, import it in `cors.py`, keep A11's tests green unchanged
-  (`uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/engine/test_import_boundary.py`), and make one commit
+  `cors.py` into `echo.py`, import it in `cors.py` under the import rules above, keep A11's tests green unchanged
+  (`uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/engine/test_import_boundary.py`) and `uv run ruff check`, and make one commit
   with explicit paths and `git commit -s`.
 
 ## Task 1: Freeze the value-free observation contract
@@ -296,8 +329,10 @@ by substring, no deletion), the wrong-value shape the tests rule out.
 
 **Commit:** `test: pin the cookie value boundary of the probe and the report surfaces`
 
-**Files:** `tests/fastapi/test_pentesting_cookie_probe.py`, `tests/fastapi/test_pentesting_cookie_surfaces.py`; stubs
-`cookie_observation.split_cookies` and `cookie_checks.observed`, and the call of `observed` in `scanned_report`.
+**Files:** `tests/fastapi/test_pentesting_cookie_probe.py`, `tests/fastapi/test_pentesting_cookie_surfaces.py` (both green
+by Task 4), `tests/fastapi/test_pentesting_cache_control_surfaces.py` (Step 2b; red until Task 10, so Tasks 4, 6 and 8 do
+not run it); stubs `cookie_observation.split_cookies` and `cookie_checks.observed`, and the call of `observed` in
+`scanned_report`.
 
 **Stubs:** `split_cookies` returns the headers unchanged and no observations (raw `set-cookie` stays on the response).
 `observed` is the literal port: for each raw `set-cookie` value in `get.headers` it emits PT-A02-001 with target
@@ -316,11 +351,13 @@ by substring, no deletion), the wrong-value shape the tests rule out.
   `pentest scan` and `pentest report` (tool endpoint and command output). The host sets a well-formed
   `session=<canary>; Path=/` (no `HttpOnly`, so its PT-A02-001 finding must be present, with the name `session` in `MASKED` and
   `FULL` and `[masked]` in `METADATA_ONLY`), a name-less `<canary>; Secure`, an empty-name `=<canary>; Secure`,
-  `Foo=<canary>`, `SameSite=<canary>`, `Path=/<canary>`, a JWT-shaped 152-character name, an over-long value, and
-  `Cache-Control: public, x-token=<canary>` (PT-A02-008 must be present and the canary absent on every surface).
+  `Foo=<canary>`, `SameSite=<canary>`, `Path=/<canary>`, a JWT-shaped 152-character name and an over-long value; the
+  host sets no `Cache-Control` here, because PT-A02-008 is not evaluated until Task 10 and its presence assertion lives
+  in Step 2b.
   `FULL` is the discriminating exposure: values are dropped by the parser, not masked. Reuse the client factory of
   `tests/fastapi/test_pentesting_api.py:23-68`.
-- [ ] **Step 2b:** `test_cache_control_canary_is_absent_from_every_output_surface`, parametrised by surface and exposure
+- [ ] **Step 2b:** In `test_pentesting_cache_control_surfaces.py`,
+  `test_cache_control_canary_is_absent_from_every_output_surface`, parametrised by surface and exposure
   as in Step 2, over host responses that each set `session=<canary>; Path=/` (no `HttpOnly`) plus one `Cache-Control` header, with a run-time
   canary: (a) `public, x-token=<canary>`: PT-A02-008 present, evidence names `public` and one other directive;
   (b) `max-age=<canary>`: no PT-A02-008 (a non-numeric `max-age` is not positive, `Checks.java:2741`) and the cookie's
@@ -329,8 +366,9 @@ by substring, no deletion), the wrong-value shape the tests rule out.
   gap strings, `GET required response headers were incomplete.` and `GET required response headers were unavailable.`
   (`Assessment.java:59-71`, reached through `headers()` at `Checks.java:2653`), are present on every surface that carries
   the report limitations. The canary is absent everywhere in all three exposures.
-- [ ] **Step 3:** Run both files plus `tests/fastapi/test_pentesting_probe.py`; confirm assertion reds;
-  `red_check.py`; commit. The reds of Step 2b for cases (a) and (c) stay assertion reds until Task 10.
+- [ ] **Step 3:** Run the three files plus `tests/fastapi/test_pentesting_probe.py`; confirm assertion reds;
+  `red_check.py`; commit. The reds of the Step 2b file for cases (a) and (c) stay assertion reds until Task 10; the
+  two Step 2 files turn fully green in Task 4, and Tasks 4, 6 and 8 run only those two.
 
 ## Task 4: Route `Set-Cookie` through the split at the probe boundary
 
@@ -348,10 +386,10 @@ by substring, no deletion), the wrong-value shape the tests rule out.
 - [ ] **Step 3:** Change the `observed` stub to read `get.cookies` and emit one wrong-value finding per cookie:
   `PT-A02-001`, `INFO`, target `"Set-Cookie " + echo(obs.name)` and evidence `echo(obs.name)`. The finding is named with
   the cookie's echoed label (`session`, or `[masked]` in `METADATA_ONLY`), so the Task 3 Step 2 presence assertions and
-  the canary-absence assertions turn green for the right reason, and the stub is wrong everywhere else (every cookie,
+  the canary-absence assertions of those two files turn green for the right reason, and the stub is wrong everywhere else (every cookie,
   every flag state and deletion cookies get the same INFO finding, no other rule, no gap), so the checks of Tasks 5, 7
   and 9 stay red until Tasks 6, 8 and 10. The Task 3 stub's literal `stub` target is not reused.
-- [ ] **Step 4:** Run the Task 3 files and `tests/fastapi/test_pentesting_api.py`; commit.
+- [ ] **Step 4:** Run the two Task 3 Step 2 files (not the Step 2b file) and `tests/fastapi/test_pentesting_api.py`; commit.
 
 ## Task 5: Freeze the flag checks (PT-A02-001, PT-A05-005, PT-A02-002, PT-A02-003)
 
@@ -380,20 +418,22 @@ by substring, no deletion), the wrong-value shape the tests rule out.
 
 - [ ] **Step 1:** Implement the four rules over non-deletion observations (BootUI `Assessment.cookies`), in BootUI's
   order of checks and strings; target `"Set-Cookie " + echo(name)`; evidence is BootUI's sentence with `echo(name)`, passed
-  through `echo.sanitize_evidence` by the one local finding helper that every rule of `cookie_checks.py` uses (imported
-  from the shared `echo.py`, never copied); findings keep arrival order within a rule and the report's stable sort by
+  through `sanitize_evidence` by the one local finding helper that every rule of `cookie_checks.py` uses (imported by name
+  from the shared `echo.py`, never copied, never called as an attribute of the `echo` parameter); findings keep arrival order within a rule and the report's stable sort by
   `RULE_ORDER` orders rules.
 - [ ] **Step 2:** Gate with `assessment.retained_headers("GET", get, ("set-cookie",), gaps)` (A11): an unavailable
   response yields nothing and the gap is BootUI's `GET required response headers were incomplete.`; retained cookies are
   still evaluated when the inventory is incomplete. In `scanned_report` call `observed` after `_get_findings`, inside
   the `checks.available(get)` branch, with the `echo` that `PentestingService.scan` builds from `masker` (A11).
-- [ ] **Step 3:** Run the Task 3 and Task 5 files and `tests/engine/collectors/pentesting`; commit.
+- [ ] **Step 3:** Run the two Task 3 Step 2 files and the Task 5 file and `tests/engine/collectors/pentesting`; commit.
 
 ## Task 7: Freeze the prefix checks (PT-A02-007, PT-A05-064)
 
 **Commit:** `test: port the BootUI cookie prefix checks`
 
-**Files:** `test_cookie_checks.py` (group 2).
+**Files:** `test_cookie_checks.py` (group 2); the wrong-value stub `session_cookie.py` (`SessionCookieConfig`,
+`SessionEvidence`, and a `configured` that returns the PT-A02-004 and PT-A02-006 findings with the echoed mount path and
+no sanitiser call; it imports `sanitize_evidence` by name so the test can patch it), so the nine-rule sanitiser test below fails on assertions; Task 11 keeps the stub and freezes the rest.
 
 - [ ] **Step 1:** `test_prefix_requirements_are_checked_for_host_and_secure_cookies`
   (`cookiePrefixRequirementsCheckFlagsViolationsAndAllowsCompliantCookies`; evaluated over the unfiltered observations,
@@ -407,8 +447,11 @@ by substring, no deletion), the wrong-value shape the tests rule out.
   `__Host-session=<canary>; Domain=example.test; Path=/x`, no `Secure`: PT-A02-007 is present with all three violations
   named; BootUI's sentence is 233 characters plus the name (`Checks.java:2616-2619`), so the evidence is exactly 240
   characters, 237 and `...`, with no CR, LF or TAB; `# ported: PentestingCheckSupport.evidence`), and
-  `test_cookie_finding_evidence_goes_through_the_shared_sanitiser` (a recording stand-in patched over the sanitiser name
-  that `cookie_checks.py` uses sees the whole sentence after `echo`; one case each for PT-A02-001, -002, -003, -007, -008, PT-A05-005 and -064).
+  `test_cookie_finding_evidence_goes_through_the_shared_sanitiser` (a recording stand-in patched over the name
+  `sanitize_evidence` in `cookie_checks.py` and in `session_cookie.py` sees the whole sentence after `echo`; one case
+  for each of the nine rules: PT-A02-001, -002, -003, -004, -006, -007, -008, PT-A05-005 and -064; PT-A02-004 and -006
+  are built through `session_cookie.configured` from a host whose mount path is over 240 characters and contains LF,
+  and their evidence is then exactly 240 characters with no CR, LF or TAB; presence of the finding is asserted first).
 - [ ] **Step 2:** Run; confirm assertion reds; `red_check.py`; commit.
 
 ## Task 8: Implement the prefix checks
@@ -433,9 +476,11 @@ branch of `observed`.
   (`cacheableSetCookieCheckDistinguishesPublicSharedAndSessionMaxAgeCaching`: `public`, `s-maxage`, positive `max-age`,
   `private`, `no-store`, quoted `private="Set-Cookie"` and `no-cache="Set-Cookie"`, escaped quotes, numeric overflow;
   HIGH, MEDIUM for session names with a positive `max-age`, silent for the safe forms),
-  `test_cache_control_evidence_is_rebuilt_from_directives` (`public, x-token=<canary>` and `private="<canary>"` keep the
-  finding, name the recognised directives and count the others, and never contain the canary; each directive keeps its
-  spelling case-folded; presence assertions first), `test_cache_control_incomplete_does_not_manufacture_a_finding`
+  `test_cache_control_evidence_is_rebuilt_from_directives` (`public, x-token=<canary>` and `public, private="<canary>"`
+  keep the finding, name the recognised directives and count the others, and never contain the canary; alone,
+  `private="<canary>"` is silent, as BootUI's `private` branch needs `public`, `s-maxage` or a positive `max-age` beside
+  it, so it is asserted silent as the contrast case; each directive keeps its spelling case-folded; presence
+  assertions first), `test_cache_control_incomplete_does_not_manufacture_a_finding`
   (an over-long `Cache-Control` value: no finding, and both of BootUI's gaps, `GET required response headers were
   incomplete.` and `GET required response headers were unavailable.`, because PT-A02-008 uses `Assessment.headers`,
   not `retainedHeaders`; the same two gaps appear when the response sets no cookie, because BootUI evaluates the header
@@ -470,8 +515,9 @@ branch of `observed`.
   that the application has no sessions.` (`Registry.java:319-330`). Update the A11 version of
   `test_cors_and_cookie_checks_are_reported_as_pending_not_unavailable` into
   `test_cookie_pending_text_is_replaced_and_no_pending_wording_remains`.
-- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py`;
-  commit.
+- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py
+  tests/fastapi/test_pentesting_cookie_surfaces.py tests/fastapi/test_pentesting_cache_control_surfaces.py`; the Step 2b
+  file (PT-A02-008 presence, both gap strings, canary absence) is green from here on; commit.
 
 ## Task 11: Freeze the session-configuration checks
 
@@ -486,7 +532,8 @@ branch of `observed`.
 None) -> SessionEvidence` (`complete` is false when `facts` is `None` or carries any limitation; the text is not read);
 `configured(session, gaps, echo) -> list[Finding]`.
 
-**Stubs:** `session_evidence` returns one config with `https_only_false` and `same_site_none` true and `complete` true
+**Stubs:** (`session_cookie.py` already exists from Task 7; its `configured` stub is replaced by the one below.)
+`session_evidence` returns one config with `https_only_false` and `same_site_none` true and `complete` true
 for any input; `configured` returns one PT-A02-004 finding with severity `INFO` and evidence `stub` for any input and
 records no gap. `read_security_facts` returns an empty `SecurityFacts` for any input (wrong where the tests expect
 `None`, and not the object the introspector returned where they expect it).
@@ -525,7 +572,10 @@ records no gap. `read_security_facts` returns an empty `SecurityFacts` for any i
   each config with `same_site_none` and `https_only_false`; BootUI titles, severities (LOW; MEDIUM), confidence (Medium;
   High) and categories (A04; A02); target, evidence and recommendation name the `SessionMiddleware` option and the
   echoed mount path, never an option value. When `complete` is false, append `Framework configuration evidence was
-  incomplete.` (`Assessment.java:41-44`), which makes the scan PARTIAL without a finding.
+  incomplete.` (`Assessment.java:41-44`), which makes the scan PARTIAL without a finding. Every finding is built through
+  `sanitize_evidence`, imported by name from `echo.py` (the mount path is host text: CR, LF and any length), so the
+  Task 7 nine-rule sanitiser test turns green here; `configured` takes a parameter named `echo`, so it never reaches the
+  sanitiser as `echo.sanitize_evidence`.
 - [ ] **Step 3:** Add `read_security_facts(introspector)` to `pentesting_exposure.py` with A13's name, signature and
   module: one `security_facts()` read through the duck-typed attribute used by `engine/tools04/security.py:33`, wrapped
   in `except Exception` with no logging and no message copied, `None` on failure, on absence of the attribute and on a
@@ -544,14 +594,19 @@ These cases are absence-only, so their red evidence is a control-deletion run: a
 the working tree, run `red_check.py` on the named tests in the mutated tree, restore the file with `git checkout --
 <path>`, and record the test names in the commit body.
 
-- [ ] **Step 1:** `test_planted_cookie_value_is_absent_from_every_hidden_surface`: with the Task 3 host, one case each
+- [ ] **Step 1:** `test_planted_cookie_value_is_absent_from_every_hidden_surface`: with the Task 3 Step 2 host (its
+  cookie-value canary is the only canary the capture-record assertions search for; the `Cache-Control` canary of Step 2b
+  is not searched in capture records, because `mask_header` leaves `Cache-Control` values as the host sent them in
+  `MASKED` and `FULL`), one case each
   for error bodies (409 and 504 paths), captured log records (`caplog`, stderr) and every file under
   `SHARPIT_STATE_DIR`, in all three exposures. `test_probe_exchange_and_trace_records_are_free_of_the_canary`: a positive
   control first (the probe exchange is recorded), then no canary in the exchange and trace records at `MASKED` and
   `METADATA_ONLY`; `FULL` is the stated exception of Global Constraints (`mask_header` shows values there by design
   for all captured traffic), pinned by `test_full_exposure_capture_records_the_probe_exchange_like_any_other` (the
   probe exchange is recorded and the capture record equals what `mask_header` gives for the same headers in `FULL`),
-  so the exception is a tested fact and a change of it fails a test. The same test file asserts, in `FULL`, that every
+  and by `test_capture_records_hold_cache_control_as_sent_outside_metadata_only` (a host `Cache-Control` value is in the
+  record as sent in `MASKED` and `FULL`, equal to `mask_header`'s output, and absent in `METADATA_ONLY`; the pentesting
+  report, MCP and CLI output never hold it), so the exception is a tested fact and a change of it fails a test. The same test file asserts, in `FULL`, that every
   scan-produced surface (the report, MCP and CLI output, error bodies, logs, state files) holds no canary.
 - [ ] **Step 2:** `test_cookie_checks_are_scan_action_only_and_read_only_denied`: GET and read tools make no host call,
   open no socket (`no_side_effects`) and never call `security_facts`; a read-only panel, a disabled panel, MCP off,
@@ -562,7 +617,8 @@ the working tree, run `red_check.py` on the named tests in the mutated tree, res
 - [ ] **Step 4:** Mutations, each failing a named test: M1 the parser returns the raw first segment as the name; M2
   `split_cookies` returns the headers unchanged; M3 the `echo` is skipped on a cookie name; M4 `directive_summary`
   returns the raw text; M5 `observed` reads the middleware facts in a read path; M6 the per-name incompleteness is
-  dropped; M7 `session_evidence` copies the limitation text; M8 the finding helper skips `sanitize_evidence`; M9
+  dropped; M7 `session_evidence` copies the limitation text; M8 the finding helper of `cookie_checks.py` skips `sanitize_evidence`, and M8b `session_cookie.configured` skips it
+  (each fails its own case of the nine-rule sanitiser test); M9
   `read_security_facts` lets the reader's exception, or its message in a log record, escape; M10 `boundedLabel` uses
   Python `\s`. Record each test name; restore.
 - [ ] **Step 5:** Run `uv run pytest -q -n 4` on the two files; `red_check.py` per mutation; commit.
@@ -579,18 +635,19 @@ the working tree, run `red_check.py` on the named tests in the mutated tree, res
   and the hand-derived ASGI golden with a cookie-setting response using fake non-secret values.
 - [ ] **Step 2:** Write the deviation rows above to `0.8.0-a12.tsv`, mirror them in spec section 14, update the
   pentesting row of `PARITY.md`, and describe in the user documentation what the cookie checks observe (one GET, names
-  and flags only, in-process ASGI evidence, no TLS edge), what the configuration checks read, and that under `FULL` the
-  capture panel shows the probe's cookie as it shows any host response.
-- [ ] **Step 3:** Run the lane tests (`uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py tests/fastapi/test_pentesting_probe.py tests/fastapi/test_pentesting_cookie_probe.py tests/fastapi/test_pentesting_cookie_surfaces.py tests/fastapi/test_pentesting_cookie_hidden_surfaces.py tests/fastapi/test_pentesting_exposure_adapter.py tests/fastapi/test_introspector_security.py tests/engine/collectors/security/test_rules_transport.py tests/engine/test_import_boundary.py tests/parity`),
+  and flags only, in-process ASGI evidence, no TLS edge), what the configuration checks read, and that the
+  capture panel shows the probe's cookie under `FULL`, and its `Cache-Control` value under `MASKED` and `FULL`, as it
+  shows any host response.
+- [ ] **Step 3:** Run the lane tests (`uv run pytest -q -n 4 tests/engine/collectors/pentesting tests/fastapi/test_pentesting_api.py tests/fastapi/test_pentesting_probe.py tests/fastapi/test_pentesting_cookie_probe.py tests/fastapi/test_pentesting_cookie_surfaces.py tests/fastapi/test_pentesting_cache_control_surfaces.py tests/fastapi/test_pentesting_cookie_hidden_surfaces.py tests/fastapi/test_pentesting_exposure_adapter.py tests/fastapi/test_introspector_security.py tests/engine/collectors/security/test_rules_transport.py tests/engine/test_import_boundary.py tests/parity`),
   `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`; report counts. Commit with explicit paths and
   `git commit -s`.
 
 ## Definition of done
 
 - [ ] Every Critical and High scenario row has a named passing test; every output surface of the scan has a
-  planted-value case in `MASKED`, `METADATA_ONLY` and `FULL`, capture records in `MASKED` and `METADATA_ONLY` with the
-  `FULL` exception pinned; each control was proven by mutation.
-- [ ] Every finding of this lane passes through the shared `echo.sanitize_evidence`; `echo.py` is created by this lane's
+  planted-value case in `MASKED`, `METADATA_ONLY` and `FULL`, the cookie value in capture records in `MASKED` and `METADATA_ONLY`, with the
+  `FULL` cookie and the `Cache-Control` exceptions pinned; each control was proven by mutation.
+- [ ] Every finding of this lane, all nine rules, passes through the shared `sanitize_evidence`; `echo.py` is created by this lane's
   Task 0 and A13 reuses it.
 - [ ] The seven observed checks and two metadata checks match the BootUI v2.5.0 IDs, titles, severities, confidence,
   categories and order, with observed and configuration evidence kept separate.
