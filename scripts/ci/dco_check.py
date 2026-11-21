@@ -7,6 +7,8 @@ The environment carries GH_TOKEN, REPO (`owner/name`) and PR_NUMBER. Standard li
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import subprocess
 import sys
@@ -57,10 +59,61 @@ def check_commits(commits: list[dict[str, Any]]) -> list[Failure]:
     return failures
 
 
+def _printable(text: str) -> str:
+    """The text with every control character replaced by a space (a subject is author-controlled log output)."""
+    return "".join(char if char.isprintable() else " " for char in text)
+
+
+def _parse_pages(output: str) -> list[dict[str, Any]]:
+    """The commits in `gh api --paginate` output: one JSON array per page, concatenated."""
+    decoder = json.JSONDecoder()
+    commits: list[dict[str, Any]] = []
+    position = 0
+    while position < len(output):
+        if output[position].isspace():
+            position += 1
+            continue
+        page, position = decoder.raw_decode(output, position)
+        if not isinstance(page, list):
+            raise ValueError("the commit list is not a JSON array")
+        commits.extend(page)
+    return commits
+
+
+def _fetch(repo: str, number: str) -> list[dict[str, Any]]:
+    result = subprocess.run(
+        ["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/commits"],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"gh api failed: {result.stderr.strip()[:200]}")
+    return _parse_pages(result.stdout)
+
+
 def main() -> int:
-    out = subprocess.run(["gh", "api", "--paginate", "x"], capture_output=True, text=True, check=False).stdout
-    print(out)
-    return 3
+    repo = os.environ.get("REPO", "")
+    number = os.environ.get("PR_NUMBER", "")
+    if not REPO_PATTERN.fullmatch(repo) or not number.isdecimal():
+        print("REPO must be owner/name and PR_NUMBER a number", file=sys.stderr)
+        return 2
+    try:
+        commits = _fetch(repo, number)
+    except (ValueError, KeyError, TypeError) as error:
+        print(f"cannot read the pull request commits: {error}", file=sys.stderr)
+        return 2
+    failures = check_commits(commits)
+    if not failures:
+        print(f"{len(commits)} commit(s) checked; every one is signed off or exempt")
+        return 0
+    print(f"{len(failures)} commit(s) lack a valid Signed-off-by trailer of their author:")
+    for failure in failures:
+        print(f"{failure.sha[:7]} {_printable(failure.subject)[:SUBJECT_WIDTH]} - {failure.reason}")
+    print("To repair, sign off each commit and push again (<base> is the pull request's base branch):")
+    print(f"  {REPAIR}")
+    return 1
 
 
 if __name__ == "__main__":
