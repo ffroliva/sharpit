@@ -181,3 +181,100 @@ def test_the_error_fallback_never_lists_the_test_runtime_gates(monkeypatch: pyte
 
     terminal._write_coverage(out, SimpleNamespace(options=SimpleNamespace(advisors=True)), {"advisors": []})  # pyright: ignore[reportPrivateUsage]
     assert "test-runtime" not in out.starting("sharpit did not check:")
+
+
+# --- #68: the summary names each swallowing clause once, with the tests it failed -------------------------------
+
+
+def _swallowed_finding(location: str, node: str, *, double: bool = False) -> dict[str, object]:
+    note = "a test double raised this, so this code path did not run; " if double else ""
+    return {
+        "ruleId": "sharpit.swallowed-exception",
+        "target": location,
+        "testNodeId": node,
+        "message": f"TypeError swallowed by a broad except clause at {location} (neither re-raised nor logged); {note}"
+        f"identity {location}:TypeError",
+    }
+
+
+def _summary(findings: list[dict[str, object]]) -> list[str]:
+    from sharpit.pytest_plugin import terminal
+
+    out = _Lines()
+    terminal._write_swallowed(out, findings)  # pyright: ignore[reportPrivateUsage]
+    return out.lines
+
+
+def test_swallowed_findings_group_by_clause_most_tests_first() -> None:
+    findings = [
+        *(_swallowed_finding("c.py:9", f"t::c{i}") for i in range(3)),
+        *(_swallowed_finding("a.py:3", f"t::a{i}") for i in range(3)),
+        _swallowed_finding("b.py:5", "t::a0"),
+    ]
+
+    assert _summary(findings) == [
+        "swallowed exceptions: 3 clauses, 6 tests",
+        "  a.py:3: 3 tests",
+        "  c.py:9: 3 tests",
+        "  b.py:5: 1 test",
+    ]
+
+
+def test_thirteen_clauses_and_ninety_five_tests_are_capped_at_five_locations() -> None:
+    findings = [_swallowed_finding(f"app/m{i % 13:02}.py:7", f"tests/test_x.py::test_{i}") for i in range(95)]
+
+    lines = _summary(findings)
+
+    assert lines[:1] == ["swallowed exceptions: 13 clauses, 95 tests"]
+    assert len(lines) == 6
+
+
+def test_a_clause_counts_a_test_once_whatever_its_attempts() -> None:
+    findings = [_swallowed_finding("a.py:3", "t::a"), _swallowed_finding("a.py:3", "t::a")]
+
+    assert _summary(findings) == ["swallowed exceptions: 1 clause, 1 test", "  a.py:3: 1 test"]
+
+
+def test_a_real_raise_clears_a_test_double_note_for_the_same_clause() -> None:
+    findings = [
+        _swallowed_finding("a.py:3", "t::a", double=True),
+        _swallowed_finding("a.py:3", "t::a"),
+    ]
+
+    assert _summary(findings) == ["swallowed exceptions: 1 clause, 1 test", "  a.py:3: 1 test"]
+
+
+def test_swallowed_clause_order_uses_numeric_line_numbers() -> None:
+    findings = [_swallowed_finding("a.py:10", "t::ten"), _swallowed_finding("a.py:9", "t::nine")]
+
+    assert _summary(findings)[1:] == ["  a.py:9: 1 test", "  a.py:10: 1 test"]
+
+
+def test_swallowed_clause_list_is_capped_at_five() -> None:
+    findings = [_swallowed_finding(f"a.py:{line}", f"t::{line}") for line in range(8)]
+
+    assert len(_summary(findings)) == 6
+
+
+def test_a_clause_only_test_doubles_reached_says_so() -> None:
+    findings = [_swallowed_finding("a.py:3", f"t::a{i}", double=True) for i in range(2)]
+
+    assert _summary(findings) == [
+        "swallowed exceptions: 1 clause, 2 tests",
+        "  a.py:3: 2 tests, a test double raised this, so this code path did not run",
+    ]
+
+
+def test_a_clause_a_test_double_reached_in_some_tests_counts_them() -> None:
+    findings = [_swallowed_finding("a.py:3", "t::a0", double=True), _swallowed_finding("a.py:3", "t::a1")]
+
+    assert _summary(findings) == [
+        "swallowed exceptions: 1 clause, 2 tests",
+        "  a.py:3: 2 tests, 1 raised by a test double",
+    ]
+
+
+def test_other_rules_are_not_summarised_as_swallowed() -> None:
+    other = {"ruleId": "sharpit.n-plus-one", "target": "SELECT 1", "testNodeId": "t::a", "message": "m"}
+
+    assert _summary([other]) == []

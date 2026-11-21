@@ -56,7 +56,11 @@ class TestKey:
 
 @dataclass(frozen=True)
 class SwallowedFact:
-    """A broad handler in application code that swallowed an exception: never the message or a local value."""
+    """A broad handler in application code that swallowed an exception: never the message or a local value.
+
+    ``test_double`` only says that a test double (a ``unittest.mock`` object) raised it; the message that decided it
+    is read once and never kept.
+    """
 
     location: str  # ``path:line`` of the except clause, relative to the pytest rootdir when under it
     type_name: str
@@ -65,6 +69,8 @@ class SwallowedFact:
     identity: str | None = None
     # ``path:line`` relative to the working directory, as 0.4.0 to 0.6.0 wrote it: only to name a stale legacy entry
     legacy_location: str | None = None
+    # not part of the identity: one clause hit by a double and by real code is one fact, which the real raise clears
+    test_double: bool = field(default=False, compare=False)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -73,12 +79,18 @@ class SwallowedFact:
             "programmingError": self.programming_error,
             "identity": self.identity,
             "legacyLocation": self.legacy_location,
+            "testDouble": self.test_double,
         }
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
         return cls(
-            data["location"], data["type"], data["programmingError"], data.get("identity"), data.get("legacyLocation")
+            data["location"],
+            data["type"],
+            data["programmingError"],
+            data.get("identity"),
+            data.get("legacyLocation"),
+            data.get("testDouble", False),
         )
 
 
