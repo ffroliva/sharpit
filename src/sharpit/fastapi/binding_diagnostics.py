@@ -76,34 +76,50 @@ def route_for_scope(scope: object, app: Any = None) -> Any:
 def _model_fields(route: Any) -> set[str] | None:
     try:
         dependant = route.dependant
-        models: list[tuple[Any, tuple[str, ...], frozenset[type[BaseModel]]]] = [
-            (p.field_info.annotation, ("body",), frozenset()) for p in dependant.body_params
-        ]
         fields = _parameter_fields(dependant)
-        body_model = False
-        while models:
-            model, parent, ancestors = models.pop()
-            if get_origin(model) is not None:
-                models.extend((arg, parent, ancestors) for arg in get_args(model))
-                continue
-            if not isinstance(model, type) or not issubclass(model, BaseModel) or model in ancestors:
-                continue
-            body_model = True
-            ancestors = ancestors | {model}
-            for name, field in model.model_fields.items():
-                names = {name}
-                if isinstance(field.alias, str):
-                    names.add(field.alias)
-                if isinstance(field.validation_alias, str):
-                    names.add(field.validation_alias)
-                for field_name in names:
-                    fields.add("/".join((*parent, field_name)))
-                    models.append((field.annotation, (*parent, field_name), ancestors))
-        if body_model:
+        if _collect_body_model_fields(dependant.body_params, fields):
             fields.add("\0body-model")
         return fields or None
     except Exception:
         return None
+
+
+def _collect_body_model_fields(body_params: Sequence[Any], fields: set[str]) -> bool:
+    models: list[tuple[Any, tuple[str, ...], frozenset[type[BaseModel]]]] = [
+        (parameter.field_info.annotation, ("body",), frozenset()) for parameter in body_params
+    ]
+    body_model = False
+    while models:
+        model, parent, ancestors = models.pop()
+        if get_origin(model) is not None:
+            models.extend((arg, parent, ancestors) for arg in get_args(model))
+            continue
+        if not isinstance(model, type) or not issubclass(model, BaseModel) or model in ancestors:
+            continue
+        body_model = True
+        ancestors = ancestors | {model}
+        for name, field in model.model_fields.items():
+            _append_model_fields(field, name, parent, ancestors, fields, models)
+    return body_model
+
+
+def _append_model_fields(
+    field: Any,
+    name: str,
+    parent: tuple[str, ...],
+    ancestors: frozenset[type[BaseModel]],
+    fields: set[str],
+    models: list[tuple[Any, tuple[str, ...], frozenset[type[BaseModel]]]],
+) -> None:
+    names = {name}
+    if isinstance(field.alias, str):
+        names.add(field.alias)
+    if isinstance(field.validation_alias, str):
+        names.add(field.validation_alias)
+    for field_name in names:
+        child_path = (*parent, field_name)
+        fields.add("/".join(child_path))
+        models.append((field.annotation, child_path, ancestors))
 
 
 def _parameter_fields(dependant: Any) -> set[str]:

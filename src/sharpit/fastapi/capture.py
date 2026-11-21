@@ -336,15 +336,23 @@ def unwrap_exception_handlers(app: Any) -> None:
 def _record_logged(store: ExceptionStore, record: logging.LogRecord, ctx: SharpitContext | None = None) -> None:
     """The log source: ``logger.exception(...)`` and any record with ``exc_info``."""
     exc = record.exc_info[1] if record.exc_info else None
-    if isinstance(exc, Exception):
-        if (sink := dispatch.session_sink()) is not None and not _validation_error(exc):
-            sink.on_exception(exc, "log", TEST.get())
-        if _validation_error(exc):
-            wiring = wiring_of(ctx) if ctx is not None else None
-            _record_exception(store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None)
-        else:
-            override = None if is_database_exception(exc) else record.getMessage()
-            store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
+    if not isinstance(exc, Exception):
+        return
+    sink = dispatch.session_sink()
+    if sink is not None and not _validation_error(exc):
+        sink.on_exception(exc, "log", TEST.get())
+    if _validation_error(exc):
+        _record_logged_validation(store, record, exc, ctx)
+        return
+    override = None if is_database_exception(exc) else record.getMessage()
+    store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
+
+
+def _record_logged_validation(
+    store: ExceptionStore, record: logging.LogRecord, exc: Exception, ctx: SharpitContext | None
+) -> None:
+    wiring = wiring_of(ctx) if ctx is not None else None
+    _record_exception(store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None)
 
 
 def sqlite_holder(ctx: SharpitContext) -> str:
