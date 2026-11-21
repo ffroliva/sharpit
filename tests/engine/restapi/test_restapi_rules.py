@@ -177,6 +177,23 @@ def test_duplicate_route_mapping():
     assert found("RAPI-MAP-002", [first, route("/v1/pets", ("POST",), "create_pet", status_code=201)]) == []
 
 
+@pytest.mark.bootui("rule:RAPI-MAP-002")
+def test_duplicate_route_mapping_normalizes_path_variable_names():
+    # ported: RestApiContractDefectRulesTests.duplicateRouteRuleNormalizesPathVariableNamesAndMediaTypes
+    assert found("RAPI-MAP-002", [route("/users/{id}"), route("/users/{userId}", name="read_user")]) == [
+        "GET /users/{*} with matching dispatch conditions handled by app.pets:read_pets, app.pets:read_user"
+    ]
+
+
+@pytest.mark.bootui("rule:RAPI-MAP-003")
+def test_state_changing_get_rule_does_not_flag_post_put_or_patch_domain_noun_prefixes():
+    # ported: RestApiContractDefectRulesTests.stateChangingGetRuleDoesNotFlagPostPutOrPatchDomainNounPrefixes
+    assert found(
+        "RAPI-MAP-003",
+        [route(name="post_comments"), route(name="patch_notes"), route(name="put_options")],
+    ) == []
+
+
 def test_versioning_rules():
     # ported: versioningRulesFlagWildcardAndMissingVersion
     unversioned = [route("/pets"), route("/owners")]
