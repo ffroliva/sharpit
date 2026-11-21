@@ -57,21 +57,37 @@ it('opens the request profile with the N+1 group on top, and renders SQL as text
   expect(h.text()).toContain('<img src=x onerror=alert(1)>');
 });
 
-// ported: LiveActivity renders the back-to-insights link, What stands out summary, section tabs, and width toggle in the request drawer
+// ported: LiveActivityTest.renders the back-to-insights link, What stands out summary, section tabs, and width toggle in the request drawer
 it('steps between profileable requests from the open profile', async () => {
   const second = { ...entry, id: 'r2', summary: 'GET /pets', path: '/pets' };
+  const unprofileable = { ...entry, id: 'sql1', type: 'SQL', profileable: false, summary: 'SELECT 1' };
   h.route((url) => {
     if (url.startsWith('api/activity/request/')) return json(200, { ...profile, request: { ...(profile.request ?? entry), id: url.endsWith('r2') ? 'r2' : 'r1' } });
-    return isFeed(url) ? json(200, report([entry, second])) : undefined;
+    return isFeed(url) ? json(200, report([entry, unprofileable, second])) : undefined;
   });
   h.mount(Activity);
   await until(() => expect(h.text()).toContain('GET /pets'));
   h.target.querySelectorAll<HTMLButtonElement>('button.link')[1]!.click();
   await until(() => expect(h.text()).toContain('7 executions'));
-  const next = h.target.querySelector<HTMLButtonElement>('button[aria-label="Next profileable entry"]');
+  const nextButton = () => h.target.querySelector<HTMLButtonElement>('button[aria-label="Next profileable entry"]')!;
+  const previousButton = () => h.target.querySelector<HTMLButtonElement>('button[aria-label="Previous profileable entry"]')!;
+  const next = nextButton();
   expect(next).not.toBeNull();
-  next!.click();
+  const previous = previousButton();
+  expect(previous).not.toBeNull();
+  expect(previous!.disabled).toBe(false);
+  expect(next!.disabled).toBe(true);
   await until(() => expect(h.calls('GET')).toContain('api/activity/request/r2'));
+  previous!.click();
+  await until(() => expect(previousButton().disabled).toBe(true));
+  expect(h.calls('GET')).toContain('api/activity/request/r1');
+  expect(previousButton().disabled).toBe(true);
+  expect(nextButton().disabled).toBe(false);
+  nextButton().click();
+  await until(() => expect(nextButton().disabled).toBe(true));
+  expect(h.calls('GET')).toContain('api/activity/request/r2');
+  expect(previousButton().disabled).toBe(false);
+  expect(nextButton().disabled).toBe(true);
 });
 
 it('reloads on a stream tick, and sends the route filter as q', async () => {

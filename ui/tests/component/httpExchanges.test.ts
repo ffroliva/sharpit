@@ -61,11 +61,11 @@ it('sends the method and status class filters, and reloads on a stream tick', as
 it('live ticks do not restart the initial load', async () => {
   h.route((url) => url.startsWith('api/http-exchanges') ? new Promise<Response>(() => {}) : undefined);
   h.mount(HttpExchanges);
-  await until(() => expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges'))).toHaveLength(1));
+  await until(() => expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges?'))).toHaveLength(1));
   await until(() => expect(FakeEventSource.last).toBeDefined());
   FakeEventSource.last.emit('update');
   await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges'))).toHaveLength(1);
+  expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges?'))).toHaveLength(1);
 });
 
 it('live ticks do not refetch an error, and Retry recovers', async () => {
@@ -81,4 +81,46 @@ it('live ticks do not refetch an error, and Retry recovers', async () => {
   h.route((url) => url.startsWith('api/http-exchanges') ? json(200, report([])) : undefined);
   h.target.querySelector<HTMLButtonElement>('button')!.click();
   await until(() => expect(h.target.querySelector('[role="alert"]')).toBeNull());
+});
+
+const routeRankingReport = {
+    available: true,
+    unavailableReason: null,
+    window: { retainedExchanges: 3, bufferSize: 200, evicted: 0, hiddenSelfExchanges: 0, summarizedExchanges: 3, timedExchanges: 3, oldestTimestamp: 1, newestTimestamp: 3, totalDurationMs: 60 },
+    routes: [
+      { id: 'GET /owners', method: 'GET', route: '/owners', routeSource: 'FRAMEWORK_TEMPLATE', requests: 2, errorCount: 0, timedRequests: 2, totalDurationMs: 20, p95DurationMs: 10, topFor: ['REQUESTS', 'TOTAL_DURATION', 'P95_DURATION'] },
+      { id: 'POST /pets', method: 'POST', route: '/pets', routeSource: 'MASKED_PATH', requests: 1, errorCount: 1, timedRequests: 1, totalDurationMs: 40, p95DurationMs: 40, topFor: ['TOTAL_DURATION', 'P95_DURATION'] },
+    ],
+    topPerCriterion: 25,
+    routesTruncated: false,
+    distinctRoutes: 2,
+    notes: ['Figures use retained exchanges.'],
+};
+
+function mountRankedRoutes() {
+  h.route((url) => {
+    if (url.startsWith('api/http-exchanges/routes')) return json(200, routeRankingReport);
+    if (url.startsWith('api/http-exchanges')) return json(200, report([row]));
+    return undefined;
+  });
+  h.mount(HttpExchanges);
+}
+
+it('ranks routes by the selected metric', async () => {
+  mountRankedRoutes();
+  await until(() => expect(h.target.querySelector('[aria-label="Rank routes by"]')).not.toBeNull());
+  const ranking = h.target.querySelector<HTMLSelectElement>('[aria-label="Rank routes by"]')!;
+  ranking.value = 'p95DurationMs';
+  ranking.dispatchEvent(new Event('change', { bubbles: true }));
+  await until(() => expect([...h.target.querySelectorAll('[data-route-id]')].map((el) => el.getAttribute('data-route-id'))).toEqual(['POST /pets', 'GET /owners']));
+});
+
+it('opens and closes the exchanges drawer for a ranked route', async () => {
+  mountRankedRoutes();
+  await until(() => expect(h.target.querySelector('[aria-label="View exchanges for POST /pets"]')).not.toBeNull());
+  h.target.querySelector<HTMLButtonElement>('[aria-label="View exchanges for POST /pets"]')!.click();
+  await until(() => expect(h.target.querySelector('dialog[open]')?.textContent).toContain('POST /pets'));
+  await until(() => expect(h.calls('GET').some((url) => url.includes('route=POST+%2Fpets'))).toBe(true));
+  h.target.querySelector<HTMLButtonElement>('[aria-label="Close route exchanges"]')!.click();
+  await until(() => expect(h.target.querySelector('dialog[open]')).toBeNull());
 });
