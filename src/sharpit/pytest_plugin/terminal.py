@@ -107,7 +107,9 @@ _ASSESSED = frozenset({"PASSED", "FAILED", "PARTIAL"})
 
 def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any]) -> None:
     try:
-        assessors: set[str] = {advisor for advisor, _ in advisor_assessors()} if state.options.advisors else set()
+        assessors: set[str] = (
+            {advisor for advisor, _ in advisor_assessors()} | {"http-security"} if state.options.advisors else set()
+        )
         ran = {
             advisor["advisor"]
             for advisor in data["advisors"]
