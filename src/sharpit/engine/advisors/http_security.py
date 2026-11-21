@@ -7,7 +7,7 @@ route may answer); it infers no policy from route metadata, and it never sees a 
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import replace
 from typing import Any, NamedTuple, cast
 
@@ -94,7 +94,7 @@ def _gap(
     return EVIDENCE_INCOMPLETE if unattributed else None
 
 
-def _violations(runs: Sequence[HttpFacts], method: str, route: str) -> list[tuple[int, tuple[str, ...]]]:
+def _exchanges_of(runs: Sequence[HttpFacts], method: str, route: str) -> list[tuple[int, tuple[str, ...]]]:
     return [
         (status, present)
         for facts in runs
@@ -105,6 +105,30 @@ def _violations(runs: Sequence[HttpFacts], method: str, route: str) -> list[tupl
 
 def _finding(rule: str, severity: Severity, target: str, message: str, identity: str) -> Finding:
     return Finding(rule, ADVISOR, severity, target, message, identity=identity)
+
+
+Judge = Callable[[str, str, str, bool], bool]
+
+
+def _header_findings(headers: Sequence[HeaderExpectation], runs: Sequence[HttpFacts], judge: Judge) -> list[Finding]:
+    found: list[Finding] = []
+    for method, route, header in headers:
+        missing = any(header not in present for _, present in _exchanges_of(runs, method, route))
+        if judge(f"{method} {route} header {header}", method, route, missing):
+            message = f"{method} {route} responded without configured header {header}"
+            found.append(_finding(HEADER_RULE, "HIGH", f"{method} {route}", message, f"{method} {route} {header}"))
+    return found
+
+
+def _status_findings(statuses: Sequence[StatusExpectation], runs: Sequence[HttpFacts], judge: Judge) -> list[Finding]:
+    found: list[Finding] = []
+    for method, route, allowed in statuses:
+        outside = sorted({s for s, _ in _exchanges_of(runs, method, route) if s not in allowed})
+        if judge(f"{method} {route} status", method, route, bool(outside)):
+            expected = ", ".join(map(str, allowed))
+            message = f"{method} {route} responded with status {', '.join(map(str, outside))}; expected {expected}"
+            found.append(_finding(STATUS_RULE, "HIGH", f"{method} {route}", message, f"{method} {route}"))
+    return found
 
 
 def evaluate(
@@ -126,29 +150,15 @@ def evaluate(
     if not (headers or statuses):
         return None
     runs = [attempt.http for attempt in deciding(tests)]
-    findings: list[Finding] = []
     limitations: list[str] = []
 
     def judge(label: str, method: str, route: str, violated: bool) -> bool:
-        seen = _violations(runs, method, route)
         gap = _gap(method, route, runs, unassociated, missing_workers)
-        if gap or not (seen or violated):
+        if gap or not (violated or _exchanges_of(runs, method, route)):
             limitations.append(f"{label}: {gap or (SELECTION_RUN if partial_run else NO_EXCHANGE)}")
         return violated
 
-    for expectation in headers:
-        method, route, header = expectation
-        missing = any(header not in present for _, present in _violations(runs, method, route))
-        if judge(f"{method} {route} header {header}", method, route, missing):
-            message = f"{method} {route} responded without configured header {header}"
-            findings.append(_finding(HEADER_RULE, "HIGH", f"{method} {route}", message, f"{method} {route} {header}"))
-    for expectation in statuses:
-        method, route, allowed = expectation
-        outside = sorted({s for s, _ in _violations(runs, method, route) if s not in allowed})
-        if judge(f"{method} {route} status", method, route, bool(outside)):
-            expected = ", ".join(map(str, allowed))
-            message = f"{method} {route} responded with status {', '.join(map(str, outside))}; expected {expected}"
-            findings.append(_finding(STATUS_RULE, "HIGH", f"{method} {route}", message, f"{method} {route}"))
+    findings = _header_findings(headers, runs, judge) + _status_findings(statuses, runs, judge)
     limitations = list(dict.fromkeys(limitations))
     evidence: dict[str, Any] = {
         "usable": not limitations,
