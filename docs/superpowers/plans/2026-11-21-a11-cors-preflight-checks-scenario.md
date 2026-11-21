@@ -139,6 +139,7 @@ about the synthetic in-process preflight, not about a deployed browser-facing ed
 | 35 | D9 | One unrelated header name is oversized and no CORS signal exists; the same with a supported CORS signal | High | PT-A05-069 is raised and the scan is `PARTIAL` in both; A02 is `INDETERMINATE` without a finding and `REVIEW` with one; names alone set `headers_truncated`. | Unit |
 | 36 | D9 | `Access-Control-Allow-Methods` is incomplete while `Access-Control-Allow-Headers: *` is complete | High | PT-A05-023 fires naming only the headers wildcard; with both complete it names both. | Unit |
 | 37 | D9 | A header name whose every value was dropped | Medium | The name stays present with an empty value list and reads as absent through `joined`; its name is incomplete. | Unit |
+| 39 | D3 | Each CORS rule that echoes a host fragment (PT-A05-007 reflected origin, PT-A05-008, PT-A05-023, PT-A05-073 origin and each sensitive token), with a recording `echo` callable | Critical | `cors.evaluate` passes exactly the host-derived fragments through `echo` and none of BootUI's fixed text; under `METADATA_ONLY` each wrapped fragment becomes `[masked]` (parametrized by rule). | Unit (`test_each_cors_rule_routes_host_fragments_through_echo`, parametrized by rule) |
 
 ## Must-cover before merge (Critical + High): one pytest name per row
 
@@ -177,6 +178,7 @@ about the synthetic in-process preflight, not about a deployed browser-facing ed
 - `test_probe_request_uses_the_engine_probe_constants`
 - `test_echoed_fragments_are_masked_with_the_real_masker_in_every_exposure` (28)
 - `test_scan_requires_a_masker` (38)
+- `test_each_cors_rule_routes_host_fragments_through_echo` (39, parametrized by rule)
 - `test_planted_secret_is_masked_on_every_output_surface` (38)
 - `test_cors_evidence_is_bootui_text_after_sanitising` (28)
 - `test_a02_status_follows_bootui_finding_precedence` (31)
@@ -204,6 +206,7 @@ mutant that makes it fail):
 | `test_scan_still_sends_exactly_one_get_and_one_options_request` | `probe()` sends a second OPTIONS request |
 | `test_cors_scan_respects_existing_gates_and_sends_no_probe_when_refused` | the scan action calls the host before the refusal is returned |
 | `test_report_reads_after_cors_scan_do_not_invoke_host` | the report read calls the probe or opens a socket |
+| `test_pt_a10_001_stays_indeterminate_under_existing_coverage` | the GET-incomplete override is removed, so PT-A10-001 reads `REVIEW` |
 
 ## Deferred (Medium + Low): file as issues
 
