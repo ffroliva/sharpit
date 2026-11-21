@@ -24,14 +24,7 @@ def validation_details(
     fields = _model_fields(endpoint)
     rows: set[tuple[str | None, str, str]] = set()
     for error in errors:
-        kind: object = error.get("type")
-        loc: object = error.get("loc")
-        reason = kind if isinstance(kind, str) and (kind in _ERROR_TYPES or full) else "Invalid"
-        reason = _bounded(reason)
-        path, extra = _field_path(loc, fields, full, kind)
-        if extra:
-            path = "\0" + path
-        rows.add((_target_type(endpoint), _bounded(path), reason))
+        rows.add(_diagnostic_row(error, endpoint, fields, full))
     ordered = sorted(rows, key=lambda row: (row[1], row[2], row[0] or ""))
     truncated = len(ordered) > MAX_DIAGNOSTICS
     diagnostics: list[dict[str, object]] = [
@@ -41,6 +34,17 @@ def validation_details(
     count = len(errors)
     message = f"{count} validation error{'s' if count != 1 else ''}"
     return message, diagnostics, truncated
+
+
+def _diagnostic_row(
+    error: dict[str, Any], endpoint: Any, fields: set[str] | None, full: bool
+) -> tuple[str | None, str, str]:
+    kind: object = error.get("type")
+    reason = kind if isinstance(kind, str) and (kind in _ERROR_TYPES or full) else "Invalid"
+    path, extra = _field_path(error.get("loc"), fields, full, kind)
+    if extra:
+        path = "\0" + path
+    return _target_type(endpoint), _bounded(path), _bounded(reason)
 
 
 def is_validation_error(exc: BaseException) -> bool:
@@ -129,10 +133,7 @@ def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> 
     parts: list[Any] = list(cast(Sequence[Any], loc))
     if any(not isinstance(part, (str, int)) for part in parts):
         return "(unknown)", False
-    prefix = ""
-    if parts and parts[0] in ("body", "query", "path", "header", "cookie"):
-        location = parts.pop(0)
-        prefix = location
+    prefix = parts.pop(0) if parts and parts[0] in ("body", "query", "path", "header", "cookie") else ""
     if kind == "json_invalid":
         return "(body)", False
     body_model = fields is not None and "\0body-model" in fields
@@ -140,26 +141,47 @@ def _field_path(loc: Any, fields: set[str] | None, full: bool, kind: object) -> 
         path = prefix + "[*]" * len(parts)
         extra = kind == "extra_forbidden"
         return path, extra
+    return _model_field_path(parts, fields, prefix, full, kind)
+
+
+def _model_field_path(
+    parts: list[Any], fields: set[str] | None, prefix: str, full: bool, kind: object
+) -> tuple[str, bool]:
     out: list[str] = [prefix] if prefix and prefix != "body" else []
     parent = [prefix] if prefix else []
     extra = False
     for part in parts:
-        if isinstance(part, int) or part == "[key]":
-            out.append("[*]")
-        else:
-            if part == "extra_forbidden":
-                continue
-            declared = _declared_field(fields, prefix, part, parent)
-            if fields is None or not declared:
-                key = "".join(char if char.isprintable() else " " for char in part)
-                key = key.replace("\\", "\\\\").replace("'", "\\'")[:64]
-                extra = extra or kind == "extra_forbidden"
-                out.append(key if kind == "extra_forbidden" else f"['{key}']" if full else "[*]")
-            else:
-                out.append(part)
-            parent.append(part)
+        rendered, is_extra = _field_path_part(part, fields, prefix, parent, full, kind)
+        if rendered:
+            out.append(rendered)
+        extra = extra or is_extra
     path = ".".join(out).replace(".[", "[") or "(body)"
     return path[:MAX_FIELD_LENGTH] + ("…" if len(path) > MAX_FIELD_LENGTH else ""), extra
+
+
+def _field_path_part(
+    part: str | int, fields: set[str] | None, prefix: str, parent: list[str], full: bool, kind: object
+) -> tuple[str, bool]:
+    if isinstance(part, int) or part == "[key]":
+        return "[*]", False
+    if part == "extra_forbidden":
+        return "", False
+    declared = _declared_field(fields, prefix, part, parent)
+    if fields is None or not declared:
+        key = "".join(char if char.isprintable() else " " for char in part)
+        key = key.replace("\\", "\\\\").replace("'", "\\'")[:64]
+        if kind == "extra_forbidden":
+            rendered = key
+        elif full:
+            rendered = f"['{key}']"
+        else:
+            rendered = "[*]"
+        extra = kind == "extra_forbidden"
+    else:
+        rendered = part
+        extra = False
+    parent.append(part)
+    return rendered, extra
 
 
 def _declared_field(fields: set[str] | None, prefix: str, part: str, parent: list[str]) -> bool:

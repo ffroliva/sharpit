@@ -151,6 +151,18 @@ def _record_exception(
     if not _validation_error(exc):
         store.record(exc, source, info, thread)
         return
+    _record_binding_exception(store, exc, source, info, thread, ctx, host_app)
+
+
+def _record_binding_exception(
+    store: ExceptionStore,
+    exc: Exception,
+    source: str,
+    info: RequestInfo | None,
+    thread: str | None,
+    ctx: SharpitContext | None,
+    host_app: object,
+) -> None:
     from sharpit.fastapi.binding_diagnostics import route_for_scope, validation_details
 
     full = ctx is not None and ctx.settings.expose_values.value == "FULL"

@@ -232,6 +232,42 @@ def caught_report() -> dict[str, Any]:
     }
 
 
+def _location(chosen: dict[str, Any] | None) -> str | None:
+    if chosen is None:
+        return None
+    return f"{chosen['declaringClass']}.{chosen['methodName']}({chosen['fileName']}:{chosen['lineNumber']})"
+
+
+def _occurrence(
+    now_ms: int,
+    thread: str | None,
+    request: RequestInfo | None,
+    source: str,
+    binding_diagnostics: list[dict[str, object]] | None,
+    binding_diagnostics_truncated: bool,
+) -> dict[str, Any]:
+    method, path, handler, trace_id = _request_occurrence(request)
+    occurrence = {
+        "timestamp": now_ms,
+        "thread": thread,
+        "requestMethod": method,
+        "requestPath": path,
+        "handler": handler,
+        "source": source,
+        "traceId": trace_id,
+        "requestId": trace_id,
+        "bindingDiagnostics": binding_diagnostics or [],
+        "bindingDiagnosticsTruncated": binding_diagnostics_truncated,
+    }
+    return occurrence
+
+
+def _request_occurrence(request: RequestInfo | None) -> tuple[str | None, str | None, str | None, str | None]:
+    if request is None:
+        return None, None, None, None
+    return request.method, request.path, request.endpoint, request.id
+
+
 class ExceptionStore:
     """Bounded groups (oldest ``lastSeen`` evicted) with bounded occurrences each; thread-safe."""
 
@@ -323,9 +359,26 @@ class ExceptionStore:
         exc, extra = (leaves[0], leaves[1:]) if leaves else (exc, [])
         walked = _frames(exc)  # one uncapped walk: fingerprint, location and applicationException agree
         frames = walked[: self.max_frames]
+        causes = self._recorded_causes(exc, extra, frames, message_override_always)
+        message = self._recorded_message(exc, message_override, message_override_always)
+        key = fingerprint(exc, walked)
+        chosen = _chosen(walked)
+        now_ms = time.time_ns() // 1_000_000
+        location = _location(chosen)
+        occurrence = _occurrence(now_ms, thread, request, source, binding_diagnostics, binding_diagnostics_truncated)
+        gid = hashlib.sha256(key.encode()).hexdigest()[:16]
+        self._store_record(exc, gid, now_ms, message, frames, causes, location, chosen, occurrence)
+        self._offer(lambda: self._event(exc, chosen, gid, occurrence, request))
+
+    def _recorded_causes(
+        self,
+        exc: BaseException,
+        extra: list[BaseException],
+        frames: list[dict[str, Any]],
+        message_override_always: bool,
+    ) -> list[dict[str, Any]]:
         causes: list[dict[str, Any]] = []
-        causes_raw = _causes(exc, extra)
-        for cause in causes_raw:
+        for cause in _causes(exc, extra):
             cause_frames = _frames(cause, self.max_frames)
             causes.append(
                 {
@@ -335,28 +388,28 @@ class ExceptionStore:
                     "commonFrames": _common(cause_frames, frames),
                 }
             )
+        return causes
+
+    def _recorded_message(
+        self, exc: BaseException, message_override: str | None, message_override_always: bool
+    ) -> str | None:
         message = None if message_override_always else self._text(exc)
         if message_override and (message_override_always or message is None) and not is_database_exception(exc):
-            message = self._message(message_override)
-        key = fingerprint(exc, walked)
-        chosen = _chosen(walked)
-        location = None
-        if chosen is not None:
-            location = f"{chosen['declaringClass']}.{chosen['methodName']}({chosen['fileName']}:{chosen['lineNumber']})"
-        now_ms = time.time_ns() // 1_000_000
-        occurrence = {
-            "timestamp": now_ms,
-            "thread": thread,
-            "requestMethod": request.method if request else None,
-            "requestPath": request.path if request else None,
-            "handler": request.endpoint if request else None,
-            "source": source,
-            "traceId": request.id if request else None,
-            "requestId": request.id if request else None,
-            "bindingDiagnostics": binding_diagnostics or [],
-            "bindingDiagnosticsTruncated": binding_diagnostics_truncated,
-        }
-        gid = hashlib.sha256(key.encode()).hexdigest()[:16]
+            return self._message(message_override)
+        return message
+
+    def _store_record(
+        self,
+        exc: BaseException,
+        gid: str,
+        now_ms: int,
+        message: str | None,
+        frames: list[dict[str, Any]],
+        causes: list[dict[str, Any]],
+        location: str | None,
+        chosen: dict[str, Any] | None,
+        occurrence: dict[str, Any],
+    ) -> None:
         with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
@@ -373,7 +426,6 @@ class ExceptionStore:
                 group.occurrences.pop()
             if len(self._groups) > self.max_groups:
                 del self._groups[min(self._groups.values(), key=lambda g: g.order).id]
-        self._offer(lambda: self._event(exc, chosen, gid, occurrence, request))
 
     def _event(
         self,
