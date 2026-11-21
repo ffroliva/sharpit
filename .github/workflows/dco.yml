@@ -1,18 +1,27 @@
 name: dco
 
+# The pull request is data only. pull_request_target runs with the base repository's token, so this workflow checks
+# out the base branch (no ref), never runs code from the pull request, and passes every value through env.
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
 
-permissions: write-all
+permissions: {}
 
 jobs:
   dco:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
-      contents: write
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - run: echo "${{ github.event.pull_request.title }}"
-# placeholder: head.ref
+          persist-credentials: false
+      - name: Check Signed-off-by trailers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/ci/dco_check.py
