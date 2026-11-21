@@ -148,16 +148,20 @@ def _unvalidated_constraints(source: Source) -> Outcome:
     if isinstance(rows, str):
         return rows
     kinds = {"f": "foreign key", "n": "not-null", "c": "check"}
-    return [
-        _hit(
-            source,
-            f"{row['tbl']}.{row['name']}",
-            f"{kinds.get(row.get('type'), 'check')} constraint `{row['name']}` on `{row['tbl']}` is NOT VALID.",
-            f"table={row['tbl']}",
-            f"object={row['tbl']}.{row['name']}",
+    hits: list[Hit] = []
+    for row in rows:
+        kind = row.get("type")
+        label = kinds[kind] if isinstance(kind, str) and kind in kinds else "check"
+        hits.append(
+            _hit(
+                source,
+                f"{row['tbl']}.{row['name']}",
+                f"{label} constraint `{row['name']}` on `{row['tbl']}` is NOT VALID.",
+                f"table={row['tbl']}",
+                f"object={row['tbl']}.{row['name']}",
+            )
         )
-        for row in rows
-    ]
+    return hits
 
 
 def _consumed(row: dict[str, Any]) -> float | None:

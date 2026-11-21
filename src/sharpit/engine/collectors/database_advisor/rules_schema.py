@@ -197,7 +197,8 @@ def _unique_index_duplicating_primary_key(source: Source) -> Outcome:
         hits.extend(
             (
                 _where(source, table, f".{index['name']}"),
-                f"Datasource `{source.name}`: unique index `{index['name']}` on `{table['name']}` repeats the primary key's "
+                f"Datasource `{source.name}`: unique index `{index['name']}` on `{table['name']}` repeats "
+                "the primary key's "
                 "columns.",
                 _identity(source, table, f"index={index['name']}"),
             )
