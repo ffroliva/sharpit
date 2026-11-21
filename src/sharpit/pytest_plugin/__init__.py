@@ -109,12 +109,9 @@ class _ExceptionHandler(LockFreeHandler):
             return
         try:
             exc = record.exc_info[1]
-            try:
-                from fastapi.exceptions import RequestValidationError
-            except ImportError:
-                validation_error = False
-            else:
-                validation_error = isinstance(exc, RequestValidationError)
+            fastapi_errors = sys.modules.get("fastapi.exceptions")
+            validation_error_type = getattr(fastapi_errors, "RequestValidationError", None)
+            validation_error = isinstance(validation_error_type, type) and isinstance(exc, validation_error_type)
             if not validation_error:
                 self.sink.on_exception(exc, "log", TEST.get())
         except Exception as exc:  # noqa: BLE001

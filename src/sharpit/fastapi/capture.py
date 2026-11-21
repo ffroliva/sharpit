@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]  # Starlette's own dispatch test
@@ -158,14 +159,15 @@ def _record_exception(
         if info is not None and info.scope is not None
         else None
     )
+    record_info = info
     if template is not None and info is not None and not full:
-        info.path = template
+        record_info = replace(info, path=template)
     route = route_for_scope(info.scope if info is not None else None, host_app)
     message, diagnostics, truncated = validation_details(exc, route, full)
     store.record(
         exc,
         source,
-        info,
+        record_info,
         thread,
         message_override=message,
         message_override_always=True,
