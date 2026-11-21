@@ -367,6 +367,60 @@ def _shown_key(name: str) -> str:
     return f"{MASK}{dot}{header}" if prefix and header.lower() in _SECRET_HEADERS else name
 
 
+# ---- Binding literals ----------------------------------------------------------------------------------------------
+# Port of BootUI's ``MessageExposure.scrubBindingLiterals``: the user-input literal a framework message quotes is
+# replaced after the secret passes, in a fixed order, each pattern tied to one message grammar. The Java grammars
+# (Spring ``rejected value [..]``, Jackson, ``For input string``) do not occur in Python; the grammars of CPython
+# 3.12-3.14 and Pydantic v2 take their place. Every pattern starts at a fixed phrase, or consumes the literal it starts,
+# so a scan is linear in the text. A plain literal in an arbitrary message is not a binding-literal form and stays.
+_LITERAL = r"""b?(['"])(?:(?!\2)[^\\\r\n]|\\.)*+\2?"""  # a Python repr: its quote, escapes, and a closing quote if any
+
+
+def _quoted_mask(m: re.Match[str]) -> str:
+    return f"{m[1]}{m[2]}{MASK}{m[2]}"
+
+
+def _after_enum_literal(m: re.Match[str]) -> str:
+    """A repr or number is the input only when ``is not a valid <Enum>`` follows it; any other is kept as written."""
+    if not m[2]:
+        return m[0]
+    return f"{m[1]}{MASK}{m[1]}{m[2]}" if m[1] else f"{MASK}{m[2]}"
+
+
+_INT_LITERAL = re.compile(rf"(\binvalid literal for int\(\) with base \d+: ){_LITERAL}")
+_FLOAT_LITERAL = re.compile(rf"(\bcould not convert string to float: ){_LITERAL}")
+_TIME_DATA = re.compile(rf"(\btime data ){_LITERAL}")
+_UNCONVERTED_DATA = re.compile(r"(\bunconverted data remains:)[^\r\n]*")
+_ISOFORMAT = re.compile(rf"(\bInvalid isoformat string: ){_LITERAL}")
+# consumes every repr and number so a scan never restarts inside one; only one followed by the Enum message is replaced
+_ENUM_INPUT = re.compile(
+    r"""(?<![\w'"])(?:b?(['"])(?:(?!\1)[^\\\r\n]|\\.)*+\1?|-?\d+(?:\.\d+)?)( is not a valid [A-Za-z_])?"""
+)
+_PYDANTIC_INPUT_VALUE = re.compile(r"(\binput_value=)(?:.*(, input_type=)|.*)")
+_PYDANTIC_CUSTOM_MESSAGE = re.compile(
+    r"(\b(?:Value error|Assertion failed), )(?s:.*?( \[type=(?:value_error|assertion_error))|.*)"
+)
+_BINDING_LITERALS: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str]], ...] = (
+    (_INT_LITERAL, _quoted_mask),
+    (_FLOAT_LITERAL, _quoted_mask),
+    (_TIME_DATA, _quoted_mask),
+    (_UNCONVERTED_DATA, lambda m: f"{m[1]} {MASK}"),
+    (_ISOFORMAT, _quoted_mask),
+    (_ENUM_INPUT, _after_enum_literal),
+    (_PYDANTIC_INPUT_VALUE, lambda m: f"{m[1]}{MASK}{m[2] or ''}"),
+    (_PYDANTIC_CUSTOM_MESSAGE, lambda m: f"{m[1]}{MASK}{m[2] or ''}"),
+)
+
+
+def scrub_binding_literals(text: str | None) -> str | None:
+    """``text`` with the user-input literal of each recognized binding message replaced by the mask."""
+    if not text:
+        return text
+    for pattern, replacement in _BINDING_LITERALS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _key_text(key: bytes | None) -> str:
     """What the key looks like in a text. A generated key is random bytes and has no such form: nothing can show it."""
     try:
@@ -464,6 +518,11 @@ class Masker:
         tracked = Tracked(text, track=False)
         self._run_passes(tracked, strict=True)
         return tracked.text
+
+    def scrub_literals(self, text: str | None) -> str | None:
+        """``text`` with the binding literals of framework messages scrubbed; ``FULL`` shows it as written, whatever
+        the secret-mask setting (ported: ``ExceptionsService.displayMessage``, which scrubs the exposed text)."""
+        return text if self._exposure is Exposure.FULL else scrub_binding_literals(text)
 
     def mask_spans(self, text: str, strict: bool = True, view: Tracked | None = None) -> list[tuple[int, int]] | None:
         """The raw ``(start, end)`` runs the passes hide in ``text``; ``view``, a tracked text over it, is read instead.
