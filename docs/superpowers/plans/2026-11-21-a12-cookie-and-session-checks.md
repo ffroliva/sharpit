@@ -144,7 +144,7 @@ are resolved by the lane that merges second, which edits only its own words.
 | High | A dropped over-long cookie reads as "no cookie" | A11's per-name incompleteness; BootUI gap string; the dropped cookie is never named. |
 | High | Configuration evidence is mistaken for observed cookies | Separate evidence, targets name the middleware option, coverage text distinguishes them. |
 | High | Starlette's default `https_only=False` flagged as explicit | Only a keyword passed as `False` sets the new fact. |
-| High | A12's limitation strings are cut by the 20-entry limit | Worst-case set test that asserts each A12 string survives. |
+| High | A12's limitation strings are cut by the 20-entry limit | Worst-case test measures the real pre-cut list (15 entries) and asserts each A12 string and every lane's gap survives. |
 | High | A finding's evidence exceeds BootUI's 240-character cut (PT-A02-007 with three violations is 233 characters plus the name; a mount path in PT-A02-004 and -006 is host text of any length and may hold LF) | Every finding of all nine rules passes `sanitize_evidence`; an all-violations `__Host-` cookie and a mount path over 240 characters with LF pin the cut. |
 | High | A raising `security_facts()` leaks its message or crashes the scan | `read_security_facts` catches `Exception`, logs nothing, returns `None`; red-first unit tests with a canary message. |
 | Medium | A cookie value reaches a capture record under `FULL`, or a `Cache-Control` value reaches one under `MASKED` or `FULL` | Stated exception (Global Constraints); the cookie value in `MASKED` and `METADATA_ONLY` pinned; capture assertions use the cookie canary only; deviation row. |
@@ -579,8 +579,11 @@ records no gap. `read_security_facts` returns an empty `SecurityFacts` for any i
 - [ ] **Step 3:** Add `read_security_facts(introspector)` to `pentesting_exposure.py` with A13's name, signature and
   module: one `security_facts()` read through the duck-typed attribute used by `engine/tools04/security.py:33`, wrapped
   in `except Exception` with no logging and no message copied, `None` on failure, on absence of the attribute and on a
-  result that is not a `SecurityFacts` instance. The Task 11 Step 0 tests turn green. The scan function calls it once and
-  passes `session_evidence(facts)` to `service.scan`. The action and its gates are unchanged; no read path calls it.
+  result that is not a `SecurityFacts` instance. The Task 11 Step 0 tests turn green. The scan function calls it once,
+  after `await run_probe(...)` returns, and passes `session_evidence(facts)` to `service.scan`. `run_probe` acquires the
+  single-flight, raises `ActionBusy` before anything else when it is held, and releases it when it returns
+  (`pentesting_probe.py:63-66`), so "after the probe" means after the release: a busy scan (409) never reads the facts.
+  The action and its gates are unchanged; no read path calls it.
 - [ ] **Step 4:** Run the Task 11 files (including `tests/fastapi/test_pentesting_exposure_adapter.py`), `tests/engine/collectors/pentesting`, `tests/fastapi/test_pentesting_api.py` and
   `tests/fastapi/test_introspector_security.py`; commit.
 
@@ -610,10 +613,18 @@ the working tree, run `red_check.py` on the named tests in the mutated tree, res
   scan-produced surface (the report, MCP and CLI output, error bodies, logs, state files) holds no canary.
 - [ ] **Step 2:** `test_cookie_checks_are_scan_action_only_and_read_only_denied`: GET and read tools make no host call,
   open no socket (`no_side_effects`) and never call `security_facts`; a read-only panel, a disabled panel, MCP off,
-  an inactive console and a cross-site scan refuse before any host call; `test_one_scan_reads_security_facts_once`.
-- [ ] **Step 3:** `test_limitations_added_by_this_lane_survive_the_cut`: build the worst-case scan (A10's fixed lines,
-  A11's, and this lane's two gaps) and assert each of this lane's strings is present after `_unique_limitations`, not
-  only that the count is at most 20.
+  an inactive console and a cross-site scan refuse before any host call; a scan started while the single-flight is held
+  answers 409 (`ActionBusy`) with zero `security_facts()` calls, and is red against a read placed before `run_probe`;
+  `test_one_scan_reads_security_facts_once` (one call per completed scan).
+- [ ] **Step 3:** `test_limitations_added_by_this_lane_survive_the_cut`: measure, do not sum constants. Run the real
+  worst-case scan (both probes rejected, truncated bodies and header inventories, the facts unavailable), spy on
+  `report._unique_limitations` to capture the real pre-cut list, and assert its length equals the claimed 15
+  (A10 5 + A11 5 + A12 1 + A13 1 + 3 trailing, measured on A11's `report.py`), so a producer added in any lane
+  fails the test until the table is corrected. Then assert, after the cut, that the three trailing statements are
+  present, each named, and that every lane's gap is present, each named: this lane's configuration gap
+  (BootUI's `Framework configuration evidence was incomplete.` text as A13 pins it, shared with A13) and A11's GET and
+  OPTIONS header gap strings; not only that the count is at most 20. The count is 19 when the responses are
+  built by hand (A10 7, A11 7), still within the 20-entry cap.
 - [ ] **Step 4:** Mutations, each failing a named test: M1 the parser returns the raw first segment as the name; M2
   `split_cookies` returns the headers unchanged; M3 the `echo` is skipped on a cookie name; M4 `directive_summary`
   returns the raw text; M5 `observed` reads the middleware facts in a read path; M6 the per-name incompleteness is
