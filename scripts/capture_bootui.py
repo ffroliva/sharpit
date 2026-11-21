@@ -575,7 +575,9 @@ def _collect_java_retired_rules(bootui_root: str) -> dict[str, str]:
                 body = rule_class.group(1)
                 rid_match = re.search(r'new\s+RestApiRuleDefinition\(\s*"(RAPI-[A-Z0-9-]+)"', body)
                 evaluate = re.search(
-                    r"(?s)doEvaluate\s*\([^)]*\)\s*\{\s*return\s+RestApiRuleSupport\.skipped\("
+                    r"(?s)doEvaluate\s*\([^)]*\)\s*\{\s*"
+                    r"(?:if\s*\(.*?\)\s*return\s+missingEvidence\([^;]*\);\s*)*"
+                    r"return\s+RestApiRuleSupport\.skipped\("
                     r"\s*definition\(\)\s*,(.*?)\);\s*\}",
                     body,
                 )
