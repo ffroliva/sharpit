@@ -22,12 +22,21 @@ def _rows(route: RouteInfo) -> list[dict[str, Any]]:
     ]
 
 
+def _normalized_base_path(raw: str) -> str:
+    """BootUI's base path: segments joined by single slashes; a root or empty prefix is no prefix."""
+    parts = [part for part in raw.strip().split("/") if part]
+    return "/" + "/".join(parts) if parts else ""
+
+
+def _composed_path(base_path: str, pattern: str) -> str:
+    if not base_path:
+        return pattern
+    return base_path if pattern == "/" else base_path + pattern
+
+
 def mappings_flat(ctx: SharpitContext, q: str | None, offset: int | None, limit: int | None) -> dict[str, Any]:
     # Not memoised: the host may add routes after install, and listing them is cheap and read-only.
-    raw_base_path = ctx.introspector.app_info().base_path.strip()
-    base_path = "/" + "/".join(part for part in raw_base_path.split("/") if part) if raw_base_path else ""
-    if base_path == "/":
-        base_path = ""
+    base_path = _normalized_base_path(ctx.introspector.app_info().base_path)
     rows = [row for route in ctx.introspector.routes() for row in _rows(route)]
     rows.sort(key=lambda r: (r["pattern"], r["method"], r["handler"]))
     page, meta = paged(
@@ -38,7 +47,7 @@ def mappings_flat(ctx: SharpitContext, q: str | None, offset: int | None, limit:
         lambda r: (
             r["method"],
             r["pattern"],
-            base_path + (r["pattern"] if r["pattern"] != "/" else "") if base_path else r["pattern"],
+            _composed_path(base_path, r["pattern"]),
             r["handler"],
             r["produces"],
             r["consumes"],
