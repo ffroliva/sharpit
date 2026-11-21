@@ -27,7 +27,7 @@ MIGRATION_TABLES = frozenset(
         "changeloglock",
     }
 )
-_NARROW = frozenset({"TINYINT", "SMALLINT", "INT2", "SMALLSERIAL"})
+_NARROW = frozenset({"TINYINT", "SMALLINT", "INT2", "SMALLSERIAL", "SERIAL2"})
 
 Table = dict[str, Any]
 

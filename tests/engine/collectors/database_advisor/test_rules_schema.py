@@ -153,6 +153,15 @@ def test_generated_small_key_is_reported() -> None:
     assert _targets(_check("DB-SCHEMA-007", _source(tiny, plain, wide))) == ["db/tiny.id"]
 
 
+def test_generated_postgresql_serial_aliases_use_their_integer_width() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.generatedSmallKeyReportsBoundsNotLifetimeRows
+    small = _table("small", _column("id", "serial2", autoincrement=True))
+    regular = _table("regular", _column("id", "serial4", autoincrement=True))
+    large = _table("large", _column("id", "serial8", autoincrement=True))
+
+    assert _targets(_check("DB-SCHEMA-007", _source(small, regular, large))) == ["db/small.id"]
+
+
 def test_finding_identity_never_holds_a_value() -> None:
     # ported: DatabaseFindingIdentityTests (identities name the physical object, never a message or value)
     outcome = _check("DB-SCHEMA-001", _source(_table("audit_log", _column("at"), pk=())))
