@@ -74,12 +74,12 @@ def test_request_id_header_skips_disabled_per_response_work(monkeypatch: pytest.
     assert HEADER not in response.headers
 
 
-def test_request_id_header_matches_guard_after_outer_client_rewrite() -> None:
+def test_request_id_header_follows_the_guard_decision() -> None:
     # ported: QuarkusHttpExchangeCaptureFilterTest.exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues  # noqa: E501
     app, handle = _app()
     decisions: list[bool] = []
 
-    class RewriteClient:
+    class PeerOverride:
         def __init__(self, inner):
             self.inner = inner
 
@@ -93,7 +93,7 @@ def test_request_id_header_matches_guard_after_outer_client_rewrite() -> None:
                 return
             await self.inner(scope, receive, send)
 
-    wrapped = RewriteClient(app)
+    wrapped = PeerOverride(app)
     response = TestClient(wrapped, client=("203.0.113.9", 50000)).get("/ok")
 
     assert decisions == [True]
