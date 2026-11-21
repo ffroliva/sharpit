@@ -15,6 +15,9 @@ from sharpit.engine.paging import paged
 from sharpit.engine.spi import ApiModel, ErrorHandlerInfo
 
 DEFAULT_MAX_ENTRIES = 500
+_FRAMEWORK_MAPPED_EXCEPTIONS = frozenset(
+    {"starlette.exceptions.HTTPException", "fastapi.exceptions.RequestValidationError"}
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,8 @@ class ErrorContractEntry:
     body_type: str | None
     produces: tuple[str, ...]
     retry_after: bool | None = False  # a literal Retry-After header; None: headers built at runtime; not in the DTO
+    exception_mro: tuple[str, ...] = ()
+    framework_mapped: bool = False
 
     def dto(self) -> dict[str, Any]:
         return {
@@ -235,6 +240,8 @@ def _rank_group(
                     body_type,
                     (),
                     retry_after,
+                    getattr(info, "key_mro", ()) or ((exception_type,) if info.key_type is not None else ()),
+                    any(name in _FRAMEWORK_MAPPED_EXCEPTIONS for name in getattr(info, "key_mro", ())),
                 )
             )
         i = end

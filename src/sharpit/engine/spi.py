@@ -75,6 +75,7 @@ class ErrorHandlerInfo:
     scope: str
     scope_target: str | None
     is_partial: bool = False
+    key_mro: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

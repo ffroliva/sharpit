@@ -240,6 +240,26 @@ def _eval_internal_imports(graph: ImportGraph, out: list[Finding]) -> None:
         src_pkg = src_mod.rpartition(".")[0]
         for edge in edges:
             parts = edge.target.split(".")
+            if graph.app_package:
+                prefix = f"{graph.app_package}."
+                if not edge.target.startswith(prefix):
+                    continue
+                parts = edge.target[len(prefix) :].split(".")
+                internal_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "internal" or (part.startswith("_") and not part.startswith("__"))
+                    ),
+                    None,
+                )
+                if internal_index is None:
+                    continue
+                owner = prefix + ".".join(parts[:internal_index])
+                if src_mod == owner or src_mod.startswith(f"{owner}."):
+                    continue
+            elif not any(p == "internal" or (p.startswith("_") and not p.startswith("__")) for p in parts):
+                continue
             if any(p == "internal" or (p.startswith("_") and not p.startswith("__")) for p in parts):
                 tgt_pkg = edge.target.rpartition(".")[0]
                 if not (edge.target.startswith(f"{src_pkg}.") or src_pkg == tgt_pkg):

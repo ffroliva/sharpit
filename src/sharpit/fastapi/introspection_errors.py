@@ -74,6 +74,23 @@ def _key(key: object) -> tuple[str | None, int | None]:
     return None, None
 
 
+def _key_mro(key: object, key_type: str | None) -> tuple[str, ...]:
+    if type(key) is not type or key_type is None:
+        return ()
+    try:
+        mro = type.__getattribute__(key, "__mro__")
+        names: list[str] = []
+        for cls in mro:
+            module = type.__getattribute__(cls, "__module__")
+            qualname = type.__getattribute__(cls, "__qualname__")
+            if type(module) is not str or type(qualname) is not str:
+                return (key_type,)
+            names.append(qualname if module == "builtins" else f"{module}.{qualname}")
+        return tuple(names) or (key_type,)
+    except Exception:
+        return (key_type,)
+
+
 def _handler_row(
     key: object, handler: object, scope: str, target: str | None, limitations: list[str]
 ) -> ErrorHandlerInfo:
@@ -86,7 +103,7 @@ def _handler_row(
         if target is None:
             row_target = f"status={key_status}"
     name, is_partial = handler_name(handler)
-    return ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial)
+    return ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial, _key_mro(key, key_type))
 
 
 def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHandlerInfo], list[str]]:

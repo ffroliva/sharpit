@@ -60,6 +60,7 @@ class ImportGraph:
     nodes: set[str] = field(default_factory=set[str])
     edges: dict[str, list[ImportEdge]] = field(default_factory=dict[str, list[ImportEdge]])
     packages: set[str] = field(default_factory=set[str])
+    app_package: str | None = None
 
     def find_cycles(self) -> list[Cycle]:
         """Tarjan strongly connected components of size >= 2 over module edges."""
@@ -189,6 +190,7 @@ def _module_edges(
 def build_graph(index: SourceIndex, app_package: str | None = None) -> ImportGraph:
     """Build application internal module import graph from SourceIndex."""
     graph = ImportGraph()
+    graph.app_package = app_package
     known = index.modules
     graph.nodes.update(known)
     graph.packages.update(name for name, info in known.items() if info.path.name == "__init__.py")
