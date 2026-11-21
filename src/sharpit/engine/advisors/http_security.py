@@ -7,7 +7,8 @@ route may answer); it infers no policy from route metadata, and it never sees a 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
+from dataclasses import replace
 from typing import Any, NamedTuple, cast
 
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
@@ -115,6 +116,7 @@ def evaluate(
     partial_run: bool = False,
     missing_workers: Sequence[str] = (),
     fail_on: str = "HIGH",
+    baseline: Collection[str] | None = None,
 ) -> AdvisorRun | None:
     """Evaluate every configured expectation against each finished exchange of the deciding attempts.
 
@@ -155,4 +157,6 @@ def evaluate(
         "expectations": len(headers) + len(statuses),
         "exchanges": sum(count for facts in runs for count in facts.exchanges.values()),
     }
+    if baseline is not None:  # the existing baseline comparison: a finding already in it does not fail the gate
+        findings = [replace(f, baseline_state="existing" if f.fingerprint in baseline else "new") for f in findings]
     return AdvisorRun.of(ADVISOR, findings, evidence, fail_on=cast("Severity", fail_on))
