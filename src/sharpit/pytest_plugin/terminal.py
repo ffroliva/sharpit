@@ -66,9 +66,7 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
 
 
 def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
-    """Swallowed-exception findings, one line per ``except`` clause, not per test: the clauses and the distinct tests
-    they failed, then each clause with its own test count, most tests first and by location after that. A test a test
-    double (see ``TEST_DOUBLE_NOTE``) broke is named; the lines read the report's findings only."""
+    """List swallowed-exception clauses with their distinct test counts; test-double notes appear when applicable."""
     clauses: dict[str, dict[str, bool]] = {}  # location -> test node id -> whether a test double raised it there
     for finding in findings:
         if finding["ruleId"] != SWALLOWED:
@@ -81,13 +79,19 @@ def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> N
         return
     tests = {node for doubles in clauses.values() for node in doubles}
     terminalreporter.write_line(f"swallowed exceptions: {_count(len(clauses), 'clause')}, {_count(len(tests), 'test')}")
-    for location, doubles in sorted(clauses.items(), key=lambda item: (-len(item[1]), item[0])):
+    ordered = sorted(clauses.items(), key=lambda item: (-len(item[1]), *_location_key(item[0])))
+    for location, doubles in ordered[:5]:
         raised = sum(doubles.values())
         if raised == len(doubles):
             note = f", {TEST_DOUBLE_NOTE}"
         else:
             note = f", {raised} raised by a test double" if raised else ""
         terminalreporter.write_line(f"  {location}: {_count(len(doubles), 'test')}{note}")
+
+
+def _location_key(location: str) -> tuple[str, tuple[int, int | str]]:
+    path, separator, line = location.rpartition(":")
+    return path, (0, int(line)) if separator and line.isdecimal() else (1, location)
 
 
 def _count(number: int, noun: str) -> str:

@@ -10,7 +10,7 @@ import re
 
 _MODULE = "unittest.mock"
 # the class names ``unittest.mock`` prints in its errors (``object MagicMock can't be used in 'await' expression``)
-_NAMES = re.compile(r"\b(?:NonCallable)?(?:Magic|Async|Property)?Mock\b")
+_NAMES = re.compile(r"\b(?:unittest\.mock\.)?(?:NonCallableMock|MagicMock|AsyncMock|PropertyMock|ThreadingMock)\b")
 _READ = 1000  # characters of one argument that are read
 
 
