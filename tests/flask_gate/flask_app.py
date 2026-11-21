@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask, jsonify
+from flask import Flask, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
@@ -29,8 +29,10 @@ def create_app(fixed: bool = False) -> Flask:
         db.session.commit()
 
     @app.get("/authors")
-    def authors() -> tuple:
+    def authors() -> Response:
         query = select(Author)
+        if fixed:
+            query = query.options(selectinload(Author.books))
         return jsonify([{"books": [book.id for book in author.books]} for author in db.session.scalars(query)])
 
     return app

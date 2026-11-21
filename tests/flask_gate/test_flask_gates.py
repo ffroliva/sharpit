@@ -24,8 +24,12 @@ def test_n_plus_one_fails_on_flask_sqlalchemy(pytester: pytest.Pytester) -> None
         """
     )
     result = pytester.runpytest_inprocess(
-        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-max-queries=3",
-        "--sharpit-report=report.json", "-q"
+        "--sharpit",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "--sharpit-max-queries=3",
+        "--sharpit-report=report.json",
+        "-q",
     )
 
     assert result.ret == 1
