@@ -6,8 +6,13 @@ route may answer); it infers no policy from route metadata, and it never sees a 
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import NamedTuple
+from collections.abc import Iterable, Sequence
+from typing import Any, NamedTuple, cast
+
+from sharpit.engine.advisors.findings import AdvisorRun, Finding
+from sharpit.engine.advisors.rules import Severity
+from sharpit.engine.testsession.facts import HttpFacts, TestFacts
+from sharpit.engine.testsession.outcome import deciding
 
 MIN_STATUS, MAX_STATUS = 100, 599
 
@@ -54,3 +59,92 @@ def parse_status_expectations(lines: Iterable[str], option: str) -> tuple[Status
             _status(part.strip(), line, option) for part in value.split(",")
         )
     return tuple(StatusExpectation(m, r, tuple(sorted(s))) for (m, r), s in union.items())
+
+
+ADVISOR = "http-security"
+HEADER_RULE, STATUS_RULE = "HTTP-SEC-001", "HTTP-SEC-002"
+RULE_IDS = (HEADER_RULE, STATUS_RULE)
+NO_EXCHANGE = "no matching exchange"
+SELECTION_RUN = "selection run"
+EVIDENCE_INCOMPLETE = "evidence incomplete"
+MISSING_WORKER = "missing worker"
+
+
+def _gap(
+    method: str, route: str, runs: Sequence[HttpFacts], loose: Sequence[HttpFacts], missing: Sequence[str]
+) -> str | None:
+    """Why the evidence for one route may be missing something, whatever it shows: never a pass."""
+    if missing:
+        return MISSING_WORKER
+    if any(facts.overflow or (method, route) in facts.incomplete or method in facts.unobservable for facts in runs):
+        return EVIDENCE_INCOMPLETE
+    unattributed = any(
+        facts.overflow or method in facts.unobservable or any(key[:2] == (method, route) for key in facts.exchanges)
+        for facts in loose
+    )
+    return EVIDENCE_INCOMPLETE if unattributed else None
+
+
+def _violations(runs: Sequence[HttpFacts], method: str, route: str) -> list[tuple[int, tuple[str, ...]]]:
+    return [
+        (status, present)
+        for facts in runs
+        for (m, r, status, present), _count in facts.exchanges.items()
+        if (m, r) == (method, route)
+    ]
+
+
+def _finding(rule: str, severity: Severity, target: str, message: str, identity: str) -> Finding:
+    return Finding(rule, ADVISOR, severity, target, message, identity=identity)
+
+
+def evaluate(
+    headers: Sequence[HeaderExpectation],
+    statuses: Sequence[StatusExpectation],
+    tests: Iterable[TestFacts],
+    *,
+    unassociated: Sequence[HttpFacts] = (),
+    partial_run: bool = False,
+    missing_workers: Sequence[str] = (),
+    fail_on: str = "HIGH",
+) -> AdvisorRun | None:
+    """Evaluate every configured expectation against each finished exchange of the deciding attempts.
+
+    One violating exchange is one finding per policy key; an expectation without complete matching evidence is
+    UNKNOWN (never PARTIAL), and a definite failure outranks it while keeping its reason.
+    """
+    if not (headers or statuses):
+        return None
+    runs = [attempt.http for attempt in deciding(tests)]
+    findings: list[Finding] = []
+    limitations: list[str] = []
+
+    def judge(label: str, method: str, route: str, violated: bool) -> bool:
+        seen = _violations(runs, method, route)
+        gap = _gap(method, route, runs, unassociated, missing_workers)
+        if gap or not (seen or violated):
+            limitations.append(f"{label}: {gap or (SELECTION_RUN if partial_run else NO_EXCHANGE)}")
+        return violated
+
+    for expectation in headers:
+        method, route, header = expectation
+        missing = any(header not in present for _, present in _violations(runs, method, route))
+        if judge(f"{method} {route} header {header}", method, route, missing):
+            message = f"{method} {route} responded without configured header {header}"
+            findings.append(_finding(HEADER_RULE, "HIGH", f"{method} {route}", message, f"{method} {route} {header}"))
+    for expectation in statuses:
+        method, route, allowed = expectation
+        outside = sorted({s for s, _ in _violations(runs, method, route) if s not in allowed})
+        if judge(f"{method} {route} status", method, route, bool(outside)):
+            expected = ", ".join(map(str, allowed))
+            message = f"{method} {route} responded with status {', '.join(map(str, outside))}; expected {expected}"
+            findings.append(_finding(STATUS_RULE, "HIGH", f"{method} {route}", message, f"{method} {route}"))
+    limitations = list(dict.fromkeys(limitations))
+    evidence: dict[str, Any] = {
+        "usable": not limitations,
+        "coverageComplete": not limitations,
+        "limitations": limitations,
+        "expectations": len(headers) + len(statuses),
+        "exchanges": sum(count for facts in runs for count in facts.exchanges.values()),
+    }
+    return AdvisorRun.of(ADVISOR, findings, evidence, fail_on=cast("Severity", fail_on))
