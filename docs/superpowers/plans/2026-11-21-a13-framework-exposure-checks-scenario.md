@@ -70,8 +70,12 @@ session rules.
 - D1 activation: skipped; inactive and guard behaviour is unchanged and covered by the A10 route tests.
 - D2 guard: skipped as a new surface; the scan action and its gates are reused. One regression row asserts the new
   evidence is built only inside the action.
-- D3 masking: active. Route and mount paths come from the host and can carry a secret. The pentesting result is
-  masked by the wiring A11 adds (`ctx.masker` into `PentestingService.scan`); this lane adds proof, not a second masker.
+- D3 masking: active. Route and mount paths come from the host and can carry a secret. A11's rule applies: only
+  host-echoed fragments pass through `echo = make_echo(masker)` (the required `masker` of `PentestingService.scan`),
+  before the evidence is sanitised and cut at 240 characters; fixed BootUI text, gaps and limitations are never
+  masked, and under `METADATA_ONLY` each path becomes `[masked]`. A whole-string pass is rejected because it rewrites
+  BootUI's fixed text. This lane adds no second masker; `echo` and the sanitiser live in one shared module. The rule
+  is proved in `MASKED`, `METADATA_ONLY` and `FULL`, including PT-A05-044's mount evidence.
 - D4 parity: active. Two findings, one coverage rule and one completeness message are ported.
 - D5 introspection drift: active. This is the main risk of the change.
 - D6 no side effects on GET: active.
@@ -112,16 +116,29 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
   branch (`:279-286`) on an adapter without Spring metadata, so truncation never makes A07 INDETERMINATE there; the
   ported test (`PentestingScannerTests.java:754-779`) runs with Spring metadata available. Sharpit's A07 is that
   branch (NOT_APPLICABLE, `report.py:355, 377-379`; REVIEW only when PT-A07-008 is found). The same rule applied to
-  sharpit therefore leaves A07 NOT_APPLICABLE, and no deviation row is needed. A04 and A10 are unchanged
-  (`:426, 435`).
+  sharpit therefore leaves A07 NOT_APPLICABLE. Two differences are one deviation row,
+  `pentesting:exposure-coverage-a07`: the label (sharpit NOT_APPLICABLE, BootUI HANDOFF) and the ported assertion
+  (INDETERMINATE in BootUI's test, NOT_APPLICABLE here). A04 and A10 are unchanged (`:426, 435`).
+- Where gaps land: BootUI appends them to the scan message and, with assessment gaps, to `evidence.limitations`
+  (`PentestingScanner.java:132-148, 288-291`). Sharpit's scan message is fixed text and A11 sends gaps to
+  `evidence.limitations`; A13 does the same, with BootUI's wording, and records row `pentesting:exposure-gap-placement`.
+  `usable` stays the GET probe's usability (`report.py:272`; BootUI ORs per-check usability, `:124-129`), and
+  `coverageComplete` stays as A10 sets it. The limitation list keeps 20 entries of 240 characters
+  (`report.py:413-414`): A13 adds at most three gaps and three standing sentences, placed before the generic trailing
+  sentences, and a worst-case test proves they survive.
+- Opaque mounts: the facts walk descends only into Starlette sub-applications (`introspector.py:878-884`); a WSGI or
+  metrics ASGI mount is invisible to the route evidence. A standing limitation says so on every scan that supplies
+  evidence; it is a limitation, not a gap, so the scan is not PARTIAL for that reason.
 - Absent provider versus failure: BootUI treats an absent mapping provider as nothing to evaluate and a failed one as
   truncated (`SpringPentestingObservationCollector.java:895, 907-911`). A non-FastAPI host (no FastAPI middleware
   facts) is the absent case: documentation is still read from the route table, PT-A05-044 is not evaluated, and a
   standing limitation says so; there is no gap. An introspector that is missing a method or raises is the failure
   case: gap, PARTIAL, A02 INDETERMINATE.
-- `SecurityFacts.limitations` is not copied or counted: its only writer in the facts read is the positional-options
-  note (`introspection_security.py:105`), which does not affect a middleware class name. Its other content is the
-  non-FastAPI marker (`spi.py:133`), handled as the absent case above.
+- `SecurityFacts.limitations` is neither copied nor counted, by A13 or any lane: its text can carry route paths and
+  mount labels (`introspector.py:410, 878-884`; the positional-options note is `introspection_security.py:105`) and
+  limitations are not masked. The non-FastAPI marker (`spi.py:133`) is handled as the absent case above. A12's plan
+  copies that text and marks the scan PARTIAL; A12 must use a fixed sentence instead, and A13 pins it with a planted
+  path.
 - `--fail-on` evaluates a PARTIAL scan with a note (`fail_on.py:113, 256`); that is unchanged and pinned.
 
 ## Scenario table
@@ -129,7 +146,9 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
 | # | Dimension | Scenario | Severity | Expected behaviour | Test |
 |---|---|---|---|---|---|
 | 1 | D6 | GET report, MCP report tool and CLI report command after a scan | Critical | Return the cached or initial report; call none of `routes()`, `app_info()` or `security_facts()`; open no socket | Integration (`no_side_effects`, call counts on all three surfaces) |
-| 2 | D3 | `docs_url` carries a secret-looking segment; a sub-application with `ProxyHeadersMiddleware` is mounted at a secret-looking path | Critical | The finding is still produced (positive control with a non-secret path); the secret is absent from the scan response, MCP output, CLI output and the cached GET, with default and FULL exposure | Integration |
+| 2 | D3 | `docs_url` carries a secret-looking segment; a sub-application with `ProxyHeadersMiddleware` is mounted at a secret-looking path (PT-A05-044 mount evidence) | Critical | The finding is still produced (positive control with a non-secret path); the secret is absent from the scan response, MCP output, CLI output and the cached GET in `MASKED`; each path is `[masked]` with the count kept in `METADATA_ONLY`; paths are verbatim in `FULL`; fixed BootUI text is intact in all three | Integration (real `Masker`) |
+| 2a | D3 | Per-rule echo contract | High | Each rule passes every unique raw path (sorted, de-duplicated) through `echo` once and never passes fixed text or the middleware class name; `evaluate` without `echo` is a `TypeError` | Unit (recording echo) |
+| 2b | D3 | Many long paths, one with a newline | High | Evidence is one line of at most 240 characters ending in `...`, sanitised after the echo | Unit; Integration |
 | 3 | D5 | `openapi_url=None`, `docs_url` default (worst case) | High | No PT-A05-041; scan is complete | Integration |
 | 4 | D5 | `docs_url="/api/docs"`, `redoc_url=None` | High | Evidence lists `/api/docs` and `/openapi.json`; `/docs/oauth2-redirect` is not listed | Integration |
 | 5 | D5 | Default FastAPI app | High | One PT-A05-041 with severity INFO, confidence Medium and evidence `Detected developer-tooling mapping(s): /docs, /openapi.json, /redoc. Anonymous reachability was not tested.` | Integration; Golden |
@@ -154,7 +173,12 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
 | 24 | D9 | One scan with A12 and A13 both active | High | `security_facts()` is called exactly once and `routes()` exactly once; a scale test with more than 4096 routes finishes within the overhead budget | Integration; Perf |
 | 25 | D5 | Pure Starlette host (no FastAPI facts) | Medium | Documentation evaluated from the route table; PT-A05-044 not evaluated; standing limitation, no gap, scan not PARTIAL for that reason | Integration |
 | 26 | D4 | `--fail-on` over a PARTIAL scan from this lane | Medium | Evaluated with the existing PARTIAL note; exit code rule unchanged | Integration |
-| 27 | D4 | A07 coverage on truncation | High | A07 stays NOT_APPLICABLE (REVIEW only with PT-A07-008); A04 and A10 unchanged | Unit |
+| 27 | D4 | A07 coverage on truncation | High | A07 stays NOT_APPLICABLE (REVIEW only with PT-A07-008); A04 and A10 unchanged; one deviation row records the label and the changed assertion | Unit; Matrix |
+| 28 | D4 | Where gaps land and `usable` | High | Gaps are `evidence.limitations` entries with BootUI's wording; the scan message is the fixed A10 text; `usable` is the GET probe's whatever the route evidence | Integration |
+| 29 | D4 | Twenty-entry limitation cap, worst case | High | With GET and OPTIONS incomplete and every lane's maximal limitations present, A13's gaps and standing sentences are all kept, each at most 240 characters | Integration |
+| 30 | D5 | A non-Starlette mount (WSGI or metrics ASGI app) | Medium | Not inspected, no crash, no gap; the standing limitation says mounted non-Starlette applications are not inspected | Integration |
+| 31 | D3 | `SecurityFacts.limitations` carries a route path or mount label | Critical | The text is absent from every surface; the scan is not PARTIAL because of it | Integration (planted path) |
+| 32 | D4 | Matrix mapping of the ledger | Medium | `n-a` maps to `n-a`; `adapted-elsewhere` maps to an `adapted` row; `implemented` maps to the `adapted` rows; `other-lane` is A12's | Unit |
 
 ## Must-cover before merge (Critical + High)
 
@@ -175,10 +199,16 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
 - `test_lookalike_proxy_middleware_is_not_matched` (23)
 - `test_one_scan_reads_security_facts_and_routes_once` (24)
 - `test_a07_coverage_is_unchanged_by_endpoint_truncation` (27)
+- `test_forwarded_header_mount_evidence_masks_the_mount_path`, `test_long_path_list_evidence_is_sanitised_and_cut`,
+  `test_documentation_rule_echoes_each_unique_raw_path_once_in_sorted_order` (2, 2a, 2b)
+- `test_exposure_gaps_land_in_evidence_limitations_with_bootui_wording`,
+  `test_usable_is_the_get_probe_whatever_the_route_evidence`, `test_exposure_limitations_survive_the_twenty_entry_cap`
+  (28, 29)
+- `test_security_facts_limitations_text_never_reaches_the_report` (31)
 
 ## Not merge blockers
 
-Rows 14, 15, 16, 17, 19, 20, 21, 22, 25 and 26 are covered by tests in the plan; they are not merge blockers.
+Rows 14, 15, 16, 17, 19, 20, 21, 22, 25, 26, 30 and 32 are covered by tests in the plan; they are not merge blockers.
 Documentation routes registered by Flask extensions and the Werkzeug debugger stay `pending` until the Flask adapter
 has a pentesting scan (matrix row `pentesting:exposure-flask`). No other work is deferred.
 
@@ -186,5 +216,5 @@ has a pentesting scan (matrix row `pentesting:exposure-flask`). No other work is
 
 Introspection drift (`/sharpit:known-issues`, activation and introspection rows): the plan reads only `RouteInfo` and
 the existing duck-typed `security_facts`, and degrades to a stated gap. No change touches activation or the guard
-chain, and no masking logic changes: the result is masked by the wiring A11 adds, which this lane reuses. The tool
+chain, and no masking logic changes: host-chosen paths pass through the `echo` A11 builds, reused from the shared module. The tool
 descriptions and `cli/tools.json` are contract text and are not edited.
