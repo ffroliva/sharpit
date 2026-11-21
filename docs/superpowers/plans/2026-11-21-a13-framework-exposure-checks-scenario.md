@@ -128,9 +128,10 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
   `usable` stays the GET probe's usability (`report.py:272`; BootUI ORs per-check usability, `:124-129`), and
   `coverageComplete` stays as A10 sets it. The limitation list keeps 20 entries of 240 characters
   (`_unique_limitations`, `report.py:433-434` on A11's branch) and the count is measured on A11's code: in the worst case
-  the real probe can produce, A10 contributes 5 entries, A11 5 gap strings, A12 1 new string (its configuration gap)
-  and A13 1 new string (BootUI's endpoint-metadata gap), plus 3 trailing statements, 5 + 5 + 1 + 1 + 3 = 15; responses
-  built by hand reach 7 + 7 + 1 + 1 + 3 = 19, still within 20. A13 therefore adds no standing
+  the real probe can produce, A10 contributes 5 unique entries, A11 7 gap strings, A12 1 new string (its configuration gap)
+  and A13 1 new string (BootUI's endpoint-metadata gap), plus 3 trailing statements, 5 + 7 + 1 + 1 + 3 = 17 unique entries
+  (18 raw, because the Host reason appears twice; 16 at A12's merge point); responses built by hand reach 19 unique
+  entries, still within 20. A13 therefore adds no standing
   entry; its statement is folded into the third trailing sentence (238 characters). A worst-case test captures the
   real pre-cut list, asserts its length against the claim, and asserts every promised statement and each lane's gap
   survives the cut.
@@ -158,7 +159,7 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
   text; A13 reads the same boolean and pins that against A12's merged code with a planted path. `fastapi/pentesting_exposure.py::read_security_facts`
   is A12's; this lane extends the module and does not recreate it.
 - Reads happen after the single-flight is held: the scan action reads `routes()` and `security_facts()` only after
-  `run_probe` (`pentesting_probe.py:59-65`) has acquired the flight and returned; a busy scan (409) or a refused scan
+  `run_probe` in `pentesting_probe.py` has acquired the flight and returned; a busy scan (409) or a refused scan
   reads neither.
 - Pinned text: PT-A05-044's title, target, evidence and recommendation and PT-A05-041's target are fixed strings
   (plan Decision 11), compared exactly by tests.
@@ -198,7 +199,7 @@ sharpit mount itself; `FastApiIntrospector(exclude_mount=...)` already removes i
 | 26 | D4 | `--fail-on` over a PARTIAL scan from this lane | Medium | Evaluated with the existing PARTIAL note; exit code rule unchanged | Integration |
 | 27 | D4 | A07 coverage on truncation | High | A07 stays NOT_APPLICABLE (REVIEW only with PT-A07-008); A04 and A10 unchanged; one deviation row records the label and the changed assertion | Unit; Matrix |
 | 28 | D4 | Where gaps land and `usable` | High | Gaps are `evidence.limitations` entries with BootUI's wording; the scan message is the fixed A10 text; `usable` is the GET probe's whatever the route evidence | Integration |
-| 29 | D4 | Twenty-entry limitation cap, worst case | High | With both probes rejected by Host with truncation and every lane's maximum present, the real pre-cut list has the claimed 15 entries (5 + 5 + 1 + 1 + 3), and after the cut every promised statement and gap is present, each named: A10's three trailing statements (the third in its final text), A11's gaps, A12's configuration gap, A13's endpoint gap; the length assertion fails when any lane adds a producer | Integration |
+| 29 | D4 | Twenty-entry limitation cap, worst case | High | With both probes rejected by Host with truncation and every lane's maximum present, the real pre-cut list has 17 unique entries (5 + 7 + 1 + 1 + 3; 18 raw, the Host reason appears twice), and after the cut every promised statement and gap is present, each named: A10's three trailing statements (the third in its final text), A11's gaps, A12's configuration gap, A13's endpoint gap; the length assertion fails when any lane adds a producer | Integration |
 | 30 | D5 | A non-Starlette mount (WSGI or metrics ASGI app) | Medium | Not inspected, no crash, no gap; the third trailing sentence says non-Starlette mounts are not recognised | Integration |
 | 31 | D3 | `SecurityFacts.limitations` carries a route path or mount label | Critical | The text is absent from every surface; the only effect is the configuration gap | Integration (planted path) |
 | 32 | D4 | Matrix mapping of the ledger | Medium | `n-a` maps to `n-a`; `adapted-elsewhere` maps to an `adapted` row; `implemented` maps to the `adapted` rows; `other-lane` is A12's | Unit |
