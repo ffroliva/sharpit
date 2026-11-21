@@ -77,6 +77,8 @@ It never imports a module to look. Pass `--sharpit-app module:attr` when there a
 without routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that
 `unknown`. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
 lists every one. The JSON report and JUnit file always hold every finding.
+The terminal also adds a `swallowed exceptions:` block grouped by `except` clause; a clause includes the test-double
+note when a test double raised the swallowed exception.
 
 ### Adopting on an existing suite
 
