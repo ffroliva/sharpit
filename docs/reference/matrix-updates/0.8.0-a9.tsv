@@ -1,0 +1,7 @@
+dto:activity.request-profile.authorizations	partial	Request-profile responses temporarily emit authorizations as [] until the journal authorization source and request-journal route are implemented.
+dto:activity.request-profile.baselineComparison	partial	Request-profile responses temporarily emit baselineComparison as null until the request-journal route and same-route baseline source are implemented.
+dto:runtime-insights.resource-profile.virtualThreadPinningSupported	partial	Reports false because Python has no BootUI JFR pinning capability.
+dto:runtime-insights.resource-profile.pinnedEvents	partial	Reports 0 until a pinning event source exists.
+dto:runtime-insights.resource-profile.outsidePinnedEvents	partial	Reports 0 until a pinning event source exists.
+dto:runtime-insights.resource-profile.pinnedDurationMicros	partial	Reports 0 until a pinning event source exists.
+dto:exceptions.occurrences.requestId	partial	Duplicates sharpit's request id; BootUI distinguishes requestId from traceId, but sharpit has no separate request/trace identity.
