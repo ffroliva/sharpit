@@ -220,13 +220,13 @@ def test_swallowed_findings_group_by_clause_most_tests_first() -> None:
     ]
 
 
-def test_thirteen_clauses_and_ninety_five_tests_are_fourteen_lines() -> None:
+def test_thirteen_clauses_and_ninety_five_tests_are_capped_at_five_locations() -> None:
     findings = [_swallowed_finding(f"app/m{i % 13:02}.py:7", f"tests/test_x.py::test_{i}") for i in range(95)]
 
     lines = _summary(findings)
 
     assert lines[:1] == ["swallowed exceptions: 13 clauses, 95 tests"]
-    assert len(lines) == 14
+    assert len(lines) == 6
 
 
 def test_a_clause_counts_a_test_once_whatever_its_attempts() -> None:
@@ -241,7 +241,7 @@ def test_a_real_raise_clears_a_test_double_note_for_the_same_clause() -> None:
         _swallowed_finding("a.py:3", "t::a"),
     ]
 
-    assert _summary(findings) == ["swallowed exceptions: 1 clause, 1 test"]
+    assert _summary(findings) == ["swallowed exceptions: 1 clause, 1 test", "  a.py:3: 1 test"]
 
 
 def test_swallowed_clause_order_uses_numeric_line_numbers() -> None:
