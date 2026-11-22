@@ -146,8 +146,9 @@ def test_post_masks_secret_value_in_response(tmp_path: Path) -> None:
     assert body["value"] != "hunter2-secret"
 
 
-def test_post_refusals_are_400_and_change_nothing(tmp_path: Path) -> None:
-    cases: list[tuple[dict[str, Any], str]] = [
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
         ({"value": "x"}, "'name' must be provided"),
         ({"name": None, "value": "x"}, "'name' must be provided"),
         ({"name": "   ", "value": "x"}, "Property name must not be blank"),
@@ -167,25 +168,26 @@ def test_post_refusals_are_400_and_change_nothing(tmp_path: Path) -> None:
         ),
         ({"name": NAME, "value": "a\nb"}, "Property value must not contain control characters or newlines"),
         ({"name": NAME, "value": "a\x00b"}, "Property value must not contain control characters or newlines"),
-    ]
+    ],
+)
+def test_post_refusals_are_400_and_change_nothing(tmp_path: Path, body: dict[str, Any], message: str) -> None:
     file = tmp_path / "o.env"
     client = _client(file)
-    for body, message in cases:
-        env, content = _snapshot(file)
-        resp = _post(client, body)
-        assert (resp.status_code, resp.json()) == (400, {"error": message})
-        _unchanged(file, env, content)
+    env, content = _snapshot(file)
+    resp = _post(client, body)
+    assert (resp.status_code, resp.json()) == (400, {"error": message})
+    _unchanged(file, env, content)
 
 
-def test_post_non_object_body_is_400(tmp_path: Path) -> None:
+@pytest.mark.parametrize("raw", ["not json", "[1]", '"s"', "null", ""])
+def test_post_non_object_body_is_400(tmp_path: Path, raw: str) -> None:
     file = tmp_path / "o.env"
     client = _client(file)
-    for raw in ["not json", "[1]", '"s"', "null", ""]:
-        env, content = _snapshot(file)
-        resp = client.post(URL, content=raw, headers={"content-type": "application/json"})
-        assert resp.status_code == 400
-        assert set(resp.json()) == {"error"}
-        _unchanged(file, env, content)
+    env, content = _snapshot(file)
+    resp = client.post(URL, content=raw, headers={"content-type": "application/json"})
+    assert resp.status_code == 400
+    assert set(resp.json()) == {"error"}
+    _unchanged(file, env, content)
 
 
 def test_post_deeply_nested_body_is_400(tmp_path: Path) -> None:
@@ -271,19 +273,19 @@ _BAD_FILES = {
 
 
 @pytest.mark.parametrize("content", list(_BAD_FILES.values()), ids=list(_BAD_FILES))
-def test_unreadable_overrides_file_is_never_overwritten(tmp_path: Path, content: str) -> None:
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_unreadable_overrides_file_is_never_overwritten(tmp_path: Path, content: str, method: str) -> None:
     file = tmp_path / "o.env"
     file.write_text(content, encoding="utf-8")
     client = _client(file)
-    for method in ["POST", "DELETE"]:
-        env, before = _snapshot(file)
-        path = f"{URL}/KEEP_ONE" if method == "DELETE" else URL
-        resp = client.request(method, path, json=None if method == "DELETE" else {"name": "NEW_KEY", "value": "x"})
-        assert (resp.status_code, resp.json()) == (
-            500,
-            {"error": f"Overrides file {file} is malformed; fix or delete it, then restart the app"},
-        )
-        _unchanged(file, env, before)
+    env, before = _snapshot(file)
+    path = f"{URL}/KEEP_ONE" if method == "DELETE" else URL
+    resp = client.request(method, path, json=None if method == "DELETE" else {"name": "NEW_KEY", "value": "x"})
+    assert (resp.status_code, resp.json()) == (
+        500,
+        {"error": f"Overrides file {file} is malformed; fix or delete it, then restart the app"},
+    )
+    _unchanged(file, env, before)
 
 
 def test_runtime_error_outside_the_write_is_the_generic_500(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -310,16 +312,16 @@ def _gate_client(tmp_path: Path, **options: Any) -> tuple[TestClient, Path]:
     [{"read_only": True}, {"panels": {"config": {"read_only": True}}}],
     ids=["global", "panel"],
 )
-def test_read_only_refuses_and_changes_nothing(tmp_path: Path, options: dict[str, Any]) -> None:
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_read_only_refuses_and_changes_nothing(tmp_path: Path, options: dict[str, Any], method: str) -> None:
     client, file = _gate_client(tmp_path, **options)
-    for method in ["POST", "DELETE"]:
-        env, content = _snapshot(file)
-        path = f"{URL}/{NAME}" if method == "DELETE" else URL
-        resp = client.request(method, path, json=None if method == "DELETE" else {"name": NAME, "value": "x"})
-        assert resp.status_code == 403
-        assert resp.json()["panel"] == "config"
-        assert "read-only" in resp.json()["reason"]
-        _unchanged(file, env, content)
+    env, content = _snapshot(file)
+    path = f"{URL}/{NAME}" if method == "DELETE" else URL
+    resp = client.request(method, path, json=None if method == "DELETE" else {"name": NAME, "value": "x"})
+    assert resp.status_code == 403
+    assert resp.json()["panel"] == "config"
+    assert "read-only" in resp.json()["reason"]
+    _unchanged(file, env, content)
 
 
 def test_disabled_panel_refuses_and_changes_nothing(tmp_path: Path) -> None:
