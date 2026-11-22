@@ -10,6 +10,8 @@ from typing import Protocol, cast
 
 
 class Dialect(Enum):
+    __hash__ = object.__hash__
+
     POSTGRESQL = "postgresql"
     MYSQL_FAMILY = "mysql_family"
     SQLITE = "sqlite"
