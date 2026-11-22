@@ -451,6 +451,80 @@ def test_allow_swallowed_marker_keeps_the_test_passing(pytester: pytest.Pytester
     assert [f["severity"] for f in notes] == ["INFO"]
 
 
+def test_allow_swallowed_marker_records_reason_in_report_and_terminal(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, '@pytest.mark.sharpit(allow_swallowed=True, reason="expected swallowed error")')
+
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = _report(pytester)
+    notes = [f for f in data["findings"] if f["ruleId"] == RULE]
+    assert _test_entry(data, "test_lookup")["outcome"] == "passed"
+    assert [f["severity"] for f in notes] == ["INFO"]
+    assert [f["reason"] for f in notes] == ["expected swallowed error"]
+    result.stdout.fnmatch_lines(["*appcode.py:4*reason: expected swallowed error*"])
+
+
+def test_accept_without_reason_fails_when_required_via_flag(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+
+    result = pytester.runpytest(
+        "--sharpit",
+        "--sharpit-require-reason",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "-q",
+    )
+
+    assert result.ret != 0
+    output = result.stderr.str() + result.stdout.str()
+    assert "test_bare.py::test_lookup" in output
+    assert "@pytest.mark.sharpit" in output
+    assert "reason" in output
+
+
+def test_accept_without_reason_fails_when_required_via_ini(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+    pytester.makeini(
+        """
+        [pytest]
+        sharpit_require_reason = true
+        """
+    )
+
+    result = pytester.runpytest(
+        "--sharpit",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "-q",
+    )
+
+    assert result.ret != 0
+    output = result.stderr.str() + result.stdout.str()
+    assert "test_bare.py::test_lookup" in output
+    assert "@pytest.mark.sharpit" in output
+
+
+def test_accept_with_reason_passes_when_reason_required(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, '@pytest.mark.sharpit(allow_swallowed=True, reason="intentional fallback")')
+
+    result = pytester.runpytest(
+        "--sharpit",
+        "--sharpit-require-reason",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+    )
+
+    assert result.ret == 0
+    data = _report(pytester)
+    assert _test_entry(data, "test_lookup")["outcome"] == "passed"
+    notes = [f for f in data["findings"] if f["ruleId"] == RULE]
+    assert [f["reason"] for f in notes] == ["intentional fallback"]
+
+
 def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) -> None:
     _bare_project(pytester)
     common = ("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")

@@ -53,7 +53,14 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
         terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
     if not worst:
         terminalreporter.write_line("  (none)")
-    _write_swallowed(terminalreporter, shown)
+    swallowed_to_show = (
+        data["findings"]
+        if state.options.verbose
+        else [
+            f for f in data["findings"] if finding_fails(f, fail_on) or (f["ruleId"] == SWALLOWED and f.get("reason"))
+        ]
+    )
+    _write_swallowed(terminalreporter, swallowed_to_show)
     path = config.option.sharpit_report or config.getini("sharpit_report")
     terminalreporter.write_line(f"report: {path}")
     if notes and not state.options.verbose:
@@ -68,6 +75,7 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
 def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
     """List swallowed-exception clauses with their distinct test counts; test-double notes appear when applicable."""
     clauses: dict[str, dict[str, bool]] = {}  # location -> test node id -> whether a test double raised it there
+    reasons: dict[str, dict[str, str]] = {}
     for finding in findings:
         if finding["ruleId"] != SWALLOWED:
             continue
@@ -75,6 +83,8 @@ def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> N
         node = finding["testNodeId"]
         # a test counts once per clause; one real raise among its attempts clears the note
         doubles[node] = doubles.get(node, True) and TEST_DOUBLE_NOTE in finding["message"]
+        if finding.get("reason"):
+            reasons.setdefault(finding["target"], {})[node] = finding["reason"]
     if not clauses:
         return
     tests = {node for doubles in clauses.values() for node in doubles}
@@ -83,7 +93,9 @@ def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> N
     for location, doubles in ordered[:5]:
         raised = sum(doubles.values())
         note = _double_note(raised, len(doubles))
-        terminalreporter.write_line(f"  {location}: {_count(len(doubles), 'test')}{note}")
+        clause_reasons = sorted(set(reasons.get(location, {}).values()))
+        reason_note = f", reason: {'; '.join(clause_reasons)}" if clause_reasons else ""
+        terminalreporter.write_line(f"  {location}: {_count(len(doubles), 'test')}{note}{reason_note}")
 
 
 def _double_note(raised: int, total: int) -> str:

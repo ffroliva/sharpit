@@ -278,3 +278,15 @@ def test_other_rules_are_not_summarised_as_swallowed() -> None:
     other = {"ruleId": "sharpit.n-plus-one", "target": "SELECT 1", "testNodeId": "t::a", "message": "m"}
 
     assert _summary([other]) == []
+
+
+def test_swallowed_findings_display_reason_in_terminal_summary() -> None:
+    finding = _swallowed_finding("a.py:3", "t::a0")
+    finding["reason"] = "fallback for mock client"
+
+    lines = _summary([finding])
+
+    assert lines == [
+        "swallowed exceptions: 1 clause, 1 test",
+        "  a.py:3: 1 test, reason: fallback for mock client",
+    ]
