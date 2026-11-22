@@ -7,6 +7,7 @@ read-only.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine.advisors.retention import AdvisorViolationError
@@ -62,8 +63,6 @@ def _scan(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
             "Database advisor scan timed out.",
             "Database advisor scan is unavailable: the application's event loop is not running.",
         )
-    import asyncio
-
     if _has_async_engine(ctx):
         return service.scan(ASYNC_FROM_CLI)
     return asyncio.run(run_scan(ctx, service))

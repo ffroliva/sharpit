@@ -6,6 +6,7 @@ the panel or sharpit is read-only.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sharpit.engine.collectors.mysql.limits import READ_BUDGET, STATEMENT_TIMEOUT
@@ -43,8 +44,6 @@ def _read(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
                 "MySQL read is unavailable: the application's event loop is not running.",
             )
         )
-    import asyncio
-
     if has_async_engine(ctx):
         return summary(unavailable_report(ASYNC_FROM_CLI))
     return summary(asyncio.run(refresh_mysql(ctx)))
