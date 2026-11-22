@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -66,18 +66,6 @@ ResponseClass = Literal["api", "shell", "asset"]
 
 
 @dataclass(frozen=True, slots=True)
-class RouteSpec:
-    id: str
-    method: Literal["GET", "POST", "DELETE"]
-    template: str
-    handler: Callable
-    panel: str | None
-    kind: RouteKind
-    response_class: ResponseClass = "api"
-    on_loop: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class ConsoleCall:
     ctx: SharpitContext
     request: ConsoleRequest
@@ -93,6 +81,21 @@ class ConsoleCall:
         return parse_int_param(self.query_params.get("offset"), "offset"), parse_int_param(
             self.query_params.get("limit"), "limit"
         )
+
+
+RouteHandler = Callable[[ConsoleCall], ConsoleResponse | Awaitable[ConsoleResponse]]
+
+
+@dataclass(frozen=True, slots=True)
+class RouteSpec:
+    id: str
+    method: Literal["GET", "POST", "DELETE"]
+    template: str
+    handler: RouteHandler
+    panel: str | None
+    kind: RouteKind
+    response_class: ResponseClass = "api"
+    on_loop: bool = False
 
 
 def frame_sse(event: str, event_id: str | None, data: str) -> bytes:

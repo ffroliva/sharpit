@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.console import Console, ConsoleCall, ConsoleRequest, ConsoleResponse, RouteSpec
 from sharpit.engine.guard import MESSAGE_CROSS_SITE, MESSAGE_DISALLOWED_HOST
 from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import BadRequest
-from sharpit.settings import PanelSettings
 
 
 def _request(
@@ -87,12 +87,12 @@ def test_post_route_marked_read_is_still_write_gated(no_side_effects) -> None:
     assert invoked is False
 
 
-def test_handler_exception_is_masked_and_bad_request_is_400(no_side_effects) -> None:
+def test_handler_exception_is_masked_and_bad_request_is_400(no_side_effects, caplog: pytest.LogCaptureFixture) -> None:
     no_side_effects.unblock_network()
     ctx = _context(no_side_effects)
 
     def fail(_call: ConsoleCall) -> ConsoleResponse:
-        raise RuntimeError("secret-token traceback")
+        raise RuntimeError("password=secret-value Traceback in private")
 
     route = RouteSpec("test.fail", "GET", "/api/overview", fail, None, "read")
     response = asyncio.run(Console(ctx, (route,)).handle(_request()))
@@ -100,8 +100,9 @@ def test_handler_exception_is_masked_and_bad_request_is_400(no_side_effects) -> 
     names = {key.lower() for key, _ in response.headers}
 
     assert response.status == 500
-    assert "secret-token" not in body
+    assert "secret-value" not in body
     assert "Traceback" not in body
+    assert "secret-value" not in caplog.text
     assert "content-security-policy" in names
     assert "x-frame-options" in names
 
@@ -120,7 +121,15 @@ def test_handler_exception_is_masked_and_bad_request_is_400(no_side_effects) -> 
 def test_route_response_headers_match_response_class(no_side_effects, response_class: str) -> None:
     no_side_effects.unblock_network()
     ctx = _context(no_side_effects)
-    route = RouteSpec("test.headers", "GET", "/api/overview", lambda _call: ConsoleResponse(200, (), b"ok"), None, "read", response_class)  # type: ignore[arg-type]
+    route = RouteSpec(
+        "test.headers",
+        "GET",
+        "/api/overview",
+        lambda _call: ConsoleResponse(200, (), b"ok"),
+        None,
+        "read",
+        response_class,
+    )  # type: ignore[arg-type]
 
     response = asyncio.run(Console(ctx, (route,)).handle(_request()))
 

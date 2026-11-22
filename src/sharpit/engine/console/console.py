@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+import inspect
 import json
+import logging
 import re
 from dataclasses import replace
 from urllib.parse import parse_qs
 
 from sharpit.engine import guard
-from sharpit.engine.console.types import ConsoleCall, ConsoleRequest, ConsoleResponse, RouteSpec
+from sharpit.engine.console.types import (
+    ConsoleCall,
+    ConsoleRequest,
+    ConsoleResponse,
+    ResponseClass,
+    ResponseHeaders,
+    RouteSpec,
+)
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.spi import HostLoopProvider
 
 _STATIC_ERROR_HEADERS = tuple(security_headers("api"))
+_LOGGER = logging.getLogger("sharpit")
 
 
 def _compile(template: str) -> re.Pattern[str]:
@@ -38,6 +48,30 @@ def match_route(routes: tuple[RouteSpec, ...], method: str, path: str):
     return None
 
 
+def _headers(request: ConsoleRequest) -> tuple[dict[str, list[str]], guard.Denial | None]:
+    values: dict[str, list[str]] = {}
+    for key, value in request.raw_headers:
+        values.setdefault(key.decode("latin-1").lower(), []).append(value.decode("latin-1"))
+    if len(values.get("host", ())) > 1 or any("," in value for value in values.get("host", ())):
+        return values, guard.Denial(403, {"error": guard.MESSAGE_DISALLOWED_HOST})
+    if (
+        len(values.get("origin", ())) > 1
+        or len(values.get("sec-fetch-site", ())) > 1
+        or any("," in value for name in ("origin", "sec-fetch-site") for value in values.get(name, ()))
+    ):
+        return values, guard.Denial(403, {"error": guard.MESSAGE_CROSS_SITE})
+    return values, None
+
+
+def _response_headers(headers: ResponseHeaders, kind: ResponseClass) -> ResponseHeaders:
+    merged = list(headers)
+    if not any(key.lower() == "content-security-policy" for key, _ in merged):
+        for key, value in security_headers(kind):
+            if not any(existing.lower() == key.lower() for existing, _ in merged):
+                merged.append((key, value))
+    return tuple(merged)
+
+
 class Console:
     def __init__(self, ctx: SharpitContext, routes: tuple[RouteSpec, ...] = ()) -> None:
         self.ctx = ctx
@@ -52,9 +86,7 @@ class Console:
             try:
                 if isinstance(exc, BadRequest):
                     return self._json(400, {"error": str(exc)})
-                self.ctx.logger.warning(
-                    "sharpit console request failed: %s", self.ctx.masker.mask_text(str(exc))
-                )
+                _LOGGER.warning("sharpit console request failed: %s", self.ctx.masker.mask_text(str(exc)))
                 return self._json(500, {"error": "Internal Server Error"})
             except Exception:
                 return ConsoleResponse(
@@ -67,17 +99,9 @@ class Console:
         return ConsoleResponse(status, tuple(headers) + tuple(security_headers("api")), json.dumps(value).encode())
 
     async def _handle(self, request: ConsoleRequest, host_loop_provider: HostLoopProvider | None) -> ConsoleResponse:
-        values: dict[str, list[str]] = {}
-        for key, value in request.raw_headers:
-            values.setdefault(key.decode("latin-1").lower(), []).append(value.decode("latin-1"))
-        if len(values.get("host", ())) > 1 or any("," in value for value in values.get("host", ())):
-            return self._json(403, {"error": guard.MESSAGE_DISALLOWED_HOST})
-        if (
-            len(values.get("origin", ())) > 1
-            or len(values.get("sec-fetch-site", ())) > 1
-            or any("," in value for name in ("origin", "sec-fetch-site") for value in values.get(name, ()))
-        ):
-            return self._json(403, {"error": guard.MESSAGE_CROSS_SITE})
+        values, header_denial = _headers(request)
+        if header_denial is not None:
+            return self._json(header_denial.status, header_denial.body)
         headers = {key: ("; " if key == "cookie" else ", ").join(items) for key, items in values.items()}
         api_prefix = self.ctx.settings.api_path[len(self.ctx.settings.path) :]
         subpath = (
@@ -117,11 +141,6 @@ class Console:
             host_loop_provider,
         )
         response = route.handler(call)
-        if hasattr(response, "__await__"):
+        if inspect.isawaitable(response):
             response = await response
-        merged = list(response.headers)
-        if not any(k.lower() == "content-security-policy" for k, _ in merged):
-            for key, value in security_headers(route.response_class):
-                if not any(existing.lower() == key.lower() for existing, _ in merged):
-                    merged.append((key, value))
-        return replace(response, headers=tuple(merged))
+        return replace(response, headers=_response_headers(response.headers, route.response_class))
