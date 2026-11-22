@@ -12,8 +12,10 @@ from sharpit.engine.masking import Masker
 from sharpit.engine.sqla import inspect as sqla_inspect
 
 
-def _column(name: str, type_: str = "INTEGER", *, autoincrement: bool = False) -> dict[str, Any]:
-    return {"name": name, "type": type_, "nullable": True, "autoincrement": autoincrement}
+def _column(
+    name: str, type_: str = "INTEGER", *, autoincrement: bool = False, nullable: bool | None = True
+) -> dict[str, Any]:
+    return {"name": name, "type": type_, "nullable": nullable, "autoincrement": autoincrement}
 
 
 def _index(name: str, *columns: str | None, unique: bool = False, **options: str) -> dict[str, Any]:
@@ -202,3 +204,83 @@ def test_duplicate_unique_index_on_a_real_sqlite_primary_key_is_reported() -> No
     assert _targets(_check("DB-SCHEMA-005", Source("db", "sqlite", "pysqlite", "AVAILABLE", None, catalog))) == [
         "db/orders.uq_id"
     ]
+
+
+def test_set_null_on_not_null_single_or_all_composite_columns_is_reported() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.setNullOnNotNullSingleOrAllCompositeColumnsIsHighSeverityViolation
+    on_delete_set_null = _fk("fk_orders_customer", ["customer_id"], "customers", ["id"], ondelete="SET NULL")
+    orders = _table("orders", _column("customer_id", "BIGINT", nullable=False), fks=(on_delete_set_null,))
+    source = _source(orders)
+    outcome = _check("DB-SCHEMA-011", source)
+    assert _targets(outcome) == ["db/orders: fk_orders_customer"]
+    assert "fk_orders_customer" in outcome[0][1]
+    assert "ON DELETE SET NULL" in outcome[0][1]
+    assert "column customer_id is NOT NULL" in outcome[0][1]
+
+    composite_both_not_null = _fk(
+        "fk_lines_parent",
+        ["tenant_id", "parent_id"],
+        "parents",
+        ["tenant_id", "id"],
+        ondelete="SET NULL",
+        onupdate="SET NULL",
+    )
+    all_not_null = _table(
+        "order_lines",
+        _column("tenant_id", "BIGINT", nullable=False),
+        _column("parent_id", "BIGINT", nullable=False),
+        fks=(composite_both_not_null,),
+    )
+    composite_outcome = _check("DB-SCHEMA-011", _source(all_not_null))
+    assert _targets(composite_outcome) == ["db/order_lines: fk_lines_parent"]
+    assert "ON DELETE SET NULL and ON UPDATE SET NULL" in composite_outcome[0][1]
+    assert "all referencing columns [tenant_id, parent_id] are NOT NULL" in composite_outcome[0][1]
+
+
+def test_set_null_passes_when_any_referencing_column_is_nullable_or_action_is_not_set_null() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.setNullPassesWhenAnyReferencingColumnIsNullableOrActionIsNotSetNull
+    composite_subset = _fk(
+        "fk_lines_parent",
+        ["tenant_id", "parent_id"],
+        "parents",
+        ["tenant_id", "id"],
+        ondelete="SET NULL",
+        onupdate="NO ACTION",
+    )
+    subset_nullable = _table(
+        "order_lines",
+        _column("tenant_id", "BIGINT", nullable=False),
+        _column("parent_id", "BIGINT", nullable=True),
+        fks=(composite_subset,),
+    )
+    assert _targets(_check("DB-SCHEMA-011", _source(subset_nullable))) == []
+
+    cascade = _table(
+        "orders",
+        _column("customer_id", "BIGINT", nullable=False),
+        fks=(_fk("fk_cascade", ["customer_id"], "customers", ["id"], ondelete="CASCADE"),),
+    )
+    assert _targets(_check("DB-SCHEMA-011", _source(cascade))) == []
+
+
+def test_set_null_skips_disabled_foreign_keys() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.setNullSkipsDisabledForeignKeysAndUnknownNullabilityOrActions
+    disabled_fk = _fk("fk_disabled", ["customer_id"], "customers", ["id"], ondelete="SET NULL", enforced="NO")
+    disabled_table = _table(
+        "orders",
+        _column("customer_id", "BIGINT", nullable=False),
+        fks=(disabled_fk,),
+    )
+    assert _targets(_check("DB-SCHEMA-011", _source(disabled_table))) == []
+
+
+def test_set_null_reports_unknown_referencing_column_nullability_as_a_gap() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.setNullSkipsDisabledForeignKeysAndUnknownNullabilityOrActions
+    unknown_column = _table(
+        "orders",
+        _column("customer_id", "BIGINT", nullable=None),
+        fks=(_fk("fk_unknown", ["customer_id"], "customers", ["id"], ondelete="SET NULL"),),
+    )
+    outcome = _check("DB-SCHEMA-011", _source(unknown_column))
+    assert isinstance(outcome, str)
+    assert outcome == "orders: referencing column nullability is unknown."

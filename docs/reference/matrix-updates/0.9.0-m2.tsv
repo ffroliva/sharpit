@@ -1,0 +1,5 @@
+DB-SCHEMA-011	ported	Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule.
+DB-PG-006	adapted	Scans current_schema() only, like the other PostgreSQL vendor rules, whereas BootUI scans all non-system schemas.
+DB-SERVER-008	ported	Ported from BootUI 2.5.0 MySqlStrictSqlModeRule.
+DB-MYSQL-004	ported	Ported from BootUI 2.5.0 MySqlUnenforcedCheckConstraintRule.
+DB-POOL-005	adapted	BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's QueuePool timeout, where None disables the timeout and 0 fails immediately rather than waiting indefinitely.

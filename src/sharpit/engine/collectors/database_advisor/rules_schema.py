@@ -228,6 +228,70 @@ def _narrow_generated_primary_key(source: Source) -> Outcome:
     return hits
 
 
+def _fk_set_null_rules(fk: dict[str, Any]) -> tuple[bool, bool]:
+    options = {str(k).lower(): str(v).upper() for k, v in fk.get("options", {}).items()}
+    if options.get("enforced") in ("NO", "FALSE", "0"):
+        return False, False
+    delete_set_null = options.get("ondelete", "") in ("SET NULL", "SET_NULL")
+    update_set_null = options.get("onupdate", "") in ("SET NULL", "SET_NULL")
+    return delete_set_null, update_set_null
+
+
+def _fk_action_and_trigger(delete_set_null: bool, update_set_null: bool) -> tuple[str, str]:
+    if delete_set_null and update_set_null:
+        return "ON DELETE SET NULL and ON UPDATE SET NULL", "delete or update"
+    if delete_set_null:
+        return "ON DELETE SET NULL", "delete"
+    return "ON UPDATE SET NULL", "update"
+
+
+def _fk_nullability(cols_by_name: dict[str, Any], fk_cols: list[str]) -> str:
+    if any(cols_by_name.get(c, {}).get("nullable") is True for c in fk_cols):
+        return "nullable"
+    if all(cols_by_name.get(c, {}).get("nullable") is False for c in fk_cols):
+        return "not_null"
+    return "unknown"
+
+
+def _fk_set_null_hit(
+    source: Source, t: Table, fk: dict[str, Any], position: int, delete_set_null: bool, update_set_null: bool
+) -> Hit:
+    fk_cols = fk["columns"]
+    action, trigger = _fk_action_and_trigger(delete_set_null, update_set_null)
+    columns_text = (
+        f"column {fk_cols[0]} is NOT NULL"
+        if len(fk_cols) == 1
+        else f"all referencing columns [{', '.join(fk_cols)}] are NOT NULL"
+    )
+    fk_name = _fk_label(fk, position)
+    cols_repr = f"[{', '.join(fk_cols)}]"
+    text = (
+        f"{source.name}: {t['name']} foreign key {fk_name} {cols_repr} specifies {action}, but {columns_text}; "
+        f"a parent {trigger} will fail the NOT NULL constraint."
+    )
+    return _where(source, t, f": {fk_name}"), text, _identity(source, t, f"fk={fk_name}")
+
+
+def _foreign_key_set_null_on_not_null_column(source: Source) -> Outcome:
+    if (reason := unreadable(source)) is not None:
+        return reason
+    hits: list[Hit] = []
+    unknown: str | None = None
+    for t in source.tables:
+        cols_by_name = {c["name"]: c for c in t["columns"]}
+        for position, fk in enumerate(t["foreignKeys"]):
+            delete_set_null, update_set_null = _fk_set_null_rules(fk)
+            fk_cols = fk["columns"]
+            if not fk_cols or (not delete_set_null and not update_set_null):
+                continue
+            state = _fk_nullability(cols_by_name, fk_cols)
+            if state == "unknown":
+                unknown = unknown or f"{t['name']}: referencing column nullability is unknown."
+            elif state == "not_null":
+                hits.append(_fk_set_null_hit(source, t, fk, position, delete_set_null, update_set_null))
+    return hits if hits or unknown is None else unknown
+
+
 RULES = (
     Rule(
         RuleDefinition(
@@ -328,5 +392,19 @@ RULES = (
             "https://www.postgresql.org/docs/current/datatype-numeric.html",
         ),
         _narrow_generated_primary_key,
+    ),
+    Rule(
+        RuleDefinition(
+            "DB-SCHEMA-011",
+            "Foreign key specifies SET NULL on a NOT NULL column",
+            SCHEMA,
+            "HIGH",
+            "Detects foreign keys declaring ON DELETE SET NULL or ON UPDATE SET NULL where all referencing child "
+            "columns are NOT NULL, which guarantees a NOT NULL constraint failure when the referential action runs.",
+            "Align the foreign-key action with the column nullability: either make the referencing column(s) nullable "
+            "so SET NULL can succeed, or change the referential action to RESTRICT, NO ACTION or CASCADE.",
+            "https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK",
+        ),
+        _foreign_key_set_null_on_not_null_column,
     ),
 )

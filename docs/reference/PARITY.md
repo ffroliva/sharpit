@@ -324,3 +324,21 @@ the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (116 entries):
 | T1 | rule:HTTP-SEC-002 | n-a | Sharpit-only rule for a configured unexpected status (HIGH); no BootUI 2.5.0 counterpart. |
 | SHIPFIX | masking:matrix-session-id-names | adapted | UriMasking.maskPath keeps a ;jsessionid, ;sid or ;session matrix value unless its name matches a sensitive key; sharpit also masks jsessionid, phpsessid, session, sessionid and sid under MASKED, matching the trace and journal path masks that hide every matrix value |
 | SHIPFIX | rule:DB-SCHEMA-005 | adapted | BootUI reads the primary key backing index from JDBC index metadata; SQLAlchemy never lists it, so the primary key constraint stands in as the backing index and an ordinary unique index on exactly the primary key columns is reported |
+
+## 0.9.0 against BootUI 2.5.0: deviations
+
+Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
+the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (10 entries):
+
+| Lane | Key | Status | Reason |
+|---|---|---|---|
+| M1 | RAPI-MAP-012 | n-a | An unannotated Spring parameter binds as a query parameter; FastAPI binds a parameter named like a path token to the path. |
+| M1 | RAPI-MAP-013 | n-a | Spring's RequestMethodsRequestCondition.combine() unions the class-level and method-level HTTP methods; neither FastAPI nor Flask has a class-level method mapping to combine with a route's own methods. |
+| M1 | RAPI-VER-008 | n-a | FastAPI has no restrictive consumes condition counterpart. |
+| M1 | RAPI-VALID-007 | n-a | Bean Validation skips nested objects without @Valid; pydantic validates nested models. |
+| M1 | RAPI-PAGE-004 | n-a | Spring Data Page serialization is specific to Spring Data. |
+| M2 | DB-SCHEMA-011 | ported | Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule. |
+| M2 | DB-PG-006 | adapted | Scans current_schema() only, like the other PostgreSQL vendor rules, whereas BootUI scans all non-system schemas. |
+| M2 | DB-SERVER-008 | ported | Ported from BootUI 2.5.0 MySqlStrictSqlModeRule. |
+| M2 | DB-MYSQL-004 | ported | Ported from BootUI 2.5.0 MySqlUnenforcedCheckConstraintRule. |
+| M2 | DB-POOL-005 | adapted | BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's QueuePool timeout, where None disables the timeout and 0 fails immediately rather than waiting indefinitely. |
