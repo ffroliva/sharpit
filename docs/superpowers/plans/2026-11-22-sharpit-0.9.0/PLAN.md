@@ -12,9 +12,10 @@ routes. Track M ports the ten 2.5.0 rules recorded as `missing`. Track F adds th
 and Track X adds the masking follow-ups (#253, trace and journal masking).
 
 **Architecture:** No new BootUI version is ported. BootUI has no tag after `v2.5.0` yet, so the reference stays
-`v2.5.0`; the next tag becomes the pin for the release after this one. Track S runs first because the SQL listener
-budget is the constraint that held back the 0.7.0 transaction and journal lanes (A2, B2) and the hot-path lanes
-(D1–D4). The safety model, the architecture rules and `sharpit-report/1` (additive changes only) stay as they are
+`v2.5.0`; the next tag becomes the pin for the release after this one. Two overhead budgets set the order. The SQL
+listener budget (50 µs per statement) has the least headroom, so Track S measures and cuts it before anything adds
+work to that path. The transaction budget (30 µs per transaction pair) held back the 0.7.0 transaction lanes (A2,
+B2), so Track J starts from a constant-time design measured before the behaviour is ported. The safety model, the architecture rules and `sharpit-report/1` (additive changes only) stay as they are
 unless a lane's predict step and council say otherwise. A change to a safety-model rule also needs the maintainer's
 decision and the `AGENTS.md` change in the same pull request.
 
@@ -37,8 +38,11 @@ council before Wave H starts.
   this release"). This plan takes every one of them. Each gap gets either a lane below or a row under "Recorded, not
   in this release" with its blocker.
 - The SQL listener budget (`tests/fastapi/test_sql_trace_overhead.py`, 50 µs per statement) has thin headroom. The
-  per-statement cost was 46–51 µs on the sbx fleet for both 0.7.0 and 0.8.0, and about 35 µs on slow Windows CI
-  runners. A paired audit found no regression between the two versions. The budget is not raised; the cost is cut.
+  per-statement cost was 46–51 µs on the sbx fleet for both 0.7.0 and 0.8.0, and one Windows CI shard measured
+  51.5 µs on the 0.8.0 release pull request. A paired audit found no regression between the two versions. The budget
+  is not raised; the cost is cut.
+- The 0.7.0 transaction lanes measured 26–28 µs (A2) and 31.3 µs (B2) per transaction pair against the 30 µs budget
+  of `tests/fastapi/test_transactions_overhead.py`, against 10.4 µs on the base.
 - `ROADMAP.md` still describes 0.8.0 as next. It is rewritten in Wave H and recomputed in the release wave.
 
 ## Global Constraints
@@ -68,7 +72,7 @@ From `AGENTS.md`; every lane's requirements include these.
 |---|---|---|
 | Critical | The Flask console is a second home for the guard chain; one gate missing or reordered exposes the console | F0 decides where the chain runs before any code; F1 runs the guard corpus through both adapters and requires byte-identical decisions; *predict*, *council* |
 | Critical | A swallowed-exception finding prints an exception message that carries user input (#253) | X1 uses the existing exception-message scrubbing and masking; corpus rows added before the diff; *predict*, *council* |
-| High | A Track J source pushes the per-statement or per-request cost over budget | Track J starts only after S0 measures the headroom; each source has its own budget test, measured on the sbx fleet |
+| High | A Track J source pushes the per-statement, per-transaction or per-request cost over budget | J0 measures the transaction design before J1 and J2; nothing adds per-statement work before S2; each source has its own budget test, measured on the sbx fleet |
 | High | Hosting the Starlette console inside a WSGI application adds a runtime dependency or a second event loop | F0 is a spike with a written verdict; no new runtime dependency (architecture rule 4 and the global constraint) |
 | High | Flask request correlation misses requests (streamed bodies, an aborting earlier hook, session cleanup, as recorded on #75) | F2 wraps `wsgi_app`, as the T1 HTTP security observer already does, instead of `before_request` and `teardown_request`; tests cover each case |
 | High | New routes in Track R read state that has side effects or leaks unmasked text | Every new GET route uses the `no_side_effects` fixture and the masking path of its panel |
@@ -98,7 +102,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       CLI's `--url` option; the 0.8.1 milestone issues move to 0.9.0.
 - [ ] **H8 Dependency updates.** The open Dependabot pull requests are triaged and merged or closed with a reason.
 
-### Track S: SQL capture hot path (runs first; blocks Track J)
+### Track S: SQL capture hot path (runs first; nothing adds per-statement work before S2)
 
 - [ ] **S0 Measure**, `/sharpit:perf-audit`. A per-function profile of the per-statement path on the sbx fleet and on
       a Windows runner, with the runner offset separated from split-half noise. The output is a ranked cost table and
@@ -112,14 +116,19 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 - [ ] **S4 Connection and SQL facts** (0.7.0 D4). The connection statement counts and recorded-SQL presence flags
       follow BootUI.
 
-### Track J: journal sources and insight kinds (after S0 and S2)
+### Track J: journal sources and insight kinds
 
+Each source runs `/sharpit:predict` and measures its overhead before code.
+
+- [ ] **J0 Transaction pair design**, `/sharpit:perf-audit`. A design whose begin and commit stay constant-time when no
+      second transaction is open, measured on `tests/fastapi/test_transactions_overhead.py` inside the 30 µs budget
+      before any behaviour is ported.
 - [ ] **J1 Observed transaction boundaries** (0.7.0 A2), *predict*. Port `TransactionBoundary.observed` and failed
-      begin reporting with a constant-time design inside the budget.
+      begin reporting on J0's design.
 - [ ] **J2 Transaction journal source** (0.7.0 B2). `transaction` events, `split-transaction-writes` and
-      `transaction-across-remote-call`.
-- [ ] **J3 ORM journal source** (0.7.0 B3). SQLAlchemy session events as the `orm` source; the ORM flush and context
-      kinds.
+      `transaction-across-remote-call`, inside the same budget.
+- [ ] **J3 ORM journal source** (0.7.0 B3), *predict*. SQLAlchemy session events as the `orm` source; the ORM flush and
+      context kinds. After S2 if it adds work per statement.
 - [ ] **J4 Authorization journal source** (0.7.0 B4, BootUI #1677), *predict*, *council*. FastAPI security
       dependencies as the `authorization` source, the anonymous-access kinds and the request journal's
       `authorizations` key, which is a placeholder today.
@@ -128,7 +137,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 
 ### Track R: API route parity
 
-- [ ] **R1 Missing routes** (0.7.0 B6). The 33 BootUI API routes sharpit does not serve, across scan results, runtime
+- [ ] **R1 Missing routes** (0.7.0 B6). The 32 BootUI API routes marked `missing` in `tests/parity/routes_status.json` sharpit does not serve, across scan results, runtime
       insights, traces, memory and application structure. `GET /activity/request/{id}/journal` comes first.
 - [ ] **R2 Same-route baselines** (BootUI #1688), *predict*. `baselineComparison` on the request journal, after R1's
       journal route. Retention and overhead are measured.
@@ -192,9 +201,8 @@ Each stays a recorded gap with its blocker.
 
 ```
 H1-H8: start now (H6 needs the maintainer's go)
-S0 ── S2 ── J1 ── J2
-      S2 ── J3, J4, J5
-S1, S3, S4: start now (S1 before S2 if both touch registration)
+S0 ── S2;  S1, S3, S4 start now (S1 before S2 if both touch registration)
+J0 ── J1 ── J2;  S2 ── J3 (if J3 adds per-statement work);  J4, J5 after their predict
 R1 ── R2;  R3 any time
 M1, M2: start now;  M3 after its predict
 F0 ── F1 ── F2 ── F3;  F4 with F1
@@ -207,8 +215,9 @@ every lane ── RW
 
 1. **Reference:** BootUI `v2.5.0`. BootUI has no newer tag, and the port rule reads a tag. The release after 0.9.0
    pins the next BootUI tag.
-2. **The 0.8.1 issues are part of 0.9.0** (Wave H). No 0.8.1 patch is released.
-3. **The Flask console is in scope.** #75 planned it after the route model and the gate. The route model and the gate
-   shipped in 0.8.0, so the console follows in this release under #260, with F0 deciding its design first.
-4. **All four parity tracks are in scope** (S/J, R, M, F). Track S runs first, because the tracks after it need its
-   headroom.
+2. **The 0.8.1 issues are fixed in this cycle** (Wave H). Whether they also ship early as a 0.8.1 patch is open.
+3. **The Flask console is in scope.** On #75 (2026-11-20) the console was planned only if Flask users asked for it.
+   The maintainer decided on 2026-11-22 to build it in 0.9.0 under #260, now that the route model and the gate have
+   shipped. F0 decides its design first.
+4. **All four parity tracks are in scope** (S/J, R, M, F). Tracks S and J0 run first, because the lanes after them
+   need their measured headroom.
