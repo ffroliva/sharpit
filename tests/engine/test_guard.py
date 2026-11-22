@@ -86,6 +86,7 @@ ContainerGatewayDetectorTests
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,7 @@ from sharpit.engine.guard import (
     detect_container_gateway,
     extract_origin_host,
     extract_request_host,
+    has_forwarding_header,
     is_trusted_source,
     remote_access_configured,
     resolve_token,
@@ -1029,3 +1031,10 @@ def test_dismissed_findings_global_read_only():
     assert decide(facts("GET", api="/dismissed-findings"), s) is None
     assert decide(facts("POST", api="/dismissed-findings")) is None
     assert decide(facts("POST", api="/dismissed-rules"), s) == _panel_denial("dismissed-rules", RO_GLOBAL)
+
+
+def test_a_very_long_header_name_is_classified_in_linear_time() -> None:
+    name = "client" * 10_000 + "x"
+    start = time.perf_counter()
+    assert not has_forwarding_header({name: "1"})
+    assert time.perf_counter() - start < 0.05
