@@ -263,7 +263,7 @@ def test_set_null_passes_when_any_referencing_column_is_nullable_or_action_is_no
     assert _targets(_check("DB-SCHEMA-011", _source(cascade))) == []
 
 
-def test_set_null_skips_disabled_foreign_keys_and_unknown_nullability() -> None:
+def test_set_null_skips_disabled_foreign_keys() -> None:
     # ported: DatabaseAdvisorSchemaRulesTests.setNullSkipsDisabledForeignKeysAndUnknownNullabilityOrActions
     disabled_fk = _fk("fk_disabled", ["customer_id"], "customers", ["id"], ondelete="SET NULL", enforced="NO")
     disabled_table = _table(
@@ -273,9 +273,14 @@ def test_set_null_skips_disabled_foreign_keys_and_unknown_nullability() -> None:
     )
     assert _targets(_check("DB-SCHEMA-011", _source(disabled_table))) == []
 
+
+def test_set_null_reports_unknown_referencing_column_nullability_as_a_gap() -> None:
+    # ported: DatabaseAdvisorSchemaRulesTests.setNullSkipsDisabledForeignKeysAndUnknownNullabilityOrActions
     unknown_column = _table(
         "orders",
         _column("customer_id", "BIGINT", nullable=None),
         fks=(_fk("fk_unknown", ["customer_id"], "customers", ["id"], ondelete="SET NULL"),),
     )
-    assert _targets(_check("DB-SCHEMA-011", _source(unknown_column))) == []
+    outcome = _check("DB-SCHEMA-011", _source(unknown_column))
+    assert isinstance(outcome, str)
+    assert outcome == "orders: referencing column nullability is unknown."
