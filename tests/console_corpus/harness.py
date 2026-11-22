@@ -20,7 +20,9 @@ def build_app(**install_kwargs: Any) -> FastAPI:
     if temporary_state is not None:
         app.state.console_corpus_state = temporary_state
         state_dir = temporary_state.name
-    sharpit.install(app, enabled="ON", show_banner=False, state_dir=str(state_dir), **install_kwargs)
+    options = {"enabled": "ON", "show_banner": False, "state_dir": str(state_dir)}
+    options.update(install_kwargs)
+    sharpit.install(app, **options)
     return app
 
 
@@ -66,6 +68,7 @@ _SECURITY_HEADERS = frozenset(
         "content-security-policy",
         "permissions-policy",
         "pragma",
+        "cache-control",
         "referrer-policy",
         "x-content-type-options",
         "x-frame-options",

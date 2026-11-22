@@ -78,24 +78,33 @@ NORMALISERS: tuple[tuple[str, Matcher, Replacement, str], ...] = (
 
 def normalise(value: Any) -> Any:
     """Return a copy with only named runtime-volatile body values replaced."""
+    return _normalise(value)
+
+
+def _normalise(value: Any, key: str = "") -> Any:
     if isinstance(value, Mapping):
         result: dict[Any, Any] = {}
-        for key, item in value.items():
-            key_text = str(key)
+        for field, item in value.items():
+            key_text = str(field)
+            if re.search(r"error|message|reason|masked|secret|token|password|credential", key_text, re.IGNORECASE):
+                result[field] = item
+                continue
             replacement = next(
                 (replacement for _name, matcher, replacement, _reason in NORMALISERS if matcher(key_text, item)),
                 None,
             )
             if replacement is not None:
-                result[key] = replacement(item) if callable(replacement) else replacement
+                result[field] = replacement(item) if callable(replacement) else replacement
             else:
-                result[key] = normalise(item)
+                result[field] = _normalise(item, key_text)
         return result
     if isinstance(value, list):
-        return [normalise(item) for item in value]
+        return [_normalise(item, key) for item in value]
     if isinstance(value, tuple):
-        return tuple(normalise(item) for item in value)
+        return tuple(_normalise(item, key) for item in value)
     if isinstance(value, str):
+        if re.search(r"error|message|reason|masked|secret|token|password|credential", key, re.IGNORECASE):
+            return value
         result = value
         for name, matcher, replacement, _reason in NORMALISERS:
             if name in {"uuid", "temp_path", "port"} and matcher("", result):
