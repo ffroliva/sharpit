@@ -1,5 +1,8 @@
 from sharpit.engine.console.console import Console, match_route
 from sharpit.engine.console.types import (
+    ActionAuditEvent,
+    ActionAuditHook,
+    AuditChannel,
     ConsoleCall,
     ConsoleFile,
     ConsoleRequest,
@@ -11,6 +14,9 @@ from sharpit.engine.console.types import (
 )
 
 __all__ = [
+    "ActionAuditEvent",
+    "ActionAuditHook",
+    "AuditChannel",
     "Console",
     "ConsoleCall",
     "ConsoleFile",

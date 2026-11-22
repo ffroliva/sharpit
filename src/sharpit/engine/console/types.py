@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 from sharpit.engine.capture.streams import StreamSlots
 from sharpit.engine.context import SharpitContext
@@ -63,6 +63,21 @@ class ConsoleResponse:
 
 RouteKind = Literal["read", "action"]
 ResponseClass = Literal["api", "shell", "asset"]
+AuditChannel = Literal["console", "mcp", "cli"]
+
+
+@dataclass(frozen=True, slots=True)
+class ActionAuditEvent:
+    action_id: str
+    channel: AuditChannel
+    panel: str | None
+    timestamp_ms: int
+    status: int
+    ok: bool
+
+
+class ActionAuditHook(Protocol):
+    def on_action(self, event: ActionAuditEvent) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,6 +9,8 @@ from urllib.parse import parse_qs
 
 from sharpit.engine import guard
 from sharpit.engine.console.types import (
+    ActionAuditEvent,
+    ActionAuditHook,
     ConsoleCall,
     ConsoleRequest,
     ConsoleResponse,
@@ -73,9 +75,15 @@ def _response_headers(headers: ResponseHeaders, kind: ResponseClass) -> Response
 
 
 class Console:
-    def __init__(self, ctx: SharpitContext, routes: tuple[RouteSpec, ...] = ()) -> None:
+    def __init__(
+        self,
+        ctx: SharpitContext,
+        routes: tuple[RouteSpec, ...] = (),
+        audit_hook: ActionAuditHook | None = None,
+    ) -> None:
         self.ctx = ctx
         self.routes = routes
+        self.audit_hook = audit_hook
 
     async def handle(
         self, request: ConsoleRequest, *, host_loop_provider: HostLoopProvider | None = None
