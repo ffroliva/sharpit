@@ -67,7 +67,9 @@ _FORWARDED_HEADERS = frozenset(
 def has_forwarding_header(headers: Mapping[str, str]) -> bool:
     """True when any header name (lower case) says the request came through a layer that knows the caller's address."""
     return any(
-        name in _FORWARDED_HEADERS or name.startswith(_FORWARDED_PREFIXES) or (name.endswith(_FORWARDED_SUFFIXES) and _FORWARDED_NAME.search(name))
+        name in _FORWARDED_HEADERS
+        or name.startswith(_FORWARDED_PREFIXES)
+        or (name.endswith(_FORWARDED_SUFFIXES) and _FORWARDED_NAME.search(name))
         for name in headers
     )
 
