@@ -700,6 +700,120 @@ def test_exceptions_mask_messages(tmp_path: Path):
         assert JWT not in text, where
 
 
+# A4b: the user-input literal a framework message quotes (port of BootUI MessageExposure.scrubBindingLiterals), planted
+# with every corpus literal in every grammar over real requests; each projection is read back once per request.
+BINDING_ASCII = "cde-77-plain"
+BINDING_PLANTS = (
+    SENTINEL,
+    JWT,
+    STRIPE_KEY,
+    AWS_KEY,
+    GITHUB_TOKEN,
+    f"password={SENTINEL}",
+    f"ünï\"q'{BINDING_ASCII}\nz",
+)
+BINDING_CONTROL = "ordinary-control-91"
+
+
+def _binding_corpus_app(tmp_path: Path, exposure: str, mask_secrets: bool) -> tuple[FastAPI, Any]:
+    import datetime
+    import enum
+
+    class Corpus(enum.Enum):
+        ONE = 1
+
+    forms: dict[str, Callable[[str], object]] = {
+        "int": int,
+        "float": float,
+        "strptime": lambda v: datetime.datetime.strptime(v, "%Y-%m-%d"),
+        "isoformat": datetime.date.fromisoformat,
+        "enum": Corpus,
+    }
+    app = FastAPI()
+
+    @app.post("/lit/{form}")
+    async def lit(form: str, request: Request) -> None:  # pyright: ignore[reportUnusedFunction]
+        forms[form]((await request.json())["v"])
+
+    @app.post("/control")
+    def control() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError(f"cannot process '{BINDING_CONTROL}' right now")
+
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        state_dir=str(tmp_path / f"{exposure}-{mask_secrets}"),
+        expose_values=exposure,
+        mask_secrets=mask_secrets,
+        mcp_enabled="ON",
+        cli_enabled=True,
+        panels={"exceptions": {"enabled": True}},
+    )
+    return app, handle
+
+
+def _binding_corpus_surfaces(client: TestClient, request_path: str, plant: str) -> dict[str, str]:
+    assert client.post(request_path, json={"v": plant}).status_code == 500
+    listed = client.get(f"{API}/exceptions").json()
+    group = next(g for g in listed["groups"] if g["lastRequestPath"] == request_path)
+    detail = client.get(f"{API}/exceptions/{group['id']}").json()
+    request_id = detail["occurrences"][0]["requestId"]
+
+    def mcp(name: str, arguments: dict[str, str]) -> str:
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        return client.post(f"{API}/mcp", json=call).text
+
+    return {
+        "exceptions list": str(listed),
+        "exception detail": str(detail),
+        "request profile": client.get(f"{API}/activity/request/{request_id}").text,
+        "MCP list": mcp("get_exceptions", {}),
+        "MCP detail": mcp("get_exception_detail", {"id": group["id"]}),
+        "MCP profile": mcp("get_request_profile", {"id": request_id}),
+        "CLI detail": client.post(f"{API}/cli/tools/get_exception_detail", json={"id": group["id"]}).text,
+    }
+
+
+@pytest.mark.parametrize(
+    ("exposure", "mask_secrets"),
+    (("MASKED", True), ("MASKED", False), ("FULL", True), ("METADATA_ONLY", True)),
+)
+def test_exception_message_literals_corpus_over_real_requests(
+    tmp_path: Path, exposure: str, mask_secrets: bool
+) -> None:
+    app, handle = _binding_corpus_app(tmp_path, exposure, mask_secrets)
+    rows: dict[str, str] = {}
+    try:
+        with TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False) as client:
+            for form in ("int", "float", "strptime", "isoformat", "enum"):
+                for number, plant in enumerate(BINDING_PLANTS):
+                    surfaces = _binding_corpus_surfaces(client, f"/lit/{form}", plant)
+                    rows.update({f"{form}/{number}/{name}": text for name, text in surfaces.items()})
+            control = _binding_corpus_surfaces(client, "/control", BINDING_CONTROL)
+    finally:
+        handle.uninstall_capture()
+
+    needles = dict(enumerate(BINDING_PLANTS))
+    needles[len(BINDING_PLANTS) - 2] = SENTINEL  # the password pair: its value is what must not show
+    needles[len(BINDING_PLANTS) - 1] = BINDING_ASCII  # the quoted, multi-line unicode plant: its ASCII core
+    for where, text in rows.items():
+        _form, number, surface = where.split("/")
+        if exposure != "FULL":
+            assert needles[int(number)] not in text, where
+        elif surface in ("exceptions list", "exception detail"):
+            assert needles[int(number)] in text, where
+    assert MASK in rows["int/0/exceptions list"] or exposure != "MASKED"
+    assert ("invalid literal for int() with base 10: '******'" in rows["int/0/exceptions list"]) is (
+        exposure == "MASKED"
+    )
+    full_list = rows["int/0/exceptions list"]
+    assert (SENTINEL in full_list) is (exposure == "FULL")
+    # a plain literal in an arbitrary message is no binding-literal form: shown as before outside METADATA_ONLY
+    assert (BINDING_CONTROL in control["exceptions list"]) is (exposure != "METADATA_ONLY")
+    _write_binding_corpus_jsonl(tmp_path, f"{exposure}-{mask_secrets}", rows, control)
+
+
 # F3: SQL the host app runs, masked at capture (spec §7.3, §11); SQLAlchemy is imported lazily (needs_sqlalchemy)
 def _sql_inline_literal(sa: Any, conn: Any) -> None:
     conn.execute(sa.text(f"select '{SENTINEL}' as token, '{JWT}' as jwt"))

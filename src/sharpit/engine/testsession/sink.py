@@ -224,6 +224,7 @@ class TestSessionSink:
                 try:
                     dialect = resolve(exc, (ExceptionDialectSource(),), DialectContext(lambda: None))
                     message = sqltext.error_text(self._masker, exc, dialect) or ""
+                    message = self._masker.scrub_literals(message) or ""  # every report writer reads this text back
                     if message in ("", sqltext.MASK):  # nothing shown: say whether the text could be read at all
                         try:
                             str(exc)
