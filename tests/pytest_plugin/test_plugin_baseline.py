@@ -31,16 +31,16 @@ def test_write_baseline_is_only_writer(pytester: pytest.Pytester) -> None:
         " for _ in range(5): c.execute('SELECT 1').fetchone()"
     )
     args = ["--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"]
-    pytester.runpytest_subprocess(*args)
+    pytester.runpytest_inprocess(*args)
     unbased = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert unbased["baseline"] is None
     assert unbased["findings"][0]["baselineState"] is None
     assert unbased["findings"][0]["observed"] is not None
     path = pytester.path / "baseline.json"
     assert path.exists() is False
-    pytester.runpytest_subprocess(*args, "--sharpit-write-baseline=baseline.json")
+    pytester.runpytest_inprocess(*args, "--sharpit-write-baseline=baseline.json")
     assert path.exists() is True
-    loaded = pytester.runpytest_subprocess(*args, "--sharpit-baseline=baseline.json")
+    loaded = pytester.runpytest_inprocess(*args, "--sharpit-baseline=baseline.json")
     assert loaded.ret == 0
     report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert report["baseline"]["existing"] == 1
@@ -191,7 +191,7 @@ def _complete_write(pytester: pytest.Pytester, *extra: str) -> pytest.RunResult:
     pytester.makepyfile(test_mod="def test_a(): pass")
     (pytester.path / "sub").mkdir()
     (pytester.path / "sub" / "test_sub.py").write_text("def test_b(): pass", encoding="utf-8")
-    return pytester.runpytest_subprocess(*_SINGLE, *extra, "--sharpit-write-baseline=b.json")
+    return pytester.runpytest_inprocess(*_SINGLE, *extra, "--sharpit-write-baseline=b.json")
 
 
 def test_warning_filter_is_not_selection(pytester: pytest.Pytester) -> None:
@@ -215,7 +215,7 @@ def test_ignore_option_is_partial(pytester: pytest.Pytester) -> None:
 def test_baseline_write_failure_is_reported_unknown(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_a(): pass")
     (pytester.path / "b.json").mkdir()  # os.replace onto a directory fails
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         *_SINGLE[:-2], "-q", "--sharpit-report=report.json", "--sharpit-write-baseline=b.json"
     )
     report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
