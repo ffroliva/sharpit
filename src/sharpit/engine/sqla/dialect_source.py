@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any, cast
 
 from sharpit.engine.sqltext import Dialect, DialectContext, dialect_of_name, read_chain, resolve
 
 _UNREADABLE = object()
+_sql_event_type: type[object] | None = None
 
 
 def _attribute(value: object, name: str) -> object | None:
@@ -35,6 +37,15 @@ def engine_dialect(holder: object) -> Dialect | None:
     It is a plain attribute there, and it can be replaced.
     """
     return _candidate(_attribute(holder, "dialect"))
+
+
+def connection_dialect(connection: object, engine: object) -> Dialect | None:
+    """Verify both live dialect attributes, resolving a shared dialect only once."""
+    connection_dialect = _attribute(connection, "dialect")
+    engine_dialect = _attribute(engine, "dialect")
+    if connection_dialect is engine_dialect:
+        return _candidate(connection_dialect)
+    return _agreed(_candidate(connection_dialect), _candidate(engine_dialect))
 
 
 def _agreed(proof: Dialect | None, other: Dialect | None) -> Dialect | None:
@@ -83,6 +94,19 @@ _ERROR_SOURCES = (EngineDialectSource(), ExceptionDialectSource())
 def event_dialect(event: object, application: Callable[[], Dialect | None]) -> Dialect:
     """Per statement. With no error the event answers alone: no chain is walked and the application's engines are not
     read, unless the event proves nothing. A failure is rare, so it pays for the chain and for step 2."""
+    global _sql_event_type
+    if _sql_event_type is None:
+        from sharpit.engine.sources.dispatch import SqlEvent
+
+        _sql_event_type = SqlEvent
+
+    if type(event) is _sql_event_type:
+        sql_event = cast(Any, event)
+        if sql_event.error is None:
+            proof = _candidate(sql_event.dialect)
+            engine = sql_event.engine
+            proof = proof if engine is None else _agreed(proof, engine_dialect(engine))
+            return proof if proof is not None else resolve(event, (), DialectContext(application))
     if _attribute(event, "error") is not None:
         return resolve(event, _ERROR_SOURCES, DialectContext(application))
     proof = _event_proof(event)
