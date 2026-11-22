@@ -138,8 +138,10 @@ def test_exception_scrub_is_bounded_for_huge_input(hostile: str) -> None:
 @pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.METADATA_ONLY])
 def test_real_pydantic_root_dict_key_is_hidden_outside_full(exposure: Exposure) -> None:
     pydantic = pytest.importorskip("pydantic")
+    adapter = pydantic.TypeAdapter(dict[str, int])
+    payload = {"my_secret_token_key": "not-an-int"}
     with pytest.raises(pydantic.ValidationError) as caught:
-        pydantic.TypeAdapter(dict[str, int]).validate_python({"my_secret_token_key": "not-an-int"})
+        adapter.validate_python(payload)
     message = str(caught.value)
 
     shown = Masker(exposure, True).scrub_literals(message)

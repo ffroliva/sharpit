@@ -39,7 +39,7 @@ def test_routes_keep_registration_order_and_endpoint_without_calling_views() -> 
 
     def first(item_id: int) -> str:
         calls.append("first")
-        return str(item_id)
+        return "first"
 
     def second() -> str:
         calls.append("second")
