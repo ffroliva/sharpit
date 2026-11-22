@@ -6,6 +6,7 @@ Port of BootUI ``MessageExposure.scrubBindingLiterals``. One parametrized row pe
 
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
@@ -165,3 +166,52 @@ def test_crlf_text_keeps_its_line_endings_and_indices() -> None:
         f"{MASK}.0.{MASK}\r\n  Input should be a valid integer "
         f"[type=int_parsing, input_value={MASK}, input_type=str]\r\n    For further information"
     )
+
+
+_FOUND_AT_REFERENCE = re.compile(r"(\bfound `)[^\r\n]*?(` at \d+)")  # the quadratic pattern the scan replaced
+
+
+def _reference(text: str) -> str:
+    return _FOUND_AT_REFERENCE.sub(lambda m: f"{m[1]}{MASK}{m[2]}", text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "found `abc` at 5",
+        "found `a` at 1 and found `b` at 22",
+        "found `` at 3",
+        "found `a found `b` at 7",
+        "x\r\nfound `a` at 1\r\nfound `b` at 2\rfound `c` at 3\nend",
+        "afound `a` at 1",
+        "found `abc at 5",
+        "found `abc` at x",
+        "found `abc`\nat 5",
+        "found `a` at 1 found `b",
+        "found `a` at 12345` at 6",
+        "no match here",
+        "",
+    ],
+)
+def test_found_at_scan_matches_what_the_lazy_pattern_matched(text: str) -> None:
+    assert scrub_binding_literals(text) == _reference(text) or text == ""
+    assert masking._UUID_CHAR.sub(lambda m: f"{m[1]}{MASK}{m[2]}", text) == _reference(text)
+
+
+def test_found_at_scan_matches_the_lazy_pattern_on_random_text() -> None:
+    import random
+
+    rng = random.Random(7)
+    pieces = ["found `", "` at ", "7", "x", "\n", "\r\n", " ", "`", "found", "at 12"]
+    for _ in range(3000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
+        assert masking._UUID_CHAR.sub(lambda m: f"{m[1]}{MASK}{m[2]}", text) == _reference(text), repr(text)
+
+
+@pytest.mark.parametrize("unit", ["found `", "found `x` at", "found `\n"])
+def test_found_at_scan_is_linear_on_a_64_kb_message(unit: str) -> None:
+    text = unit * (64_000 // len(unit))
+    started = time.perf_counter()
+    scrub_binding_literals(text)
+
+    assert time.perf_counter() - started < 0.1

@@ -1,0 +1,1 @@
+masking:matrix-session-id-names	adapted	UriMasking.maskPath keeps a ;jsessionid, ;sid or ;session matrix value unless its name matches a sensitive key; sharpit also masks jsessionid, phpsessid, session, sessionid and sid under MASKED, matching the trace and journal path masks that hide every matrix value

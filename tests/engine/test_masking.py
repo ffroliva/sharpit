@@ -701,3 +701,19 @@ def test_mask_request_path_masks_every_matrix_value_under_metadata_only(mask_sec
     assert masker.mask_request_path("/items;v=1;format=json/2;sort") == f"/items;v={MASK};format={MASK}/2;{MASK}"
     assert masker.mask_request_path("/items/42") == "/items/42"
     assert masker.mask_request_path("/a;;v=1;") == f"/a;;v={MASK};"
+
+
+@pytest.mark.parametrize("name", ["jsessionid", "JSESSIONID", "phpsessid", "session", "sessionid", "sid"])
+def test_mask_request_path_masks_a_session_id_matrix_parameter_like_traces_and_journal(name: str) -> None:
+    from sharpit.engine.capture import journal, traces
+
+    path = f"/orders;{name}=abc123/42"
+    expected = f"/orders;{name}={MASK}/42"
+    masker = Masker(M, True)
+    assert masker.mask_request_path(path) == expected
+    assert traces._path(masker, "http.target", path) == expected
+    assert journal._path(path, masker) == expected
+
+
+def test_mask_request_path_keeps_an_ordinary_matrix_parameter_visible() -> None:
+    assert Masker(M, True).mask_request_path("/orders;page=2/42") == "/orders;page=2/42"
