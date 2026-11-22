@@ -118,6 +118,28 @@ def test_explicit_flask_app_with_unreadable_map_is_unknown(pytester: pytest.Pyte
     assert run["reason"] == "application routes cannot be inspected (Flask URL map)"
 
 
+def test_explicit_flask_app_with_a_route_map_is_assessed_not_uninspectable(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        app="""
+        from flask import Flask
+        app = Flask('ok', static_folder=None)
+
+        @app.get('/ping')
+        def ping():
+            return 'pong'
+        """
+    )
+    pytester.makepyfile("def test_empty(): pass")
+
+    pytester.runpytest(
+        "--sharpit", "--sharpit-app=app:app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    run = _rest_run(pytester)
+    assert "cannot be inspected" not in (run["reason"] or "")
+    assert run["status"] != "UNKNOWN"
+
+
 def test_single_process_assesses_routes_added_after_the_last_test(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(
         """
