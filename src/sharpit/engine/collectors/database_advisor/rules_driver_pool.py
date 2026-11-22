@@ -180,8 +180,10 @@ def _duration(millis: int) -> str:
 def _acquisition_timeout(source: Source) -> Outcome:
     if (reason := _applies(source)) is not None or source.pool is None:
         return reason or ""
+    if not source.pool.timeout_readable:
+        return "the pool's `connectionTimeout` could not be read, so it is not evaluated."
     timeout = source.pool.timeout
-    if timeout is None or timeout == 0:
+    if timeout is None:
         text = (
             f"Datasource `{source.name}`: timeout is 0 (disabled), so callers wait "
             "indefinitely when the pool is exhausted. Evidence: effective."
@@ -288,7 +290,7 @@ RULES = (
             POOL,
             "MEDIUM",
             "Detects a connection pool whose connection acquisition timeout (timeout on QueuePool) is disabled "
-            "(0 or None) or exceeds 5 minutes (300,000 ms). Callers waiting on an exhausted pool or an unreachable "
+            "(None) or exceeds 5 minutes (300,000 ms). Callers waiting on an exhausted pool or an unreachable "
             "database then block for minutes or indefinitely instead of failing fast.",
             "Configure a bounded connection acquisition timeout (SQLAlchemy QueuePool defaults to 30 seconds via "
             "pool_timeout) so callers fail fast under pool exhaustion.",

@@ -31,6 +31,7 @@ WALL_MARGIN = 1.0
 BUDGET_RAN_OUT = "The scan budget ran out before this datasource was read."
 LABELS = {"postgresql": "PostgreSQL", "mysql": "MySQL", "mariadb": "MariaDB", "sqlite": "SQLite"}
 _clock = time.monotonic  # test seam: the scan budget's clock
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class Pool:
     recycle: int | None  # seconds; -1 means connections are never retired for age
     pre_ping: bool | None
     timeout: float | None = 30.0
+    timeout_readable: bool = True
 
 
 @dataclass(frozen=True)
@@ -111,8 +113,11 @@ def _pool(pool: Any) -> Pool | None:
             max_size = None if unbounded else int(cast("int", size())) + overflow
     except Exception:  # noqa: BLE001 - an unreadable number stays unknown
         max_size = None
-    raw_timeout = getattr(pool, "_timeout", None)
-    timeout = float(raw_timeout) if isinstance(raw_timeout, (int, float)) else None
+    raw_timeout = getattr(pool, "_timeout", _MISSING)
+    if not isinstance(raw_timeout, bool) and isinstance(raw_timeout, (int, float)) and raw_timeout >= 0:
+        timeout, timeout_readable = float(raw_timeout), True
+    else:
+        timeout, timeout_readable = None, raw_timeout is None
     return Pool(
         type(pool).__name__,
         max_size,
@@ -120,6 +125,7 @@ def _pool(pool: Any) -> Pool | None:
         recycle if isinstance(recycle, int) else None,
         pre_ping if isinstance(pre_ping, bool) else None,
         timeout,
+        timeout_readable,
     )
 
 

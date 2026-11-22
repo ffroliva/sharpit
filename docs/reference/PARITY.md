@@ -341,4 +341,4 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (10 entries):
 | M2 | DB-PG-006 | ported | Ported from BootUI 2.5.0 PostgresEmptyPartitionedTableRule. |
 | M2 | DB-SERVER-008 | ported | Ported from BootUI 2.5.0 MySqlStrictSqlModeRule. |
 | M2 | DB-MYSQL-004 | ported | Ported from BootUI 2.5.0 MySqlUnenforcedCheckConstraintRule. |
-| M2 | DB-POOL-005 | adapted | BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's pool timeout. |
+| M2 | DB-POOL-005 | adapted | BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's QueuePool timeout, where None disables the timeout and 0 fails immediately rather than waiting indefinitely. |

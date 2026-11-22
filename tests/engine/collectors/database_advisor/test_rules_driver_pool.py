@@ -158,12 +158,6 @@ def test_acquisition_timeout_fires_when_disabled_or_above_five_minutes() -> None
     assert rule.definition.severity == "MEDIUM"
 
     server = {"wait_timeout": "600", "max_connections": "151"}
-    agroal_zero = _source("mysql", pool=_pool(timeout=0.0), server=server)
-    res_zero = rule.check(agroal_zero)
-    assert isinstance(res_zero, list)
-    assert _identities(res_zero) == ["ds=db|pool=connection-timeout"]
-    assert "timeout is 0 (disabled)" in res_zero[0][1]
-
     hikari_disabled = _source("mysql", pool=_pool(timeout=None), server=server)
     res_none = rule.check(hikari_disabled)
     assert isinstance(res_none, list)
