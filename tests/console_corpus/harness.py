@@ -8,6 +8,7 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 from unittest.mock import patch
 
@@ -48,6 +49,18 @@ _FIXED_INVENTORY = (
     Package(name="starlette", version="0.40.0", location=None),
 )
 _OPTIONAL_GATEKEEPER_PACKAGES = frozenset({"apscheduler", "arq", "celery", "prometheus_client", "sqlalchemy"})
+_FINGERPRINT_PACKAGES = ("fastapi", "starlette", "pydantic", "sqlalchemy")
+
+
+def environment_fingerprint() -> dict[str, str | None]:
+    """Return installed versions for packages that affect corpus responses."""
+    result: dict[str, str | None] = {}
+    for package in _FINGERPRINT_PACKAGES:
+        try:
+            result[package] = version(package)
+        except PackageNotFoundError:
+            result[package] = None
+    return result
 
 
 @contextmanager

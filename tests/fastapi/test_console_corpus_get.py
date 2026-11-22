@@ -2,10 +2,12 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 from starlette.testclient import TestClient
 from tests.console_corpus import (
     assert_corpus_match,
     build_app,
+    environment_fingerprint,
     get_routes,
     isolated_environment,
     isolated_sqlalchemy_state,
@@ -14,6 +16,7 @@ from tests.console_corpus import (
 )
 
 CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "panels_get.json"
+ENVIRONMENT = CORPUS.with_name("environment.json")
 
 DEFERRED = (
     ("/api/activity/request/{id}", "requires a concrete recorded request id"),
@@ -59,19 +62,18 @@ def test_get_corpus_covers_each_non_deferred_get_route(no_side_effects) -> None:
 
 def _assert_get_corpus(no_side_effects) -> None:
     state_dir = str(no_side_effects.state_dir)
-    with isolated_sqlalchemy_state():
-        with isolated_environment(state_dir):
-            assert set(os.environ) <= {
-                "HOME",
-                "USERPROFILE",
-                "TMP",
-                "TEMP",
-                "SYSTEMROOT",
-                "WINDIR",
-                "PATH",
-                "SHARPIT_TEST_API_TOKEN",
-            }
-            _compare_get_corpus(state_dir, no_side_effects)
+    with isolated_sqlalchemy_state(), isolated_environment(state_dir):
+        assert set(os.environ) <= {
+            "HOME",
+            "USERPROFILE",
+            "TMP",
+            "TEMP",
+            "SYSTEMROOT",
+            "WINDIR",
+            "PATH",
+            "SHARPIT_TEST_API_TOKEN",
+        }
+        _compare_get_corpus(state_dir, no_side_effects)
 
 
 def _compare_get_corpus(state_dir, no_side_effects) -> None:
@@ -80,6 +82,17 @@ def _compare_get_corpus(state_dir, no_side_effects) -> None:
     deferred_paths = {path for path in get_paths if path in _DEFERRED_PATHS}
     expected_paths = get_paths - deferred_paths
     corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+    stored_environment = json.loads(ENVIRONMENT.read_text(encoding="utf-8"))
+    current_environment = environment_fingerprint()
+    exact_match = current_environment == stored_environment
+    variant = os.environ.get("SHARPIT_CI_VARIANT")
+    status_only = not exact_match and variant in {"no-sqlalchemy", "lowest"}
+    if not exact_match and not status_only:
+        pytest.fail(
+            f"console corpus recorded on {json.dumps(stored_environment, sort_keys=True)}; "
+            f"this environment is {json.dumps(current_environment, sort_keys=True)}; "
+            "re-record with scripts/dev/record_console_corpus.py"
+        )
 
     assert set(corpus) == expected_paths
     assert deferred_paths == _DEFERRED_PATHS
@@ -99,4 +112,7 @@ def _compare_get_corpus(state_dir, no_side_effects) -> None:
                     no_side_effects.unblock_network()
         finally:
             no_side_effects.block_network()
-        assert_corpus_match(actual, corpus[path], path)
+        if status_only:
+            assert actual["status"] == corpus[path]["status"], path
+        else:
+            assert_corpus_match(actual, corpus[path], path)

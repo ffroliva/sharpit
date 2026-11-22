@@ -3,6 +3,7 @@
 from tests.console_corpus.harness import (
     assert_corpus_match,
     build_app,
+    environment_fingerprint,
     get_routes,
     isolated_environment,
     isolated_sqlalchemy_state,
@@ -14,6 +15,7 @@ __all__ = [
     "NORMALISERS",
     "assert_corpus_match",
     "build_app",
+    "environment_fingerprint",
     "get_routes",
     "isolated_environment",
     "isolated_sqlalchemy_state",

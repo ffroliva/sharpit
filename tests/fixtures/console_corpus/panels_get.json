@@ -2032,6 +2032,12 @@
         {
           "defaultValue": null,
           "description": "<SOURCE_REF>",
+          "name": "SHARPIT_CI_VARIANT",
+          "type": null
+        },
+        {
+          "defaultValue": null,
+          "description": "<SOURCE_REF>",
           "name": "SHARPIT_MUTANT_SRC",
           "type": null
         },

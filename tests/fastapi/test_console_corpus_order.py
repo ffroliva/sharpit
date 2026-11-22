@@ -5,19 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
 from starlette.testclient import TestClient
+
+from fastapi import FastAPI
 
 sa = pytest.importorskip("sqlalchemy")
 pytestmark = pytest.mark.needs_sqlalchemy
 
 from tests.fastapi.test_console_corpus_get import _assert_get_corpus  # noqa: E402
+
 from sharpit import install  # noqa: E402
 from sharpit.engine.sqla import attached, routed  # noqa: E402
 
 
 def test_get_corpus_is_independent_of_earlier_sqlalchemy_state(no_side_effects, tmp_path: Path) -> None:
-    engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
     app = FastAPI()
 
     @app.get("/seed-sql")
