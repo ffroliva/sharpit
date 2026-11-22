@@ -145,8 +145,20 @@ Each source runs `/sharpit:predict` and measures its overhead before code.
 
 ### Track M: the 2.5.0 rules recorded as missing
 
-- [ ] **M1 REST API rules.** `RAPI-MAP-012`, `RAPI-MAP-013`, `RAPI-VER-008`, `RAPI-VALID-007`, `RAPI-PAGE-004`.
-- [ ] **M2 Database rules.** `DB-SCHEMA-011`, `DB-PG-006`, `DB-POOL-005`, `DB-SERVER-008`, `DB-MYSQL-004`.
+- [ ] **M1 REST API rules: reclassify as `n-a`** (needs the maintainer's decision). Read at `v2.5.0`
+      (`E/engine/restapi/RestApiRules.java:2366-2590`), each of the five describes a Spring or Quarkus construct that
+      FastAPI does not have:
+      `RAPI-MAP-012` (an unannotated Spring parameter binds as a query parameter; FastAPI binds a parameter named like
+      a path token to the path), `RAPI-MAP-013` (Spring unions class-level and method-level HTTP methods; FastAPI
+      routers carry no methods), `RAPI-VER-008` (a restrictive `consumes` condition; FastAPI has none),
+      `RAPI-VALID-007` (Bean Validation skips nested objects without `@Valid`; pydantic validates nested models) and
+      `RAPI-PAGE-004` (Spring Data `Page` serialization). The PARITY rows move from `missing` to `n-a` with these
+      reasons. If FastAPI has a real counterpart defect, it is a separate sharpit rule through `/sharpit:predict`.
+- [ ] **M2 Database rules: port.** Each reads the database catalog or the pool settings and applies to a Python
+      application: `DB-SCHEMA-011` (`ForeignKeySetNullOnNotNullColumnRule`), `DB-PG-006`
+      (`PostgresEmptyPartitionedTableRule`), `DB-SERVER-008` (`MySqlStrictSqlModeRule`), `DB-MYSQL-004`
+      (`MySqlUnenforcedCheckConstraintRule`), and `DB-POOL-005` (`PoolAcquisitionTimeoutRule`), adapted from the
+      HikariCP and Agroal timeouts to SQLAlchemy's pool `timeout` with BootUI's 300,000 ms threshold (one deviation row).
 - [ ] **M3 `paged-without-order`**, *predict*. It needs SQL row-limit and shape analysis that holds under default
       masking; without that analysis, it is recorded with its reason, not approximated by a regex.
 
