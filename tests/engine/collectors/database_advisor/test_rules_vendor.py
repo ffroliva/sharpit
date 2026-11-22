@@ -332,6 +332,20 @@ def test_mysql_strict_sql_mode_fires_when_not_strict() -> None:
     assert isinstance(outcome_bad, str)
 
 
+def test_mysql_strict_sql_mode_rejects_non_ascii_token() -> None:
+    source = Source(
+        "ordersDb",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"server": {"sql_mode": "STRÍCT_TRANS_TABLES"}},
+    )
+    outcome = _check("DB-SERVER-008", source)
+    assert isinstance(outcome, str)
+    assert outcome == "sql_mode contains an invalid token."
+
+
 def test_mysql_unenforced_check_constraints_is_reported() -> None:
     # ported: DatabaseAdvisorVendorRulesTests.mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql  # noqa: E501
     source = Source(
