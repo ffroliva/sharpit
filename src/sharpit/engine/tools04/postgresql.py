@@ -18,6 +18,7 @@ from sharpit.engine.collectors.postgresql.service import (
     unavailable_report,
 )
 from sharpit.engine.tools import CallContext, Tool
+from sharpit.engine.tools04.hostloop import running_host_loop, wait_on_host_loop
 
 _NONE: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 
@@ -26,15 +27,23 @@ ASYNC_FROM_CLI = (
     "Reads of async engines run from the panel only: the CLI cannot reach the application's event loop, and an "
     "async engine's pool must not be driven from a second loop."
 )
+TOOL_WAIT_TIMEOUT = READ_BUDGET + 2 * STATEMENT_TIMEOUT + 5
 
 
 def _read(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
     """Tool handlers run on a worker thread: the read goes to the app's loop when it is running, else a fresh one."""
     ctx = call.ctx
-    loop = ctx.capture.loop
-    if loop is not None and loop.is_running() and not loop.is_closed():
-        future = asyncio.run_coroutine_threadsafe(refresh_postgresql(ctx), loop)
-        return summary(future.result(READ_BUDGET + 2 * STATEMENT_TIMEOUT + 5))
+    loop = running_host_loop(ctx)
+    if loop is not None:
+        return summary(
+            wait_on_host_loop(
+                loop,
+                refresh_postgresql(ctx),
+                TOOL_WAIT_TIMEOUT,
+                "PostgreSQL read timed out.",
+                "PostgreSQL read is unavailable: the application's event loop is not running.",
+            )
+        )
     if has_async_engine(ctx):
         return summary(unavailable_report(ASYNC_FROM_CLI))
     return summary(asyncio.run(refresh_postgresql(ctx)))
