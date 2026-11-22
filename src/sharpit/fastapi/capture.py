@@ -133,11 +133,8 @@ def _endpoint_name(endpoint: object) -> str | None:
 
 
 def _validation_error(exc: BaseException) -> bool:
-    if sys.modules.get("fastapi.exceptions") is None:
-        return False
-    from sharpit.fastapi.binding_diagnostics import is_validation_error
-
-    return is_validation_error(exc)
+    cls = getattr(sys.modules.get("fastapi.exceptions"), "RequestValidationError", None)  # no import: Pydantic 1 safe
+    return isinstance(cls, type) and isinstance(exc, cls)
 
 
 def _record_exception(
@@ -164,7 +161,11 @@ def _record_binding_exception(
     ctx: SharpitContext | None,
     host_app: object,
 ) -> None:
-    from sharpit.fastapi.binding_diagnostics import route_for_scope, validation_details
+    try:
+        from sharpit.fastapi.binding_diagnostics import route_for_scope, validation_details
+    except ImportError:  # Pydantic 1 hosts: no binding diagnostics, the exception is still recorded
+        store.record(exc, source, info, thread)
+        return
 
     full = ctx is not None and ctx.settings.expose_values.value == "FULL"
     template = (
@@ -340,9 +341,10 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord, ctx: Sharpi
     if not isinstance(exc, Exception):
         return
     sink = dispatch.session_sink()
-    if sink is not None and not _validation_error(exc):
+    validation = _validation_error(exc)
+    if sink is not None and not validation:
         sink.on_exception(exc, "log", TEST.get())
-    if _validation_error(exc):
+    if validation:
         _record_logged_validation(store, record, exc, ctx)
         return
     override = None if is_database_exception(exc) else record.getMessage()
