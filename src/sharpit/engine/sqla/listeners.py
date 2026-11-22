@@ -9,7 +9,7 @@ import sys
 import time
 import weakref
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
@@ -95,9 +95,10 @@ def before_cursor_execute(
 
 
 def _pop_start(conn: Any, context: Any) -> tuple[int, list[SharpitContext]] | None:
-    state = cast("dict[str, Any]", vars(context)) if context is not None else None
-    if state is not None and "_sharpit_start" in state:
-        return state.pop("_sharpit_start")
+    if context is not None:
+        start = context.__dict__.pop("_sharpit_start", None)
+        if start is not None:
+            return start
     return conn.info.pop(START_KEY, None)
 
 
