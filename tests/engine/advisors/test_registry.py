@@ -98,3 +98,9 @@ def test_registry_is_static():
 
 def test_vulnerability_fingerprint_is_refused():
     assert advisor_for("vulnerabilities:GHSA-1::pypi:jinja2:0123456789abcdef") is None
+
+
+def test_pentesting_checks_are_not_owned_by_the_security_advisor():
+    # PT-A05-041 and PT-A05-044 belong to the pentesting panel; SEC-FAPI-002 and -003 stay the security advisor's
+    assert [_owner(rule) for rule in ("PT-A05-041", "PT-A05-044")] == ["pentesting", "pentesting"]
+    assert [_owner(rule) for rule in ("SEC-FAPI-002", "SEC-FAPI-003")] == ["security", "security"]
