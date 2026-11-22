@@ -109,10 +109,10 @@ def test_timed_out_read_is_cancelled_and_releases_its_lock(
     monkeypatch.setattr(module, "TOOL_WAIT_TIMEOUT", 0.02, raising=False)
     with pytest.raises(Exception) as caught:
         call_tool(CallContext(ctx, {}), tool, {}, via="cli")
+    assert started.wait(1)
     assert isinstance(caught.value, ToolCallError)
     assert caught.value.status == 504
     assert str(caught.value) == message
-    assert started.wait(1)
     assert _released_within(ctx.single_flight, operation, 1.0)
 
 
