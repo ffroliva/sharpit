@@ -11,6 +11,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.routing import Host, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from fastapi import Depends, FastAPI, Security
 from sharpit.engine.collectors.security import View
@@ -154,3 +155,12 @@ def test_route_mixes_authentication_schemes(run_rule: RuleRun):
     app.add_api_route("/mixed", _never, methods=["GET"], dependencies=both)
     app.add_api_route("/single", _never, methods=["GET"], dependencies=[Depends(HTTPBasic())])
     assert _targets(run_rule("SEC-FAPI-005", app)) == ["GET /mixed"]
+
+
+def test_public_openapi_rule_is_unchanged_where_the_pentesting_documentation_check_also_fires(run_rule: RuleRun):
+    # PT-A05-041 is a pentesting finding with its own id; the advisor rule keeps its own trigger (secured routes)
+    secured = _with(OAuth2PasswordBearer(tokenUrl="token"))
+    with_proxy = _with(OAuth2PasswordBearer(tokenUrl="token"))
+    with_proxy.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+    assert run_rule("SEC-FAPI-002", with_proxy) == run_rule("SEC-FAPI-002", secured)
+    assert _targets(run_rule("SEC-FAPI-002", secured)) == ["/openapi.json"]
