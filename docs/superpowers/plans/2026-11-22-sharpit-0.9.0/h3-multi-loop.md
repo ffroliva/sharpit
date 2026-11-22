@@ -2,7 +2,7 @@
 
 **Goal:** Run host-bound MCP and CLI tool work on the event loop servicing the request that invoked the tool, including on a process with multiple loops.
 
-**Architecture:** `engine/tools04/hostloop.py` consumes a framework-free `HostLoopProvider` protocol. Each invocation carries its provider in `CallContext`; the FastAPI adapter binds the current ASGI request loop, while WSGI supplies no loop. The selected loop is validated immediately before submission. Missing, closed, or stopped loops return the existing unavailable error; no fallback loop is selected and no private loop is created.
+**Architecture:** `engine/tools04/hostloop.py` consumes a framework-free `HostLoopProvider` protocol. Each invocation carries its provider in `CallContext`; the FastAPI adapter binds the current ASGI request loop, while WSGI supplies no loop. The selected loop is validated immediately before submission. A tool never falls back to another request's loop and never creates a private loop for host work. When the invocation has no live loop, each tool keeps its behaviour from before this change: the pentest scan refuses with its 503 unavailable error; the MySQL, PostgreSQL and Database advisor tools keep their existing no-loop path (`asyncio.run` on a fresh loop, or the `ASYNC_FROM_CLI` report for an async engine).
 
 **Predict verdict:** GO, 8/10.
 
@@ -19,12 +19,12 @@
 |---|---|---|
 | High | A tool receives the stale process-wide captured loop | Pass a request-scoped provider through the call context; assert loop identity using two live loops |
 | High | Provider loop closes between selection and submission | Validate at selection and convert scheduling failure to unavailable; never fall back |
-| High | WSGI has no event loop | Provider returns `None`; host-loop-only actions preserve unavailable behavior |
+| High | WSGI has no event loop | Provider returns `None`; each tool keeps its no-loop behaviour (pentest 503, database tools' existing fallback) |
 | Medium | CLI and MCP paths bind different request contexts | Exercise CLI action calls with `via="cli"` |
 
 ### Task 1: Request-scoped loop provider and regression tests
 
-**Files:** `src/sharpit/engine/tools.py`, `src/sharpit/engine/tools04/hostloop.py`, FastAPI and Flask request adapters, `tests/engine/`, `tests/fastapi/`.
+**Files:** `src/sharpit/engine/tools.py`, `src/sharpit/engine/tools04/hostloop.py`, the FastAPI routes that serve the MCP and CLI tool calls (`src/sharpit/fastapi/routes/`), `tests/engine/`, `tests/fastapi/`. There is no Flask console yet (Track F3): the WSGI case is proved in the engine with a provider that returns `None`, and the Flask adapter supplies that provider when F3 is built.
 
 **Interfaces:** Produces `HostLoopProvider` protocol (`current_loop() -> AbstractEventLoop | None`) in the engine and an optional provider field on the tool call context. FastAPI supplies the current request loop; WSGI supplies an unavailable provider. Tools resolve the provider from the invocation, never shared capture state.
 
