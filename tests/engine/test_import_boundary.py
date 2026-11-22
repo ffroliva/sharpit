@@ -1,6 +1,6 @@
 """Module boundaries, checked on every run (Spring Modulith style). AGENTS.md "Architecture rules" lists the same rules.
 
-1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
+1. The engine is framework-free: no FastAPI, Starlette or Flask import (a ``TYPE_CHECKING`` block is allowed).
 2. Dependencies point inward: the engine never imports the adapters (``sharpit.fastapi``, ``sharpit.flask``,
    ``sharpit.pytest_plugin`` or ``sharpit.ui``); no module outside ``sharpit/cli/`` imports ``sharpit.cli``; modules
    under ``sharpit/cli/`` import only the standard library and ``sharpit.cli``, not even for a type.
@@ -33,7 +33,7 @@ import pytest
 SRC = Path(__file__).resolve().parents[2] / "src"
 ENGINE = SRC / "sharpit" / "engine"
 COLLECTORS = ENGINE / "collectors"
-FRAMEWORKS = ("fastapi", "starlette")
+FRAMEWORKS = ("fastapi", "starlette", "flask")
 ADAPTERS = ("sharpit.fastapi", "sharpit.flask", "sharpit.pytest_plugin", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
     "sqlalchemy": {"sharpit/engine/sqla"},  # a package: every module under engine/sqla/ (0.5.0 spec §4.1)
@@ -513,8 +513,17 @@ def package_name_violations(root: Path = ENGINE, *, source_name: str = "engine")
     return found
 
 
-def test_engine_modules_do_not_import_fastapi_or_starlette():
+def test_engine_modules_do_not_import_frameworks():
     assert framework_violations() == []
+
+
+def test_console_engine_package_cannot_import_flask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    console = tmp_path / "src" / "sharpit" / "engine" / "console"
+    console.mkdir(parents=True)
+    (console / "console.py").write_text("import flask\n", encoding="utf-8")
+
+    assert framework_violations(console.parent) == ["sharpit/engine/console/console.py imports flask"]
 
 
 def test_engine_never_imports_an_adapter():
