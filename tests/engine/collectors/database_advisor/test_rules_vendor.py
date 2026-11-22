@@ -250,7 +250,7 @@ def test_mysql_vendor_rules_on_a_leased_server() -> None:
 
 
 def test_postgres_empty_partitioned_table_is_reported() -> None:
-    # ported: DatabaseAdvisorVendorRulesTests.postgresEmptyPartitionedTableRuleReportsEmptyPartitionedParent
+    # ported: DatabaseAdvisorVendorRulesTests.postgresEmptyPartitionedTableRuleFlagsPartitionedParentWithNoAttachedPartitions  # noqa: E501
     source = _source("postgresql", emptyPartitioned=_fact({"tbl": "empty_metrics"}))
 
     outcome = _check("DB-PG-006", source)
@@ -264,8 +264,7 @@ def test_postgres_empty_partitioned_table_is_reported() -> None:
 
 
 def test_postgres_empty_partitioned_table_skips_before_postgres_10() -> None:
-    # ported: DatabaseAdvisorVendorRulesTests
-    #   .postgresEmptyPartitionedTableRuleSkipsBeforePostgres10WithoutCoverageWarning
+    # ported: DatabaseAdvisorVendorRulesTests.postgresEmptyPartitionedTableRuleSkipsBeforePostgres10WithoutCoverageWarning  # noqa: E501
     pg96 = Source(
         "pg",
         "postgresql",
@@ -334,8 +333,7 @@ def test_mysql_strict_sql_mode_fires_when_not_strict() -> None:
 
 
 def test_mysql_unenforced_check_constraints_is_reported() -> None:
-    # ported: DatabaseAdvisorVendorRulesTests
-    #   .mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql
+    # ported: DatabaseAdvisorVendorRulesTests.mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql  # noqa: E501
     source = Source(
         "ds",
         "mysql",
