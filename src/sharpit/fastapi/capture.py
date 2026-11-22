@@ -751,12 +751,9 @@ class CaptureMiddleware:
         if wiring is None or wiring.detached or HOOK_CAPTURE_MIDDLEWARE in wiring.suspended_hooks:
             await self.app(scope, receive, send)
             return
-        with contextlib.suppress(
-            RuntimeError
-        ):  # no asyncio loop (trio host): the loop stays as it was, the scan refuses
-            self.ctx.capture.loop = (
-                asyncio.get_running_loop()
-            )  # the loop serving the host now: the MCP/CLI scan runs there
+        # the loop serving the host now runs the MCP/CLI scan; a trio host has none, so the old loop stays
+        with contextlib.suppress(RuntimeError):
+            self.ctx.capture.loop = asyncio.get_running_loop()
         buffer = self.ctx.capture.exchanges
         if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
             try:
