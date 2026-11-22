@@ -114,8 +114,9 @@ sharpit provides live Server-Sent Events (SSE) streams for activity, exceptions,
 Every request to `/sharpit` passes these checks in order. Any failure stops it with a 403 (or a 401 for a missing
 token):
 
-1. **Who is asking.** Only loopback (`127.0.0.1`, `::1`) by default. A request carrying a forwarding header
-   (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) never counts as loopback.
+1. **Who is asking.** Only loopback (`127.0.0.1`, `::1`) by default. A request carrying a forwarding or
+   client-address header (for example `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP`) never counts as
+   loopback.
 2. **Host header.** It must be `localhost`, a loopback address or a name in `SHARPIT_ALLOWED_HOSTS`. This blocks DNS
    rebinding, where a web page tricks your browser into calling your local server.
 3. **Cross-site.** An `Origin` or `Sec-Fetch-Site` from another site is rejected, for every method. On API paths the
