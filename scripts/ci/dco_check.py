@@ -19,6 +19,9 @@ MISSING = "missing Signed-off-by"
 MISMATCH = "Signed-off-by does not match the commit author"
 REPAIR = "git rebase --signoff <base> && git push --force-with-lease"
 TRAILER = re.compile(r"Signed-off-by: (?P<name>.+) <(?P<email>[^<>]*)>")
+REMEDIATION = re.compile(
+    r"I, (?P<name>.+) <(?P<email>[^<>]*)>, hereby add my Signed-off-by to this commit: (?P<sha>[0-9a-f]{7,40})"
+)
 REPO_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 SUBJECT_WIDTH = 100
 
@@ -47,13 +50,38 @@ def _reason(commit: dict[str, Any]) -> str | None:
     return MISMATCH
 
 
+def _same_person(commit: dict[str, Any], name: str, email: str) -> bool:
+    author = commit["commit"]["author"]
+    return name == author["name"] and email.casefold() == author["email"].casefold()
+
+
+def _remediated(commits: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
+    """(name, email, sha) of each remediation line a validly signed commit of that same person carries."""
+    found: list[tuple[str, str, str]] = []
+    for commit in commits:
+        if _is_exempt(commit) or _reason(commit):
+            continue
+        for line in commit["commit"]["message"].splitlines():
+            m = REMEDIATION.fullmatch(line.rstrip())
+            if m and _same_person(commit, m["name"], m["email"]):
+                found.append((m["name"], m["email"], m["sha"]))  # noqa: PERF401
+    return found
+
+
 def check_commits(commits: list[dict[str, Any]]) -> list[Failure]:
-    """The commits of a pull request (GitHub API JSON) that fail the sign-off rule, with the reason."""
+    """The commits of a pull request (GitHub API JSON) that fail the sign-off rule, with the reason.
+
+    A commit also passes when a validly signed commit of its author, in the same pull request, carries the line
+    `I, <name> <email>, hereby add my Signed-off-by to this commit: <sha>` naming it.
+    """
     failures: list[Failure] = []
+    remediated = _remediated(commits)
     for commit in commits:
         if _is_exempt(commit):
             continue
         if reason := _reason(commit):
+            if any(commit["sha"].startswith(sha) and _same_person(commit, n, e) for n, e, sha in remediated):
+                continue
             subject = (commit["commit"]["message"].splitlines() or [""])[0]
             failures.append(Failure(commit["sha"], subject, reason))
     return failures
@@ -80,17 +108,25 @@ def _parse_pages(output: str) -> list[dict[str, Any]]:
     return commits
 
 
-def _fetch(repo: str, number: str) -> list[dict[str, Any]]:
-    result = subprocess.run(
-        ["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/commits"],
-        capture_output=True,
-        text=True,
-        check=False,
-        shell=False,
-    )
+def _gh(*args: str) -> str:
+    result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, check=False, shell=False)
     if result.returncode != 0:
         raise ValueError(f"gh api failed: {result.stderr.strip()[:200]}")
-    return _parse_pages(result.stdout)
+    return result.stdout
+
+
+def _fetch(repo: str, number: str) -> list[dict[str, Any]]:
+    """The pull request's commits. The commits endpoint stops at 250: a short list falls back to the compare range."""
+    commits = _parse_pages(_gh("--paginate", f"repos/{repo}/pulls/{number}/commits"))
+    info = json.loads(
+        _gh(f"repos/{repo}/pulls/{number}", "--jq", "{commits: .commits, base: .base.sha, head: .head.sha}")
+    )
+    if len(commits) != info["commits"]:
+        compare = f"repos/{repo}/compare/{info['base']}...{info['head']}"
+        commits = _parse_pages(_gh("--paginate", compare, "--jq", ".commits"))
+    if len(commits) != info["commits"]:
+        raise ValueError(f"read {len(commits)} of {info['commits']} commits")
+    return commits
 
 
 def main() -> int:

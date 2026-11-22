@@ -135,7 +135,13 @@ class _Gh:
     """A stand-in for subprocess.run that records the calls and answers as `gh api` would."""
 
     def __init__(
-        self, stdout: str = "[]", returncode: int = 0, stderr: str = "", *, total: int | None = None, compare: str = "[]"
+        self,
+        stdout: str = "[]",
+        returncode: int = 0,
+        stderr: str = "",
+        *,
+        total: int | None = None,
+        compare: str = "[]",
     ) -> None:
         self.stdout, self.returncode, self.stderr, self.total, self.compare = stdout, returncode, stderr, total, compare
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
@@ -241,7 +247,7 @@ def test_main_reads_the_compare_range_when_the_commits_endpoint_is_short(monkeyp
     full = [_commit(SIGNED, sha=f"{i:040x}") for i in range(251)]
     gh = _Gh(json.dumps(full[:250]), total=251, compare=json.dumps(full))
     assert _run_main(monkeypatch, gh) == 0
-    assert gh.calls[-1][0][2] == f"repos/owner/repo/compare/{'b' * 40}...{'c' * 40}"
+    assert gh.calls[-1][0][3] == f"repos/owner/repo/compare/{'b' * 40}...{'c' * 40}"
 
 
 def test_main_checks_the_commit_past_the_250th(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -275,7 +281,9 @@ def test_a_remediation_may_name_the_commit_by_a_short_sha() -> None:
 def test_a_remediation_by_another_person_does_not_clear_the_commit() -> None:
     bad = _commit("fix: a thing\n", sha="1" * 40)
     fix = _commit(
-        _remediation("1" * 40, "Grace Hopper <grace@example.org>").replace(ADA, "Signed-off-by: Grace Hopper <grace@example.org>"),
+        _remediation("1" * 40, "Grace Hopper <grace@example.org>").replace(
+            ADA, "Signed-off-by: Grace Hopper <grace@example.org>"
+        ),
         sha="2" * 40,
         name="Grace Hopper",
         email="grace@example.org",

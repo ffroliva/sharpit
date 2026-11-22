@@ -24,6 +24,12 @@ git rebase --signoff <base-branch>
 git push --force-with-lease
 ```
 
+When a commit that is already pushed or merged cannot be rewritten, its author adds a remediation commit to the same pull request instead. The commit is signed off like any other and carries one line per remediated commit, written by the author of that commit:
+```text
+I, Author Name <author.email@example.com>, hereby add my Signed-off-by to this commit: <sha>
+```
+The sign-off check accepts a commit whose author, name and email, matches the remediation line of a signed commit of that author in the same pull request. The `<sha>` is the full or an abbreviated (at least 7 characters) commit hash.
+
 ## Setup
 
 Environment setup and dependency management use [uv](https://github.com/astral-sh/uv):
