@@ -67,6 +67,11 @@ class Source:
     def server(self) -> dict[str, str]:
         return self.catalog.get("server", {})
 
+    @property
+    def server_version_info(self) -> tuple[int, ...] | None:
+        raw = self.catalog.get("server_version_info")
+        return cast("tuple[int, ...]", raw) if isinstance(raw, tuple) else None
+
 
 Hit = tuple[str, str, str]  # (target, message, identity); the identity never holds a value
 Outcome = list[Hit] | str  # the findings on one source, or why that source was not evaluated

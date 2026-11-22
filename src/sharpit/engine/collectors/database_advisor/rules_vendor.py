@@ -9,7 +9,6 @@ most ``bounds.vendor_rows``) or the error's first line. A rule on another dialec
 
 from __future__ import annotations
 
-import contextlib
 import re
 from collections.abc import Callable
 from typing import Any
@@ -279,15 +278,19 @@ def _setting(name: str, text: str) -> Callable[[Source], Outcome]:
     return check
 
 
+def _at_least(source: Source, *minimum: int) -> bool:
+    ver = source.server_version_info
+    if ver is None:
+        return True
+    padded = (*ver, *(0,) * len(minimum))[: len(minimum)]
+    return padded >= minimum
+
+
 def _empty_partitioned_tables(source: Source) -> Outcome:
     if source.dialect not in PG:
         return f"This check reads the {' or '.join(PG)} catalog; datasource {source.name} is {source.dialect}."
-    server_ver = source.server.get("server_version") or source.server.get("version")
-    if server_ver:
-        with contextlib.suppress(Exception):
-            parts = [int(p) for p in re.findall(r"\d+", str(server_ver))]
-            if parts and parts[0] < 10:
-                return "Not applicable: declarative partitioning requires PostgreSQL 10 or later."
+    if not _at_least(source, 10, 0):
+        return "Not applicable: declarative partitioning requires PostgreSQL 10 or later."
     rows = _rows(source, PG, "emptyPartitioned")
     if isinstance(rows, str):
         return rows
@@ -335,15 +338,8 @@ def _unenforced_check_constraints(source: Source) -> Outcome:
         return f"This check reads the {' or '.join(MYSQL)} catalog; datasource {source.name} is {source.dialect}."
     if source.dialect == "mariadb":
         return "MariaDB does not support NOT ENFORCED check constraints; only MySQL 8.0.16 or later is evaluated."
-    server_ver = source.server.get("server_version") or source.server.get("version")
-    if server_ver:
-        with contextlib.suppress(Exception):
-            parts = [int(p) for p in re.findall(r"\d+", str(server_ver))]
-            if parts and (
-                parts[0] < 8
-                or (parts[0] == 8 and len(parts) > 1 and parts[1] == 0 and len(parts) > 2 and parts[2] < 16)
-            ):
-                return "Not applicable: check constraints require MySQL 8.0.16 or later."
+    if not _at_least(source, 8, 0, 16):
+        return "Not applicable: check constraints require MySQL 8.0.16 or later."
     rows = _rows(source, ("mysql",), "unenforcedChecks")
     if isinstance(rows, str):
         if "ENFORCED" in rows or "doesn't exist" in rows:

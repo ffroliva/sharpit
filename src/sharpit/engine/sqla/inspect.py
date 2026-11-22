@@ -101,6 +101,18 @@ def _driver_version(dialect: Any) -> str | None:
     return None
 
 
+def _server_version_info(dialect: Any) -> tuple[int, ...] | None:
+    raw = getattr(dialect, "server_version_info", None)
+    if not isinstance(raw, tuple):
+        return None
+    parts: list[int] = []
+    for item in cast("tuple[object, ...]", raw):
+        if isinstance(item, bool) or not isinstance(item, int):
+            break
+        parts.append(item)
+    return tuple(parts) if parts else None
+
+
 def catalog(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     """The physical schema behind ``conn`` as plain dicts, read within ``bounds`` (run it inside the read-only read).
 
@@ -155,6 +167,7 @@ def catalog(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
         truncated |= cut
     return {
         "dialect": dialect,
+        "server_version_info": _server_version_info(dialect_obj),
         "tables": tables,
         "tableCount": len(names),
         "truncated": truncated,

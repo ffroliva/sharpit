@@ -272,7 +272,7 @@ def test_postgres_empty_partitioned_table_skips_before_postgres_10() -> None:
         "driver",
         "AVAILABLE",
         None,
-        {"vendor": {"emptyPartitioned": _fact({"tbl": "empty_metrics"})}, "server": {"server_version": "9.6"}},
+        {"vendor": {"emptyPartitioned": _fact({"tbl": "empty_metrics"})}, "server_version_info": (9, 6)},
     )
     outcome = _check("DB-PG-006", pg96)
     assert isinstance(outcome, str)
@@ -343,7 +343,7 @@ def test_mysql_unenforced_check_constraints_is_reported() -> None:
         "AVAILABLE",
         None,
         {
-            "server": {"server_version": "8.4.0"},
+            "server_version_info": (8, 4, 0),
             "vendor": {
                 "unenforcedChecks": _fact({"tbl": "orders", "name": "chk_orders_total"}),
             },
@@ -362,7 +362,7 @@ def test_mysql_unenforced_check_constraints_is_reported() -> None:
         "AVAILABLE",
         None,
         {
-            "server": {"server_version": "8.4.0"},
+            "server_version_info": (8, 4, 0),
             "vendor": {"unenforcedChecks": _fact()},
         },
     )
@@ -379,7 +379,7 @@ def test_mysql_unenforced_check_constraints_is_reported() -> None:
         "driver",
         "AVAILABLE",
         None,
-        {"server": {"server_version": "5.7.44"}, "vendor": {}},
+        {"server_version_info": (5, 7, 44), "vendor": {}},
     )
     old_outcome = _check("DB-MYSQL-004", old_mysql)
     assert isinstance(old_outcome, str)
