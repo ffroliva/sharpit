@@ -1,0 +1,1 @@
+guard-client-address-headers	adapted	A request carrying a forwarding or client-address header (an extended list and name pattern, best-effort) never counts as a trusted source; BootUI has no such denial and reads the servlet remote address; extends the sharpit forwarded-header rule

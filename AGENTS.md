@@ -86,7 +86,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
    `OFF` disables → `ON` enables → an enabled profile enables → a reloading dev server (`uvicorn --reload`,
    `fastapi dev`) enables → otherwise disabled. Inactive means every path under the mount answers 404.
 2. **Guard chain on every request**, in order: security headers → trusted source → Host allow-list → cross-site →
-   token → panel access. Forwarded headers never grant trust.
+   token → panel access. A request carrying a forwarding or client-address header (the list in `engine/guard.py`) is never a trusted source; sharpit trusts the ASGI client address, so a layer that rewrites it and removes that header is outside what it can see (`SECURITY.md`).
 3. **Secrets masked** before filtering and before any output (JSON, errors, MCP, CLI). `FULL` exposure warns.
 4. **No side effects on reads; actions only behind BootUI's gates** (above). Every read uses the `no_side_effects`
    fixture; every action has a test that a read-only panel refuses it.

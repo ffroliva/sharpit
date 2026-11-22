@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hmac
 import ipaddress
+import re
 import secrets
 import sys
 from collections.abc import Callable, Mapping
@@ -29,9 +30,10 @@ MESSAGE_NON_LOOPBACK_SOURCE = (
 )
 # sharpit deviation (Task P1): a loopback peer denied only because a forwarding header is present is told why
 MESSAGE_FORWARDED_SOURCE = (
-    "sharpit is restricted to loopback requests, and a request carrying a forwarding header (Forwarded, "
-    "X-Forwarded-For or X-Real-IP) never counts as loopback. Add the proxy's address to SHARPIT_TRUSTED_PROXIES, or "
-    "set SHARPIT_ALLOW_NON_LOCALHOST=true and authenticate with the sharpit token."
+    "sharpit is restricted to loopback requests, and a request carrying a forwarding or client-address header "
+    "(for example Forwarded, X-Forwarded-For, X-Real-IP or CF-Connecting-IP) never counts as loopback. Add the "
+    "proxy's address to SHARPIT_TRUSTED_PROXIES, or set SHARPIT_ALLOW_NON_LOCALHOST=true and authenticate with the "
+    "sharpit token."
 )
 MESSAGE_DISALLOWED_HOST = (
     "sharpit rejected an unrecognized Host header. Add it to SHARPIT_ALLOWED_HOSTS to allow this hostname."
@@ -43,7 +45,32 @@ PANEL_ACCESS_DENIED = "sharpit panel access denied"
 
 _BUILT_IN_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-_FORWARDED_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
+# sharpit deviation: a header a proxy, CDN or tunnel adds to carry the caller's address. Best-effort, not complete:
+# the prefixes and the name pattern cover families, the set names the known platform headers.
+_FORWARDED_PREFIXES = ("x-forwarded-", "cf-connecting-")
+_FORWARDED_NAME = re.compile(
+    r"(?:client|real|remote|connecting|originating|forwarded).*-(?:ip|ipv[46]|addr|address|for)$"
+)
+_FORWARDED_HEADERS = frozenset(
+    (
+        "forwarded", "via", "x-real-ip", "true-client-ip", "x-client-ip", "client-ip", "x-cluster-client-ip",
+        "fastly-client-ip", "fly-client-ip", "akamai-client-ip", "proxy-client-ip", "wl-proxy-client-ip",
+        "x-envoy-external-address", "x-original-forwarded-for", "forwarded-for", "cf-pseudo-ipv4",
+        "cloudfront-viewer-address", "x-azure-clientip", "x-azure-socketip", "x-appengine-user-ip",
+        "x-vercel-forwarded-for", "x-vercel-proxied-for", "x-originating-ip", "x-remote-ip", "x-remote-addr",
+        "x-nf-client-connection-ip", "x-sucuri-clientip",
+    )
+)  # fmt: skip
+
+
+def has_forwarding_header(headers: Mapping[str, str]) -> bool:
+    """True when any header name (lower case) says the request came through a layer that knows the caller's address."""
+    return any(
+        name in _FORWARDED_HEADERS or name.startswith(_FORWARDED_PREFIXES) or _FORWARDED_NAME.search(name)
+        for name in headers
+    )
+
+
 # port of BootUiGlobalWritePolicy
 _GLOBAL_WRITE_SUBJECTS = {"/dismissed-rules": "dismissed-rules", "/dismissed-findings": "dismissed-findings"}
 _DISMISSALS = "/dismissed-rules/"
@@ -211,10 +238,10 @@ def _is_numeric_ip_literal(value: str) -> bool:
 def is_trusted_source(facts: RequestFacts, settings: SharpitSettings, gateway: str | None) -> bool:
     """Loopback or the detected container gateway with no forwarded header: the only callers that skip the token.
 
-    sharpit deviation: any forwarded header voids trust, and a trusted-proxies range only admits the caller (it must
-    still present the token), because the ASGI server may already have rewritten the peer from those headers.
+    sharpit deviation: any forwarding or client-address header voids trust, and a trusted-proxies range only admits
+    the caller (it must still present the token), because the ASGI server may already have rewritten the peer.
     """
-    if any(h in facts.headers for h in _FORWARDED_HEADERS):
+    if has_forwarding_header(facts.headers):
         return False
     address = _parse_ip(facts.peer)
     if address is None:
@@ -348,7 +375,7 @@ def decide_guard(
         return _forbidden("sharpit refused an internal probe request.")
     trusted = is_trusted_source(facts, settings, gateway)
     if not (trusted or settings.allow_non_localhost or _via_trusted_proxy(facts, settings)):
-        forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)
+        forwarded = has_forwarding_header(facts.headers)
         return _forbidden(
             MESSAGE_FORWARDED_SOURCE if forwarded and not settings.trusted_proxies else MESSAGE_NON_LOOPBACK_SOURCE
         )
