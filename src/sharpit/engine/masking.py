@@ -424,7 +424,7 @@ _UNCONVERTED_DATA = re.compile(r"(\bunconverted data remains:)[^\r\n]*")
 _ISOFORMAT = re.compile(rf"(\bInvalid isoformat string: ){_LITERAL}")
 # consumes every repr and number so a scan never restarts inside one; only one followed by the Enum message is replaced
 _ENUM_INPUT = re.compile(
-    r"""(?<![\w'"])(?:b?(['"])(?:(?!\1)[^\\\r\n]|\\.)*+\1?|-?\d+(?:\.\d+)?)( is not a valid [A-Za-z_])?"""
+    r"""(?<![\w'"])(?:b?(['"])(?:(?!\1)[^\\\r\n]|\\.)*+\1?|-?\d+(?:\.\d+)?)( is not a valid [A-Za-z_])?"""  # NOSONAR - one anchored grammar; splitting it would change which text is masked  # noqa: E501
 )
 _PYDANTIC_INPUT_VALUE = re.compile(r"(\binput_value=)(?:[^\r\n]*(, input_type=)|[^\r\n]*)")
 _PYDANTIC_CUSTOM_MESSAGE = re.compile(
