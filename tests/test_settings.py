@@ -1001,7 +1001,7 @@ def test_w7_email_settings_defaults():
         ("email_max_entries", "SHARPIT_EMAIL_MAX_ENTRIES", "0", 100),
         ("email_max_body_length", "SHARPIT_EMAIL_MAX_BODY_LENGTH", "many", 200_000),
         ("email_dev_trap", "SHARPIT_EMAIL_DEV_TRAP", "maybe", False),
-        ("email_mask_content", "SHARPIT_EMAIL_MASK_CONTENT", "maybe", False),
+        ("email_mask_content", "SHARPIT_EMAIL_MASK_CONTENT", "maybe", True),
     ],
 )
 def test_w7_email_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
