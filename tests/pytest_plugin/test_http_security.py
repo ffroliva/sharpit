@@ -108,6 +108,15 @@ def test_http_security_expectations_require_enabled_observer(pytester: pytest.Py
     assert "unrecognized arguments" not in stderr
 
 
+@pytest.mark.parametrize(("option", "value"), [(HEADER, "GET /a=X-A"), (STATUS, "GET /a=200")])
+def test_http_security_explicit_expectation_without_sharpit_is_refused(
+    pytester: pytest.Pytester, option: str, value: str
+) -> None:
+    stderr = _refused(pytester, option, value)
+
+    assert "--sharpit-http-security" in stderr
+
+
 def test_http_security_observer_requires_sharpit(pytester: pytest.Pytester) -> None:
     stderr = _refused(pytester, "--sharpit-http-security")
 
