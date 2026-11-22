@@ -257,6 +257,29 @@ class SqlTraceRecorder:
         """BootUI ``isSlow(heldNanos / 1_000)`` for a connection held ``nanos``: at least the slow-query threshold."""
         return self._slow(nanos // 1_000_000)
 
+    def checkout_cursor(self) -> tuple[int, int]:
+        """Return the recorder totals at connection checkout."""
+        return self._total, self._evicted
+
+    def count_for_connection(
+        self,
+        connection_id: str | None,
+        start_total: int,
+        start_evicted: int,
+    ) -> int | None:
+        """Count retained statement rows for a connection, or return None when the ring lost them."""
+        with self._lock:
+            delta = self._total - start_total
+            if delta == 0:
+                return 0 if self.recording else None
+            if connection_id is None or self._evicted != start_evicted or delta < 0 or delta > len(self._entries):
+                return None
+            return sum(
+                1
+                for entry in itertools.islice(reversed(self._entries), delta)
+                if entry.get("connectionId") == connection_id
+            )
+
     def _parameters(self, parameters: object, executemany: bool) -> list[str]:
         sets: Sequence[object] = cast_sets(parameters, executemany)
         rendered: list[str] = []
