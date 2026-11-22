@@ -50,6 +50,7 @@ FRAGMENTS_0_8_0: list[tuple[str, str]] = [
     ("F1", "0.8.0-f1.tsv"),
     ("T1", "0.8.0-t1.tsv"),
     ("W0b", "0.8.0-w0b.tsv"),
+    ("SHIPFIX", "0.8.0-shipfix.tsv"),
 ]
 
 SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"
