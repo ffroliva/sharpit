@@ -1,4 +1,9 @@
+import copy
 import json
+import os
+import re
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +13,18 @@ from tests.console_corpus import assert_corpus_match, build_app, isolated_enviro
 
 TRANSPORT_CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "transport.json"
 GET_CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "panels_get.json"
+_OS_LEAK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("windows_drive_path", re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]")),
+    ("backslash_segment", re.compile(r"\\[^\\\s]+")),
+    ("linux_home", re.compile(r"/home/")),
+    ("macos_users", re.compile(r"/Users/")),
+    ("site_packages", re.compile(r"site-packages")),
+    ("virtualenv", re.compile(r"\.venv")),
+    (
+        "platform_value",
+        re.compile(r"(?:\b(?:py)?win32\b|\b(?:darwin|linux|SYSTEMROOT|WINDIR)\b|<TEMP_PATH>)", re.IGNORECASE),
+    ),
+)
 
 
 def _transport(case_id: str) -> dict[str, Any]:
@@ -142,3 +159,79 @@ def test_corpus_contains_masked_config_secret_and_rejects_identity_masker(
     assert "s3cr3t-value" in json.dumps(unmasked)
     with pytest.raises(AssertionError):
         assert_corpus_match(unmasked, expected)
+
+
+def _os_specific_leaks(value: Any, location: str = "") -> list[str]:
+    if isinstance(value, dict):
+        leaks: list[str] = []
+        for key, item in value.items():
+            leaks.extend(_os_specific_leaks(item, f"{location}.{key}" if location else str(key)))
+        return leaks
+    if isinstance(value, list):
+        leaks = []
+        for index, item in enumerate(value):
+            leaks.extend(_os_specific_leaks(item, f"{location}[{index}]"))
+        return leaks
+    if not isinstance(value, str):
+        return []
+    leaks = [f"{location}: {label} in {value!r}" for label, pattern in _OS_LEAK_PATTERNS if pattern.search(value)]
+    executables = {sys.executable, sys.executable.replace("\\", "/")} - {""}
+    if any(executable in value for executable in executables):
+        leaks.append(f"{location}: sys_executable in {value!r}")
+    return leaks
+
+
+def _assert_no_os_specific_values(corpus: Any) -> None:
+    leaks = _os_specific_leaks(corpus)
+    assert leaks == []
+
+
+def test_recorded_corpus_has_no_os_specific_values() -> None:
+    transport = json.loads(TRANSPORT_CORPUS.read_text(encoding="utf-8"))
+    panels_get = json.loads(GET_CORPUS.read_text(encoding="utf-8"))
+    _assert_no_os_specific_values(transport)
+    _assert_no_os_specific_values(panels_get)
+
+    for sample in (
+        r"C:\Users\alice\app",
+        "C:/Users/alice/app",
+        r"relative\segment",
+        "/home/alice/app",
+        "/Users/alice/app",
+        "/usr/lib/site-packages/pkg",
+        "/work/.venv/lib",
+        sys.executable,
+        "win32",
+        "darwin",
+        "linux",
+    ):
+        planted = copy.deepcopy(panels_get)
+        planted["/api/overview"]["body"]["contextPath"] = sample
+        with pytest.raises(AssertionError):
+            _assert_no_os_specific_values(planted)
+
+
+def test_isolated_environment_and_normaliser_are_os_independent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_sqla = types.ModuleType("sqlalchemy")
+    fake_sqla.__version__ = "2.0.0"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sqlalchemy", fake_sqla)
+
+    with isolated_environment(str(tmp_path)):
+        assert dict(os.environ) == {
+            "HOME": "/sharpit-home",
+            "USERPROFILE": "/sharpit-home",
+            "TMP": "/sharpit-tmp",
+            "TEMP": "/sharpit-tmp",
+            "PATH": "/sharpit/bin",
+            "SHARPIT_TEST_API_TOKEN": "s3cr3t-value",
+        }
+        app = build_app(state_dir=str(tmp_path))
+        with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+            activity = normalise(record(client, "GET", "/sharpit/api/activity"))
+
+    expected_activity = json.loads(GET_CORPUS.read_text(encoding="utf-8"))["/api/activity"]
+    assert_corpus_match(activity, expected_activity)
+    posix_bean = {"resource": "/home/runner/.venv/lib/python3.14/site-packages/fastapi/routing.py:267"}
+    assert normalise(posix_bean) == {"resource": "<SOURCE_REF>"}

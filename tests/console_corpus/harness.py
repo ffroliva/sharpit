@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -21,6 +21,7 @@ import sharpit
 import sharpit.fastapi.adapter  # noqa: F401
 from fastapi import FastAPI
 from sharpit.engine.collectors.github.detector import Repository
+from sharpit.engine.collectors.vulns.inventory import Package
 
 _FIXED_REPOSITORY = Repository(
     owner="ffroliva",
@@ -32,6 +33,28 @@ _FIXED_REPOSITORY = Repository(
     local_branch="main",
     upstream_branch=None,
 )
+_FIXED_ENVIRONMENT = {
+    "HOME": "/sharpit-home",
+    "USERPROFILE": "/sharpit-home",
+    "TMP": "/sharpit-tmp",
+    "TEMP": "/sharpit-tmp",
+    "PATH": "/sharpit/bin",
+    "SHARPIT_TEST_API_TOKEN": "s3cr3t-value",
+}
+_FIXED_INVENTORY = (
+    Package(name="fastapi", version="0.115.0", location=None),
+    Package(name="packaging", version="24.0", location=None),
+    Package(name="starlette", version="0.40.0", location=None),
+)
+_OPTIONAL_GATEKEEPER_PACKAGES = frozenset({"apscheduler", "arq", "celery", "prometheus_client", "sqlalchemy"})
+
+
+def _is_optional_gatekeeper_module(name: str) -> bool:
+    return (
+        name.partition(".")[0] in _OPTIONAL_GATEKEEPER_PACKAGES
+        or name == "opentelemetry.sdk"
+        or name.startswith("opentelemetry.sdk.")
+    )
 
 
 def build_app(**install_kwargs: Any) -> FastAPI:
@@ -46,8 +69,8 @@ def build_app(**install_kwargs: Any) -> FastAPI:
         "enabled": "ON",
         "show_banner": False,
         "state_dir": str(state_dir),
-        "claude_code_session_state_dir": str(Path(state_dir) / "claude-code-sessions"),
-        "copilot_session_state_dir": str(Path(state_dir) / "copilot-sessions"),
+        "claude_code_session_state_dir": "~/claude-code-sessions",
+        "copilot_session_state_dir": "~/copilot-sessions",
     }
     options.update(install_kwargs)
     sharpit.install(app, **options)
@@ -57,29 +80,27 @@ def build_app(**install_kwargs: Any) -> FastAPI:
 @contextmanager
 def isolated_environment(temp_dir: str) -> Iterator[None]:
     """Keep corpus responses independent of host environment values."""
-    environment = {
-        "HOME": temp_dir,
-        "USERPROFILE": temp_dir,
-        "TMP": temp_dir,
-        "TEMP": temp_dir,
-        "SHARPIT_TEST_API_TOKEN": "s3cr3t-value",
-    }
-    if os.name == "nt":
-        # Python and Windows APIs require these base variables; their values are rooted in the isolated temp dir.
-        environment.update({"SystemRoot": temp_dir, "WINDIR": temp_dir, "PATH": ""})
+    del temp_dir
+    tempfile.gettempdir()
     own_loggers = {
         name: logger
         for name, logger in logging.root.manager.loggerDict.items()
         if name == "sharpit" or name.startswith("sharpit.")
     }
+    without_optional_modules = {
+        name: module for name, module in sys.modules.items() if not _is_optional_gatekeeper_module(name)
+    }
     with (
-        patch.dict(os.environ, environment, clear=True),
+        patch.dict(os.environ, _FIXED_ENVIRONMENT, clear=True),
         patch.dict(logging.root.manager.loggerDict, own_loggers, clear=True),
+        patch.dict(sys.modules, without_optional_modules, clear=True),
         patch("sharpit.engine.collectors.github.dashboard.detect_repository", return_value=_FIXED_REPOSITORY),
+        patch("sharpit.engine.tools.inventory", return_value=list(_FIXED_INVENTORY)),
+        patch("sharpit.engine.collectors.vulns.inventory.inventory", return_value=list(_FIXED_INVENTORY)),
     ):
         from sharpit.engine.collectors.config import config_report
 
-        defaults = {**(config_report.__kwdefaults__ or {}), "environ": dict(os.environ)}
+        defaults = {**(config_report.__kwdefaults__ or {}), "environ": dict(_FIXED_ENVIRONMENT)}
         with patch.object(config_report, "__kwdefaults__", defaults):
             yield
 

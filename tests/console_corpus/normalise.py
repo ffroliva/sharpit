@@ -15,6 +15,7 @@ NORMALISERS: tuple[NormaliserRow, ...] = (
     ("jdk", str, "<VERSION>", "Python runtime version and implementation vary across interpreters"),
     ("pythonVersion", str, "<VERSION>", "Python runtime version varies across supported interpreters"),
     ("sharpitVersion", str, "<VERSION>", "package version string varies across releases"),
+    ("resource", str, "<SOURCE_REF>", "bean source file path and line vary across OSes and Python versions"),
     ("timestamp", int, "<TIMESTAMP_MS>", "wall-clock epoch milliseconds vary between recordings"),
     ("capturedAt", int, "<TIMESTAMP_MS>", "capture timestamp varies between recordings"),
     ("createdAt", int, "<TIMESTAMP_MS>", "creation timestamp varies between recordings"),
@@ -47,7 +48,6 @@ _PROTECTED_TEXT_KEY = re.compile(
     r"(?:^errors?$|error.?message|^message$|exception|masked|secret|token|password|credential)", re.IGNORECASE
 )
 _TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(?:[A-Za-z]:\\[^\s\"']+|/(?:tmp|var/folders)/[^\s\"']+)"), "<TEMP_PATH>"),
     (re.compile(r"(localhost:|127\.0\.0\.1:)\d+"), r"\1<PORT>"),
     (re.compile(r"tests[/\\][\w/\\.-]+\.py:\d+"), "<SOURCE_REF>"),
     (re.compile(r"asyncio-portal-[a-f0-9]+"), "asyncio-portal-<ID>"),
