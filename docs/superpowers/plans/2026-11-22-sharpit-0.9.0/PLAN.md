@@ -70,10 +70,11 @@ From `AGENTS.md`; every lane's requirements include these.
 
 | Severity | Risk | Mitigation |
 |---|---|---|
-| Critical | The Flask console is a second home for the guard chain; one gate missing or reordered exposes the console | F0 decides where the chain runs before any code; F1 runs the guard corpus through both adapters and requires byte-identical decisions; *predict*, *council* |
+| Critical | Moving 40 route modules into the engine changes a response, a guard outcome or a masking result on FastAPI | F1 records the HTTP response corpus first; F2 moves one panel group per pull request and keeps the corpus byte-identical; *predict*, *council* on F0 |
+| Critical | The Flask adapter skips or reorders a gate | The guard decisions stay in the engine and both adapters call the same functions; the F1 corpus replayed through Flask matches FastAPI (F3) |
+| High | Streaming routes (SSE) hold a WSGI worker per open console tab | F0 decides the streaming design before F2 moves those routes; a test bounds the number of open streams |
 | Critical | A swallowed-exception finding prints an exception message that carries user input (#253) | X1 uses the existing exception-message scrubbing and masking; corpus rows added before the diff; *predict*, *council* |
 | High | A Track J source pushes the per-statement, per-transaction or per-request cost over budget | J0 measures the transaction design before J1 and J2; nothing adds per-statement work before S2; each source has its own budget test, measured on the sbx fleet |
-| High | Hosting the Starlette console inside a WSGI application adds a runtime dependency or a second event loop | F0 is a spike with a written verdict; no new runtime dependency (architecture rule 4 and the global constraint) |
 | High | Flask request correlation misses requests (streamed bodies, an aborting earlier hook, session cleanup, as recorded on #75) | F2 wraps `wsgi_app`, as the T1 HTTP security observer already does, instead of `before_request` and `teardown_request`; tests cover each case |
 | High | New routes in Track R read state that has side effects or leaks unmasked text | Every new GET route uses the `no_side_effects` fixture and the masking path of its panel |
 | Medium | Tool calls on a host with several event loops run on the wrong loop (#287) | H3 is *predict*: BootUI has no counterpart (one JVM, no loops), so the design is sharpit's own |
@@ -169,20 +170,40 @@ its source.
 
 ### Track F: the embedded console for Flask (#260)
 
-- [ ] **F0 Hosting spike**, `/sharpit:spike`, *predict*, *council*. How `sharpit.install(app)` serves the console and
-      its API inside a WSGI application with no new runtime dependency, and where the activation rules and the guard
-      chain run. The verdict names the design and its measured cost per request.
-- [ ] **F1 `sharpit.install` for Flask**, *council*. Activation, the guard chain, panel access and masking as on
-      FastAPI. Flask imports stay in `sharpit/flask/`. The guard corpus passes through both adapters with identical
-      decisions.
-- [ ] **F2 Request correlation.** Captured SQL and exceptions link to the Flask request that caused them, through a
-      `wsgi_app` wrapper. Tests cover streamed bodies, an earlier hook that aborts, and session cleanup. It has an
-      overhead budget test.
-- [ ] **F3 Example application.** `examples/flask_sqla`, with a gate test like the FastAPI samples.
-- [ ] **F4 Route model limits.** `strict_slashes` and subdomain or host matching are shown in the route model or
+Design (decision 6): the console's routing and handlers move into the framework-free engine, and FastAPI and Flask each
+get a thin adapter over them. Today the guard decisions are already in the engine (`guard.RequestFacts`,
+`guard.decide_guard`, `guard.is_trusted_source`); `fastapi/adapter.py` builds the facts from the ASGI scope. The API
+itself is 40 modules under `fastapi/routes/` (about 2,350 lines) whose handlers take a Starlette `Request` and return a
+Starlette `Response`, five of them streaming. Those handlers move; the guard does not.
+
+- [ ] **F0 Console contract**, *predict*, *council*. A transport-neutral request (method, path, query, headers, body,
+      client address) and response (status, headers, body or a chunk iterator) and a route table in a new
+      `engine/console/` package that imports neither `starlette` nor `flask` (a new rule in
+      `tests/engine/test_import_boundary.py` and `AGENTS.md`, same pull request). It settles: how async handlers and
+      `run_in_threadpool` calls become a synchronous core; how the five streaming routes (SSE) run on WSGI without
+      holding a worker per client forever; route order and the `SharpitMount` bare-path match; the request ID header.
+      Output: the contract, its tests, and a written decision for each point.
+- [ ] **F1 HTTP response corpus.** Before anything moves, record every console route's response through today's
+      FastAPI adapter (status, headers, body; streaming routes by their first events) across activation states,
+      guard outcomes (each denial), exposure levels and read-only panels. This is the gate for F2: the corpus is
+      byte-identical before and after each step.
+- [ ] **F2 Extract the handlers**, one panel group per pull request. Each group's handlers move into `engine/console/`
+      on the F0 contract; `fastapi/routes/` keeps only translation. The F1 corpus, the `no_side_effects` tests and the
+      overhead budgets (capture middleware, SQL listener) stay unchanged after each pull request. The safety-path
+      rule for refactors applies: a step that changes any corpus byte stops and is reviewed.
+- [ ] **F3 `sharpit.install` for Flask**, *council*. A `sharpit/flask/` adapter: activation, the guard chain (the same
+      engine calls, facts built from the WSGI environ), panel access and masking, mounting at `path` by dispatching on
+      the path prefix before the host's `wsgi_app`. The F1 corpus, replayed through the Flask adapter, matches the
+      FastAPI responses, apart from rows recorded as adapter differences with their reason.
+- [ ] **F4 Request correlation.** Captured SQL and exceptions link to the Flask request that caused them, through the
+      same `wsgi_app` wrapper the pytest HTTP security observer uses (`pytest_plugin/http_security_flask.py`). Tests
+      cover streamed bodies, an earlier hook that aborts, and session cleanup. It has an overhead budget test.
+- [ ] **F5 Example application.** `examples/flask_sqla`, with a gate test like the FastAPI samples, and a
+      `/sharpit:live-verify` run against it.
+- [ ] **F6 Route model limits.** `strict_slashes` and subdomain or host matching are shown in the route model or
       recorded as limits.
 
-Closes #260 when F1–F3 merge.
+Closes #260 when F3–F5 merge.
 
 ### Track X: masking follow-ups (one corpus base at a time)
 
@@ -219,7 +240,8 @@ S0 ── S2;  S1, S3, S4 start now (S1 before S2 if both touch registration)
 J0 ── J1 ── J2;  S2 ── J3 (if J3 adds per-statement work);  J4, J5 after their predict
 R1 ── R2;  R3 any time
 M1, M2: start now;  M3 after its predict
-F0 ── F1 ── F2 ── F3;  F4 with F1
+F0 ── F1 ── F2 ── F3 ── F4 ── F5;  F6 any time
+F2 touches every route module: Track R's new routes land on the F0 contract once F2 has started
 X1 ── X3   (one masking corpus base at a time);  X2, X4 any time
 J4 and R2 both fill a request-journal key (`authorizations`, `baselineComparison`): the second to merge updates the DTO test
 every lane ── RW
@@ -232,10 +254,16 @@ every lane ── RW
 2. **The 0.8.1 issues are fixed in this cycle** (Wave H). Whether they also ship early as a 0.8.1 patch is open.
 3. **The Flask console is in scope.** On #75 (2026-11-20) the console was planned only if Flask users asked for it.
    The maintainer decided on 2026-11-22 to build it in 0.9.0 under #260, now that the route model and the gate have
-   shipped. F0 decides its design first.
+   shipped.
 4. **All four parity tracks are in scope** (S/J, R, M, F). Tracks S and J0 run first, because the lanes after them
    need their measured headroom.
 5. **What applies is ported; what differs is recorded.** Every BootUI 2.5.0 rule, route, source or key that applies to
    a Python application is ported. Every one that does not apply, or applies with a difference, gets a deviation row
    (`n-a` or `adapted`) with its reason in the lane's matrix fragment, so `PARITY.md` tracks each one. The five
    Spring-specific REST API rules in M1 are the first such rows.
+6. **The console core moves into the engine.** Of the three ways to serve the console on Flask, the decision is the one
+   that keeps a single implementation of the console. The other two were a bridge that runs the Starlette console on
+   its own event loop inside the WSGI host, and re-serving the API through Flask routes, which would put the guard
+   chain in two places. The routing and handlers move to `engine/console/`, and FastAPI and Flask are thin adapters
+   over them, matching the engine's ports-and-adapters design. Because this refactor sits on a safety path, it is
+   gated by a byte-identical HTTP response corpus (F1, F2).
