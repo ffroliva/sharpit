@@ -48,6 +48,7 @@ _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # sharpit deviation: a header a proxy, CDN or tunnel adds to carry the caller's address. Best-effort, not complete:
 # the prefixes and the name pattern cover families, the set names the known platform headers.
 _FORWARDED_PREFIXES = ("x-forwarded-", "cf-connecting-")
+_FORWARDED_SUFFIXES = ("-ip", "-ipv4", "-ipv6", "-addr", "-address", "-for")  # a linear check before the pattern runs
 _FORWARDED_NAME = re.compile(
     r"(?:client|real|remote|connecting|originating|forwarded).*-(?:ip|ipv[46]|addr|address|for)$"
 )
@@ -66,7 +67,7 @@ _FORWARDED_HEADERS = frozenset(
 def has_forwarding_header(headers: Mapping[str, str]) -> bool:
     """True when any header name (lower case) says the request came through a layer that knows the caller's address."""
     return any(
-        name in _FORWARDED_HEADERS or name.startswith(_FORWARDED_PREFIXES) or _FORWARDED_NAME.search(name)
+        name in _FORWARDED_HEADERS or name.startswith(_FORWARDED_PREFIXES) or (name.endswith(_FORWARDED_SUFFIXES) and _FORWARDED_NAME.search(name))
         for name in headers
     )
 
