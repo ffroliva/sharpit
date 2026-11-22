@@ -77,35 +77,45 @@ sharpit 0.7.0 targets BootUI 2.4.0 behaviour and engine robustness across existi
 - **Bug fixes:** stable swallowed-exception identity hashing (#66 / E2), non-failing exit code for
   partial advisor coverage (#65 / E1), and explicit import-basis reporting for REST API app detection (#67 / E3).
 
-## What is next (0.8.0)
+## What 0.8.0 delivered (BootUI 2.5.0)
 
-Deferred lanes from 0.7.0 move to 0.8.0:
+sharpit 0.8.0 targets BootUI 2.5.0 behaviour, pentesting diagnostics and framework independence:
 
-- **W0 live goldens:** capture per-panel 2.5.0 live goldens once BootUI 2.5.0 is built into the reference app with live databases; the static 2.5.0 fixtures now pin tools, properties and rule identifiers.
-- **A2 (observed transaction boundaries):** port `TransactionBoundary.observed` and failed begin reporting once boundary tracking is optimized within the 30 µs budget.
-- **B2 (transaction journal source and kinds):** add `transaction` journal events, `split-transaction-writes`, and `transaction-across-remote-call` after overhead audit.
-- **B3 (ORM journal source and kinds):** add SQLAlchemy session events as the `orm` source and port ORM flush and context insight kinds.
-- **B4 (authorization journal source and kinds):** observe FastAPI security dependencies as the `authorization` source for anonymous-access insight kinds.
-- **B5 (remaining insight kinds):** classify and port or record deviations for app-event, garbage collection, and background executor insight kinds.
-- **B6 (missing routes):** implement the 33 unserved BootUI API routes across scan results, runtime insights, traces, memory, and application structure.
-- **B7 (partial routes):** close the 28 partial route differences or record detailed per-panel deviations.
-- **D1 (SQLAlchemy listener race):** resolve class-level listener registration races across Engine, Pool, and Mapper.
-- **D2 (SQL listener per-statement path):** evaluate BootUI 2.5.0 event-sink capture to reduce per-statement listener overhead.
-- **D3 (SQL Trace panel availability):** align SQL Trace panel availability before a data source is wrapped.
-- **D4 (connection and SQL facts):** audit follow-ups for connection statement counts and recorded-SQL presence flags.
-- **D6 (masking safety):** single-pass quoted-text masking and strict fail-safe fallback for invalid email mask settings.
-- **paged-without-order:** implement SQL row-limit and query shape analysis without inaccurate regex approximation under default masking.
-- **E0 / #207:** handle `--sharpit-app` naming an object with no route list.
+- **Request ID header:** application responses include `X-Sharpit-Request-Id` by default when recording HTTP exchanges ([#269](https://github.com/ffroliva/sharpit/issues/269)).
+- **Swallowed exceptions from test doubles:** the pytest plugin attributes swallowed exceptions raised by test doubles in terminal summaries and reports ([#68](https://github.com/ffroliva/sharpit/issues/68), [#254](https://github.com/ffroliva/sharpit/issues/254)).
+- **Pentesting panel and CLI:** synthetic in-process GET and OPTIONS probes check response headers, TRACE and TRACK handling, error disclosure, and technology disclosure without opening a socket ([#271](https://github.com/ffroliva/sharpit/issues/271)).
+- **Pentesting CORS, cookie, and framework checks:** probes verify cross-origin policies, cookie security attributes and prefixes, FastAPI docs handlers, and proxy middleware exposure ([#275](https://github.com/ffroliva/sharpit/issues/275), [#277](https://github.com/ffroliva/sharpit/issues/277), [#279](https://github.com/ffroliva/sharpit/issues/279)).
+- **HTTP security test gate:** opt-in pytest gate (`--sharpit-http-security`) validates observed requests against required response headers and statuses ([#272](https://github.com/ffroliva/sharpit/issues/272)).
+- **Flask route inspection:** test-session gates read Flask `url_map` for the REST API advisor and enable SQLAlchemy checks without importing FastAPI ([#75](https://github.com/ffroliva/sharpit/issues/75), [#255](https://github.com/ffroliva/sharpit/issues/255), [#261](https://github.com/ffroliva/sharpit/issues/261)).
+- **Route latency outliers:** Runtime Insights implements `route-latency-outliers` with baseline comparison and masked SQL statements ([#264](https://github.com/ffroliva/sharpit/issues/264)).
+- **Vulnerability scan deadline:** configurable timeout bounds OSV and EPSS requests and reports partial findings on expiry ([#258](https://github.com/ffroliva/sharpit/issues/258)).
+- **Binding diagnostics:** FastAPI exception capture extracts Pydantic validation error details and redacts path segments ([#270](https://github.com/ffroliva/sharpit/issues/270)).
+- **Console navigation and mappings:** supports `basePath` from ASGI `root_path`, route selection in HTTP Probe, route ranking in HTTP Exchanges, and request profile stepping ([#266](https://github.com/ffroliva/sharpit/issues/266), [#267](https://github.com/ffroliva/sharpit/issues/267)).
+- **Contract keys and retired rules:** emits BootUI 2.5.0 contract keys and retires or removes outdated rules ([#263](https://github.com/ffroliva/sharpit/issues/263), [#265](https://github.com/ffroliva/sharpit/issues/265)).
+- **Application detection and advisor fixes:** uninspectable `--sharpit-app` objects degrade to `UNKNOWN`, routers are supported directly, and rule accuracy is improved ([#207](https://github.com/ffroliva/sharpit/issues/207), [#268](https://github.com/ffroliva/sharpit/issues/268), [#276](https://github.com/ffroliva/sharpit/issues/276)).
+- **Security and masking guardrails:** forwarding headers require tokens even from loopback, and matrix parameters, SQL text, and exception messages are masked.
+
+## What is next (0.9.0)
+
+sharpit 0.9.0 closes the gaps recorded against BootUI 2.5.0 across seven tracks:
+
+- **Wave H (housekeeping):** closes the 0.8.1 issues ([#284](https://github.com/ffroliva/sharpit/issues/284)–[#288](https://github.com/ffroliva/sharpit/issues/288)), fixes the Windows session-stream flake, adds pre-release CodeQL scans, and splits exception capture out of `fastapi/capture.py`.
+- **Track S (SQL capture hot path):** profiles per-statement overhead, ensures race-free listener registration under concurrency, and ports BootUI 2.5.0 event-sink capture within the 50 µs budget.
+- **Track J (journal sources and insight kinds):** ports transaction boundaries, transaction and ORM journal sources, authorization dependencies, and remaining insight kinds within the 30 µs transaction budget.
+- **Track R (API route parity):** rebuilds the route inventory against BootUI 2.5.0, implements missing routes, adds same-route baselines, and closes partial route differences.
+- **Track M (2.5.0 missing rules):** reclassifies Spring-specific REST API rules as not applicable, ports database schema and pool rules, and adds `paged-without-order` with SQL shape analysis.
+- **Track F (Flask console):** adds the embedded console for Flask ([#260](https://github.com/ffroliva/sharpit/issues/260)) by moving the request pipeline into the framework-free engine and implementing a WSGI adapter.
+- **Track X (masking follow-ups):** scrubs user input in swallowed-exception messages and ports trace and journal masking follow-ups ([#253](https://github.com/ffroliva/sharpit/issues/253)).
 
 ## After 0.7.0: Flask
 
 The next framework adapter is Flask ([#75](https://github.com/ffroliva/sharpit/issues/75)). The engine is already
 framework-free: the adapter implements the `AppIntrospector` port (`engine/spi.py`) over Flask's `url_map`, `config`,
-`extensions` and blueprints, and Flask imports live only under `sharpit/flask/`. The gate comes first, the console
-second:
+`extensions` and blueprints, and Flask imports live only under `sharpit/flask/`. The route model and the pytest gate
+were delivered in 0.8.0 ([#75](https://github.com/ffroliva/sharpit/issues/75), [#255](https://github.com/ffroliva/sharpit/issues/255), [#261](https://github.com/ffroliva/sharpit/issues/261)):
+the pytest plugin discovers Flask applications through adapter lookup, inspects routes over `url_map` for the REST API
+advisor, and enables N+1 and query-budget checks on Flask-SQLAlchemy.
 
-1. request correlation through `before_request` and `teardown_request`, setting the existing `REQUEST` context var;
-2. SQL capture through the existing SQLAlchemy listeners, so Flask-SQLAlchemy gets the same N+1 and query-budget
-   checks;
-3. the pytest plugin finding a Flask app through an adapter lookup instead of importing `FastApiIntrospector`;
-4. then `sharpit.install(app)` for Flask, a `flask` extra and an `examples/flask_sqla` sample.
+The console moves to 0.9.0 Track F ([#260](https://github.com/ffroliva/sharpit/issues/260)): moving the console request
+pipeline into the framework-free engine, providing `sharpit.install(app)` for Flask, request building and response translation in `sharpit.flask`,
+and a `flask` extra.
