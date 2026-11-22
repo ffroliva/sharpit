@@ -18,6 +18,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - FastAPI binding diagnostics for exception capture, extracting Pydantic validation error details (`type`, `loc`) in the adapter while redacting unknown path segments (BootUI 2.5.0 parity, #270).
 - Application `basePath` from ASGI `root_path` in mappings (`GET {api}/mappings/flat`), and route selection in the HTTP Probe UI (BootUI 2.5.0 parity, #266).
 - Investigation navigation in the console: HTTP Exchanges ranks routes (requests, total duration, p95, max duration, errors) and opens a route's exchanges in a drawer, and the Activity request profile steps to the previous and next profileable request (BootUI 2.5.0 parity, #267).
+- Pentesting cookie checks (BootUI 2.5.0 parity): the HttpOnly, SameSite and Secure flags, the `__Host-` and `__Secure-` prefix requirements, the session cookie configuration and cacheable `Set-Cookie` responses are read from the scan's GET probe and the application's session middleware configuration; no request is added and cookie values are never kept (#277).
+- Pentesting framework-exposure checks (BootUI 2.5.0 parity): `PT-A05-041` reports API documentation served by FastAPI's own handlers and `PT-A05-044` reports uvicorn's `ProxyHeadersMiddleware`, read from the application's route table and middleware configuration without a request (#279).
 
 ### Changed
 
@@ -29,10 +31,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `pytest --sharpit --sharpit-app` no longer reports the REST API advisor as `PASSED` for an object whose routes it cannot read (a WSGI app, a hand-wrapped middleware, the coroutine of an `async` factory, any factory result with no stored route list): the advisor is `UNKNOWN` with the reason `"application routes cannot be inspected (<module.Class>); expected an app, a router or a zero-argument factory"`. A suite that named such an object went green before and is now `unknown` (exit 1) unless `--sharpit-allow-unknown` is passed. An explicit FastAPI or Starlette app with no routes stays the confirmed-empty `PASSED`. Contributed by @michaelegner (#207, #276).
 - `--sharpit-app` accepts an `APIRouter` or a Starlette `Router`: it was called as if it were a factory and reported `"application could not load (TypeError)"`. A router's assessment covers its routes only, not the handlers an app adds around it. The named object is called only when it accepts no arguments; one that is inspectable, has a `router` attribute, needs arguments or has an unreadable signature is used as it is. Contributed by @michaelegner (#207, #276).
 - Rule accuracy fixes from BootUI 2.5.0 for the REST API, database and architecture advisors, for example `DB-SCHEMA-007` recognising PostgreSQL `serial2`, duplicate-route detection normalising path-variable names, and `RAPI-MAP-007` no longer flagging POST, PUT or PATCH routes whose path starts with a domain noun (#268).
+- Requests that carry client-address headers are not treated as a trusted source.
+- Matrix parameters in recorded request paths, and sensitive values in SQL text and exception messages, are masked as the masking policy says.
 
 ### Internal
 
 - Pinned BootUI 2.5.0 parity targets (#259, #262), repaired the BootUI capture script and re-captured 2.4.0 (#257), added regression tests pinning that SQLite double-quoted runs are hidden on every SQL surface (#273, #59), refreshed CI test shard weights and Windows runner performance (#274), added a CI DCO sign-off check (#252), and updated contributor documentation (#256).
+- The test suite runs faster on CI: repeated setup work is removed from the shared fixtures and the shard weights are refreshed, with no test skipped, deselected or weakened (#278).
 
 ## [0.7.0] - 2026-11-19
 
