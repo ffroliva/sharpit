@@ -36,6 +36,7 @@ from sharpit.engine.masking import MASK  # noqa: E402
 from sharpit.engine.panels import panel_is_implemented  # noqa: E402
 from sharpit.engine.tools04 import sql_trace as sql_trace_tools  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
+from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
@@ -495,6 +496,30 @@ def test_sql_trace_unavailable_after_failed_sqlalchemy_listener_attach_even_with
     _HANDLES.append(handle)
     try:
         ctx = handle.context
+
+        assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
+        assert tools.sql_trace_report(ctx)["available"] is False
+        assert sql_trace_tools.insights(ctx)["available"] is False
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+
+
+def test_sql_trace_unavailable_after_failed_attach_when_hook_suspended(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_listen(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated listener failure")
+
+    engine = sa.create_engine("sqlite:///:memory:")
+    monkeypatch.setattr(sa.event, "listen", fail_listen)
+    app = FastAPI()
+    handle = install(app, enabled="ON", engines=[engine], sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        ctx = handle.context
+        assert ctx.capture.wiring is not None
+        ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
 
         assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
         assert tools.sql_trace_report(ctx)["available"] is False

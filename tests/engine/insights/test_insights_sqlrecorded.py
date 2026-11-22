@@ -20,6 +20,7 @@ from sharpit import install
 from sharpit.engine import sqla
 from sharpit.engine.collectors.insights import sqlcapture
 from sharpit.engine.collectors.insights.service import insights_service
+from sharpit.engine.sources import dispatch
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS, HOOK_SQLITE_LISTENERS
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -304,3 +305,23 @@ def test_a_failed_listener_attach_rolls_back_partial_listeners_and_routing(
     assert not sqla.following_statements(ctx)
     assert sqla.routed(ctx) == (False, False)
     assert not any(sqla.attached().values())
+
+
+def test_a_failed_sqlalchemy_listener_attach_preserves_prior_sqlite_routing(
+    handles: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _install(handles, sql_trace_sqlite3_enabled=False)
+    sqla.detach_all()
+    dispatch.add_context(ctx)
+    assert dispatch.routes_context(ctx)
+
+    def fail_listen(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated listener failure")
+
+    monkeypatch.setattr(sa.event, "listen", fail_listen)
+
+    with pytest.raises(RuntimeError, match="simulated listener failure"):
+        sqla.add(ctx, statements=True, discovery=False)
+
+    assert dispatch.routes_context(ctx)
