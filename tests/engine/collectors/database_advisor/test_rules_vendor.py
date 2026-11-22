@@ -334,7 +334,7 @@ def test_mysql_strict_sql_mode_fires_when_not_strict() -> None:
 def test_mysql_unenforced_check_constraints_is_reported() -> None:
     # ported: DatabaseAdvisorVendorRulesTests
     #   .mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql
-    mysql = Source(
+    source = Source(
         "ds",
         "mysql",
         "driver",
@@ -347,7 +347,7 @@ def test_mysql_unenforced_check_constraints_is_reported() -> None:
             },
         },
     )
-    violation = _check("DB-MYSQL-004", mysql)
+    violation = _check("DB-MYSQL-004", source)
     assert _targets(violation) == ["ds/orders.chk_orders_total"]
     assert "chk_orders_total" in violation[0][1]
     assert "orders" in violation[0][1]
