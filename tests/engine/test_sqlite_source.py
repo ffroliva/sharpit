@@ -310,6 +310,22 @@ def test_preexisting_connections_counted():
     early.close()
 
 
+def test_detaching_between_test_installs_reuses_the_sqlite_scan(monkeypatch: pytest.MonkeyPatch):
+    calls = 0
+    real_scan = sqlite._scan
+
+    def counting_scan() -> tuple[int, bool, list[str]]:
+        nonlocal calls
+        calls += 1
+        return real_scan()
+
+    monkeypatch.setattr(sqlite, "_scan", counting_scan)
+    sqlite.attach(HOLDER)
+    sqlite.detach_all()  # the test reset runs between separate tests that each install sharpit
+    sqlite.attach(HOLDER)
+    assert calls == 1
+
+
 def _owner_in(module: str, *, slots: bool = False) -> Any:
     """An instance of a class from ``module`` holding a fresh connection in ``con`` (``__slots__`` or ``__dict__``)."""
     namespace: dict[str, Any] = {"__name__": module}
