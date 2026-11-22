@@ -97,6 +97,7 @@ Advisors assess application configuration, architecture, and code. Each provides
 | FastAPI | `sharpit fastapi scan` | `sharpit fastapi report` | `sharpit fastapi violations --scan-id <scanId> <id>` |
 | REST API | `sharpit rest-api scan` | `sharpit rest-api report` | `sharpit rest-api violations --scan-id <scanId> <id>` |
 | Security | `sharpit security scan` | `sharpit security report` | `sharpit security violations --scan-id <scanId> <id>` |
+| Pentesting | `sharpit pentest scan` | `sharpit pentest report` | - |
 | Vulnerabilities | `sharpit vulnerabilities scan` | `sharpit vulnerabilities report` | (in report) |
 
 Additional database utilities:

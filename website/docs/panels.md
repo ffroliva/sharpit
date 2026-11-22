@@ -21,6 +21,7 @@
 | Threads | thread dump and running asyncio tasks with request correlation |
 | REST API Advisor | static inspection of FastAPI route signatures for API design violations |
 | HTTP Probe | in-process HTTP request execution against local routes without external network calls |
+| Pentesting | in-process probe evaluating HTTP security headers (HSTS, CSP, framing, MIME sniffing) and CORS preflight responses against the host application without opening sockets |
 | MCP server | status and switch for the read-only MCP endpoint |
 | CLI | the same tool catalogue over plain HTTP (`POST /sharpit/api/cli/tools/<tool>`) |
 

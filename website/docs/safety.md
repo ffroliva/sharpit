@@ -17,6 +17,7 @@
   harmless user name in a URL is shown as `******` too. That is intentional: sharpit errs towards hiding.
 - **GET has no side effects.** No network call, no file write, no logger change. The vulnerability scan (OSV and EPSS)
   runs only on an explicit POST.
+- **Request ID response header.** Recorded HTTP exchanges attach an `X-Sharpit-Request-Id` header to responses by default on loopback and detected container gateways. It is omitted for requests arriving via trusted proxies and can be disabled with `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false`.
 - **Fails closed.** When off, or in a `prod`/`production` profile (unless `SHARPIT_ENABLED=ON` forces it on, with a warning), the whole mount answers a plain 404 (see [Why does a plain `uvicorn app:app` give 404?](activation.md) for what that does and does not hide).
 
 ## If sharpit reaches production
