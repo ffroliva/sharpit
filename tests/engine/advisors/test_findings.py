@@ -60,6 +60,7 @@ def test_finding_dto_keys():
         "dismissed",
         "observed",
         "baselineState",
+        "reason",
     ]
     assert dto["testNodeId"] is None
 
