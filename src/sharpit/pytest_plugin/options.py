@@ -154,6 +154,8 @@ def _lines(config: Any, option: Any, cli: str, ini: str) -> list[str]:
 def _http_security(
     config: Any, option: Any, enabled: bool, advisors: bool
 ) -> tuple[bool, tuple[Any, ...], tuple[Any, ...]]:
+    if not enabled and not getattr(option, "sharpit_http_security", None):
+        return False, (), ()  # the ini settings only apply to a run with --sharpit
     observe = bool(_value(config, option, "http_security", False))
     headers = parse_header_expectations(
         _lines(config, option, "sharpit_required_response_header", "sharpit_required_response_headers"), HEADER_OPTION
