@@ -157,7 +157,7 @@ handling.
 - [ ] **Step 1:** In the three `..._when_pydantic_core_is_unavailable` tests, pass the installed app's real
       `ExceptionStore` and assert on `store.report()["groups"]`. Expect exactly one group. Its `exceptionClassName`
       is `"RuntimeError"` (or `"RequestValidationError"` for the validation case), its `message` is the raised
-      message, and the log case's occurrence has source `"log"`. Keep one condition per assert.
+      message, and its `lastSource` is `"handler"` (or `"log"` for the logged case). Keep one condition per assert.
 - [ ] **Step 2:** In `test_tool_wait_is_bounded_and_releases_scan_on_timeout`, replace the hand-written
       acquire-and-release `action` with `lambda scope: pentesting_probe.run_probe(blocking_app, ctx.single_flight)`.
       `blocking_app` is an ASGI callable that sets `started` and then awaits `release`. The test's assertions stay
