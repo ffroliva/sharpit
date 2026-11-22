@@ -17,10 +17,11 @@ from typing import Any, cast
 from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
+from sharpit.engine.advisors.scan import mask
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import ApiModel, ApiRouteInfo
 from sharpit.engine.testsession.outcome import AUTODETECT, NO_APPLICATION
-from sharpit.fastapi.introspector import FastApiIntrospector
+from sharpit.fastapi.introspector import FastApiIntrospector, inspectable
 
 __all__ = [
     "AUTODETECT",
@@ -52,6 +53,8 @@ _NOT_FOUND = (
 DETECTED_FROM = "detectedFrom"  # evidence key of an assessed run: its app was found in the imported modules
 DETECTED_BY = "detectedBy"  # evidence key under xdist: the workers whose imports held the app
 IMPORTS = "imports"
+_UNINSPECTABLE = "application routes cannot be inspected"
+_EXPECTED = "expected an app, a router or a zero-argument factory"
 TEST_FILES = ("test_*.py", "*_test.py")  # pytest's python_files default
 
 
@@ -192,13 +195,47 @@ def _name_detecting_workers(parts: Sequence[Any]) -> None:
         ]
 
 
+def _signature(target: Callable[..., object]) -> inspect.Signature:
+    """The call signature, annotations left unevaluated: only the parameters are read."""
+    if sys.version_info >= (3, 14):  # deferred annotations (PEP 649): evaluating one may name a TYPE_CHECKING import
+        from annotationlib import Format  # noqa: PLC0415 - Python 3.14+ only
+
+        return inspect.signature(target, annotation_format=Format.FORWARDREF)
+    return inspect.signature(target)
+
+
+def _zero_argument_callable(target: object) -> bool:
+    """Whether ``--sharpit-app`` names something to call for the app: it accepts no arguments and is no app itself.
+
+    Accepting no arguments does not prove it is a factory; an object that cannot be told apart is not called.
+    """
+    if inspectable(target) or not callable(target):
+        return False
+    if inspect.getattr_static(target, "router", _MISSING) is not _MISSING:
+        return False
+    try:
+        _signature(target).bind()
+    except (TypeError, ValueError):  # it needs arguments, or its signature cannot be read
+        return False
+    return True
+
+
+def _type_name(target: object) -> str:
+    """``module.qualname`` of the object's class; a part that is not a plain string is ``?``, never formatted."""
+    kind = type(target)
+    try:
+        parts = (type.__getattribute__(kind, "__module__"), type.__getattribute__(kind, "__qualname__"))
+    except Exception:  # noqa: BLE001 - a host metaclass never breaks the report
+        return "?"
+    return ".".join(part if type(part) is str else "?" for part in parts)
+
+
 def load_app(spec: str) -> tuple[str, object]:
     module_name, separator, attr = spec.partition(":")
     if not separator:
         raise ValueError("--sharpit-app must be MOD:ATTR")
     app = getattr(importlib.import_module(module_name), attr)
-    has_router = inspect.getattr_static(app, "router", _MISSING) is not _MISSING
-    return spec, app() if callable(app) and not has_router and not _is_flask_app(app) else app
+    return spec, app() if _zero_argument_callable(app) and not _is_flask_app(app) else app
 
 
 def _is_flask_app(app: object) -> bool:
@@ -226,6 +263,10 @@ def _configured_models(
 ) -> list[tuple[str, ApiModel]] | None:
     try:
         name, app = (load_app or _load_app)(state.options.app)
+        if not _is_flask_app(app) and not inspectable(app):  # an empty model here would read as a confirmed-empty pass
+            reason = mask(state.sink.masker, f"{_UNINSPECTABLE} ({_type_name(app)}); {_EXPECTED}")
+            state.sink.facts.advisor_runs.append(AdvisorRun("rest-api", "UNKNOWN", (), {}, reason, state.options.app))
+            return None
         model = _app_model(app)
         if model is None:
             state.sink.facts.advisor_runs.append(

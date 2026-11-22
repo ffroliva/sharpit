@@ -59,6 +59,8 @@ def _session_flags(options: dict[str, object]) -> set[str]:
     flags: set[str] = set()
     if options.get("https_only") is True:
         flags.add("https_only")
+    elif options.get("https_only") is False:  # only a keyword passed as False: the default is not an explicit false
+        flags.add("https_only_false")
     same_site = options.get("same_site")
     if type(same_site) is str and same_site.lower() == "none":
         flags.add("same_site_none")

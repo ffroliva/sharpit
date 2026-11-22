@@ -700,6 +700,7 @@ def test_a_quoted_identifier_is_counted_not_failed(name: str) -> None:
 D6_ROWS = 1475  # tests/masking/test_server_corpus.py pins the same count on the corpus itself
 D6_SURFACES: dict[str, Surface] = {
     **{name: partial(_driven, driver, Dialect.SQLITE) for name, driver in STATEMENT_DRIVERS.items()},
+    "log_handler_statement": lambda masker, text: _log_line("sqlalchemy.engine.Engine", masker, text, Dialect.SQLITE),
     "trace_status": partial(_driven_error, _trace_status, Dialect.SQLITE, SQLITE),
 }
 

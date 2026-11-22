@@ -176,6 +176,12 @@ the statements section is `SKIPPED`. sharpit's own PostgreSQL tests run only aga
 JSON follows BootUI's contract: camelCase keys, every key present (nulls included), epoch milliseconds, no envelope.
 Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": "..."}`.
 
+Loopback and detected container-gateway application responses carry `X-Sharpit-Request-Id` by default when an HTTP
+exchange is recorded. Pass its value to `get_request_profile` to inspect that request. Set
+`SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the
+header. A same-host tunnel that adds no forwarding headers can expose it to outside callers, and a shared cache in
+front of the app can store it with the response.
+
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
@@ -211,7 +217,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
 - Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
-  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`, `pentest_scan` (CLI: `pentest scan`; one bounded in-process GET and OPTIONS probe of the host app).
+  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`, `pentest_scan` (CLI: `pentest scan`; one bounded in-process GET and OPTIONS probe of the host app; the cookie checks read the names and flags of that GET's `Set-Cookie` headers, never their values, and the session checks read the host's `SessionMiddleware` options statically; the evidence is ASGI-only, with no TLS edge, and the Capture panel shows the probe exchange as it shows any host response, the probe's cookie under `FULL`).
 - Buffers and recording (sharpit's own in-memory capture only): `clear_exceptions`, `clear_sql_traces`,
   `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
   `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,

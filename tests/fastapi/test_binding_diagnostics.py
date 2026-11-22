@@ -37,6 +37,11 @@ def _route() -> object:
     return app.routes[-1]
 
 
+def _without_request_id(headers: Any) -> dict[str, str]:
+    # the request-id response header is added by the capture middleware (BootUI 2.5.0 parity)
+    return {k: v for k, v in headers.items() if k.lower() != "x-sharpit-request-id"}
+
+
 def test_binding_corpus_r1_through_r12_is_safe_and_bounded() -> None:
     # ported: SpringBindingDiagnosticsExtractorTests.extractsJackson3InvalidFormatAndUnrecognizedPropertyAndNeverLeaksValuesInMaskedOrMetadataOnly  # noqa: E501
     # ported: ExceptionsServiceTests.capsBindingDiagnosticsPerOccurrenceAtTenAndMarksTruncation
@@ -393,7 +398,7 @@ def test_default_422_response_is_byte_identical(tmp_path: Any) -> None:
     finally:
         handle.uninstall_capture()
     assert actual.status_code == original.status_code
-    assert actual.headers == original.headers
+    assert _without_request_id(actual.headers) == dict(original.headers)
     assert actual.content == original.content
 
 
@@ -425,7 +430,7 @@ def test_extractor_failure_keeps_the_default_422_response(tmp_path: Any, monkeyp
     finally:
         handle.uninstall_capture()
     assert actual.status_code == original.status_code
-    assert actual.headers == original.headers
+    assert _without_request_id(actual.headers) == dict(original.headers)
     assert actual.content == original.content
 
 
@@ -471,7 +476,7 @@ def test_replaced_422_handlers_remain_byte_identical(
     finally:
         handle.uninstall_capture()
     assert actual.status_code == original.status_code
-    assert actual.headers == original.headers
+    assert _without_request_id(actual.headers) == dict(original.headers)
     assert actual.content == original.content
 
 
