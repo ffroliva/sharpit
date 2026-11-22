@@ -344,13 +344,14 @@ def detach(holder: str = "api") -> bool:
         return restored
 
 
-def detach_all() -> None:
-    """Forget every holder and restore ``sqlite3.connect`` (tests start from a clean slate with it)."""
+def detach_all(*, keep_scan: bool = False) -> None:
+    """Restore ``sqlite3.connect`` and forget holders, optionally retaining the cached scan."""
     global _scanned_at
     with _lock:
         _holders.clear()
     detach("")
-    _scanned_at = None  # the next attach scans again
+    if not keep_scan:
+        _scanned_at = None  # the next attach scans again
 
 
 def is_attached() -> bool:

@@ -1281,7 +1281,7 @@ def _probe_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     real = sqlite3.connect
     sqla.detach_all()  # earlier tests in this worker may have left contexts behind
     yield
-    sqlite.detach_all()
+    sqlite.detach_all(keep_scan=True)
     sqlite3.connect = real
     sqla.detach_all()
 

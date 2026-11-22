@@ -426,7 +426,7 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
     shortcut: 230+ tests install an app and never run its shutdown (a supported use), so the leak is only asserted
     for the files that exercise the source itself; upgrade if those tests get a shared fixture that uninstalls.
     """
-    sqlite.detach_all()
+    sqlite.detach_all(keep_scan=True)
     sqla.detach_all()  # install() without shutdown leaves contexts; 2+ make routing outside a request ambiguous
     # Transactions route through their own table: a leaked context (some with a fake engine registry) broke routing.
     with transactions._contexts_lock:  # pyright: ignore[reportPrivateUsage]
@@ -434,7 +434,7 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
         transactions._context_attachments.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     leaked = sqlite.is_attached()
-    sqlite.detach_all()
+    sqlite.detach_all(keep_scan=True)
     strict = any(word in request.node.path.name for word in ("sqlite", "dispatch", "sources"))
     assert not (leaked and strict), (
         "the test left sqlite3.connect patched; detach it (uninstall_capture / sqlite.detach)"

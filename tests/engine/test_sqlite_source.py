@@ -50,7 +50,7 @@ class Sink:
 @pytest.fixture(autouse=True)
 def _stdlib_restored() -> Iterator[None]:
     yield
-    sqlite.detach_all()  # also drops the cached scan, so each test counts its own early connections
+    sqlite.detach_all(keep_scan=True)
     sqlite3.connect = REAL_CONNECT  # a test that re-patched on purpose
     dispatch.set_session_sink(None)
     sqla.detach_session()
@@ -304,6 +304,7 @@ def test_coverage_and_pytest_connections_untraced(caller: str, sink: Sink):
 
 
 def test_preexisting_connections_counted():
+    sqlite.detach_all()
     early = REAL_CONNECT(":memory:")
     sqlite.attach(HOLDER)
     assert sqlite.preexisting_connections() >= 1
@@ -320,10 +321,12 @@ def test_detaching_between_test_installs_reuses_the_sqlite_scan(monkeypatch: pyt
         return real_scan()
 
     monkeypatch.setattr(sqlite, "_scan", counting_scan)
+    sqlite.detach_all()
     sqlite.attach(HOLDER)
-    sqlite.detach_all()  # the test reset runs between separate tests that each install sharpit
+    scans_before_reset = calls
+    sqlite.detach_all(keep_scan=True)  # the test reset runs between separate tests that each install sharpit
     sqlite.attach(HOLDER)
-    assert calls == 1
+    assert calls == scans_before_reset
 
 
 def _owner_in(module: str, *, slots: bool = False) -> Any:
@@ -450,6 +453,8 @@ def test_attach_survives_a_hostile_heap_object():
 
 
 def test_attach_count_failure_falls_back_with_limitation(monkeypatch: pytest.MonkeyPatch):
+    sqlite.detach_all()
+
     def boom() -> int:
         raise RuntimeError("heap walk failed")
 
