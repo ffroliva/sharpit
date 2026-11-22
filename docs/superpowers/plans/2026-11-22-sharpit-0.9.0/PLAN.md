@@ -102,7 +102,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 - [x] **H5 Flakes.** `test_session_stream_sends_sessions_then_dashboard` (intermittent on Windows CI): systematic
       debugging and a fix on the cause, never a retry or a skip.
 - [ ] **H6 Scans before the release pull request.** CodeQL runs on pull requests into `release/**`, and
-      `skills/release/SKILL.md` runs Sonar and CodeQL on the ship branch before the release pull request opens. This
+      `skills/release/SKILL.md` runs the code-scan ratchet and CodeQL on the ship branch before the release pull request opens. This
       is a workflow change into `main` and needs the maintainer's go.
 - [~] **H7 Documents.** `ROADMAP.md` rewritten (0.8.0 delivered, 0.9.0 next, Flask); the live-verify skill uses the
       CLI's `--url` option; the 0.8.1 milestone issues move to 0.9.0.
@@ -299,7 +299,7 @@ Each stays a recorded gap with its blocker.
 ### Release wave
 
 - [ ] **RW** — `ROADMAP.md` and README columns recomputed against 2.5.0; `CHANGELOG.md`; `docs/reference/PARITY.md`
-      merged from the lane fragments; Sonar and CodeQL on the ship branch (H6); `/sharpit:doc-review`;
+      merged from the lane fragments; the code-scan ratchet and CodeQL on the ship branch (H6); `/sharpit:doc-review`;
       `/sharpit:live-verify` on a FastAPI and a Flask sample; `/sharpit:release` prepares the release and stops.
 
 ## Dependencies
@@ -353,4 +353,4 @@ every lane ── RW
       ship head; no ratchet goes up; no overhead budget is raised.
 - [ ] The F1 corpus is unchanged on FastAPI, and the transport corpus matches on Flask.
 - [ ] `/sharpit:live-verify` passes on a FastAPI and a Flask sample.
-- [ ] Sonar and CodeQL are clean on the ship branch before the release pull request (H6).
+- [ ] The code-scan ratchet and CodeQL are clean on the ship branch before the release pull request (H6).

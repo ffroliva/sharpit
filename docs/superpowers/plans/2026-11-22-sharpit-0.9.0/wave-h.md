@@ -250,7 +250,7 @@ into protected branches. `release/**` is not protected, so a release pull reques
       it as protected: block deletion and force-push, and require the existing CI checks. A repository setting is the
       maintainer's change.
 - [ ] **Step 2:** Verify by opening a draft pull request into a `release/**` branch. Expect a `CodeQL` check on it.
-- [ ] **Step 3:** In `skills/release/SKILL.md`, add a step before "open the release pull request": run the Sonar
+- [ ] **Step 3:** In `skills/release/SKILL.md`, add a step before "open the release pull request": run the code-scan
       ratchet (`scripts/ci/sonar_ratchet.py`) and read the code-scanning alerts on the ship branch
       (`gh api repos/ffroliva/sharpit/code-scanning/alerts?ref=<branch>&state=open`). Expect zero new alerts.
 - [ ] **Step 4:** Commit `docs: release skill scans the ship branch before the release pull request`.
