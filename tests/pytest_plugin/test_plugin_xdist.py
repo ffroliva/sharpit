@@ -10,8 +10,8 @@ import pytest
 
 def test_plugin_loads_without_xdist(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_pass(): assert True")
-    plain = pytester.runpytest_inprocess("-p", "no:xdist", "-q")
-    enabled = pytester.runpytest_inprocess(
+    plain = pytester.runpytest_subprocess("-p", "no:xdist", "-q")
+    enabled = pytester.runpytest_subprocess(
         "-p", "no:xdist", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q"
     )
     assert plain.ret == 0
