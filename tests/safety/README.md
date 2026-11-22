@@ -9,7 +9,7 @@ PANEL = "data"  # the panel id (a 0.4 id or sql-trace) whose flag gates these ro
 GET_ROWS = ["/sharpit/api/data", "/sharpit/api/data/{table}"]  # every GET route path format the panel adds
 WRITE_ROWS = [("POST", "/sharpit/api/data/query")]  # every POST/PUT/PATCH/DELETE route as (method, path format)
 PATH_PARAMS = {"table": "orders"}  # samples for this file's own rows only (base routes keep conftest's)
-CLI_ACTIONS = ["data_export"]  # the panel's CLI-only action tools (refused when gated, never on MCP)
+CLI_ACTIONS = ["data_export"]  # the panel's CLI action tools (refused when gated)
 TOOL_ARGS = {"get_data_rule_violations": lambda handle: {...}}  # MCP tool -> its arguments over the installed app
 TOOL_SEEDS = {"get_data_rule_violations": lambda ctx: {...}}  # the same over test_tools.py's bare SharpitContext
 ```

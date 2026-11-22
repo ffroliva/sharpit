@@ -103,7 +103,11 @@ def expected_panel_ids() -> list[str]:
 
 
 def expected_mcp_tool_names() -> list[str]:
-    return [*BASE_MCP_TOOL_NAMES, *(t.name for t in lane_tools() if not t.action), "get_low_footprint"]
+    return [
+        *BASE_MCP_TOOL_NAMES,
+        *(t.name for t in lane_tools() if not t.action or t.name == "pentest_scan"),
+        "get_low_footprint",
+    ]
 
 
 def expected_cli_commands() -> dict[str, str]:

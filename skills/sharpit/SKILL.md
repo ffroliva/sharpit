@@ -153,7 +153,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
 | Live Memory | `GET {api}/live-memory/footprint`, `POST {api}/live-memory/footprint` (`{"enabled": bool}`) | inspect or pause sharpit's capture hooks; status is available over MCP and CLI, while enable/disable are CLI and route actions only |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
-| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 21 action tools (see Actions below), over plain HTTP. The `sharpit` command-line client runs against this endpoint: it supports the advertised tools plus `tools` and `mcp status|enable|disable` (see Command-line client below; `sharpit --help` for usage) |
+| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 22 action tools (see Actions below), over plain HTTP. The `sharpit` command-line client runs against this endpoint: it supports the advertised tools plus `tools` and `mcp status|enable|disable` (see Command-line client below; `sharpit --help` for usage) |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
 | Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason. The `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`, off by default) feed the runtime journal, not these panels; with them on, `POST {api}/java-agent/sensors/files` switches the files sensor, otherwise it is refused (409) as BootUI refuses it without the agent. MCP: `get_agent_status` |
@@ -176,10 +176,16 @@ the statements section is `SKIPPED`. sharpit's own PostgreSQL tests run only aga
 JSON follows BootUI's contract: camelCase keys, every key present (nulls included), epoch milliseconds, no envelope.
 Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": "..."}`.
 
+Loopback and detected container-gateway application responses carry `X-Sharpit-Request-Id` by default when an HTTP
+exchange is recorded. Pass its value to `get_request_profile` to inspect that request. Set
+`SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the
+header. A same-host tunnel that adds no forwarding headers can expose it to outside callers, and a shared cache in
+front of the app can store it with the response.
+
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 50 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 51 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
@@ -194,6 +200,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - Agent sessions: `get_copilot_sessions`, `get_claude_code_sessions`.
 - AI Framework: `get_ai_overview` (CLI: `ai overview`).
 - Email: `get_emails` (CLI: `mail`).
+- Pentesting: `get_pentest_report` (CLI: `pentest report`; cached report, never probes).
 - Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which has no agent; the
   `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. BootUI's code inventory, method probe, and side-effect sensor tools are not
   advertised and answer "Tool not available in this application".
@@ -205,12 +212,12 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
 ### Actions (CLI endpoint only, never MCP)
 
-21 action tools change state, call out or scan. They are reachable through `POST {api}/cli/tools/<tool>`
+22 action tools change state, call out or scan. They are reachable through `POST {api}/cli/tools/<tool>`
 (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; Live Memory controls are also available through its guarded API route, and the CLI endpoint serves every read tool above.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
 - Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
-  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`.
+  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`, `pentest_scan` (CLI: `pentest scan`; one bounded in-process GET and OPTIONS probe of the host app; the cookie checks read the names and flags of that GET's `Set-Cookie` headers, never their values, and the session checks read the host's `SessionMiddleware` options statically; the evidence is ASGI-only, with no TLS edge, and the Capture panel shows the probe exchange as it shows any host response, the probe's cookie under `FULL`).
 - Buffers and recording (sharpit's own in-memory capture only): `clear_exceptions`, `clear_sql_traces`,
   `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
   `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,

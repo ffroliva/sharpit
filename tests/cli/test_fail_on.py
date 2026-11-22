@@ -117,6 +117,11 @@ def test_a_partial_scan_without_a_finding_passes_but_says_it_is_not_proof():
     assert "not proof" in verdict.message
 
 
+def test_pentest_tools_are_classified_for_cli_fail_on_and_bootui_parity() -> None:
+    assert "pentest_scan" in ADVISOR_TOOLS
+    assert "get_pentest_report" in ADVISOR_TOOLS
+
+
 # ported: FailOnTests.anIgnoredSeverityWithFindingsIsNamedButDoesNotGate
 def test_an_ignored_severity_with_findings_is_named_but_does_not_gate():
     payload = summary("SCANNED", count("HIGH", 0), count("UNKNOWN", 3), count("NONE", 0))
@@ -494,6 +499,8 @@ EXPECTED_ADVISORS: frozenset[str] = frozenset(
         "get_security_report",
         "vulnerabilities_scan",
         "get_vulnerabilities_report",
+        "pentest_scan",
+        "get_pentest_report",
     }
 )
 

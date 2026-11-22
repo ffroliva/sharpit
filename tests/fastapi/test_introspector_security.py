@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import fastapi.routing
@@ -15,6 +16,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.routing import BaseRoute, Match, Mount
 
@@ -421,3 +423,28 @@ def test_mount_nested_in_a_middleware_mount_keeps_that_middleware():
 def test_scopes_read_at_the_installed_fastapi():
     # fix round 4: holds on both CI legs (0.115 ``security_scopes``, >= 0.120 ``own_oauth_scopes``) without a simulation
     assert _rows(_scoped_app()) == [("/a", ("GET",), ((BEARER, True, ("admin", "read")),))]
+
+
+def test_https_only_false_flag_is_read_from_keyword_only():
+    secret = uuid.uuid4().hex * 2
+
+    def read(**options: Any) -> tuple[tuple[str, ...], str]:
+        app = FastAPI()
+        app.add_middleware(SessionMiddleware, secret_key=secret, **options)
+        facts = FastApiIntrospector(app).security_facts()
+        (session,) = [item for item in facts.middleware if item.name.endswith("SessionMiddleware")]
+        return session.flags, repr(facts)
+
+    explicit, shown = read(https_only=False)
+    absent, _ = read()
+    secure, _ = read(https_only=True)
+    lax, _ = read(https_only=False, same_site="lax")
+
+    assert "https_only_false" in explicit  # only a keyword passed as False is an explicit false
+    assert "https_only" not in explicit
+    assert "https_only_false" not in absent  # Starlette's default is not an explicit false
+    assert "https_only_false" not in secure
+    assert "https_only" in secure
+    assert "https_only_false" in lax
+    assert "same_site_none" not in lax
+    assert secret not in shown  # no option value, secret_key included, appears in the facts

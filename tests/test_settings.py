@@ -315,6 +315,7 @@ PROPERTIES = {
     "bootui.cli.execution-timeout": ("cli_execution_timeout", "16s"),
     # 0.2.0 (spec §12)
     "bootui.http-exchanges.max-exchanges": ("http_exchanges_max_exchanges", "17"),
+    "bootui.http-exchanges.expose-request-id-header": ("http_exchanges_expose_request_id_header", "false"),
     "bootui.exceptions.max-groups": ("exceptions_max_groups", "18"),
     "bootui.exceptions.max-occurrences-per-group": ("exceptions_max_occurrences_per_group", "19"),
     "bootui.exceptions.max-stack-frames": ("exceptions_max_stack_frames", "20"),
@@ -769,6 +770,7 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "CLI_MAX_CONCURRENT_CALLS",
         "CLI_EXECUTION_TIMEOUT",
         "HTTP_EXCHANGES_MAX_EXCHANGES",
+        "HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER",
         "EXCEPTIONS_MAX_GROUPS",
         "EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP",
         "EXCEPTIONS_MAX_STACK_FRAMES",

@@ -10,7 +10,7 @@ from pathlib import Path
 
 PARITY = Path(__file__).parent
 ROUTES_MATCHED_PIN = 5
-PROPERTIES_MATCHED_PIN = 104
+PROPERTIES_MATCHED_PIN = 105
 
 
 def test_matched_routes_ratchet() -> None:

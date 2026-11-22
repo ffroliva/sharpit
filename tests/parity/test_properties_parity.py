@@ -67,6 +67,7 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.github.quota-safety-threshold"),
     pytest.mark.bootui("prop:bootui.github.request-timeout"),
     pytest.mark.bootui("prop:bootui.http-exchanges.max-exchanges"),
+    pytest.mark.bootui("prop:bootui.http-exchanges.expose-request-id-header"),
     pytest.mark.bootui("prop:bootui.mask-secrets"),
     pytest.mark.bootui("prop:bootui.mcp.enabled"),
     pytest.mark.bootui("prop:bootui.mcp.execution-timeout"),

@@ -59,6 +59,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("sqlalchemy-statistics", "SQLAlchemy Statistics", True, "/sqlalchemy-statistics"),
     Panel("fastapi-security", "FastAPI Security", False, "/fastapi-security"),
     Panel("fastapi", "FastAPI", True, "/fastapi"),
+    Panel("pentesting", "Pentesting", True, "/pentesting"),
     # 0.6.0 wave 1: registered behind per-panel implementation flags.
     Panel("metrics", "Metrics", False, "/metrics"),
     Panel("startup", "Startup Timeline", False, "/startup"),

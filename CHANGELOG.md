@@ -7,7 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Application responses include `X-Sharpit-Request-Id` by default when sharpit records the HTTP exchange. Set `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the header.
 - The pytest plugin names a swallowed exception a test double raised (a `unittest.mock` frame on its traceback, or text naming `MagicMock`, `AsyncMock`, `NonCallableMock`, `PropertyMock` or `ThreadingMock`): the finding adds "a test double raised this, so this code path did not run" and keeps its severity. The exception text decides this and is never stored or written; the worker facts carry one boolean, `testDouble`. The terminal summary adds a grouped `swallowed exceptions:` block with one line per `except` clause and its test count, most tests first (`swallowed exceptions: 13 clauses, 95 tests`). Per-test findings remain in the report (#68).
+
+### Fixed
+
+- `pytest --sharpit --sharpit-app` no longer reports the REST API advisor as `PASSED` for an object whose routes it cannot read (a WSGI app, a hand-wrapped middleware, the coroutine of an `async` factory, any factory result with no stored route list): the advisor is `UNKNOWN` with the reason `"application routes cannot be inspected (<module.Class>); expected an app, a router or a zero-argument factory"`. A suite that named such an object went green before and is now `unknown` (exit 1) unless `--sharpit-allow-unknown` is passed. An explicit FastAPI or Starlette app with no routes stays the confirmed-empty `PASSED`. Contributed by @michaelegner (#207).
+- `--sharpit-app` accepts an `APIRouter` or a Starlette `Router`: it was called as if it were a factory and reported `"application could not load (TypeError)"`. A router's assessment covers its routes only, not the handlers an app adds around it. The named object is called only when it accepts no arguments; one that is inspectable, has a `router` attribute, needs arguments or has an unreadable signature is used as it is. Contributed by @michaelegner (#207).
 
 ## [0.7.0] - 2026-11-19
 

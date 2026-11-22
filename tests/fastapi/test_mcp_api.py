@@ -1,9 +1,9 @@
 """``POST {api}/mcp``, ``GET {api}/mcp-server`` and ``POST {api}/mcp-server/toggle`` over HTTP (port of BootUI
 ``BootUiMcpController``, ``McpServerController`` and the HTTP side of ``AbstractMcpConformanceTest``).
 
-Dropped, with reason: ``testPentestingTools*``, ``testMcpAdvisorDetailTools*``, ``testMcpArchitectureDetails*``,
-``testMcpTransactionsTool*`` (tools outside the MVP catalogue); ``testMcpToolClientErrorIsReportedInBand...`` is
-skipped by BootUI itself unless ``get_exception_detail`` is advertised, which it never is here (the engine case is in
+Dropped, with reason: ``testMcpAdvisorDetailTools*``, ``testMcpArchitectureDetails*`` and
+``testMcpTransactionsTool*`` (outside this lane); ``testMcpToolClientErrorIsReportedInBand...`` is skipped by BootUI
+itself unless ``get_exception_detail`` is advertised, which it never is here (the engine case is in
 ``tests/engine/test_tools.py``).
 """
 
@@ -111,7 +111,8 @@ def test_mcp_server_status_shape():
     # get_exceptions, get_exception_detail, get_sql_traces, get_live_activity, get_alembic_migrations, get_health,
     # get_database_connection_pools, get_threads, get_rest_api_report and get_rest_api_rule_violations
     # (clear/pause/resume are CLI-only)
-    assert all(not t["action"] for t in body["tools"])
+    assert all(not t["action"] or t["name"] == "pentest_scan" for t in body["tools"])
+    assert next(t for t in body["tools"] if t["name"] == "pentest_scan")["action"] is True
     assert body["tools"][0] == {
         "name": "get_overview",
         "description": body["tools"][0]["description"],

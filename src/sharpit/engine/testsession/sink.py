@@ -12,10 +12,11 @@ import inspect
 import threading
 import weakref
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 from sharpit.engine import sqltext
+from sharpit.engine.advisors.http_security import HeaderExpectation, StatusExpectation
 from sharpit.engine.capture.exceptions import fingerprint
 from sharpit.engine.capture.sqltrace import category_of
 from sharpit.engine.masking import Masker
@@ -94,6 +95,26 @@ class TestSessionSink:
         self._exception_ids: dict[int, BaseException] = {}
         self._orphan_snapshots: dict[str, tuple[str, ApiModel]] = {}
         self._models_by_signature: dict[tuple[str, tuple[tuple[object, ...], ...]], ApiModel] = {}
+        self._http_keys: frozenset[tuple[str, str]] = frozenset()
+        self._http_headers: frozenset[str] = frozenset()
+
+    def configure_http(self, headers: Iterable[HeaderExpectation], statuses: Iterable[StatusExpectation]) -> None:
+        """Name the only routes and headers the observer keeps (the configured expectations)."""
+        self._http_keys = frozenset((e.method, e.route) for e in (*headers, *statuses))
+        self._http_headers = frozenset(e.header for e in headers)
+
+    def on_http(self, method: str, state: str, route: str, status: int, header_names: Iterable[str]) -> None:
+        """One finished HTTP exchange of the host's own tests: the running attempt's, else unassociated."""
+        try:
+            if state == "matched" and (method, route) not in self._http_keys:
+                return
+            present = tuple(self._http_headers.intersection(name.lower() for name in header_names))
+            with self._lock:
+                running = self.current_test if self._window is not None else None
+                facts = self.facts.http_unassociated if running is None else running.http
+                facts.record(method, state, route, status, present)
+        except Exception as exc:  # noqa: BLE001
+            self._failed(exc)
 
     @property
     def masker(self) -> Masker:

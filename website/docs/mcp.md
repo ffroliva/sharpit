@@ -16,7 +16,7 @@ Then point a streamable-HTTP MCP client at `http://127.0.0.1:8000/sharpit/api/mc
 
 ## Tools
 
-50 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
+51 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
 `SHARPIT_MCP_MAX_RESULTS`. The names and the read or action split match BootUI 2.3.0 wherever BootUI has the same
 tool.
 
@@ -81,6 +81,10 @@ tool.
 
 - `get_emails`: the bounded outgoing-mail capture inventory (`smtplib` and `aiosmtplib` `sendmail`); content follows the exposure policy, and secret-shaped text is masked unless `SHARPIT_EXPOSE_VALUES=FULL` (a body over the length limit is masked before it is cut, at any exposure). CLI alias `mail`. Never sends, downloads or deletes.
 
+### Pentesting
+
+- `get_pentest_report`: the cached pentesting report: bounded GET and OPTIONS probe findings against the host application, with dismissals applied. Reads the cache only; run `pentest_scan` to refresh it. CLI: `pentest report`.
+
 ### Agent sensors
 
 - `get_agent_status`: the sharpit agent's status; `NOT_ATTACHED` with its reason in this version, which ships no agent sensors. Never claims, installs or changes anything. CLI alias `agent status`.
@@ -102,8 +106,8 @@ Each advisor has a cached report tool and a tool that pages the retained violati
 
 ## Actions
 
-21 action tools change state, send data off the machine, or start a scan. **They are not served over MCP**: the
-`tools/list` answer holds the 50 read tools above and nothing else. They are listed here because each is part of the
+22 action tools change state, send data off the machine, or start a scan. **They are not served over MCP**: the
+`tools/list` answer holds the 51 read tools above and nothing else. They are listed here because each is part of the
 tool catalogue. Actions are available through the CLI endpoint,
 `POST /sharpit/api/cli/tools/<tool>` (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
@@ -118,6 +122,7 @@ Scans and reads that call out:
 - `fastapi_scan`: inspect route handlers and source for FastAPI risks.
 - `postgresql_read`: read PostgreSQL's own `pg_stat_*` and catalog views and record what the server reports.
 - `mysql_read`: read MySQL's `performance_schema` and `information_schema` views.
+- `pentest_scan`: send one bounded GET and one OPTIONS request to a synthetic missing-resource path of the host application, in process (no network), and refresh the pentesting report.
 
 Buffers and recording, which only touch sharpit's own bounded in-memory capture:
 

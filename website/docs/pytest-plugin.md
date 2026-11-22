@@ -38,7 +38,7 @@ continue to use `SHARPIT_*` environment variables.
 | `--sharpit-max-queries=N` | `sharpit_max_queries` | none | Default per-test query budget for the call phase |
 | `--sharpit-fail-on=SEV` | `sharpit_fail_on` | `HIGH` | Minimum advisor finding severity that fails the session |
 | `--sharpit-allow-unknown` | `sharpit_allow_unknown = true` | off | Allow `unknown` run status without failing the build |
-| `--sharpit-app=MOD:ATTR` | `sharpit_app` | none | Import path to ASGI app or factory for offline advisors |
+| `--sharpit-app=MOD:ATTR` | `sharpit_app` | none | Import path to a FastAPI or Starlette app, a router or a zero-argument factory for offline advisors; an object whose routes cannot be inspected makes the advisor `UNKNOWN` |
 | `--sharpit-no-advisors` | `sharpit_advisors = false` | advisors on | Run count gates only and skip advisor scans |
 | `--sharpit-max-unattributed=PCT` | `sharpit_max_unattributed` | `10` | Maximum percentage of non-filtered statements allowed unattributed before run is `unknown` |
 | `--sharpit-report-only` | `sharpit_report_only = true` | off | Report findings without letting them change pytest's exit status (unknown still fails) |

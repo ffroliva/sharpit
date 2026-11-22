@@ -3,7 +3,7 @@ cli:fail-on-insufficient	matched	evaluate insufficient and partial evidence on r
 cli:fail-on-partial-note	matched	PARTIAL scan without findings passes (exit 0) with stderr note that absence is not proof
 cli:fail-on-query-default	matched	insights list defaults to query=all when --fail-on insufficient is active and query omitted
 cli:fail-on-tools-fastapi	adapted	fastapi_scan and get_fastapi_report added to ADVISOR_TOOLS for FastAPI framework advisor
-cli:fail-on-tools-dropped	adapted	crac, graalvm, hibernate, memory, pentest, spring advisor tools dropped as absent from sharpit
+cli:fail-on-tools-dropped	adapted	crac, graalvm, hibernate, memory, spring advisor tools dropped as absent from sharpit; pentest_scan and get_pentest_report are kept
 cli:fail-on-tools-heap-dump	adapted	BootUI lists get_heap_dump_report in EXCLUDED; dropped because sharpit provides no heap dump analysis tool
 cli:fail-on-exceptions-sensor	adapted	get_exceptions removed from insufficient-criterion tools: sharpit records no caught-in-code evidence, so this gate cannot be evaluated (usage error)
 cli:fail-on-pytest-gate-comparison	n-a	note: CLI follows BootUI exactly (gates on INFO; scan status ERROR exits 1 unevaluable regardless of findings); the pytest gate follows the 0.4.0 ruling (INFO notes-only, ERROR with findings fails)

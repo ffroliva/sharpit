@@ -11,7 +11,8 @@ import asyncio
 import functools
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +145,23 @@ def _send(client: TestClient, method: str, path: str, headers: dict[str, str]) -
     return client.request(method, path, headers=headers, json=PING if method == "POST" else None)
 
 
+@pytest.fixture(scope="module")
+def matrix_client() -> Iterator[Callable[[bool, tuple[str, int]], TestClient]]:
+    """One entered client per (remote access, peer): TestClient starts a thread per request outside ``with``, which
+    dominates the 1000 matrix rows on Windows. Each request still starts with an empty cookie jar."""
+    with ExitStack() as stack:
+        clients: dict[tuple[bool, tuple[str, int]], TestClient] = {}
+
+        def get(remote_access: bool, peer: tuple[str, int]) -> TestClient:
+            key = (remote_access, peer)
+            if key not in clients:
+                clients[key] = stack.enter_context(_client(_app(remote_access), peer))
+            clients[key].cookies.clear()
+            return clients[key]
+
+        yield get
+
+
 @pytest.mark.parametrize(
     ("variant", "peer", "headers", "remote_access", "outcome"), VARIANTS, ids=[v[0] for v in VARIANTS]
 )
@@ -159,8 +177,9 @@ def test_guard_matrix(
     headers: dict[str, str],
     remote_access: bool,
     outcome: str,
+    matrix_client: Callable[[bool, tuple[str, int]], TestClient],
 ):
-    resp = _send(_client(_app(remote_access), peer), method, path, headers)
+    resp = _send(matrix_client(remote_access, peer), method, path, headers)
     outcome = _OUTCOME_ALIASES.get(outcome, outcome)
     if outcome == "403-cross-api":  # every API row needs a token, so needs_token is "is an API path"
         outcome = MESSAGE_CROSS_SITE if needs_token else "ok"
@@ -404,8 +423,8 @@ def _no_seed(_handle: SharpitHandle) -> Callable[[], object]:
 
 
 Seed = Callable[[SharpitHandle], Callable[[], object]]
-# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe). A lane declares its own in its
-# safety file (CLI_ACTIONS = ["<tool>", ...]); cli_action_cases adds them while the lane's flag is on.
+# CLI action tools: (tool, panel, seed returning a state probe). `pentest_scan` also has its BootUI MCP action;
+# other actions are CLI-only. Each lane declares its CLI names in its safety file.
 BASE_CLI_ACTIONS: list[tuple[str, str, Seed]] = [
     ("clear_exceptions", "exceptions", _seed_exceptions),
     ("clear_sql_traces", "sql-trace", _seed_sql_trace),
@@ -448,7 +467,39 @@ def test_cli_action_tools_gated(
         assert (resp.status_code, resp.json()) == (403, {"error": reason})
         assert probe() == before
         listed = client.post("/sharpit/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).json()
-        assert tool not in [t["name"] for t in listed["result"]["tools"]]
+        names = [t["name"] for t in listed["result"]["tools"]]
+        assert (tool == "pentest_scan") is (tool in names)
+    finally:
+        handle.uninstall_capture()
+
+
+@pytest.mark.parametrize("gate", ["panel-disabled", "panel-read-only"])
+def test_mcp_pentest_action_is_gated_before_host_invocation(gate: str) -> None:
+    app = FastAPI()
+    host_calls: list[str] = []
+
+    @app.get("/__bootui_pentesting__/missing-resource")
+    async def synthetic_probe():
+        host_calls.append("GET")
+        return {"status": "missing"}
+
+    handle = install(app, enabled="ON", show_banner=False, mcp_enabled="ON", **GATES[gate]("pentesting"))
+    try:
+        response = _client(app).post(
+            "/sharpit/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "pentest_scan", "arguments": {}},
+            },
+        )
+
+        expected = disabled_reason("pentesting") if gate == "panel-disabled" else read_only_reason("pentesting", False)
+        assert response.status_code == 200
+        assert response.json()["result"]["isError"] is True
+        assert response.json()["result"]["content"][0]["text"] == expected
+        assert host_calls == []
     finally:
         handle.uninstall_capture()
 
@@ -761,7 +812,7 @@ CLI_ACTIONS = ["probe_action"]
 
 
 def test_cli_actions_declared_per_lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # 0.5.0 spec §4.4: a lane's safety file declares its CLI-only actions; test_cli_action_tools_gated picks them up
+    # 0.5.0 spec §4.4: a lane's safety file declares its CLI actions; test_cli_action_tools_gated picks them up
     package = tmp_path / "cli_lane_pkg"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
