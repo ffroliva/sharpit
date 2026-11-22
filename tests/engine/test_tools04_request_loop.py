@@ -67,7 +67,7 @@ class _LiveLoop:
 
 def _install_spies(monkeypatch: pytest.MonkeyPatch, ctx: SharpitContext) -> dict[str, list[asyncio.AbstractEventLoop]]:
     seen: dict[str, list[asyncio.AbstractEventLoop]] = {
-        name: [] for name in ("pentest", "mysql", "postgresql", "advisor")
+        name: [] for name in ("pentest", "mysql_read", "postgresql", "advisor")
     }
 
     def coroutine(name: str, value: dict[str, Any]):
@@ -81,7 +81,7 @@ def _install_spies(monkeypatch: pytest.MonkeyPatch, ctx: SharpitContext) -> dict
     monkeypatch.setattr(mysql, "TOOL_WAIT_TIMEOUT", 1)
     monkeypatch.setattr(postgresql, "TOOL_WAIT_TIMEOUT", 1)
     monkeypatch.setattr(database_advisor, "TOOL_WAIT_TIMEOUT", 1)
-    monkeypatch.setattr(mysql, "refresh_mysql", coroutine("mysql", {}))
+    monkeypatch.setattr(mysql, "refresh_mysql", coroutine("mysql_read", {}))
     monkeypatch.setattr(mysql, "summary", lambda value: value)
     monkeypatch.setattr(postgresql, "refresh_postgresql", coroutine("postgresql", {}))
     monkeypatch.setattr(postgresql, "summary", lambda value: value)
@@ -146,7 +146,7 @@ def test_cli_database_actions_use_cli_request_loop(monkeypatch: pytest.MonkeyPat
     try:
         for name in ("mysql_read", "postgresql_read", "database_advisor_scan"):
             call_tool(_call(ctx, host.loop), name, {}, via="cli")
-        assert seen["mysql"] == [host.loop]
+        assert seen["mysql_read"] == [host.loop]
         assert seen["postgresql"] == [host.loop]
         assert seen["advisor"] == [host.loop]
     finally:
