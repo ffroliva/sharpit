@@ -186,6 +186,28 @@ def test_acquisition_timeout_fires_when_disabled_or_above_five_minutes() -> None
     assert isinstance(rule.check(unreadable), str)
 
 
+def test_pool_without_a_timeout_is_a_gap_not_a_finding() -> None:
+    class NullPool:
+        _recycle = -1
+        _pre_ping = False
+
+    engine = type("Engine", (), {"dialect": None, "url": None, "pool": NullPool(), "echo": False})()
+    _, _, pool, _, _ = engine_facts(engine)
+    source = _source("mysql", pool=pool, server={"wait_timeout": "600", "max_connections": "151"})
+
+    outcome = _check("DB-POOL-005", source)
+
+    assert isinstance(outcome, str)
+    assert "could not be read" in outcome
+
+
+def test_zero_timeout_fails_fast_and_does_not_fire() -> None:
+    server = {"wait_timeout": "600", "max_connections": "151"}
+    zero = _source("mysql", pool=_pool(timeout=0.0), server=server)
+
+    assert _check("DB-POOL-005", zero) == []
+
+
 def test_password_never_read(monkeypatch: pytest.MonkeyPatch) -> None:
     # spec §5.8: the driver/pool facts never read url.password
     sa = pytest.importorskip("sqlalchemy")
