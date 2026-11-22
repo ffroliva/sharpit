@@ -25,13 +25,14 @@ from sharpit.engine.guard import (
 from sharpit.engine.headers import CSP
 from sharpit.engine.sqltext import identity
 from sharpit.fastapi.adapter import SharpitMount
+from sharpit.settings import SharpitSettings
 from surface import BASE_PANEL_IDS, expected_panel_ids
 
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
 TOKEN = "test-token"
-# Streams in the GET sweep end quickly (0.02 s) to verify reads without idling.
-STREAM_SWEEP_SECONDS = 0.02
+# A stream must outlive the agent-sessions debounce, or its loop body (refresh, resend) never runs in the sweep.
+STREAM_SWEEP_SECONDS = max(SharpitSettings.copilot_stream_debounce, SharpitSettings.claude_code_stream_debounce) + 0.25
 AUTH_REQUIRED = {"error": "sharpit authentication required"}
 
 
