@@ -41,7 +41,7 @@ RESTRICTED_HEADERS = frozenset(
         "x-sharpit-probe",
     }
 )
-ALLOWED_RESPONSE_HEADERS = frozenset({"content-type", "content-length", "location"})
+ALLOWED_RESPONSE_HEADERS = frozenset({"content-type", "content-length", "location", "x-sharpit-request-id"})
 _HEADER_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$", re.ASCII)
 _METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 

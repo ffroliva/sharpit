@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from fastapi import FastAPI
 from sharpit import pytest_plugin
 from sharpit.engine.testsession.sink import report_masker
+from sharpit.fastapi.introspector import inspectable
+from sharpit.pytest_plugin import apps
 
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
@@ -113,6 +116,28 @@ def test_explicit_flask_app_with_unreadable_map_is_unknown(pytester: pytest.Pyte
     run = _rest_run(pytester)
     assert run["status"] == "UNKNOWN"
     assert run["reason"] == "application routes cannot be inspected (Flask URL map)"
+
+
+def test_explicit_flask_app_with_a_route_map_is_assessed_not_uninspectable(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        app="""
+        from flask import Flask
+        app = Flask('ok', static_folder=None)
+
+        @app.get('/ping')
+        def ping():
+            return 'pong'
+        """
+    )
+    pytester.makepyfile("def test_empty(): pass")
+
+    pytester.runpytest(
+        "--sharpit", "--sharpit-app=app:app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    run = _rest_run(pytester)
+    assert "cannot be inspected" not in (run["reason"] or "")
+    assert run["status"] != "UNKNOWN"
 
 
 def test_single_process_assesses_routes_added_after_the_last_test(pytester: pytest.Pytester) -> None:
@@ -314,3 +339,270 @@ def test_autodetect_names_app_by_shortest_module(monkeypatch: pytest.MonkeyPatch
 
     assert "short_mod:app" in detected
     assert "a_longer_reexport_mod:app" not in detected
+
+
+# --- --sharpit-app: an app whose routes cannot be inspected is unknown, never an empty pass (issue #75) -------------
+
+_EXPECTED = "; expected an app, a router or a zero-argument factory"
+_UNINSPECTABLE = f"application routes cannot be inspected (wsgiapp.Wsgi){_EXPECTED}"
+_WSGI_APP = """
+class Wsgi:  # shaped like a WSGI app: callable, two required arguments, no route list
+    def __call__(self, environ, start_response):
+        return []
+
+app = Wsgi()
+
+def create_app():
+    return Wsgi()
+"""
+
+
+def _run_with_app(pytester: pytest.Pytester, spec: str, *extra: str) -> pytest.RunResult:
+    pytester.makepyfile("def test_empty(): pass")
+    return pytester.runpytest("--sharpit", f"--sharpit-app={spec}", "--sharpit-report=report.json", "-q", *extra)
+
+
+def test_sharpit_app_instance_without_a_route_list_is_uninspectable(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(wsgiapp=_WSGI_APP)
+
+    _run_with_app(pytester, "wsgiapp:app", "--sharpit-allow-unknown")
+
+    run = _rest_run(pytester)
+    assert run["status"] == "UNKNOWN"
+    assert run["reason"] == _UNINSPECTABLE
+
+
+def test_sharpit_app_factory_of_an_uninspectable_app_is_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(wsgiapp=_WSGI_APP)
+
+    _run_with_app(pytester, "wsgiapp:create_app", "--sharpit-allow-unknown")
+
+    run = _rest_run(pytester)
+    assert run["status"] == "UNKNOWN"
+    assert run["reason"] == _UNINSPECTABLE
+
+
+def test_sharpit_app_uninspectable_app_fails_the_run_by_default(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(wsgiapp=_WSGI_APP)
+
+    result = _run_with_app(pytester, "wsgiapp:create_app")
+
+    assert result.ret == 1
+
+
+def test_sharpit_app_uninspectable_app_is_tolerated_with_allow_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(wsgiapp=_WSGI_APP)
+
+    result = _run_with_app(pytester, "wsgiapp:create_app", "--sharpit-allow-unknown")
+
+    assert result.ret == 0
+
+
+def test_sharpit_app_router_is_assessed(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        routermod="""
+        from fastapi import APIRouter
+        router = APIRouter()
+        @router.get('/owners')
+        def owners(): return []
+        """
+    )
+
+    _run_with_app(pytester, "routermod:router", "--sharpit-allow-unknown")
+
+    run = _rest_run(pytester)
+    assert run["status"] in ("PASSED", "FAILED")
+    assert run["apps"][0]["app"] == "routermod:router"
+    assert run["apps"][0]["evidence"]["usable"] is True
+
+
+def test_sharpit_app_empty_fastapi_app_is_a_confirmed_empty_pass(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        emptyapp="""
+        from fastapi import FastAPI
+        app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+        """
+    )
+
+    _run_with_app(pytester, "emptyapp:app")
+
+    assert _rest_run(pytester)["status"] == "PASSED"
+
+
+def test_sharpit_app_factory_of_a_fastapi_app_is_assessed(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        factorymod="""
+        from fastapi import FastAPI
+        def create_app():
+            app = FastAPI()
+            @app.get('/owners')
+            def owners(): return []
+            return app
+        """
+    )
+
+    _run_with_app(pytester, "factorymod:create_app", "--sharpit-allow-unknown")
+
+    run = _rest_run(pytester)
+    assert run["status"] in ("PASSED", "FAILED")
+    assert run["apps"][0]["evidence"]["usable"] is True
+
+
+def test_sharpit_app_factory_that_raises_keeps_the_load_error(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        brokenmod="""
+        def create_app():
+            raise RuntimeError("no database")
+        """
+    )
+
+    _run_with_app(pytester, "brokenmod:create_app", "--sharpit-allow-unknown")
+
+    run = _rest_run(pytester)
+    assert run["status"] == "UNKNOWN"
+    assert run["reason"] == "application could not load (RuntimeError)"
+
+
+class _Recorder:
+    """Accepts any call, zero arguments included, and counts it."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, *args: object) -> str:
+        self.calls += 1
+        return "called"
+
+
+def _fake_module(monkeypatch: pytest.MonkeyPatch, **attrs: object) -> None:
+    module = ModuleType("loadapp_fake")
+    vars(module).update(attrs)
+    monkeypatch.setitem(sys.modules, "loadapp_fake", module)
+
+
+def test_load_app_never_calls_an_inspectable_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    container = _Recorder()
+    vars(container)["routes"] = []
+    _fake_module(monkeypatch, target=container)
+
+    _, loaded = apps.load_app("loadapp_fake:target")
+
+    assert container.calls == 0
+    assert loaded is container
+
+
+def test_load_app_never_calls_a_callable_with_an_unavailable_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    opaque = _Recorder()
+    vars(opaque)["__signature__"] = "unavailable"  # inspect.signature raises TypeError on it
+    _fake_module(monkeypatch, target=opaque)
+
+    _, loaded = apps.load_app("loadapp_fake:target")
+
+    assert opaque.calls == 0
+    assert loaded is opaque
+
+
+def test_load_app_returns_a_callable_that_needs_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+    def needs_arguments(environ: object, start_response: object) -> list[bytes]:
+        return []
+
+    _fake_module(monkeypatch, target=needs_arguments)
+
+    try:
+        loaded: object = apps.load_app("loadapp_fake:target")[1]
+    except TypeError:  # the loader tried to call it with no arguments
+        loaded = None
+
+    assert loaded is needs_arguments
+
+
+def test_load_app_calls_a_factory_whose_arguments_are_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+
+    def create_app(debug: bool = False, **settings: object) -> FastAPI:
+        return app
+
+    _fake_module(monkeypatch, target=create_app)
+
+    assert apps.load_app("loadapp_fake:target")[1] is app
+
+
+def test_load_app_never_calls_an_object_with_a_router_attribute(monkeypatch: pytest.MonkeyPatch) -> None:
+    proxy = _Recorder()  # not inspectable (no route list of its own), yet it carries a router like an app does
+    vars(proxy)["router"] = None
+    _fake_module(monkeypatch, target=proxy)
+
+    _, loaded = apps.load_app("loadapp_fake:target")
+
+    assert proxy.calls == 0
+    assert loaded is proxy
+
+
+def test_inspectable_is_false_for_a_class_that_holds_a_route_list() -> None:
+    class Holder:
+        routes: list[object] = []  # noqa: RUF012 - the class attribute is the point
+
+    assert inspectable(Holder) is False
+
+
+class _TaggingMasker:
+    def mask_text(self, text: str) -> str:
+        return f"masked<{text}>"
+
+    def mask_path(self, text: str) -> str:
+        return text
+
+
+def _uninspectable_reason(target: object) -> str:
+    state = SimpleNamespace(
+        options=SimpleNamespace(advisors=True, app="fake_app:app", fail_on="HIGH"),
+        sink=SimpleNamespace(app_snapshots=list, facts=SimpleNamespace(advisor_runs=[]), masker=_TaggingMasker()),
+        dismissed=[],
+    )
+
+    apps._configured_models(state, lambda spec: (spec, target))
+
+    runs = state.sink.facts.advisor_runs
+    return str(runs[0].reason) if runs else ""  # no run: the app was taken as inspectable
+
+
+def test_uninspectable_reason_passes_the_report_masker() -> None:
+    reason = _uninspectable_reason(object())
+
+    assert reason == f"masked<application routes cannot be inspected (builtins.object){_EXPECTED}>"
+
+
+def test_uninspectable_reason_never_formats_a_host_module_object() -> None:
+    class Loud:
+        calls = 0
+
+        def __str__(self) -> str:
+            Loud.calls += 1
+            return "loud"
+
+    class Host:
+        pass
+
+    Host.__module__ = Loud()  # type: ignore[assignment]
+
+    reason = _uninspectable_reason(Host())
+
+    assert Loud.calls == 0
+    assert "(?." in reason
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="deferred annotations (PEP 649) exist from Python 3.14")
+def test_load_app_calls_a_factory_annotated_with_a_type_checking_only_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+    namespace: dict[str, object] = {"made": app}
+    source = "def create_app(settings: Settings | None = None):\n    return made\n"
+    # dont_inherit: this file's `from __future__ import annotations` would turn the annotation into a string
+    exec(compile(source, "hostmod.py", "exec", dont_inherit=True), namespace)  # noqa: S102 - a host module on 3.14
+    _fake_module(monkeypatch, target=namespace["create_app"])
+
+    try:
+        loaded: object = apps.load_app("loadapp_fake:target")[1]
+    except NameError:  # the loader evaluated the annotation instead of only binding arguments
+        loaded = None
+
+    assert loaded is app
