@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 import weakref
@@ -18,6 +19,7 @@ from sharpit.engine.sqla import _lock
 from sharpit.engine.sqla import connections as _connections
 from sharpit.engine.sqla import orm as _orm
 from sharpit.engine.sqla.dialect_source import connection_dialect
+from sharpit.engine.sqla.inspect import EngineRegistry
 from sharpit.engine.sqla.orm import (
     _eager_relationship_batches,
     _lazy_seen,
@@ -227,19 +229,31 @@ def _sync_listeners() -> None:
 
 def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
     """Route statements and/or engine discovery to ``ctx``; False while SQLAlchemy is not imported (retry later)."""
-    if _sqla.sqlalchemy_module() is None:
+    if _sqla.sqlalchemy_module() is None or (not statements and not discovery):
         return False
-    registry = ctx.capture.engine_registry
-    if registry is not None:
-        for engine in ctx.engines:
-            registry.add(engine)
     with _lock:
+        had_statements = ctx.context_id in _statement_contexts
+        had_discovery = ctx.context_id in _discovery_contexts
         if statements:
             dispatch.add_context(ctx)
             _statement_contexts[ctx.context_id] = ctx
         if discovery:
             _discovery_contexts[ctx.context_id] = ctx
-        _sync_listeners()
+        try:
+            _sync_listeners()
+        except Exception:
+            if statements and not had_statements:
+                _statement_contexts.pop(ctx.context_id, None)
+                dispatch.remove_context(ctx)
+            if discovery and not had_discovery:
+                _discovery_contexts.pop(ctx.context_id, None)
+            with contextlib.suppress(Exception):
+                _sync_listeners()
+            raise
+        registry = ctx.capture.engine_registry
+        if isinstance(registry, EngineRegistry):
+            for engine in ctx.engines:
+                registry.add(engine)
     return True
 
 
@@ -324,7 +338,9 @@ def following_connections(ctx: SharpitContext) -> bool:
 
 def following_statements(ctx: SharpitContext) -> bool:
     """Whether the statement listeners run for ``ctx``: SQLAlchemy statements can be recorded."""
-    return True
+    with _lock:
+        armed = attached()
+        return ctx.context_id in _statement_contexts and all(armed[name] for name in STATEMENT_EVENTS)
 
 
 def note_request_captured() -> None:

@@ -70,9 +70,14 @@ def _in_use(ctx: SharpitContext) -> dict[str, bool]:
     """Which SQL sources have a database in use here: a statement routed here, or (SQLAlchemy) an engine registered."""
     capture = ctx.capture
     registry = capture.engine_registry
+    sqla_in_use = SQLALCHEMY in capture.sql_delivered or (
+        registry is not None
+        and registry.seen_any
+        and (following_statements(ctx) or SQLALCHEMY in capture.suspended_sources)
+    )
     return {
         # seen_any is write-once: the registry holds engines weakly, so a collected engine stays a database used here
-        SQLALCHEMY: SQLALCHEMY in capture.sql_delivered or (registry is not None and registry.seen_any),
+        SQLALCHEMY: sqla_in_use,
         SQLITE3: SQLITE3 in capture.sql_delivered,
     }
 
