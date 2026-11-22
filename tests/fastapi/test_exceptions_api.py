@@ -87,6 +87,20 @@ def _failing_app() -> FastAPI:
 # --- sources and dedup ---------------------------------------------------------------------------------------------
 
 
+def test_request_path_matrix_parameters_masked_in_the_recorded_group():
+    # ported: UriMaskingTests.masksPathMatrixParametersThroughMaskPath
+    app = FastAPI()
+
+    @app.get("/orders/{item}")
+    def fail(item: str) -> None:  # pyright: ignore[reportUnusedFunction]
+        raise MyError("boom")
+
+    _install(app)
+    with _client(app) as client:
+        client.get("/orders/42;token=abc")
+        assert _groups(client)[0]["lastRequestPath"] == "/orders/42;token=******"
+
+
 def test_unhandled_exception_recorded_from_request():
     app = _failing_app()
     _install(app)
