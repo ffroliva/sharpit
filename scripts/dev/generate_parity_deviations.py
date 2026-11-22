@@ -56,6 +56,8 @@ FRAGMENTS_0_8_0: list[tuple[str, str]] = [
 FRAGMENTS_0_9_0: list[tuple[str, str]] = [
     ("M1", "0.9.0-m1.tsv"),
     ("M2", "0.9.0-m2.tsv"),
+    ("R0", "0.9.0-r0.tsv"),
+    ("S3/S4", "0.9.0-s34.tsv"),
 ]
 
 SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"
@@ -154,7 +156,7 @@ def update_parity_md(
         new_content = f"{prefix}\n\n{sec_0_7_0}\n{sec_0_8_0}\n{sec_0_9_0}"
     else:
         new_content = f"{content.rstrip()}\n\n{sec_0_7_0}\n{sec_0_8_0}\n{sec_0_9_0}"
-    parity_path.write_text(new_content, encoding="utf-8")
+    parity_path.write_text(new_content, encoding="utf-8", newline="\n")
     return new_content
 
 
