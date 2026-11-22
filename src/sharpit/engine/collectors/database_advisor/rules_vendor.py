@@ -73,6 +73,12 @@ _MYSQL_SQL = {
 }
 _INVISIBLE_SQL = "SELECT DISTINCT TABLE_NAME AS tbl, INDEX_NAME AS idx FROM information_schema.STATISTICS " \
     "WHERE TABLE_SCHEMA = DATABASE() AND {} ORDER BY 1, 2"  # fmt: skip
+_UNENFORCED_CHECKS_SQL = (
+    "SELECT tc.TABLE_NAME AS tbl, tc.CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS tc "
+    "JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = tc.TABLE_SCHEMA AND t.TABLE_NAME = tc.TABLE_NAME "
+    "WHERE tc.TABLE_SCHEMA = DATABASE() AND t.TABLE_TYPE = 'BASE TABLE' AND tc.CONSTRAINT_TYPE = 'CHECK' "
+    "AND tc.ENFORCED = 'NO' ORDER BY 1, 2"
+)
 
 
 def _statements(dialect: Any) -> dict[str, str]:
@@ -82,7 +88,13 @@ def _statements(dialect: Any) -> dict[str, str]:
     if name not in MYSQL:
         return {}
     mariadb = name == "mariadb" or getattr(dialect, "is_mariadb", False) is True
-    return {**_MYSQL_SQL, "invisible": _INVISIBLE_SQL.format("IGNORED = 'YES'" if mariadb else "IS_VISIBLE = 'NO'")}
+    statements = {
+        **_MYSQL_SQL,
+        "invisible": _INVISIBLE_SQL.format("IGNORED = 'YES'" if mariadb else "IS_VISIBLE = 'NO'"),
+    }
+    if not mariadb:
+        statements["unenforcedChecks"] = _UNENFORCED_CHECKS_SQL
+    return statements
 
 
 def _fetch(conn: Any, sql: str, limit: int) -> tuple[list[str], list[Any]]:
@@ -318,6 +330,36 @@ def _mysql_strict_sql_mode(source: Source) -> Outcome:
     return [_hit(source, "sql_mode", text, "setting=sql_mode")]
 
 
+def _unenforced_check_constraints(source: Source) -> Outcome:
+    if source.dialect not in MYSQL:
+        return f"This check reads the {' or '.join(MYSQL)} catalog; datasource {source.name} is {source.dialect}."
+    if source.dialect == "mariadb":
+        return "MariaDB does not support NOT ENFORCED check constraints; only MySQL 8.0.16 or later is evaluated."
+    server_ver = source.server.get("server_version") or source.server.get("version")
+    if server_ver:
+        with contextlib.suppress(Exception):
+            parts = [int(p) for p in re.findall(r"\d+", str(server_ver))]
+            if parts and (
+                parts[0] < 8
+                or (parts[0] == 8 and len(parts) > 1 and parts[1] == 0 and len(parts) > 2 and parts[2] < 16)
+            ):
+                return "Not applicable: check constraints require MySQL 8.0.16 or later."
+    rows = _rows(source, ("mysql",), "unenforcedChecks")
+    if isinstance(rows, str):
+        if "ENFORCED" in rows or "doesn't exist" in rows:
+            return "Not applicable: check constraints require MySQL 8.0.16 or later."
+        return rows
+    hits: list[Hit] = []
+    for row in rows:
+        text = (
+            f"check constraint `{row['name']}` on `{row['tbl']}` is NOT ENFORCED "
+            "(information_schema.table_constraints.ENFORCED = 'NO'); writes and existing rows are not checked."
+        )
+        where = f"{row['tbl']}.{row['name']}"
+        hits.append(_hit(source, where, text, f"table={row['tbl']}", f"constraint={row['name']}"))
+    return hits
+
+
 def _rule(rule_id: str, title: str, category: str, severity: Severity, description: str, recommendation: str,
           url: str, check: Callable[[Source], Outcome]) -> Rule:  # fmt: skip
     return Rule(RuleDefinition(rule_id, title, category, severity, description, recommendation, url), check)
@@ -378,6 +420,12 @@ RULES = (
           "capacity. The counter can be cached or stale; it is not a row count.",
           "Review the column bounds and the referencing columns; never reset a counter blindly. " + _REVIEW,
           "https://dev.mysql.com/doc/refman/8.4/en/innodb-auto-increment-handling.html", _auto_increment),
+    _rule("DB-MYSQL-004", "Unenforced MySQL check constraints", "MySQL", "LOW",
+          "Detects MySQL 8.0.16+ check constraints on base tables with information_schema.table_constraints.ENFORCED "
+          "= 'NO'. MariaDB does not expose ENFORCED check constraints and is not evaluated.",
+          "Review whether NOT ENFORCED is intentional. Enforce the check constraint with ALTER TABLE ... ALTER CHECK "
+          "... ENFORCED after verifying that existing rows satisfy it, or drop an obsolete constraint. " + _REVIEW,
+          "https://dev.mysql.com/doc/refman/8.4/en/create-table-check-constraints.html", _unenforced_check_constraints),
     _rule("DB-SERVER-001", "PostgreSQL does not end sessions that are idle in a transaction", "Server", "LOW",
           "Fires when idle_in_transaction_session_timeout is 0 for the role (pg_settings.reset_val): a session left "
           "idle in a transaction keeps its locks and holds back vacuum.",

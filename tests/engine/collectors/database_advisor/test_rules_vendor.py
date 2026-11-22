@@ -22,7 +22,7 @@ from sharpit.engine.sqla.inspect import CatalogBounds
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
 MYSQL_URL = os.environ.get("SHARPIT_TEST_MYSQL_URL", "")
 PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-PG-006", "DB-SERVER-001")
-MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003", "DB-SERVER-008")
+MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003", "DB-MYSQL-004", "DB-SERVER-008")
 
 
 def _fact(*rows: dict[str, Any]) -> dict[str, Any]:
@@ -329,3 +329,56 @@ def test_mysql_strict_sql_mode_fires_when_not_strict() -> None:
     )
     outcome_bad = _check("DB-SERVER-008", bad_token)
     assert isinstance(outcome_bad, str)
+
+
+def test_mysql_unenforced_check_constraints_is_reported() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests
+    #   .mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql
+    mysql = Source(
+        "ds",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {
+            "server": {"server_version": "8.4.0"},
+            "vendor": {
+                "unenforcedChecks": _fact({"tbl": "orders", "name": "chk_orders_total"}),
+            },
+        },
+    )
+    violation = _check("DB-MYSQL-004", mysql)
+    assert _targets(violation) == ["ds/orders.chk_orders_total"]
+    assert "chk_orders_total" in violation[0][1]
+    assert "orders" in violation[0][1]
+    assert "NOT ENFORCED" in violation[0][1]
+
+    clean = Source(
+        "ds",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {
+            "server": {"server_version": "8.4.0"},
+            "vendor": {"unenforcedChecks": _fact()},
+        },
+    )
+    assert _targets(_check("DB-MYSQL-004", clean)) == []
+
+    mariadb = Source("maria", "mariadb", "driver", "AVAILABLE", None, {})
+    maria_outcome = _check("DB-MYSQL-004", mariadb)
+    assert isinstance(maria_outcome, str)
+    assert "MariaDB does not support NOT ENFORCED" in maria_outcome
+
+    old_mysql = Source(
+        "old",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"server": {"server_version": "5.7.44"}, "vendor": {}},
+    )
+    old_outcome = _check("DB-MYSQL-004", old_mysql)
+    assert isinstance(old_outcome, str)
+    assert "MySQL 8.0.16 or later" in old_outcome

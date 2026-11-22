@@ -328,7 +328,7 @@ the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (116 entries):
 ## 0.9.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (8 entries):
+the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (9 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -340,3 +340,4 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (8 entries):
 | M2 | DB-SCHEMA-011 | ported | Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule. |
 | M2 | DB-PG-006 | ported | Ported from BootUI 2.5.0 PostgresEmptyPartitionedTableRule. |
 | M2 | DB-SERVER-008 | ported | Ported from BootUI 2.5.0 MySqlStrictSqlModeRule. |
+| M2 | DB-MYSQL-004 | ported | Ported from BootUI 2.5.0 MySqlUnenforcedCheckConstraintRule. |
