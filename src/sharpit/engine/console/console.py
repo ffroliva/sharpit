@@ -65,13 +65,11 @@ def _headers(request: ConsoleRequest) -> tuple[dict[str, list[str]], guard.Denia
     values: dict[str, list[str]] = {}
     for key, value in request.raw_headers:
         values.setdefault(key.decode("latin-1").lower(), []).append(value.decode("latin-1"))
-    if len(values.get("host", ())) > 1 or any("," in value for value in values.get("host", ())):
+    # Duplicates only: comma splitting of server-folded headers belongs to the WSGI adapter (design 3.1), so ASGI keeps
+    # today's bytes.
+    if len(values.get("host", ())) > 1:
         return values, guard.Denial(403, {"error": guard.MESSAGE_DISALLOWED_HOST})
-    if (
-        len(values.get("origin", ())) > 1
-        or len(values.get("sec-fetch-site", ())) > 1
-        or any("," in value for name in ("origin", "sec-fetch-site") for value in values.get(name, ()))
-    ):
+    if len(values.get("origin", ())) > 1 or len(values.get("sec-fetch-site", ())) > 1:
         return values, guard.Denial(403, {"error": guard.MESSAGE_CROSS_SITE})
     return values, None
 
