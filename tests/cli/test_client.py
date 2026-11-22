@@ -349,8 +349,8 @@ def test_post_read_timeout_marks_the_request_as_sent(endpoint):
     base, routes, requests, _, delays, *_ = endpoint
     path = "/sharpit/api/mcp-server/toggle"
     routes[path] = (200, b'{"enabled":true}', None)
-    delays[path] = 0.5
-    client = Client(options(base, timeout=0.1))
+    delays[path] = 2.0
+    client = Client(options(base, timeout=1))  # room for a slow connect, so the timeout is the read's
 
     with pytest.raises(ClientError) as caught:
         client.post_result("/mcp-server/toggle", "{}")
