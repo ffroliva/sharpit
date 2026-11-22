@@ -286,6 +286,38 @@ def _empty_partitioned_tables(source: Source) -> Outcome:
     return [_hit(source, row["tbl"], text.format(**row), f"table={row['tbl']}", f"object={row['tbl']}") for row in rows]
 
 
+def _is_identifier_token(token: str) -> bool:
+    if not token:
+        return False
+    return all(c.isalnum() or c == "_" for c in token) and not token[0].isdigit()
+
+
+def _mysql_strict_sql_mode(source: Source) -> Outcome:
+    if source.dialect not in MYSQL:
+        return f"This check reads the {' or '.join(MYSQL)} catalog; datasource {source.name} is {source.dialect}."
+    if "sql_mode" not in source.server:
+        return "The server did not report sql_mode."
+    raw = str(source.server["sql_mode"]).strip()
+    if not raw:
+        strict = False
+    else:
+        tokens = [t.strip() for t in raw.split(",")]
+        for token in tokens:
+            if not _is_identifier_token(token):
+                return "sql_mode contains an invalid token."
+        strict = any(t.upper() in ("STRICT_TRANS_TABLES", "STRICT_ALL_TABLES") for t in tokens)
+
+    if strict:
+        return []
+
+    shown = "empty" if not raw else f"`{raw if len(raw) <= 64 else raw[:64] + '...'}`"
+    text = (
+        f"`sql_mode` is {shown} (neither `STRICT_TRANS_TABLES` nor `STRICT_ALL_TABLES` is enabled), "
+        "so invalid or over-long values can be coerced instead of rejected."
+    )
+    return [_hit(source, "sql_mode", text, "setting=sql_mode")]
+
+
 def _rule(rule_id: str, title: str, category: str, severity: Severity, description: str, recommendation: str,
           url: str, check: Callable[[Source], Outcome]) -> Rule:  # fmt: skip
     return Rule(RuleDefinition(rule_id, title, category, severity, description, recommendation, url), check)
@@ -352,4 +384,14 @@ RULES = (
           "Set a limit on the role the application uses, unless it only runs short, trusted transactions.",
           "https://www.postgresql.org/docs/current/runtime-config-client.html",
           _setting("idle_in_transaction_session_timeout", "idle_in_transaction_session_timeout is 0.")),
+    _rule("DB-SERVER-008", "MySQL/MariaDB strict transactional SQL mode is disabled", "Server", "MEDIUM",
+          "Detects a MySQL or MariaDB server whose session sql_mode includes neither STRICT_TRANS_TABLES nor "
+          "STRICT_ALL_TABLES. Both MySQL 8.0+ and MariaDB 10.2.4+ enable STRICT_TRANS_TABLES by default; without a "
+          "strict mode, invalid, missing, out-of-range or over-long values in DML statements can be silently "
+          "truncated or coerced to implicit defaults instead of raising an error. The value is the one the scan "
+          "connection's own session sees.",
+          "Restore STRICT_TRANS_TABLES (or STRICT_ALL_TABLES) in the server's sql_mode configuration and check that "
+          "neither sessionVariables in the JDBC URL nor connectionInitSql on the pool strips strict mode from "
+          "application connections.",
+          "https://dev.mysql.com/doc/refman/8.4/en/sql-mode.html#sql-mode-strict", _mysql_strict_sql_mode),
 )  # fmt: skip

@@ -22,7 +22,7 @@ from sharpit.engine.sqla.inspect import CatalogBounds
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
 MYSQL_URL = os.environ.get("SHARPIT_TEST_MYSQL_URL", "")
 PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-PG-006", "DB-SERVER-001")
-MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
+MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003", "DB-SERVER-008")
 
 
 def _fact(*rows: dict[str, Any]) -> dict[str, Any]:
@@ -275,3 +275,57 @@ def test_postgres_empty_partitioned_table_skips_before_postgres_10() -> None:
     outcome = _check("DB-PG-006", pg96)
     assert isinstance(outcome, str)
     assert "PostgreSQL 10 or later" in outcome
+
+
+def test_mysql_strict_sql_mode_fires_when_not_strict() -> None:
+    # ported: DatabaseAdvisorServerRulesTests.strictSqlModeFiresWhenNeitherStrictTransTablesNorStrictAllTablesIsPresent
+    for dialect in ("mysql", "mariadb"):
+        empty = Source("ordersDb", dialect, "driver", "AVAILABLE", None, {"server": {"sql_mode": ""}})
+        empty_outcome = _check("DB-SERVER-008", empty)
+        assert _targets(empty_outcome) == ["ordersDb/sql_mode"]
+        assert "ordersDb" in empty_outcome[0][1]
+        assert "`sql_mode` is empty" in empty_outcome[0][1]
+        assert "STRICT_TRANS_TABLES" in empty_outcome[0][1]
+
+        non_strict = Source(
+            "ordersDb",
+            dialect,
+            "driver",
+            "AVAILABLE",
+            None,
+            {"server": {"sql_mode": "ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION"}},
+        )
+        non_strict_outcome = _check("DB-SERVER-008", non_strict)
+        assert _targets(non_strict_outcome) == ["ordersDb/sql_mode"]
+        assert "`ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION`" in non_strict_outcome[0][1]
+
+        strict_trans = Source(
+            "ordersDb",
+            dialect,
+            "driver",
+            "AVAILABLE",
+            None,
+            {"server": {"sql_mode": "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES"}},
+        )
+        assert _targets(_check("DB-SERVER-008", strict_trans)) == []
+
+        strict_all = Source(
+            "ordersDb",
+            dialect,
+            "driver",
+            "AVAILABLE",
+            None,
+            {"server": {"sql_mode": "STRICT_ALL_TABLES"}},
+        )
+        assert _targets(_check("DB-SERVER-008", strict_all)) == []
+
+    bad_token = Source(
+        "ordersDb",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"server": {"sql_mode": "bad token"}},
+    )
+    outcome_bad = _check("DB-SERVER-008", bad_token)
+    assert isinstance(outcome_bad, str)

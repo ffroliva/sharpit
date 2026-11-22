@@ -103,7 +103,7 @@ def test_server_limits_are_read(url: str) -> None:
 # --- lane A-dbadv-2: the vendor rules against a server, through the scan's own read-only read --------------------
 
 PG_VENDOR = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-PG-006", "DB-SERVER-001")
-MYSQL_VENDOR = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
+MYSQL_VENDOR = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003", "DB-SERVER-008")
 
 
 def _vendor_scan(url: str, dialect: str) -> tuple[list[str], dict[str, str], int, set[str], set[str]]:

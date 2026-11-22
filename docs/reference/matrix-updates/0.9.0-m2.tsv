@@ -1,2 +1,3 @@
 DB-SCHEMA-011	ported	Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule.
 DB-PG-006	ported	Ported from BootUI 2.5.0 PostgresEmptyPartitionedTableRule.
+DB-SERVER-008	ported	Ported from BootUI 2.5.0 MySqlStrictSqlModeRule.

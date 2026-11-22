@@ -34,8 +34,8 @@ class CatalogBounds:
 _SERVER_SQL = {
     "postgresql": "SELECT name, setting FROM pg_settings WHERE name IN ('max_connections', "
     "'superuser_reserved_connections', 'reserved_connections', 'idle_session_timeout')",
-    "mysql": "SHOW SESSION VARIABLES WHERE Variable_name IN ('wait_timeout', 'max_connections')",
-    "mariadb": "SHOW SESSION VARIABLES WHERE Variable_name IN ('wait_timeout', 'max_connections')",
+    "mysql": "SHOW SESSION VARIABLES WHERE Variable_name IN ('wait_timeout', 'max_connections', 'sql_mode')",
+    "mariadb": "SHOW SESSION VARIABLES WHERE Variable_name IN ('wait_timeout', 'max_connections', 'sql_mode')",
 }
 
 
