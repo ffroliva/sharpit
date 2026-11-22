@@ -107,7 +107,7 @@ sharpit is a modular monolith with one port at the framework edge. `tests/engine
 these on every run (a planted violation proves each rule still bites); a failing rule is a design question, not a test
 to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
 
-1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
+1. **Framework-free engine.** `engine/` never imports `fastapi`, `starlette` or `flask` (a `TYPE_CHECKING` block is allowed).
 2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.flask`, `sharpit.pytest_plugin`
    or `sharpit.ui`,
    not even for a type. No module under `src/sharpit/` outside `sharpit/cli/` imports `sharpit.cli`; modules under
