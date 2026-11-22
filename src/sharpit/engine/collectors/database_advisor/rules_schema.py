@@ -228,6 +228,23 @@ def _narrow_generated_primary_key(source: Source) -> Outcome:
     return hits
 
 
+def _fk_set_null_rules(fk: dict[str, Any]) -> tuple[bool, bool]:
+    options = {str(k).lower(): str(v).upper() for k, v in fk.get("options", {}).items()}
+    if options.get("enforced") in ("NO", "FALSE", "0"):
+        return False, False
+    delete_set_null = options.get("ondelete", "") in ("SET NULL", "SET_NULL")
+    update_set_null = options.get("onupdate", "") in ("SET NULL", "SET_NULL")
+    return delete_set_null, update_set_null
+
+
+def _fk_action_and_trigger(delete_set_null: bool, update_set_null: bool) -> tuple[str, str]:
+    if delete_set_null and update_set_null:
+        return "ON DELETE SET NULL and ON UPDATE SET NULL", "delete or update"
+    if delete_set_null:
+        return "ON DELETE SET NULL", "delete"
+    return "ON UPDATE SET NULL", "update"
+
+
 def _foreign_key_set_null_on_not_null_column(source: Source) -> Outcome:
     if (reason := unreadable(source)) is not None:
         return reason
@@ -235,47 +252,14 @@ def _foreign_key_set_null_on_not_null_column(source: Source) -> Outcome:
     for t in source.tables:
         cols_by_name = {c["name"]: c for c in t["columns"]}
         for position, fk in enumerate(t["foreignKeys"]):
-            options = {str(k).lower(): str(v).upper() for k, v in fk.get("options", {}).items()}
-            if options.get("enforced") in ("NO", "FALSE", "0"):
-                continue
-
-            delete_rule = options.get("ondelete", "")
-            update_rule = options.get("onupdate", "")
-            delete_set_null = delete_rule in ("SET NULL", "SET_NULL")
-            update_set_null = update_rule in ("SET NULL", "SET_NULL")
-
-            fk_cols = fk["columns"]
-            if not fk_cols:
-                continue
-
-            any_nullable = False
-            unknown_nullability = False
-            for col_name in fk_cols:
-                col = cols_by_name.get(col_name)
-                if col is None or col.get("nullable") is None:
-                    unknown_nullability = True
-                elif col.get("nullable") is True:
-                    any_nullable = True
-
-            if any_nullable:
-                continue
-
+            delete_set_null, update_set_null = _fk_set_null_rules(fk)
             if not delete_set_null and not update_set_null:
                 continue
-
-            if unknown_nullability:
+            fk_cols = fk["columns"]
+            if not fk_cols or not all(cols_by_name.get(c, {}).get("nullable") is False for c in fk_cols):
                 continue
 
-            action = (
-                "ON DELETE SET NULL and ON UPDATE SET NULL"
-                if delete_set_null and update_set_null
-                else "ON DELETE SET NULL"
-                if delete_set_null
-                else "ON UPDATE SET NULL"
-            )
-            trigger = (
-                "delete or update" if delete_set_null and update_set_null else "delete" if delete_set_null else "update"
-            )
+            action, trigger = _fk_action_and_trigger(delete_set_null, update_set_null)
             columns_text = (
                 f"column {fk_cols[0]} is NOT NULL"
                 if len(fk_cols) == 1
@@ -287,13 +271,7 @@ def _foreign_key_set_null_on_not_null_column(source: Source) -> Outcome:
                 f"{source.name}: {t['name']} foreign key {fk_name} {cols_repr} specifies {action}, but {columns_text}; "
                 f"a parent {trigger} will fail the NOT NULL constraint."
             )
-            hits.append(
-                (
-                    _where(source, t, f": {fk_name}"),
-                    text,
-                    _identity(source, t, f"fk={fk_name}"),
-                )
-            )
+            hits.append((_where(source, t, f": {fk_name}"), text, _identity(source, t, f"fk={fk_name}")))
     return hits
 
 
