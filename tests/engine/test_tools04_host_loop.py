@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections.abc import Callable
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Any
 
@@ -14,9 +13,7 @@ from sharpit.engine.context import SharpitContext
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.tools import CallContext, ToolCallError, call_tool
 from sharpit.engine.tools04 import database_advisor, mysql, postgresql
-from sharpit.engine.tools04 import hostloop
 from sharpit.settings import load_settings
-
 
 _CASES = [
     (mysql, "mysql_read", "refresh_mysql", "mysql-read", "MySQL read timed out."),
@@ -136,7 +133,9 @@ def test_read_finished_at_the_deadline_returns_its_result(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", lambda _coro, _loop: _Future())
     try:
-        from sharpit.engine.tools04 import hostloop`r`n`r`n    assert hostloop.wait_on_host_loop(loop, completed(), 0.01, "timed out", "unavailable") == "done"
+        from sharpit.engine.tools04 import hostloop
+
+        assert hostloop.wait_on_host_loop(loop, completed(), 0.01, "timed out", "unavailable") == "done"
     finally:
         loop.close()
 
@@ -152,8 +151,9 @@ def test_loop_closed_during_submit_answers_unavailable(monkeypatch: pytest.Monke
         raise RuntimeError("loop closed")
 
     monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", close_then_submit)
+    from sharpit.engine.tools04 import hostloop
+
     with pytest.raises(ToolCallError) as caught:
         hostloop.wait_on_host_loop(loop, pending(), 0.01, "timed out", "loop unavailable")
     assert caught.value.status == 503
     assert str(caught.value) == "loop unavailable"
-
