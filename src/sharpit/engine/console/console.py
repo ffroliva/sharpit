@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
 import re
+import time
 from dataclasses import replace
 from urllib.parse import parse_qs
 
@@ -19,12 +21,21 @@ from sharpit.engine.console.types import (
     RouteSpec,
 )
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.spi import HostLoopProvider
 
 _STATIC_ERROR_HEADERS = tuple(security_headers("api"))
 _LOGGER = logging.getLogger("sharpit")
+
+
+class _NoOpAuditHook:
+    def on_action(self, event: ActionAuditEvent) -> None:
+        pass
+
+
+_DEFAULT_AUDIT_HOOK = _NoOpAuditHook()
 
 
 def _compile(template: str) -> re.Pattern[str]:
@@ -67,10 +78,9 @@ def _headers(request: ConsoleRequest) -> tuple[dict[str, list[str]], guard.Denia
 
 def _response_headers(headers: ResponseHeaders, kind: ResponseClass) -> ResponseHeaders:
     merged = list(headers)
-    if not any(key.lower() == "content-security-policy" for key, _ in merged):
-        for key, value in security_headers(kind):
-            if not any(existing.lower() == key.lower() for existing, _ in merged):
-                merged.append((key, value))
+    for key, value in security_headers(kind):
+        if not any(existing.lower() == key.lower() for existing, _ in merged):
+            merged.append((key, value))
     return tuple(merged)
 
 
@@ -83,7 +93,7 @@ class Console:
     ) -> None:
         self.ctx = ctx
         self.routes = routes
-        self.audit_hook = audit_hook
+        self.audit_hook: ActionAuditHook = audit_hook or _DEFAULT_AUDIT_HOOK
 
     async def handle(
         self, request: ConsoleRequest, *, host_loop_provider: HostLoopProvider | None = None
@@ -104,7 +114,7 @@ class Console:
                 )
 
     def _json(self, status: int, value: object, headers: tuple[tuple[str, str], ...] = ()) -> ConsoleResponse:
-        return ConsoleResponse(status, tuple(headers) + tuple(security_headers("api")), json.dumps(value).encode())
+        return ConsoleResponse(status, _response_headers(headers, "api"), json.dumps(value).encode())
 
     async def _handle(self, request: ConsoleRequest, host_loop_provider: HostLoopProvider | None) -> ConsoleResponse:
         values, header_denial = _headers(request)
@@ -144,11 +154,35 @@ class Console:
             request,
             headers,
             params,
-            {k: v[-1] for k, v in parse_qs(request.raw_query.decode("latin-1")).items()},
+            {k: v[-1] for k, v in parse_qs(request.raw_query.decode("latin-1"), keep_blank_values=True).items()},
             trusted,
             host_loop_provider,
         )
-        response = route.handler(call)
-        if inspect.isawaitable(response):
-            response = await response
+        if inspect.iscoroutinefunction(route.handler):
+            response = await route.handler(call)
+        elif route.on_loop:
+            response = route.handler(call)
+            if inspect.isawaitable(response):
+                response = await response
+        else:
+            loop = asyncio.get_running_loop()
+            executor = self.ctx.lazy(
+                "console.executor",
+                lambda: DaemonExecutor(4, thread_name_prefix="sharpit-console"),
+            )
+            response = await loop.run_in_executor(executor, route.handler, call)
+            if inspect.isawaitable(response):
+                response = await response
+
+        if route.kind == "action" and route.id not in ("mcp.rpc", "cli.invoke"):
+            event = ActionAuditEvent(
+                action_id=route.id,
+                channel="console",
+                panel=route.panel,
+                timestamp_ms=int(time.time() * 1000),
+                status=response.status,
+                ok=200 <= response.status < 400,
+            )
+            self.audit_hook.on_action(event)
+
         return replace(response, headers=_response_headers(response.headers, route.response_class))
