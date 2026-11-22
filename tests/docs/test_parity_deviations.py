@@ -57,7 +57,7 @@ def test_every_fragment_row_is_categorized():
                 assert any(d.key == key and d.lane == lane for d in deviations_0_7_0)
 
     deviations_0_8_0 = collect_deviations(fragments=FRAGMENTS_0_8_0)
-    assert len(deviations_0_8_0) == 79
+    assert len(deviations_0_8_0) == 114
 
     for lane, filename in FRAGMENTS_0_8_0:
         filepath = MATRIX_UPDATES / filename
