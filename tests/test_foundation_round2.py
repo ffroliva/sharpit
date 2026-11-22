@@ -41,18 +41,18 @@ def _flags(monkeypatch: pytest.MonkeyPatch, implemented: dict[str, bool]) -> Non
 # --- finding 1: flag-flip-safe replacements ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("panel_id", sorted(panels04.PANEL_04_IDS))
 @pytest.mark.parametrize("implemented", [False, True], ids=["flag-false", "flag-true"])
-def test_panel_surface_follows_its_flag(monkeypatch: pytest.MonkeyPatch, panel_id: str, implemented: bool) -> None:
-    _flags(monkeypatch, {panel_id: implemented})
+def test_panel_surface_follows_its_flag(monkeypatch: pytest.MonkeyPatch, implemented: bool) -> None:
+    _flags(monkeypatch, dict.fromkeys(panels04.PANEL_04_IDS, implemented))
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, config_scan=False)
     client = TestClient(app, base_url="http://localhost", client=LOCAL)
 
     listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
-    assert (panel_id in listed) is implemented
-    if not implemented:
-        assert client.get(f"/sharpit/api/{panel_id}").status_code == 404
+    for panel_id in sorted(panels04.PANEL_04_IDS):
+        assert (panel_id in listed) is implemented
+        if not implemented:
+            assert client.get(f"/sharpit/api/{panel_id}").status_code == 404
 
 
 @pytest.mark.parametrize("panel_id", sorted(panels04.PANEL_04_IDS))
