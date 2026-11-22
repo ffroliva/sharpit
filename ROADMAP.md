@@ -11,7 +11,7 @@ Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 t
 | Tools under BootUI's exact names | 45 | 62 | 62 | 64 | - | - | - |
 | Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
 | Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of the 65 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 65 | not captured | not captured |
+| BootUI API routes served, of the 56 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 56 | not captured | not captured |
 
 `tests/docs/test_parity_matrix.py` recomputes the sharpit 0.8.0 column from the code and the BootUI 2.5.0 fixtures
 on every run. Routes remain measured against the 2.3.0 live goldens; the 2.5.0 static fixtures pin tools, properties,
@@ -32,8 +32,8 @@ How each row is counted:
   implemented yet.
   A kind evaluates when it is implemented and every journal source it requires is one sharpit produces (all 10 do).
   BootUI counts the classes implementing `Observation`.
-- **Routes:** the BootUI 2.3.0 live goldens (`tests/parity/routes_status.json`, measured against 2.3.0): 96 routes, of
-  which 30 are Java-only; of the other 66, 5 match BootUI's shape, 28 are served with known differences and 33 are
+- **Routes:** the BootUI 2.5.0 route inventory (`tests/parity/routes_status.json`): 97 routes, of
+  which 41 are not applicable (including 10 JVM-only routes); of the other 56, 5 match BootUI's shape, 28 are served with known differences and 23 are
   not built yet.
 
 ## The 8 insight kinds that evaluate in 0.6.0 and the 10 that evaluate in 0.7.0

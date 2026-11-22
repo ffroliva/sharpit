@@ -1,0 +1,11 @@
+route:GET /activity/request/{id}/journal	missing	Route added in BootUI 2.5.0 route catalog; sharpit has no route at /sharpit/api/activity/request/{id}/journal (HTTP 404).
+route:GET /conditions	n-a	JVM-only: Spring/Quarkus conditional bean evaluation has no Python counterpart.
+route:GET /crac	n-a	JVM-only: CRaC (Coordinated Restore at Checkpoint) checkpoints have no Python counterpart.
+route:GET /dev-services	n-a	JVM-only: Quarkus Dev Services container orchestration has no Python counterpart.
+route:GET /devtools	n-a	JVM-only: Spring Boot DevTools restart and live-reload have no Python counterpart.
+route:GET /graalvm	n-a	JVM-only: GraalVM native image analysis has no Python counterpart.
+route:GET /graalvm/metadata	n-a	JVM-only: GraalVM native image reachability metadata has no Python counterpart.
+route:GET /graalvm/scan-progress	n-a	JVM-only: GraalVM native image scan progress has no Python counterpart.
+route:GET /heap-dump	n-a	JVM-only: HotSpot JVM heap dump generation has no Python counterpart.
+route:GET /jvm-tuning	n-a	JVM-only: JVM runtime flags and garbage collection tuning have no Python counterpart.
+route:GET /liquibase/changesets	n-a	JVM-only: Liquibase migration engine has no Python counterpart.
