@@ -80,7 +80,7 @@ Each commit in `v2.4.0..v2.5.0` is classified by its Python applicability and 0.
 | `d9e8134cd` | #1698 | Quarkus Advisor: add 10 rules across ArC CDI, virtual threads, worker pools, config hygiene, Agroal, and HTTP limits (#1698) | Quarkus Advisor | n-a: Spring, Hibernate, Quarkus, JVM or BootUI build-specific change |
 | `64317e684` | #1699 | Memory Advisor: retire MEM-HEAP-008, MEM-POOL-007, MEM-CLASS-002, and MEM-THREAD-004 (#1699) | Memory Advisor | n-a: Spring, Hibernate, Quarkus, JVM or BootUI build-specific change |
 | `9ca093f76` | #1694 | Architecture Advisor: add ARCH-SPRING-027, ARCH-SPRING-031, and ARCH-CODE-019 (#1694) | Architecture Advisor | n-a: Spring rules require Java bean metadata; ARCH-CODE-019 checks JDK shared fields |
-| `8ad0849ac` | #1689 | REST API Advisor: add RAPI-MAP-012, RAPI-MAP-013, RAPI-VALID-007, RAPI-VER-008, and RAPI-PAGE-004 (#1689) | REST API Advisor | missing (next release) |
+| `8ad0849ac` | #1689 | REST API Advisor: add RAPI-MAP-012, RAPI-MAP-013, RAPI-VALID-007, RAPI-VER-008, and RAPI-PAGE-004 (#1689) | REST API Advisor | n-a (0.9.0 M1) |
 | `5e1e0f50f` | — | Merge branch 'main' into jdubois-http-exchanges-request-id-header | integration/build | docs/build only |
 | `3278a7ee1` | — | Merge remote-tracking branch 'origin/main' into jdubois-exceptions-binding-diagnostics | integration/build | docs/build only |
 | `787f61960` | #1676 | HTTP Probe: add route picker from Mappings, base-path composition, and Open in HTTP Probe prefill (#1676) | HTTP Probe | ported in 0.8.0 (A2) |
