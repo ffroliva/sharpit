@@ -11,6 +11,7 @@ from sharpit.engine.capture.securitylogs import (
     SecurityEventBuffer,
     clamp_max_logs,
     format_instant,
+    on_security_event,
     parse_after,
     principal_of,
     security_logs_report,
@@ -311,3 +312,11 @@ def test_metadata_only_stores_no_principal_for_the_filter_to_confirm() -> None:
     buffer = SecurityEventBuffer(500, masker=masker)
     buffer.add(AUTHENTICATION_SUCCESS, "alice", {}, None, timestamp_ns=T0)
     assert _report(buffer, masker, principal="alice")["events"] == []
+
+
+def test_request_path_matrix_parameters_masked_in_a_security_event() -> None:
+    # ported: UriMaskingTests.masksPathMatrixParametersThroughMaskPath
+    buffer = SecurityEventBuffer(100)
+    on_security_event(buffer, _masked())({"method": "GET", "path": "/orders;token=abc/42"}, 401)
+    recorded = {name: value for name, value, _ in buffer._events[0].data}  # before the read-time text mask
+    assert recorded["path"] == f"/orders;token={MASK}/42"
