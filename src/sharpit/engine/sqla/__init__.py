@@ -112,10 +112,7 @@ def sql_trace_wrapped(ctx: SharpitContext) -> bool:
         or (recorder is not None and recorder.totals().statements > 0)
     ):
         return True
-    registry = ctx.capture.engine_registry
-    return SQLALCHEMY in ctx.capture.suspended_sources or (
-        registry is not None and registry.seen_any and SQLALCHEMY in ctx.capture.suspended_sources
-    )
+    return SQLALCHEMY in ctx.capture.suspended_sources and listeners_were_attached(ctx)
 
 
 def tracing_unavailable_reason(ctx: SharpitContext) -> str | None:
@@ -160,6 +157,7 @@ from sharpit.engine.sqla.listeners import (  # noqa: E402
     following_connections,
     following_statements,
     handle_error,
+    listeners_were_attached,
     note_request_captured,
     remove,
     routed,
@@ -220,6 +218,7 @@ __all__ = [
     "following_statements",
     "handle_error",
     "is_internal",
+    "listeners_were_attached",
     "live_engine_drivers",
     "maximum_pool_size",
     "logger",
