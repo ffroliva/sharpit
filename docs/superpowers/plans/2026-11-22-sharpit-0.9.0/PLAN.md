@@ -93,7 +93,7 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
       `or text == ""` clause in the found-at scan test.
 - [x] **H2 Cancel on caller timeout** (#285). The MySQL, PostgreSQL and Database advisor tools cancel their work on a
       caller timeout, as the pentest tool does. A red test per tool.
-- [ ] **H3 Tool calls with several event loops** (#287), *predict*. A tool call runs on the loop of the request that
+- [x] **H3 Tool calls with several event loops** (#287), *predict*. A tool call runs on the loop of the request that
       issued it, not on the last recorded loop; this covers the pentest scan and the database advisor scan. The design
       also covers a WSGI host, which has no request loop, and its test includes that case. Its loop provider is an
       input to F0.
@@ -113,16 +113,16 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 
 ### Track S: SQL capture hot path (runs first; nothing adds per-statement work before S2)
 
-- [ ] **S0 Measure**, `/sharpit:perf-audit`. A per-function profile of the per-statement path on the sbx fleet and on
+- [x] **S0 Measure**, `/sharpit:perf-audit`. A per-function profile of the per-statement path on the sbx fleet and on
       a Windows runner, with the runner offset separated from split-half noise. The output is a ranked cost table and
       a headroom target that Track J's sources fit inside. No code change.
-- [ ] **S1 Listener registration race** (0.7.0 D1). Class-level listener registration on Engine, Pool and Mapper is
+- [x] **S1 Listener registration race** (0.7.0 D1). Class-level listener registration on Engine, Pool and Mapper is
       race-free under concurrent `install()` and test sessions.
-- [ ] **S2 Per-statement path** (0.7.0 D2), *predict*. Port BootUI 2.5.0's event-sink capture where it applies, guided
+- [x] **S2 Per-statement path** (0.7.0 D2), *predict*. Port BootUI 2.5.0's event-sink capture where it applies, guided
       by S0's table. Done when the 50 µs budget passes on every fleet box with the headroom S0 set.
-- [ ] **S3 SQL Trace panel availability** (0.7.0 D3). The panel reports available as BootUI does before a data source
+- [x] **S3 SQL Trace panel availability** (0.7.0 D3). The panel reports available as BootUI does before a data source
       is wrapped.
-- [ ] **S4 Connection and SQL facts** (0.7.0 D4). The connection statement counts and recorded-SQL presence flags
+- [x] **S4 Connection and SQL facts** (0.7.0 D4). The connection statement counts and recorded-SQL presence flags
       follow BootUI.
 
 ### Track J: journal sources and insight kinds
@@ -147,7 +147,7 @@ Each source runs `/sharpit:predict` and measures its overhead before code.
 
 ### Track R: API route parity
 
-- [ ] **R0 Route inventory against 2.5.0.** `tests/parity/routes_status.json` is built from the 2.3.0 fixture: it does
+- [x] **R0 Route inventory against 2.5.0.** `tests/parity/routes_status.json` is built from the 2.3.0 fixture: it does
       not list `GET /activity/request/{id}/journal`, and its 32 `missing` rows include JVM-only routes (`crac`,
       `graalvm`, `jvm-tuning`, `devtools`, `dev-services`, `conditions`, `liquibase/changesets`, `heap-dump`). Rebuild
       the inventory from BootUI's 2.5.0 contract catalog (`BootUiApiContractCatalog.java`) and classify every route as
@@ -162,7 +162,7 @@ Each source runs `/sharpit:predict` and measures its overhead before code.
 
 ### Track M: the 2.5.0 rules recorded as missing
 
-- [ ] **M1 REST API rules: reclassify as `n-a`** (decision 5). Read at `v2.5.0`
+- [x] **M1 REST API rules: reclassify as `n-a`** (decision 5). Read at `v2.5.0`
       (`E/engine/restapi/RestApiRules.java:2366-2590`), each of the five describes a Spring or Quarkus construct that
       FastAPI does not have:
       `RAPI-MAP-012` (an unannotated Spring parameter binds as a query parameter; FastAPI binds a parameter named like
@@ -174,7 +174,7 @@ Each source runs `/sharpit:predict` and measures its overhead before code.
       records each as `n-a` with its reason, a 0.9.0 section in `scripts/dev/generate_parity_deviations.py`
       regenerates `PARITY.md`, and the `#1689` row in `BOOTUI-2.5.0-DELTA.md` moves from "missing (next release)" to
       `n-a`. If FastAPI has a real counterpart defect, it is a separate sharpit rule through `/sharpit:predict`.
-- [ ] **M2 Database rules: port.** Each reads the database catalog or the pool settings and applies to a Python
+- [x] **M2 Database rules: port.** Each reads the database catalog or the pool settings and applies to a Python
       application: `DB-SCHEMA-011` (`ForeignKeySetNullOnNotNullColumnRule`), `DB-PG-006`
       (`PostgresEmptyPartitionedTableRule`), `DB-SERVER-008` (`MySqlStrictSqlModeRule`), `DB-MYSQL-004`
       (`MySqlUnenforcedCheckConstraintRule`), and `DB-POOL-005` (`PoolAcquisitionTimeoutRule`), adapted from the
@@ -198,7 +198,7 @@ itself. The API is 38 route modules plus `routes/__init__.py` under `fastapi/rou
 stream server-sent events and one serves a file. The stream layer is asyncio-bound (`ChangeStream.subscribe` takes a
 loop, `change_events` and `log_events` are async generators), and 35 handlers are `async def`.
 
-- [ ] **F0 Console contract**, *predict*, *council*. After H3. A new `engine/console/` package (architecture rule 1
+- [x] **F0 Console contract**, *predict*, *council*. After H3. A new `engine/console/` package (architecture rule 1
       already keeps `fastapi` and `starlette` out of `engine/`; add a `werkzeug` gatekeeper for `sharpit/flask/` and
       `pytest_plugin/http_security_flask.py`). It defines:
       - `ConsoleRequest`: method, path below the mount, root path, raw query bytes, raw header pairs (duplicates kept,
@@ -218,11 +218,11 @@ loop, `change_events` and `log_events` are async generators), and 35 handlers ar
       on WSGI or a thread-safe blocking form (a spike and its own pull request before F2 moves the streaming routes); the
       WSGI capacity rule (stream slots against the worker count, the overload response, cleanup on disconnect), or a
       recorded limit on streaming for Flask; route order; the request ID header.
-- [ ] **F0b Flask panel availability.** One table, published in the docs and recorded in PARITY, lists every panel and
+- [x] **F0b Flask panel availability.** One table, published in the docs and recorded in PARITY, lists every panel and
       action on Flask as works, adapted or unavailable, with its availability reason. Today HTTP exchange capture,
       exception-handler wrapping, the request ID header, the idle tracker, traces, the Threads panel's asyncio tasks and
       the pentest probe are ASGI-only.
-- [ ] **F1 HTTP response corpus.** It can start now, in parallel with F0. Before anything moves, it records every
+- [~] **F1 HTTP response corpus.** (Blocked: the pinned corpus fails on the CI dependency-variant shards and on test order; a same-job differential gate is proposed.) It can start now, in parallel with F0. Before anything moves, it records every
       console route's response through today's FastAPI adapter. The cases cover activation states, each guard denial
       (duplicate and joined headers included), exposure levels and read-only panels, plus each stream's whole lifecycle
       (events, time cap, disconnect, slot release). A normaliser fixed before the first recording replaces timestamps,
@@ -260,11 +260,11 @@ Closes #260 when F0b and F3–F5 merge.
 
 - [ ] **X1 Exception message in swallowed-exception findings** (#253 item 1), *predict*, *council*, masking corpus
       diff. Masked like other captured text; the lane decides which exposure levels show it.
-- [ ] **X2 Reason for an accepted finding** (#253 item 2). A `reason=` argument on the accept marker, and a setting that
+- [x] **X2 Reason for an accepted finding** (#253 item 2). A `reason=` argument on the accept marker, and a setting that
       makes it required in CI.
 - [ ] **X3 Trace and journal masking on the matrix path**, masking corpus diff. Trace masking and journal masking move
       onto the matrix masking path; the gate corpora are byte-identical before and after.
-- [ ] **X4 Email mask fail-safe** (0.7.0 D6 remainder). An invalid `SHARPIT_EMAIL_MASK_CONTENT` takes the strict
+- [x] **X4 Email mask fail-safe** (0.7.0 D6 remainder). An invalid `SHARPIT_EMAIL_MASK_CONTENT` takes the strict
       fail-safe and adds a warning.
 
 Closes #253 when X1 and X2 merge.
