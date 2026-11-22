@@ -1,0 +1,1 @@
+rule:DB-SCHEMA-005	adapted	BootUI reads the primary key backing index from JDBC index metadata; SQLAlchemy never lists it, so the primary key constraint stands in as the backing index and an ordinary unique index on exactly the primary key columns is reported

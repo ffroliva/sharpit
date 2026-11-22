@@ -177,38 +177,22 @@ def _foreign_key_type_mismatch(source: Source) -> Outcome:
 def _unique_index_duplicating_primary_key(source: Source) -> Outcome:
     if (reason := unreadable(source)) is not None:
         return reason
-    hits: list[Hit] = []
-    for table in source.tables:
-        if table["truncated"] or not table["primaryKey"] or not table.get("primaryKeyName"):
-            continue
-        backing = next(
-            (
-                index
-                for index in table["indexes"]
-                if index["name"] == table["primaryKeyName"]
-                and index["unique"]
-                and _plain(index)
-                and index["columns"] == table["primaryKey"]
-            ),
-            None,
+    # SQLAlchemy never lists the primary key's own index, so the constraint itself is the backing index
+    return [
+        (
+            _where(source, table, f".{index['name']}"),
+            f"Datasource `{source.name}`: unique index `{index['name']}` on `{table['name']}` repeats the primary "
+            "key's columns.",
+            _identity(source, table, f"index={index['name']}"),
         )
-        if backing is None:
-            continue
-        hits.extend(
-            (
-                _where(source, table, f".{index['name']}"),
-                f"Datasource `{source.name}`: unique index `{index['name']}` on `{table['name']}` repeats "
-                "the primary key's "
-                "columns.",
-                _identity(source, table, f"index={index['name']}"),
-            )
-            for index in table["indexes"]
-            if index["name"] != backing["name"]
-            and index["unique"]
-            and _plain(index)
-            and index["columns"] == table["primaryKey"]
-        )
-    return hits
+        for table in source.tables
+        if not table["truncated"] and table["primaryKey"]
+        for index in table["indexes"]
+        if index["name"] != table.get("primaryKeyName")
+        and index["unique"]
+        and _plain(index)
+        and index["columns"] == table["primaryKey"]
+    ]
 
 
 def _duplicate_foreign_key(source: Source) -> Outcome:
@@ -310,7 +294,7 @@ RULES = (
             SCHEMA,
             "LOW",
             "Detects an ordinary unique index whose key columns are exactly the primary key's, in order; the "
-            "inspector reports the primary key's own backing index separately.",
+            "primary key's own index is never listed by the inspector.",
             "Review definitions, payload, constraint ownership and dependencies before considering removal. Matching "
             "primary-key columns alone is not evidence that an index is redundant.",
             "https://use-the-index-luke.com/sql/dml",
