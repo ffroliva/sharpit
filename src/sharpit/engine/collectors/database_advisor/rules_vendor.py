@@ -302,9 +302,7 @@ def _empty_partitioned_tables(source: Source) -> Outcome:
 
 
 def _is_identifier_token(token: str) -> bool:
-    if not token:
-        return False
-    return all(c.isalnum() or c == "_" for c in token) and not token[0].isdigit()
+    return bool(re.fullmatch(r"[A-Za-z0-9_]+", token)) and not token[0].isdigit()
 
 
 def _mysql_strict_sql_mode(source: Source) -> Outcome:
