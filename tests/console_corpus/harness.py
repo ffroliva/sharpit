@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from collections.abc import Iterator
@@ -10,11 +11,27 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import dotenv.main  # noqa: F401 - register third-party loggers before corpus isolation snapshots them
+import packaging.tags  # noqa: F401
+import pydantic_settings  # noqa: F401
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 
 import sharpit
+import sharpit.fastapi.adapter  # noqa: F401
 from fastapi import FastAPI
+from sharpit.engine.collectors.github.detector import Repository
+
+_FIXED_REPOSITORY = Repository(
+    owner="ffroliva",
+    name="sharpit",
+    full_name="ffroliva/sharpit",
+    host="github.com",
+    api_base_uri="https://api.github.com/",
+    html_url="https://github.com/ffroliva/sharpit",
+    local_branch="main",
+    upstream_branch=None,
+)
 
 
 def build_app(**install_kwargs: Any) -> FastAPI:
@@ -50,7 +67,16 @@ def isolated_environment(temp_dir: str) -> Iterator[None]:
     if os.name == "nt":
         # Python and Windows APIs require these base variables; their values are rooted in the isolated temp dir.
         environment.update({"SystemRoot": temp_dir, "WINDIR": temp_dir, "PATH": ""})
-    with patch.dict(os.environ, environment, clear=True):
+    own_loggers = {
+        name: logger
+        for name, logger in logging.root.manager.loggerDict.items()
+        if name == "sharpit" or name.startswith("sharpit.")
+    }
+    with (
+        patch.dict(os.environ, environment, clear=True),
+        patch.dict(logging.root.manager.loggerDict, own_loggers, clear=True),
+        patch("sharpit.engine.collectors.github.dashboard.detect_repository", return_value=_FIXED_REPOSITORY),
+    ):
         from sharpit.engine.collectors.config import config_report
 
         defaults = {**(config_report.__kwdefaults__ or {}), "environ": dict(os.environ)}

@@ -586,23 +586,23 @@
       },
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "INFO"
         }
       ],
@@ -2240,23 +2240,23 @@
       },
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "INFO"
         }
       ],
@@ -2435,23 +2435,23 @@
       },
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "INFO"
         }
       ],
@@ -2591,7 +2591,7 @@
         "host": "github.com",
         "htmlUrl": "https://github.com/ffroliva/sharpit",
         "latestRelease": null,
-        "localBranch": "t3/console-corpus-review-fixes",
+        "localBranch": "main",
         "name": "sharpit",
         "openIssues": null,
         "owner": "ffroliva",
@@ -2741,7 +2741,7 @@
       "expectedProtocol": 1,
       "heldBy": null,
       "jarPath": null,
-      "jdk": "3.13.7 (cpython)",
+      "jdk": "<VERSION>",
       "loadMode": null,
       "messages": [],
       "protocol": null,
@@ -2755,7 +2755,7 @@
         "snippets": []
       },
       "startupMicros": null,
-      "state": "<THREAD_STATE>",
+      "state": "NOT_ATTACHED",
       "toggles": [],
       "warnings": []
     },
@@ -2821,115 +2821,15 @@
           "configuredLevel": "WARNING",
           "effectiveLevel": "WARNING",
           "name": "ROOT"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "asyncio"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "concurrent.futures"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "fastapi"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "httpx"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry._logs._internal"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.attributes"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.baggage"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.baggage.propagation"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.context"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.metrics._internal"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.metrics._internal.instrument"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.propagate"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.propagators.composite"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.trace"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.trace.propagation.tracecontext"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.trace.span"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.trace.status"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.util._providers"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "opentelemetry.util.re"
-        },
-        {
-          "configuredLevel": null,
-          "effectiveLevel": "WARNING",
-          "name": "packaging.tags"
         }
       ],
       "page": {
         "hasMore": false,
-        "limit": 21,
-        "matched": 21,
+        "limit": 1,
+        "matched": 1,
         "offset": 0,
-        "returned": 21,
-        "total": 21
+        "returned": 1,
+        "total": 1
       }
     },
     "headers": {
@@ -3540,7 +3440,7 @@
       "frameworkName": "FastAPI",
       "frameworkVersion": "<VERSION>",
       "javaVendor": "CPython",
-      "javaVersion": "3.13.7",
+      "javaVersion": "<VERSION>",
       "managementPort": null,
       "openApiUrl": "/docs",
       "run": {
@@ -4092,23 +3992,23 @@
       },
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "INFO"
         }
       ]
@@ -4195,23 +4095,23 @@
       },
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "INFO"
         }
       ],
@@ -4573,7 +4473,7 @@
       "routesOmitted": 0,
       "sampler": null,
       "startedAt": null,
-      "state": "<THREAD_STATE>",
+      "state": "UNAVAILABLE",
       "virtualThreadPinningSupported": false
     },
     "headers": {
@@ -4633,23 +4533,23 @@
       },
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "INFO"
         }
       ],
@@ -4722,7 +4622,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4734,7 +4634,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4746,7 +4646,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4758,7 +4658,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4770,7 +4670,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4782,7 +4682,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4794,7 +4694,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4806,7 +4706,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         },
         {
@@ -4818,7 +4718,7 @@
           "occurrences": 0,
           "reason": "Requires the sharpit agent: This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's sensors yet. See the Java Agent panel.",
           "rows": 0,
-          "state": "<THREAD_STATE>",
+          "state": "unavailable",
           "toggle": null
         }
       ],
@@ -5027,226 +4927,13 @@
     "body": {
       "steps": [
         {
-          "durationMs": 0,
-          "id": "<THREAD_ID>",
+          "durationMs": "<DURATION>",
+          "id": 0,
           "name": "asgi.lifespan.startup",
           "parentId": null,
           "tags": []
         }
       ]
-    },
-    "headers": {
-      "cache-control": "no-store, must-revalidate",
-      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
-      "content-type": "application/json",
-      "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-      "pragma": "no-cache",
-      "referrer-policy": "strict-origin-when-cross-origin",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY"
-    },
-    "status": 200
-  },
-  "/api/threads": {
-    "body": {
-      "available": true,
-      "capturedAt": "<TIMESTAMP_MS>",
-      "cpuTimeSupported": true,
-      "daemonThreads": "<COUNT>",
-      "deadlockDetected": false,
-      "deadlockedThreadIds": [],
-      "page": {
-        "hasMore": false,
-        "limit": 3,
-        "matched": 3,
-        "offset": 0,
-        "returned": 3,
-        "total": 3
-      },
-      "peakThreads": "<COUNT>",
-      "startedThreadCount": "<COUNT>",
-      "stateCounts": [
-        {
-          "count": "<COUNT>",
-          "state": "<THREAD_STATE>"
-        },
-        {
-          "count": "<COUNT>",
-          "state": "<THREAD_STATE>"
-        }
-      ],
-      "taskCount": "<COUNT>",
-      "tasks": [
-        {
-          "coroutine": "TaskHandle._run_coro",
-          "name": "anyio.from_thread.BlockingPortal._call_func",
-          "request": null,
-          "stackTrace": [
-            "asyncio.locks.Event.wait (<SOURCE_REF>)",
-            "anyio._backends._asyncio.Event.wait (<SOURCE_REF>)",
-            "anyio.streams.memory.MemoryObjectReceiveStream.receive (<SOURCE_REF>)",
-            "anyio.streams.stapled.StapledObjectStream.receive (<SOURCE_REF>)",
-            "fastapi.telemetry._runtime.lifespan.<locals>.wrapped_receive (<SOURCE_REF>)",
-            "starlette.routing.Router.lifespan (<SOURCE_REF>)",
-            "fastapi.routing.APIRouter.app (<SOURCE_REF>)",
-            "starlette.routing.Router.__call__ (<SOURCE_REF>)",
-            "fastapi.middleware.asyncexitstack.AsyncExitStackMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.middleware.exceptions.ExceptionMiddleware.__call__ (<SOURCE_REF>)",
-            "sharpit.fastapi.capture.CaptureMiddleware.__call__ (<SOURCE_REF>)",
-            "fastapi.telemetry._asgi.ExceptionTelemetryMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.middleware.errors.ServerErrorMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.applications.Starlette.__call__ (<SOURCE_REF>)",
-            "fastapi.telemetry._runtime.lifespan (<SOURCE_REF>)",
-            "fastapi.applications.FastAPI.__call__ (<SOURCE_REF>)",
-            "starlette.testclient.TestClient.lifespan (<SOURCE_REF>)",
-            "anyio.from_thread.BlockingPortal._call_func (<SOURCE_REF>)",
-            "anyio._core._tasks.TaskHandle._run_coro (<SOURCE_REF>)"
-          ],
-          "state": "<THREAD_STATE>"
-        },
-        {
-          "coroutine": "start_blocking_portal.<locals>.run_portal",
-          "name": "anyio.from_thread.start_blocking_portal.<locals>.run_portal",
-          "request": null,
-          "stackTrace": [
-            "asyncio.locks.Event.wait (<SOURCE_REF>)",
-            "anyio._backends._asyncio.Event.wait (<SOURCE_REF>)",
-            "anyio.from_thread.BlockingPortal.sleep_until_stopped (<SOURCE_REF>)",
-            "anyio.from_thread.start_blocking_portal.<locals>.run_portal (<SOURCE_REF>)",
-            "anyio._backends._asyncio.AsyncIOBackend.run.<locals>.wrapper (<SOURCE_REF>)"
-          ],
-          "state": "<THREAD_STATE>"
-        }
-      ],
-      "threads": [
-        {
-          "blockedCount": 0,
-          "cpuTimeMillis": null,
-          "daemon": true,
-          "deadlocked": false,
-          "id": "<THREAD_ID>",
-          "inNative": false,
-          "lockName": null,
-          "lockOwnerId": null,
-          "lockOwnerName": null,
-          "name": "sharpit-free-on-idle",
-          "priority": 0,
-          "stackTrace": [
-            "threading.Condition.wait (<SOURCE_REF>)",
-            "threading.Event.wait (<SOURCE_REF>)",
-            "sharpit.fastapi.install._lifespan.<locals>.monitor_idle (<SOURCE_REF>)",
-            "threading.Thread.run (<SOURCE_REF>)",
-            "threading.Thread._bootstrap_inner (<SOURCE_REF>)",
-            "threading.Thread._bootstrap (<SOURCE_REF>)"
-          ],
-          "state": "<THREAD_STATE>",
-          "suspended": false,
-          "userTimeMillis": null,
-          "virtual": false,
-          "waitedCount": 0
-        },
-        {
-          "blockedCount": 0,
-          "cpuTimeMillis": 0,
-          "daemon": true,
-          "deadlocked": false,
-          "id": "<THREAD_ID>",
-          "inNative": false,
-          "lockName": null,
-          "lockOwnerId": null,
-          "lockOwnerName": null,
-          "name": "asyncio-portal-<ID>",
-          "priority": 0,
-          "stackTrace": [
-            "sharpit.engine.collectors.threads._thread_rows (<SOURCE_REF>)",
-            "sharpit.engine.collectors.threads.threads_report (<SOURCE_REF>)",
-            "sharpit.fastapi.routes._thread_routes.<locals>.thread_dump (<SOURCE_REF>)",
-            "starlette.routing.request_response.<locals>.app.<locals>.app (<SOURCE_REF>)",
-            "starlette._exception_handler.wrap_app_handling_exceptions.<locals>.wrapped_app (<SOURCE_REF>)",
-            "starlette.routing.request_response.<locals>.app (<SOURCE_REF>)",
-            "starlette.routing.Route.handle (<SOURCE_REF>)",
-            "starlette.routing.Router.app (<SOURCE_REF>)",
-            "starlette.routing.Router.__call__ (<SOURCE_REF>)",
-            "starlette._exception_handler.wrap_app_handling_exceptions.<locals>.wrapped_app (<SOURCE_REF>)",
-            "starlette.middleware.exceptions.ExceptionMiddleware.__call__ (<SOURCE_REF>)",
-            "sharpit.fastapi.install._activity_middleware.<locals>.ActivityMiddleware.__call__ (<SOURCE_REF>)",
-            "sharpit.fastapi.adapter.GuardMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.middleware.errors.ServerErrorMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.applications.Starlette.__call__ (<SOURCE_REF>)",
-            "starlette.routing.Mount.handle (<SOURCE_REF>)",
-            "fastapi.routing.APIRouter.app (<SOURCE_REF>)",
-            "starlette.routing.Router.__call__ (<SOURCE_REF>)",
-            "fastapi.middleware.asyncexitstack.AsyncExitStackMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette._exception_handler.wrap_app_handling_exceptions.<locals>.wrapped_app (<SOURCE_REF>)",
-            "starlette.middleware.exceptions.ExceptionMiddleware.__call__ (<SOURCE_REF>)",
-            "sharpit.fastapi.capture.CaptureMiddleware.__call__ (<SOURCE_REF>)",
-            "fastapi.telemetry._asgi.ExceptionTelemetryMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.middleware.errors.ServerErrorMiddleware.__call__ (<SOURCE_REF>)",
-            "starlette.applications.Starlette.__call__ (<SOURCE_REF>)",
-            "fastapi.applications.FastAPI.__call__ (<SOURCE_REF>)",
-            "starlette.testclient._TestClientTransport.handle_request.<locals>.run_app (<SOURCE_REF>)",
-            "anyio.from_thread.BlockingPortal._call_func (<SOURCE_REF>)",
-            "anyio._core._tasks.TaskHandle._run_coro (<SOURCE_REF>)",
-            "asyncio.events.Handle._run (<SOURCE_REF>)",
-            "asyncio.base_events.BaseEventLoop._run_once (<SOURCE_REF>)",
-            "asyncio.base_events.BaseEventLoop.run_forever (<SOURCE_REF>)",
-            "asyncio.base_events.BaseEventLoop.run_until_complete (<SOURCE_REF>)",
-            "asyncio.runners.Runner.run (<SOURCE_REF>)",
-            "anyio._backends._asyncio.AsyncIOBackend.run (<SOURCE_REF>)",
-            "anyio._core._eventloop.run (<SOURCE_REF>)",
-            "anyio.from_thread.start_blocking_portal.<locals>.run_blocking_portal (<SOURCE_REF>)",
-            "threading.Thread.run (<SOURCE_REF>)",
-            "threading.Thread._bootstrap_inner (<SOURCE_REF>)",
-            "threading.Thread._bootstrap (<SOURCE_REF>)"
-          ],
-          "state": "<THREAD_STATE>",
-          "suspended": false,
-          "userTimeMillis": null,
-          "virtual": false,
-          "waitedCount": 0
-        },
-        {
-          "blockedCount": 0,
-          "cpuTimeMillis": null,
-          "daemon": false,
-          "deadlocked": false,
-          "id": "<THREAD_ID>",
-          "inNative": false,
-          "lockName": null,
-          "lockOwnerId": null,
-          "lockOwnerName": null,
-          "name": "MainThread",
-          "priority": 0,
-          "stackTrace": [
-            "asyncio.proactor_events.BaseProactorEventLoop._write_to_self (<SOURCE_REF>)",
-            "asyncio.base_events.BaseEventLoop.call_soon_threadsafe (<SOURCE_REF>)",
-            "anyio._backends._asyncio.AsyncIOBackend.run_sync_from_thread (<SOURCE_REF>)",
-            "anyio.from_thread.run_sync (<SOURCE_REF>)",
-            "anyio.from_thread.BlockingPortal._spawn_task_from_thread (<SOURCE_REF>)",
-            "anyio.from_thread.BlockingPortal.start_task_soon (<SOURCE_REF>)",
-            "starlette.testclient._TestClientTransport.handle_request (<SOURCE_REF>)",
-            "httpx._client.Client._send_single_request (<SOURCE_REF>)",
-            "httpx._client.Client._send_handling_redirects (<SOURCE_REF>)",
-            "httpx._client.Client._send_handling_auth (<SOURCE_REF>)",
-            "httpx._client.Client.send (<SOURCE_REF>)",
-            "httpx._client.Client.request (<SOURCE_REF>)",
-            "starlette.testclient.TestClient.request (<SOURCE_REF>)",
-            "tests.console_corpus.harness.record (<SOURCE_REF>)",
-            "__main__._get_corpus (<SOURCE_REF>)",
-            "__main__.main (<SOURCE_REF>)",
-            "__main__.<module> (<SOURCE_REF>)"
-          ],
-          "state": "<THREAD_STATE>",
-          "suspended": false,
-          "userTimeMillis": null,
-          "virtual": false,
-          "waitedCount": 0
-        }
-      ],
-      "totalThreads": "<COUNT>",
-      "unavailableReason": null,
-      "virtualThreadsSupported": false,
-      "warnings": []
     },
     "headers": {
       "cache-control": "no-store, must-revalidate",
@@ -6438,27 +6125,27 @@
       "scanningEnabled": true,
       "severityCounts": [
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "CRITICAL"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "HIGH"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "MEDIUM"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "LOW"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "UNKNOWN"
         },
         {
-          "count": "<COUNT>",
+          "count": 0,
           "severity": "NONE"
         }
       ],

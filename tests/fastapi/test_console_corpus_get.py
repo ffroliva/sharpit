@@ -38,6 +38,7 @@ DEFERRED = (
     ("/api/security-logs/stream", "server-sent events are covered by F1b"),
     ("/api/security/rules/{rule_id}/violations", "requires a concrete path parameter value"),
     ("/api/sql-trace/stream", "server-sent events are covered by F1b"),
+    ("/api/threads", "live thread snapshot: recorded in F1b from a controlled thread set"),
     ("/api/traces/{id}", "requires a concrete path parameter value"),
     ("/api/transactions/stream", "server-sent events are covered by F1b"),
 )
