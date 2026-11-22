@@ -174,6 +174,11 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _statement_output(masker: Masker, max_sql_length: int, sql: str, dialect: Dialect) -> tuple[Shape, str, str]:
+    shape = sqltext.statement_shape(masker, sql, dialect)
+    return shape, _truncate(shape.text, max_sql_length), category_of(sql)
+
+
 @dataclass(eq=False)
 class _Aggregate:
     sql: str
@@ -210,7 +215,9 @@ class SqlTraceRecorder:
     ) -> None:
         self._masker = masker
         # the same statements repeat: per recorder, so one masker's results never reach another's
-        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(sqltext.statement_shape, masker))
+        self._statement_output = functools.lru_cache(maxsize=1024)(
+            functools.partial(_statement_output, masker, max_sql_length)
+        )
         self.max_entries = max_entries
         self.slow_query_threshold_millis = slow_query_threshold_millis
         self._max_sql_length = max_sql_length
@@ -293,12 +300,9 @@ class SqlTraceRecorder:
         if not self.recording:
             return None
         masker = self._masker
-        shape: Shape = self._shape(sql, dialect)
+        shape, text, category = self._statement_output(sql, dialect)
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
-        text = _truncate(
-            shape.text, self._max_sql_length
-        )  # the journal event's text (``journal_text``), the row's unless raw
         stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
         error_message: str | None = None
         if error is not None:
@@ -306,7 +310,6 @@ class SqlTraceRecorder:
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
         millis = duration_ns // 1_000_000
-        category = category_of(sql)
         site = call_site if self.capture_call_site else None
         row = {
             "id": 0,
@@ -343,29 +346,34 @@ class SqlTraceRecorder:
             self._selects += category == "SELECT"
             if category == "SELECT" and millis > self._slowest[0]:  # rare: only a new slowest SELECT pays to mask
                 self._new_max(millis, shape.text)
-            key = shape.fingerprint
-            if key is not None:
-                aggregate = self._aggregates.get(key)
-                if aggregate is None:
-                    aggregate = self._aggregates[key] = _Aggregate(shape.text, category)
-                    if len(self._aggregates) > MAX_AGGREGATES:
-                        self._aggregates.popitem(last=False)
-                else:
-                    try:
-                        self._aggregates.move_to_end(key)
-                    except KeyError:  # a finalizer on this thread evicted it since the ``get``
-                        self._aggregates[key] = aggregate
-                aggregate.executions += 1
-                aggregate.total_duration += millis
-                aggregate.max_duration = max(aggregate.max_duration, millis)
-                if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
-                    aggregate.call_sites[site] = None
+            self._update_aggregate(shape.fingerprint, shape.text, category, millis, site)
         self.changes.signal()
         return text
 
+    def _update_aggregate(self, key: str | None, sql: str, category: str, millis: int, site: str | None) -> None:
+        if key is None:
+            return
+        aggregate = self._aggregates.get(key)
+        if aggregate is None:
+            aggregate = self._aggregates[key] = _Aggregate(sql, category)
+            if len(self._aggregates) > MAX_AGGREGATES:
+                self._aggregates.popitem(last=False)
+        elif len(self._aggregates) > 1:
+            try:
+                self._aggregates.move_to_end(key)
+            except KeyError:  # a finalizer on this thread evicted it since the ``get``
+                self._aggregates[key] = aggregate
+        elif not self._aggregates:
+            self._aggregates[key] = aggregate
+        aggregate.executions += 1
+        aggregate.total_duration += millis
+        aggregate.max_duration = max(aggregate.max_duration, millis)
+        if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
+            aggregate.call_sites[site] = None
+
     def journal_text(self, sql: str, dialect: Dialect) -> str:
         """The literal-free text ``record`` returns, for the journal while the panel is paused (no row is kept)."""
-        return _truncate(self._shape(sql, dialect).text, self._max_sql_length)
+        return self._statement_output(sql, dialect)[1]
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
