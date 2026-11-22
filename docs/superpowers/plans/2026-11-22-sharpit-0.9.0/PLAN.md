@@ -145,15 +145,17 @@ Each source runs `/sharpit:predict` and measures its overhead before code.
 
 ### Track M: the 2.5.0 rules recorded as missing
 
-- [ ] **M1 REST API rules: reclassify as `n-a`** (needs the maintainer's decision). Read at `v2.5.0`
+- [ ] **M1 REST API rules: reclassify as `n-a`** (decision 5). Read at `v2.5.0`
       (`E/engine/restapi/RestApiRules.java:2366-2590`), each of the five describes a Spring or Quarkus construct that
       FastAPI does not have:
       `RAPI-MAP-012` (an unannotated Spring parameter binds as a query parameter; FastAPI binds a parameter named like
       a path token to the path), `RAPI-MAP-013` (Spring unions class-level and method-level HTTP methods; FastAPI
       routers carry no methods), `RAPI-VER-008` (a restrictive `consumes` condition; FastAPI has none),
       `RAPI-VALID-007` (Bean Validation skips nested objects without `@Valid`; pydantic validates nested models) and
-      `RAPI-PAGE-004` (Spring Data `Page` serialization). The PARITY rows move from `missing` to `n-a` with these
-      reasons. If FastAPI has a real counterpart defect, it is a separate sharpit rule through `/sharpit:predict`.
+      `RAPI-PAGE-004` (Spring Data `Page` serialization). A `docs/reference/matrix-updates/0.9.0-m1.tsv` fragment
+      records each as `n-a` with its reason, a 0.9.0 section in `scripts/dev/generate_parity_deviations.py`
+      regenerates `PARITY.md`, and the `#1689` row in `BOOTUI-2.5.0-DELTA.md` moves from "missing (next release)" to
+      `n-a`. If FastAPI has a real counterpart defect, it is a separate sharpit rule through `/sharpit:predict`.
 - [ ] **M2 Database rules: port.** Each reads the database catalog or the pool settings and applies to a Python
       application: `DB-SCHEMA-011` (`ForeignKeySetNullOnNotNullColumnRule`), `DB-PG-006`
       (`PostgresEmptyPartitionedTableRule`), `DB-SERVER-008` (`MySqlStrictSqlModeRule`), `DB-MYSQL-004`
@@ -233,3 +235,7 @@ every lane ── RW
    shipped. F0 decides its design first.
 4. **All four parity tracks are in scope** (S/J, R, M, F). Tracks S and J0 run first, because the lanes after them
    need their measured headroom.
+5. **What applies is ported; what differs is recorded.** Every BootUI 2.5.0 rule, route, source or key that applies to
+   a Python application is ported. Every one that does not apply, or applies with a difference, gets a deviation row
+   (`n-a` or `adapted`) with its reason in the lane's matrix fragment, so `PARITY.md` tracks each one. The five
+   Spring-specific REST API rules in M1 are the first such rows.
