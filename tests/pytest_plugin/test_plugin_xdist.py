@@ -64,6 +64,7 @@ def test_xdist_app_seen_by_one_worker_passes(pytester: pytest.Pytester) -> None:
         "-n", "2", "--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
     assert result.ret == 0
+    assert "no application found" not in result.stdout.str()
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["advisors"][0]["status"] == "PASSED"
 
@@ -244,22 +245,3 @@ def test_xdist_snapshot_suppresses_worker_autodetect(pytester: pytest.Pytester) 
     assert "otherapp:app" not in apps
     assert len(apps) == 1
     assert "sharpit: using app" not in result.stdout.str()
-
-
-def test_xdist_snapshot_hides_no_app_notice(pytester: pytest.Pytester) -> None:
-    pytester.makepyfile(
-        """
-        def test_register_app():
-            from fastapi import FastAPI
-            import sharpit
-            app = FastAPI()
-            app.get('/ok')(lambda: {'ok': True})
-            sharpit.install(app)
-        """
-    )
-
-    result = pytester.runpytest_subprocess(
-        "-n", "2", "--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
-    )
-
-    assert "no application found" not in result.stdout.str()

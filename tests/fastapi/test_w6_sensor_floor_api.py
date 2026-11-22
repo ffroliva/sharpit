@@ -50,6 +50,11 @@ READS = [
 ]
 
 
+@pytest.fixture(scope="module")
+def client() -> TestClient:
+    return _client()
+
+
 def _client(**options: Any) -> TestClient:
     app = FastAPI()
     install(app, **{"enabled": "ON", "show_banner": False, "config_scan": False, **options})
@@ -69,11 +74,11 @@ def _keys(value: Any) -> Any:
     return None
 
 
-def test_panels_list_the_sensor_panels_unavailable_with_the_java_agent_reason() -> None:
+def test_panels_list_the_sensor_panels_unavailable_with_the_java_agent_reason(client: TestClient) -> None:
     # ported: AbstractBootUiApiConformanceTest.codeInventoryIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
     # ported: AbstractBootUiApiConformanceTest.codePathsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
     # ported: AbstractBootUiApiConformanceTest.sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
-    panels = {p["id"]: p for p in _client().get(f"{API}/panels").json()["panels"]}
+    panels = {p["id"]: p for p in client.get(f"{API}/panels").json()["panels"]}
     assert {"java-agent", "code-inventory", "code-paths", "side-effects"} <= set(panels)
     assert panels["java-agent"]["available"] is True
     assert panels["code-inventory"]["available"] is False
@@ -85,11 +90,11 @@ def test_panels_list_the_sensor_panels_unavailable_with_the_java_agent_reason() 
 
 
 @pytest.mark.parametrize(("route", "golden", "prefix"), READS, ids=[r[1] for r in READS])
-def test_read_answers_bootui_shape_unavailable(route: str, golden: str, prefix: str) -> None:
+def test_read_answers_bootui_shape_unavailable(client: TestClient, route: str, golden: str, prefix: str) -> None:
     # ported: CodePathsServiceTests.withoutTheSensorEveryReadAnswersItsUnavailableShape
     # ported: CodeInventoryServiceTests.isUnavailableWithTheAgentsReason
     # ported: SideEffectsServiceTests.withoutTheAgentEveryReadIsUnavailableWithItsReason
-    resp = _client().get(API + route)
+    resp = client.get(API + route)
     assert resp.status_code == 200, f"{route} returned HTTP {resp.status_code}"
     body = resp.json()
     expected = _golden(golden)
@@ -99,9 +104,9 @@ def test_read_answers_bootui_shape_unavailable(route: str, golden: str, prefix: 
     assert body["unavailableReason"].startswith(prefix)
 
 
-def test_java_agent_report_is_not_attached_with_bootui_keys() -> None:
+def test_java_agent_report_is_not_attached_with_bootui_keys(client: TestClient) -> None:
     # ported: JavaAgentControllerTests.servesTheReportWithItsSetupSnippetsWithoutTheAgent
-    resp = _client().get(f"{API}/java-agent")
+    resp = client.get(f"{API}/java-agent")
     assert resp.status_code == 200
     body = resp.json()
     assert list(body) == list(_golden("java-agent/captured.json"))
@@ -112,9 +117,9 @@ def test_java_agent_report_is_not_attached_with_bootui_keys() -> None:
     assert list(body["setup"]) == ["jarPath", "jarFound", "buildTool", "snippets"]
 
 
-def test_side_effects_lists_every_sensor_unavailable() -> None:
+def test_side_effects_lists_every_sensor_unavailable(client: TestClient) -> None:
     # ported: AbstractBootUiApiConformanceTest.sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
-    resp = _client().get(f"{API}/side-effects")
+    resp = client.get(f"{API}/side-effects")
     assert resp.status_code == 200
     sensors = resp.json()["sensors"]
     assert [s["id"] for s in sensors] == SENSORS
@@ -122,8 +127,8 @@ def test_side_effects_lists_every_sensor_unavailable() -> None:
     assert all(s["reason"].startswith(SIDE_EFFECTS) for s in sensors)
 
 
-def test_side_effects_sensor_answers_its_shape() -> None:
-    resp = _client().get(f"{API}/side-effects/sensor?sensor=processes")
+def test_side_effects_sensor_answers_its_shape(client: TestClient) -> None:
+    resp = client.get(f"{API}/side-effects/sensor?sensor=processes")
     assert resp.status_code == 200
     body = resp.json()
     assert list(body) == ["available", "unavailableReason", "sensor", "rows", "page", "limitations"]
@@ -134,23 +139,23 @@ def test_side_effects_sensor_answers_its_shape() -> None:
 
 
 @pytest.mark.parametrize("query", ["?sensor=not-a-sensor", ""], ids=["unknown", "missing"])
-def test_side_effects_unknown_sensor_is_400(query: str) -> None:
+def test_side_effects_unknown_sensor_is_400(client: TestClient, query: str) -> None:
     # ported: SideEffectsServiceTests.anUnknownSensorOrANegativePageIsRejected
-    resp = _client().get(f"{API}/side-effects/sensor{query}")
+    resp = client.get(f"{API}/side-effects/sensor{query}")
     assert resp.status_code == 400
     assert resp.json()["error"].startswith("Unknown Side Effects sensor '")
 
 
-def test_side_effects_negative_offset_is_400() -> None:
+def test_side_effects_negative_offset_is_400(client: TestClient) -> None:
     # ported: SideEffectsServiceTests.anUnknownSensorOrANegativePageIsRejected
-    resp = _client().get(f"{API}/side-effects/sensor?sensor=files&offset=-1")
+    resp = client.get(f"{API}/side-effects/sensor?sensor=files&offset=-1")
     assert resp.status_code == 400
     assert resp.json() == {"error": "offset and limit must not be negative."}
 
 
-def test_code_paths_request_tree_echoes_the_request_id() -> None:
+def test_code_paths_request_tree_echoes_the_request_id(client: TestClient) -> None:
     # ported: CodePathsServiceTests.withoutTheSensorEveryReadAnswersItsUnavailableShape
-    resp = _client().get(f"{API}/code-paths/requests/0000000000000000")
+    resp = client.get(f"{API}/code-paths/requests/0000000000000000")
     assert resp.status_code == 200
     body = resp.json()
     assert body["requestId"] == "0000000000000000"
@@ -159,9 +164,8 @@ def test_code_paths_request_tree_echoes_the_request_id() -> None:
     assert body["found"] is False
 
 
-def test_code_paths_route_applies_bootui_bounds() -> None:
+def test_code_paths_route_applies_bootui_bounds(client: TestClient) -> None:
     # ported: CodePathsServiceTests.withoutTheSensorEveryReadAnswersItsUnavailableShape
-    client = _client()
     capped_resp = client.get(f"{API}/code-paths/route?route=GET%20%2Fx&depth=99&limit=9999")
     assert capped_resp.status_code == 200
     capped = capped_resp.json()
@@ -174,15 +178,15 @@ def test_code_paths_route_applies_bootui_bounds() -> None:
     assert defaults["page"]["limit"] == 200
 
 
-def test_code_inventory_list_echoes_the_limit_in_its_empty_page() -> None:
+def test_code_inventory_list_echoes_the_limit_in_its_empty_page(client: TestClient) -> None:
     # ported: CodeInventoryServiceTests.isUnavailableWithTheAgentsReason
-    resp = _client().get(f"{API}/code-inventory/methods?limit=5")
+    resp = client.get(f"{API}/code-inventory/methods?limit=5")
     assert resp.status_code == 200
     assert resp.json()["page"]["limit"] == 5
 
 
-def test_code_inventory_non_integer_limit_is_400() -> None:
-    assert _client().get(f"{API}/code-inventory/changes?limit=x").status_code == 400
+def test_code_inventory_non_integer_limit_is_400(client: TestClient) -> None:
+    assert client.get(f"{API}/code-inventory/changes?limit=x").status_code == 400
 
 
 # --- actions: BootUI's refusals without the agent ------------------------------------------------------------------
@@ -197,9 +201,11 @@ def test_code_inventory_non_integer_limit_is_400() -> None:
     ],
     ids=["no-enabled", "unswitchable", "not-armed"],
 )
-def test_sensor_switch_refusals(sensor: str, body: dict[str, Any], status: int, fragment: str) -> None:
+def test_sensor_switch_refusals(
+    client: TestClient, sensor: str, body: dict[str, Any], status: int, fragment: str
+) -> None:
     # ported: AbstractBootUiApiConformanceTest.aSwitchableSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever
-    resp = _client().post(f"{API}/java-agent/sensors/{sensor}", json=body)
+    resp = client.post(f"{API}/java-agent/sensors/{sensor}", json=body)
     assert resp.status_code == status
     assert fragment in resp.json()["error"]
 
@@ -215,10 +221,10 @@ def test_sensor_switch_refusals(sensor: str, body: dict[str, Any], status: int, 
     ],
     ids=["start-no-method", "start-not-armed", "stop-bad-id", "stop-unknown", "delete-unknown"],
 )
-def test_probe_refusals(method: str, path: str, body: Any, status: int, fragment: str) -> None:
+def test_probe_refusals(client: TestClient, method: str, path: str, body: Any, status: int, fragment: str) -> None:
     # ported: MethodProbeServiceTests.invalidMethodsAreBadRequestsAndRefusalsAreConflicts
     # ported: MethodProbeServiceTests.withoutTheAgentProbesAreUnavailable
-    resp = _client().request(method, API + path, json=body)
+    resp = client.request(method, API + path, json=body)
     assert resp.status_code == status
     assert fragment in resp.json()["error"]
 
@@ -262,9 +268,9 @@ def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard) -> 
     ],
     ids=["not-a-number", "unknown"],
 )
-def test_probe_show_refusals(probe_id: str, status: int, error: str) -> None:
+def test_probe_show_refusals(client: TestClient, probe_id: str, status: int, error: str) -> None:
     # ported: MethodProbeServiceTests.withoutTheAgentProbesAreUnavailable
-    resp = _client().get(f"{API}/code-paths/probes/{probe_id}")
+    resp = client.get(f"{API}/code-paths/probes/{probe_id}")
     assert resp.status_code == status
     assert resp.json() == {"error": error}
 
@@ -286,22 +292,24 @@ def test_probe_show_refusals(probe_id: str, status: int, error: str) -> None:
     ],
 )
 @pytest.mark.parametrize(("method", "suffix"), [("GET", ""), ("POST", "/stop"), ("DELETE", "")])
-def test_probe_ids_parse_as_java_longs(method: str, suffix: str, probe_id: str, status: int) -> None:
+def test_probe_ids_parse_as_java_longs(
+    client: TestClient, method: str, suffix: str, probe_id: str, status: int
+) -> None:
     # ported: MethodProbeServiceTests.invalidMethodsAreBadRequestsAndRefusalsAreConflicts
-    resp = _client().request(method, f"{API}/code-paths/probes/{probe_id}{suffix}")
+    resp = client.request(method, f"{API}/code-paths/probes/{probe_id}{suffix}")
     assert resp.status_code == status
 
 
-def test_probe_report_lists_the_bounds_that_apply_to_sharpit() -> None:
-    limitations = _client().get(f"{API}/code-paths/probes").json()["limitations"]
+def test_probe_report_lists_the_bounds_that_apply_to_sharpit(client: TestClient) -> None:
+    limitations = client.get(f"{API}/code-paths/probes").json()["limitations"]
     assert len(limitations) == 3
     assert any(
         line.startswith("A probe records at most 20 invocations, for at most 60 seconds") for line in limitations
     )
 
 
-def test_side_effects_limitations_keep_the_minimisation_entries() -> None:
-    limitations = _client().get(f"{API}/side-effects").json()["limitations"]
+def test_side_effects_limitations_keep_the_minimisation_entries(client: TestClient) -> None:
+    limitations = client.get(f"{API}/side-effects").json()["limitations"]
     assert len(limitations) == 3
     assert any(line.startswith("A process row shows the command's file name only") for line in limitations)
     assert any(line.startswith("A network row shows a host and port") for line in limitations)
