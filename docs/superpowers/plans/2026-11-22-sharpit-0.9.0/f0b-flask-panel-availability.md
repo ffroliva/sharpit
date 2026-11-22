@@ -23,6 +23,10 @@ Seven subsystems in the current codebase are coupled to ASGI middleware, Starlet
 7. **In-process HTTP probe (`run_probe`) and Pentesting active probe (`pentesting_probe.run_probe`):**
    `run_probe` (`src/sharpit/engine/probe.py:221-370`, called by `_http_probe` in `src/sharpit/fastapi/routes/__init__.py:304-360`) and `pentesting_probe.run_probe` (`src/sharpit/fastapi/pentesting_probe.py:46-57`, called by `pentesting.py:31-45` and `src/sharpit/engine/tools04/pentesting.py:21-37`) construct an ASGI `http` scope and `await host_app(scope, receive, send)`. On a WSGI Flask host in 0.9.0 (`PLAN.md:223-224`, `h3-multi-loop.md:5`), there is no ASGI `host_app` or running host event loop (`running_host_loop` in `src/sharpit/engine/tools04/hostloop.py:14-16` returns `None`), so active probing is unavailable on Flask in 0.9.0.
 
+In addition, two WSGI transport constraints in `f0-console-contract.md` carry explicit availability reasons on Flask:
+- **WSGI SSE stream capacity (`SHARPIT_WSGI_STREAM_MAX`):** `SharpitSettings.wsgi_stream_max` defaults to `0` (and invalid values fail safe to `0` with a warning), which means SSE `/stream` routes are off by default on Flask with availability reason `WSGI_STREAM_CAPACITY_UNKNOWN`. Setting `SHARPIT_WSGI_STREAM_MAX` to a positive integer (`4` is a documented suggested value, not a default) enables SSE streaming on Flask.
+- **WSGI raw request-target inspection (`RAW_URI` / `REQUEST_URI`):** When a WSGI server exposes neither `RAW_URI` nor `REQUEST_URI`, the Flask adapter cannot verify whether a request arrived with an absolute-form target and fails closed (`403`) with an availability reason that names the server limitation.
+
 ---
 
 ## 2. Panel and Action Availability Table (All 49 Panels in `PANELS` Plus Non-Panel Gateways)

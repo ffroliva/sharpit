@@ -239,18 +239,30 @@ For every active HTTP request under `settings.path`, `Console.handle` runs the f
 
 4. **Bare mount redirect and route matching (`src/sharpit/fastapi/adapter.py:70-81, 226-231`):**
    - If `request.path == ""` (bare `/sharpit`, matched by `SharpitMount.matches` at `src/sharpit/fastapi/adapter.py:72-80`): return `307 Temporary Redirect` with `Location` pointing to `{request.root_path}{ctx.settings.path}/` (preserving `?{raw_query}` when `request.raw_query` is non-empty, matching Starlette's slash redirect) and `security_headers("api")`.
-   - Match `(request.method, request.path)` against `ROUTES`. For WSGI, stream routes refuse `HEAD` with 405 so a suppressed body cannot leak a stream slot.
-   - If `request.path` matches at least one route template for other HTTP methods only, return `405` JSON `{"error": "Method Not Allowed"}` with `Allow: <comma-joined methods, including HEAD when GET is supported>` and `security_headers("api")` (matching `_json_http_error` in `src/sharpit/fastapi/adapter.py:226-231`).
+   - Match `(request.method, request.path)` against `ROUTES`:
+     - On non-stream `GET` routes, `HEAD` works as it does today: the same status and headers, with the body stripped.
+     - Stream routes refuse `HEAD` with `405` before a slot is acquired, and their `Allow` header is `GET` only.
+   - If `request.path` matches at least one route template for other HTTP methods only, return `405` JSON `{"error": "Method Not Allowed"}` with `Allow: <comma-joined methods, including HEAD when GET is supported on non-stream routes, or GET only on stream routes>` and `security_headers("api")` (matching `_json_http_error` in `src/sharpit/fastapi/adapter.py:226-231`).
    - If no template matches `request.path`, return `404` JSON `{"error": "Not Found"}` with `security_headers("api")` (matching `_json_http_error` in `src/sharpit/fastapi/adapter.py:226-231`).
 
-5. **Handler dispatch, exception boundary, audit hook, and response security headers:**
+5. **Handler dispatch, audit hook, and response security headers:**
    - Build `ConsoleCall(ctx=self.ctx, request=request, headers=headers, path_params=path_params, query_params=query_params, trusted=trusted, host_loop_provider=host_loop_provider)`.
-   - Invoke `route.handler(call)` inside a blanket `try / except` block:
-     - `BadRequest` (`src/sharpit/engine/paging.py:11-12`) maps to `400` JSON `{"error": str(exc)}` with `security_headers("api")`, matching `_bad_request` in `src/sharpit/fastapi/adapter.py:222-223` and `src/sharpit/fastapi/install.py:360`.
-     - `AdvisorViolationError` (`src/sharpit/engine/advisors/retention.py:19-25`) maps to `exc.status` JSON `{"error": exc.message}` with `security_headers("api")`, matching `src/sharpit/fastapi/routes/__init__.py:558-559`, `architecture.py:37-38`, `database_advisor.py:46-47`, `dismissed_findings.py:77-78`, `fastapi.py:41-42`, and `security.py:38-39`.
-     - Any other `Exception` is logged and mapped to a masked `500` JSON response `{"error": "Internal Server Error"}` with `security_headers("api")` and no traceback. Adapters never let an exception escape into the host framework (under `flask run --debug`, an uncaught exception would otherwise be rendered by Werkzeug's `DebuggedApplication` debugger).
+   - Invoke `route.handler(call)` directly (there is no inner `try / except` around the handler; exception handling is owned exclusively by the single outermost adapter catch below). If `request.method == "HEAD"` on a matched non-stream `GET` route, strip the response body (`body=b""`) while preserving `status` and `headers`.
    - If `route.kind == "action"` and `route.id not in ("mcp.rpc", "cli.invoke")` and an `ActionAuditHook` is registered, invoke `audit_hook.on_action(...)`.
    - Fill in response headers from `security_headers(route.response_class)` (`src/sharpit/engine/headers.py:20-32`) following `GuardMiddleware._send_with_headers` (`src/sharpit/fastapi/adapter.py:99-108`): if `"content-security-policy"` is not already present on the response, append each `(name, value)` from `security_headers(route.response_class)` whose header name is not already present.
+
+#### Outermost Adapter Exception Boundary
+
+There is **exactly one outermost catch per adapter**, so exception ownership is unambiguous:
+1. **Single pre-response catch enclosing the entire pipeline:**
+   - Each adapter (`src/sharpit/fastapi/` and `src/sharpit/flask/`) wraps request construction, the entire `Console.handle` call (header decoding/grouping, `decide_guard`, idle-tracker mark, route matching, handler dispatch, audit hook, and response security-header fill), and response header/body emission in a single outermost `try / except Exception` block:
+     - `BadRequest` (`src/sharpit/engine/paging.py:11-12`) maps to `400` JSON `{"error": str(exc)}` with `security_headers("api")`, matching `_bad_request` in `src/sharpit/fastapi/adapter.py:222-223` and `src/sharpit/fastapi/install.py:360`.
+     - `AdvisorViolationError` (`src/sharpit/engine/advisors/retention.py:19-25`) maps to `exc.status` JSON `{"error": exc.message}` with `security_headers("api")`, matching `src/sharpit/fastapi/routes/__init__.py:558-559`, `architecture.py:37-38`, `database_advisor.py:46-47`, `dismissed_findings.py:77-78`, `fastapi.py:41-42`, and `security.py:38-39`.
+     - Any other `Exception` logs a masked line (`ctx.masker.mask_text`, `src/sharpit/engine/masking.py:609`) and maps to a `500` JSON response `{"error": "Internal Server Error"}` with `security_headers("api")` and no traceback. Adapters never let an exception escape into the host framework (under `flask run --debug`, an uncaught exception would otherwise be rendered by Werkzeug's `DebuggedApplication` debugger).
+2. **Minimal static fallback if building the 500 response itself fails:**
+   - If logging, masking, or building the `500` response itself raises an exception inside the outermost `except` block, the adapter sends a fixed minimal response: a static `500` body (`b'{"error":"Internal Server Error"}'`) and static security headers (`security_headers("api")`), with no masking call.
+3. **Stream failure after `start_response` (or ASGI `http.response.start`):**
+   - A stream that fails after `start_response` (during `__next__` / `__anext__` or `close()`) cannot become a `500`. Instead, the stream is aborted: close the stream (`frames.aclose()` and private event loop shutdown on WSGI), release its `StreamSlots` slot (`ConsoleStream.close()`), and log a masked line. No traceback reaches the client.
 
 ### 1.5 Host Ports (`HostProbe`, `CaptureHooks`, `HostLoopProvider`, `AppIntrospector`)
 
@@ -337,24 +349,29 @@ Choose option **(b): `asyncio` is a stated, tested runtime requirement for every
 
 ---
 
-### Decision 3: The WSGI Capacity Rule (Explicit Setting with Conservative Default, Overload Response, Cleanup on Disconnect)
+### Decision 3: The WSGI Capacity Rule (`SHARPIT_WSGI_STREAM_MAX` Default `0`, Overload Response, Cleanup on Disconnect)
 
 **Decision:**
-1. **Explicit WSGI stream capacity setting (never inferred from launcher arguments):**
+1. **`SHARPIT_WSGI_STREAM_MAX` setting (field default `0`, never inferred from launcher arguments):**
    - FastAPI (ASGI) uses `MAX_STREAMS = 20` (`src/sharpit/engine/capture/streams.py:23`, `StreamSlots()` in `src/sharpit/fastapi/install.py:91`).
    - Flask (WSGI) never inspects `sys.argv`, `GUNICORN_CMD_ARGS`, or `environ["wsgi.multithread"]` to guess worker or thread counts (launcher flags are server-specific and ambiguous; for example, `gunicorn -t` is `--timeout`, not `--threads`, and Werkzeug's `FlaskClient` sets `wsgi.multithread = False` in tests).
-   - Instead, WSGI stream capacity is controlled by an explicit setting with a conservative default (`WSGI_DEFAULT_MAX_STREAMS = 4`), or `0` to disable SSE streaming on WSGI hosts whose worker capacity is unknown or single-threaded.
-2. **Overload response (`503`):**
-   - Before starting an event generator, the stream route checks `slots = ctx.capture.stream_slots`; if `slots is None or not slots.acquire()` (including when the limit is configured as `0`), it returns `503` JSON `{"error": "Too many concurrent sharpit streams"}` (`TOO_MANY_STREAMS` in `src/sharpit/fastapi/sse.py:24, 72-76`) with `security_headers("api")`.
-3. **Cleanup on disconnect and normal window completion:**
+   - Add `SharpitSettings.wsgi_stream_max: int = 0` (`src/sharpit/settings.py`), configured via environment variable `SHARPIT_WSGI_STREAM_MAX` or `install(..., wsgi_stream_max=...)`, validated as a non-negative integer (`>= 0`):
+     - **The field default is `0`**, which means SSE streaming is off on Flask, with an availability reason (`WSGI_STREAM_CAPACITY_UNKNOWN`).
+     - **An invalid value** (non-integer or `< 0`) **fails safe to `0`** and adds a settings warning (`src/sharpit/settings.py:259-314`).
+     - **`4` is a documented suggested value** for multi-worker or multi-threaded WSGI dev setups (e.g., `SHARPIT_WSGI_STREAM_MAX=4`), **NOT a default**.
+2. **`HEAD` refusal and overload response (`503`):**
+   - Stream routes refuse `HEAD` with `405` (`Allow: GET` only) in route matching before any slot is acquired.
+   - On `GET`, before starting an event generator, the stream route checks `slots = ctx.capture.stream_slots`; if `slots is None or not slots.acquire()` (including when `wsgi_stream_max` is `0`), it returns `503` JSON `{"error": "Too many concurrent sharpit streams"}` (`TOO_MANY_STREAMS` in `src/sharpit/fastapi/sse.py:24, 72-76`) with `security_headers("api")`.
+3. **Cleanup on disconnect, normal window completion, and post-`start_response` abort:**
    - Every open stream is bounded by `ctx.settings.stream_max_seconds` (default `3.0` s, `src/sharpit/settings.py:104`), after which `stream_frames` yields `b"retry: 1000\n\n"` and exits normally, freeing the WSGI worker thread at most every 3 seconds.
    - Under PEP 3333, the WSGI server calls `close()` on the response iterator both when the response completes and when the client disconnects early. `WsgiEventStream.close()` is idempotent and guarantees that `frames.aclose()` runs on the private event loop (detaching the `_Ticker` from `_Hub._subscribers` via `subscription.close()` at `src/sharpit/engine/capture/streams.py:91-96, 228`), closes the private event loop (so `_Ticker._signal()`'s `self._loop.is_closed()` check at `streams.py:61` also drops it on any concurrent signal), and calls `ConsoleStream.close()` to release the `StreamSlots` slot (`streams.py:43-45`) exactly once.
+   - If a stream fails after `start_response` (during `__next__` or `close()`), it cannot become a `500`: the adapter aborts the stream, closes it, releases its slot, and logs a masked line with no traceback reaching the client.
 
 **Reason:**
-- Inferring worker concurrency from command-line arguments is brittle across WSGI servers (Gunicorn `-t` is timeout in seconds, uWSGI and Waitress use different flags, and programmatic launchers pass no CLI flags). An explicit conservative default (`4` slots, or `0` when disabled) with a 3-second `stream_max_seconds` lifetime and deterministic `close()` cleanup prevents unbounded thread occupation without fragile argv heuristics.
+- Inferring worker concurrency from command-line arguments is brittle across WSGI servers (Gunicorn `-t` is timeout in seconds, uWSGI and Waitress use different flags, and programmatic launchers pass no CLI flags). Defaulting `SharpitSettings.wsgi_stream_max` to `0` (streaming off with an explicit availability reason) fails safe on single-worker WSGI servers while allowing users to opt in by setting a positive capacity (with `4` documented as a suggested value).
 
 **Proving Test:**
-- `tests/engine/test_console_streams.py::test_wsgi_stream_slots_cap_and_idempotent_disconnect_cleanup` — configures `StreamSlots(limit=2)` (and `limit=0`), verifies that exceeding the limit immediately returns `503 {"error": "Too many concurrent sharpit streams"}` without starting the async generator, aborts an active stream early via `.close()` twice, and asserts `stream.subscriber_count == 0` and `slots.count == 1`.
+- `tests/engine/test_console_streams.py::test_wsgi_stream_slots_cap_and_idempotent_disconnect_cleanup` — verifies that `wsgi_stream_max` defaults to `0` (and invalid `SHARPIT_WSGI_STREAM_MAX` values fail safe to `0` with a warning), that `HEAD` on a stream route returns `405` with `Allow: GET` only and `slots.count == 0`, that `limit=0` or exceeding `StreamSlots(limit=2)` immediately returns `503 {"error": "Too many concurrent sharpit streams"}` without starting the async generator, and that aborting an active stream early (via `.close()` twice or an exception during `__next__`) closes the stream, logs a masked line on error, and leaves `stream.subscriber_count == 0` and `slots.count == 0`.
 
 ---
 
@@ -433,9 +450,12 @@ Two Werkzeug/WSGI behaviors require explicit rules in the Flask WSGI adapter (`s
      2. If `environ.get("CONTENT_LENGTH")` is present and non-empty, append `(b"content-length", environ["CONTENT_LENGTH"].encode("latin-1"))`.
      3. For every `(key, value)` in `environ.items()` where `key.startswith("HTTP_")` and `isinstance(value, str)`: let `name = key[5:].replace("_", "-").lower().encode("latin-1")`. If `name in (b"host", b"origin", b"sec-fetch-site")` and `"," in value`, emit one `(name, part.encode("latin-1"))` tuple per comma-separated segment (`value.split(",")`) so `Console.handle` sees `len(values[...]) > 1` and denies the request with `403` (`MESSAGE_DISALLOWED_HOST` for `host`; `MESSAGE_CROSS_SITE` for `origin` and `sec-fetch-site`). Otherwise, emit `(name, value.encode("latin-1"))`.
      4. There is no test-only adapter branch for pre-parsed raw header pairs; tests exercise the WSGI adapter exclusively through standard PEP 3333 `environ` dictionaries.
-2. **Absolute-form request target (`RAW_URI` / `REQUEST_URI`) overwriting `HTTP_HOST`:**
+2. **Absolute-form request targets (`RAW_URI` / `REQUEST_URI`) and `HTTP_HOST` validation on WSGI:**
    - When an HTTP/1.1 client sends an absolute-form request target on the request line (for example, `GET http://localhost/sharpit/api/overview HTTP/1.1` with header `Host: evil.example`), Werkzeug's `WSGIRequestHandler.make_environ` parses the URI's authority and overwrites `environ["HTTP_HOST"] = "localhost"`, discarding the `Host: evil.example` header while keeping the raw request target in `environ["REQUEST_URI"]` / `environ["RAW_URI"]`.
-   - Therefore, for every request under `settings.path`, the WSGI adapter inspects `environ.get("RAW_URI")` and `environ.get("REQUEST_URI")`. If either is a non-empty string that does not start with `"/"` or starts with `"//"` (i.e., an absolute-form URI such as `http://...` or authority-form target), the WSGI adapter refuses the request (by recording a duplicate synthetic `(b"host", b"")` tuple in `ConsoleRequest.raw_headers` so `Console.handle` returns `403` `{"error": guard.MESSAGE_DISALLOWED_HOST}` with `security_headers("api")`).
+   - Therefore, for every active request under `settings.path`, the WSGI adapter validates `RAW_URI` / `REQUEST_URI` and `HTTP_HOST` before calling `Console.handle` and **returns `403` itself** (with `security_headers("api")`, never synthesizing a fake `Host` header):
+     1. **When `RAW_URI` or `REQUEST_URI` is absolute-form** (or any non-origin form: a non-empty string that does not start with `"/"` or starts with `"//"`, such as `http://localhost/sharpit/api/overview`): the adapter returns `403` JSON `{"error": guard.MESSAGE_DISALLOWED_HOST}` with `security_headers("api")`.
+     2. **When `HTTP_HOST` is missing or blank** (`not environ.get("HTTP_HOST", "").strip()`): the adapter returns `403` JSON `{"error": guard.MESSAGE_DISALLOWED_HOST}` with `security_headers("api")`.
+     3. **When the server exposes neither `RAW_URI` nor `REQUEST_URI`** (both are missing or empty in `environ`): in that case the adapter cannot detect whether the request arrived in absolute-form (because PEP 3333 `PATH_INFO` contains only the stripped path after `HTTP_HOST` may already have been overwritten), so it **fails closed** by returning `403` with `security_headers("api")` and an availability reason that names the server limitation (that the WSGI server exposes neither `RAW_URI` nor `REQUEST_URI`).
 
 ---
 
@@ -450,42 +470,45 @@ Today:
   - Otherwise it returns `None` (`signals.py:19`).
 - `decide(settings: SharpitSettings, profiles: Sequence[str], dev_signal: str | None) -> ActivationStatus` in `src/sharpit/engine/activation.py:39-69` returns `ActivationStatus(enabled, localhost_only, reason, tuple(warnings))` (`activation.py:14-18`) with the exact reason strings at lines 48–69.
 
-### 4.2 Verified Reloader Signal Rules for Flask and Gunicorn
+### 4.2 Reloader Child Recognition Rules for Flask
 
-In F3, `dev_server_signal` is extended to identify the actual reloading launcher from `argv` (and `os.environ` only for Werkzeug's reloader child process marker `WERKZEUG_RUN_MAIN`):
-1. **Flask CLI (`flask ... run` / `python -m flask ... run`):**
-   - Detected when `"flask"` is the launcher executable name (`parts[-1] in {"flask", "flask.exe"}` or `parts[-2:] == ["flask", "__main__.py"]`) and `"run"` is in `argv[1:]`:
-     - If `"--no-reload"` is in `argv[1:]`: returns `None` (the reloader is explicitly disabled, even if `"--debug"` or `FLASK_DEBUG=1` is present).
-     - Else if `"--reload"` is in `argv[1:]`: returns `"flask run --reload"`.
-     - Else if `"--debug"` is in `argv[1:]`: returns `"flask run --debug"` (`flask run --debug` enables Werkzeug's reloader unless `--no-reload` is passed).
-     - Else if `environ.get("WERKZEUG_RUN_MAIN", "").lower() == "true"`: returns `"flask run --reload"` (verified Werkzeug reloader child process).
-     - Otherwise (bare `flask run`, or `FLASK_DEBUG=1` in the environment without `--reload`, `--debug`, or `WERKZEUG_RUN_MAIN=true`): returns `None`. **`FLASK_DEBUG` without a verified reloader signal never enables the console.**
-2. **Gunicorn (`gunicorn --reload`):**
-   - Detected when `"gunicorn"` is the launcher executable name (`parts[-1] in {"gunicorn", "gunicorn.exe"}` or `parts[-2:] == ["gunicorn", "__main__.py"]`):
-     - If `"--reload"` is in `argv[1:]`: returns `"gunicorn --reload"`.
-     - Otherwise: returns `None`.
-3. **FastAPI / Uvicorn (`fastapi dev`, `uvicorn --reload`):**
-   - Preserves existing behavior in `src/sharpit/fastapi/signals.py:13-19`: returns `"fastapi dev"` for `fastapi dev`, and `"uvicorn --reload"` when `"--reload"` is in `argv[1:]` for non-Flask/non-Gunicorn launchers.
+The Werkzeug reloader child's `argv` equals the parent's because Werkzeug replays `sys.orig_argv` when spawning the child process, so `argv` cannot tell parent from child. Only `WERKZEUG_RUN_MAIN` can distinguish the serving child from the reloader parent. Conversely, `WERKZEUG_RUN_MAIN` alone is insufficient because child subprocesses or the shell environment can inherit `WERKZEUG_RUN_MAIN=true` even when no reloader is active.
 
-### 4.3 Activation Matrix for Flask and Gunicorn
+In F3, the Flask serving child enables via `dev_server_signal` **only when ALL four of these conditions hold**:
+- **(a)** `WERKZEUG_RUN_MAIN == "true"` (`environ.get("WERKZEUG_RUN_MAIN") == "true"`);
+- **(b)** `argv` is a Flask CLI `run` invocation: `argv[0]` basename is `flask` or `flask.exe`, or the process was started as `python -m flask` (`argv[0]` ends with `flask/__main__.py`), and `run` is the first positional command;
+- **(c)** `--no-reload` is absent from `argv[1:]`;
+- **(d)** reloading is on: `--reload` is present in `argv[1:]`, or debug is on (`--debug` is present in `argv[1:]` without `--no-debug`, or `FLASK_DEBUG` is truthy in `environ` without `--no-debug`), the way `flask/cli.py` derives `reload = debug`.
 
-All `enabled` values and `ActivationStatus.reason` strings below match `decide()` in `src/sharpit/engine/activation.py:39-69`:
+When all four conditions (a)–(d) hold, `dev_server_signal` returns `"flask run --reload"` (when `--reload` is present) or `"flask run --debug"` (when reloading is derived from `--debug` or truthy `FLASK_DEBUG`).
 
-| Command / Environment | `SHARPIT_ENABLED` | Active Profiles (`SHARPIT_PROFILES`) | `dev_server_signal()` | `ActivationStatus.enabled` | `ActivationStatus.reason` (`src/sharpit/engine/activation.py:48-69`) |
+**Anything else is disabled, and that fails closed:**
+- The reloader parent process (`WERKZEUG_RUN_MAIN` unset or not `"true"`) is disabled ((a) fails).
+- An inherited `WERKZEUG_RUN_MAIN=true` with `flask run --no-reload` (or `flask run --debug --no-reload` / `FLASK_DEBUG=1 flask run --no-reload`) is disabled ((c) fails).
+- An inherited `WERKZEUG_RUN_MAIN=true` with plain `flask run` and no debug (`FLASK_DEBUG` unset/falsy, no `--debug`, no `--reload`) is disabled ((d) fails).
+- `python app.py` with `app.run(debug=True)` gives disabled in both the parent and the `WERKZEUG_RUN_MAIN=true` child ((b) fails because `argv` is not a Flask CLI `run` invocation). **Known limit:** programmatic `app.run(debug=True)` is not auto-detected (matching programmatic `uvicorn.run(..., reload=True)` in `src/sharpit/fastapi/signals.py:11`); the user sets `SHARPIT_ENABLED=ON`.
+- An application subprocess inheriting `WERKZEUG_RUN_MAIN=true` (whose `argv` is not a Flask CLI `run` invocation) is disabled ((b) fails).
+- `gunicorn` and `gunicorn --reload` are disabled ((a) and (b) fail; Gunicorn is not a recognized Flask dev-server signal).
+
+### 4.3 Activation Matrix for Flask
+
+All `enabled` values and `ActivationStatus.reason` strings below match `decide()` in `src/sharpit/engine/activation.py:39-69` (with `SHARPIT_ENABLED` unset / `AUTO` and no active `SHARPIT_PROFILES` unless noted):
+
+| Command / Environment | Parent (`WERKZEUG_RUN_MAIN` unset) | Serving Child / Process with `WERKZEUG_RUN_MAIN=true` | `dev_server_signal()` in Child | `ActivationStatus.enabled` (Parent / Child) | `ActivationStatus.reason` in Serving Process (`src/sharpit/engine/activation.py:48-69`) |
 |---|---|---|---|---|---|
-| `flask run` | unset (`AUTO`) | none | `None` | `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
-| `FLASK_DEBUG=1 flask run` (no reloader flag / no `WERKZEUG_RUN_MAIN`) | unset (`AUTO`) | none | `None` | `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
-| `flask run --debug --no-reload` | unset (`AUTO`) | none | `None` | `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
-| `FLASK_DEBUG=1 flask run --no-reload` | unset (`AUTO`) | none | `None` | `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
-| `flask run --reload` | unset (`AUTO`) | none | `"flask run --reload"` | `True` | `"Enabled because a reloading development server was detected (flask run --reload)"` |
-| `flask run --debug` | unset (`AUTO`) | none | `"flask run --debug"` | `True` | `"Enabled because a reloading development server was detected (flask run --debug)"` |
-| `WERKZEUG_RUN_MAIN=true flask run` (Werkzeug reloader child) | unset (`AUTO`) | none | `"flask run --reload"` | `True` | `"Enabled because a reloading development server was detected (flask run --reload)"` |
-| `gunicorn app:app` | unset (`AUTO`) | none | `None` | `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
-| `FLASK_DEBUG=1 gunicorn app:app` | unset (`AUTO`) | none | `None` | `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
-| `gunicorn --reload app:app` | unset (`AUTO`) | none | `"gunicorn --reload"` | `True` | `"Enabled because a reloading development server was detected (gunicorn --reload)"` |
-| Any of the above | `OFF` | any (`dev`) | any | `False` | `"Disabled by SHARPIT_ENABLED=OFF"` |
-| Any of the above | `ON` | `prod` (disabled profile) | any | `True` (with warning) | `"Explicitly enabled (SHARPIT_ENABLED=ON) despite disabled profile 'prod'"` |
-| `flask run` | unset (`AUTO`) | `dev` (`local`, `development`) | `None` | `True` | `"Enabled by active profile 'dev'"` |
+| `flask run` (no debug, no `--reload`) | Disabled ((a), (d) false) | No child spawned | `None` | `False` / — | `"Disabled: no enabled profile and no reloading development server detected"` |
+| `flask run --debug` | Disabled ((a) false; parent is reloader watcher) | Enabled ((a)–(d) all hold) | `"flask run --debug"` | `False` / `True` | `"Enabled because a reloading development server was detected (flask run --debug)"` |
+| `FLASK_DEBUG=1 flask run` | Disabled ((a) false; parent is reloader watcher) | Enabled ((a)–(d) all hold; `flask/cli.py` derives `reload = debug`) | `"flask run --debug"` | `False` / `True` | `"Enabled because a reloading development server was detected (flask run --debug)"` |
+| `flask run --reload` | Disabled ((a) false; parent is reloader watcher) | Enabled ((a)–(d) all hold) | `"flask run --reload"` | `False` / `True` | `"Enabled because a reloading development server was detected (flask run --reload)"` |
+| `flask run --debug --no-reload` or `FLASK_DEBUG=1 flask run --no-reload` | Disabled ((a), (c) false; `--no-reload` disables reloader) | No child spawned | `None` | `False` / — | `"Disabled: no enabled profile and no reloading development server detected"` |
+| Inherited `WERKZEUG_RUN_MAIN=true` with `flask run --no-reload` (or `flask run --debug --no-reload`) | — | Disabled ((c) false: `--no-reload` is present) | `None` | — / `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
+| Inherited `WERKZEUG_RUN_MAIN=true` with plain `flask run` and no debug | — | Disabled ((d) false: reloading and debug are both off) | `None` | — / `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
+| `python app.py` with `app.run(debug=True)` (known limit: user sets `SHARPIT_ENABLED=ON`) | Disabled ((a), (b) false) | Disabled ((b) false: `argv` is `app.py`, not Flask CLI `run`) | `None` | `False` / `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
+| App subprocess inheriting `WERKZEUG_RUN_MAIN=true` (non-`flask run` `argv`) | — | Disabled ((b) false: `argv` is not Flask CLI `run`) | `None` | — / `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
+| `gunicorn app:app` or `gunicorn --reload app:app` | Disabled ((a), (b) false) | Disabled ((a), (b) false) | `None` | `False` / `False` | `"Disabled: no enabled profile and no reloading development server detected"` |
+| Any invocation with `SHARPIT_ENABLED=OFF` | Disabled | Disabled | any | `False` / `False` | `"Disabled by SHARPIT_ENABLED=OFF"` |
+| Any invocation with `SHARPIT_ENABLED=ON` (and `SHARPIT_PROFILES=prod`) | Enabled (with warning) | Enabled (with warning) | any | `True` / `True` | `"Explicitly enabled (SHARPIT_ENABLED=ON) despite disabled profile 'prod'"` |
+| `flask run` with `SHARPIT_PROFILES=dev` | Enabled | — | `None` | `True` / — | `"Enabled by active profile 'dev'"` |
 
 ### 4.4 Proposed Wording Change to Safety Rule 1 in `AGENTS.md`
 
@@ -496,12 +519,15 @@ Current wording in `AGENTS.md` (Safety model, rule 1):
 >    `OFF` disables → `ON` enables → an enabled profile enables → a reloading dev server (`uvicorn --reload`,
 >    `fastapi dev`) enables → otherwise disabled. Inactive means every path under the mount answers 404.
 
-Proposed wording for maintainer approval:
+**Proposal for the maintainer — `AGENTS.md` Safety model, rule 1 wording:**
 > 1. **Fails closed.** Activation order: a disabled profile disables (unless `SHARPIT_ENABLED=ON`, with a warning) →
 >    `OFF` disables → `ON` enables → an enabled profile enables → a reloading dev server (`uvicorn --reload`,
->    `fastapi dev`, `flask run --reload`, `flask run --debug` without `--no-reload`, `gunicorn --reload`) enables →
->    otherwise disabled (bare `flask run`, `FLASK_DEBUG` without reload, and `gunicorn` without `--reload` stay
->    disabled). Inactive means every path under the mount answers 404.
+>    `fastapi dev`, or the Flask CLI reloader serving child when all four hold: `WERKZEUG_RUN_MAIN == "true"`, `argv` is
+>    a `flask` / `python -m flask` `run` invocation with `run` as the first positional command, `--no-reload` is absent,
+>    and reloading is on via `--reload`, `--debug`, or truthy `FLASK_DEBUG`) enables → otherwise disabled (the reloader
+>    parent, an inherited `WERKZEUG_RUN_MAIN` with `flask run --no-reload` or plain `flask run` without debug,
+>    `python app.py` with `app.run(debug=True)`, and `gunicorn` with or without `--reload` stay disabled). Inactive
+>    means every path under the mount answers 404.
 
 ---
 
@@ -588,6 +614,7 @@ Every file, line range, and symbol cited across `f0-console-contract.md`, `f0-co
 | `src/sharpit/engine/guard.py:24-435` | `SESSION_COOKIE`, `MESSAGE_NON_LOOPBACK_SOURCE`, `MESSAGE_FORWARDED_SOURCE`, `MESSAGE_DISALLOWED_HOST`, `MESSAGE_CROSS_SITE`, `AUTHENTICATION_REQUIRED_MESSAGE`, `PANEL_ACCESS_DENIED`, `_SAFE_METHODS`, `RequestFacts`, `Denial`, `extract_request_host`, `extract_origin_host`, `is_trusted_source`, `_session_cookie`, `_is_cross_site`, `_panel_access`, `owning_panel_access`, `decide_guard`, `detect_container_gateway` | `git grep -n "SESSION_COOKIE =\|MESSAGE_NON_LOOPBACK_SOURCE =\|MESSAGE_FORWARDED_SOURCE =\|MESSAGE_DISALLOWED_HOST =\|MESSAGE_CROSS_SITE =\|AUTHENTICATION_REQUIRED_MESSAGE =\|PANEL_ACCESS_DENIED =\|_SAFE_METHODS =\|class RequestFacts\|class Denial\|def extract_request_host\|def extract_origin_host\|def is_trusted_source\|def _session_cookie\|def _is_cross_site\|def _panel_access\|def owning_panel_access\|def decide_guard\|def detect_container_gateway" src/sharpit/engine/guard.py` |
 | `src/sharpit/engine/headers.py:7-32` | `CSP`, `PERMISSIONS_POLICY`, `NO_STORE`, `IMMUTABLE`, `NO_CACHE`, `security_headers` | `git grep -n "CSP =\|PERMISSIONS_POLICY =\|NO_STORE =\|IMMUTABLE =\|NO_CACHE =\|def security_headers" src/sharpit/engine/headers.py` |
 | `src/sharpit/engine/lowfootprint.py:11-50` | `LowFootprintService` | `git grep -n "class LowFootprintService" src/sharpit/engine/lowfootprint.py` |
+| `src/sharpit/engine/masking.py:609-620` | `Masker.mask_text` | `git grep -n "def mask_text" src/sharpit/engine/masking.py` |
 | `src/sharpit/engine/mcp.py:324,379-557` | `McpServer`, `McpServer.handle`, `McpServer._call_tool`, `payload_too_large` | `git grep -n "class McpServer\|def handle(\|def _call_tool(\|def payload_too_large" src/sharpit/engine/mcp.py` |
 | `src/sharpit/engine/otel.py:71-128` | `SharpitSpanProcessor`, `attach`, `disarm` | `git grep -n "class SharpitSpanProcessor\|def attach\|def disarm" src/sharpit/engine/otel.py` |
 | `src/sharpit/engine/paging.py:11-43` | `BadRequest`, `parse_int_param`, `paged` | `git grep -n "class BadRequest\|def parse_int_param\|def paged" src/sharpit/engine/paging.py` |
@@ -625,34 +652,3 @@ Every file, line range, and symbol cited across `f0-console-contract.md`, `f0-co
 | `tests/fastapi/test_install.py:49-62, 415-438` | `test_inactive_404_every_path_and_method`, `test_duplicate_host_header_is_denied_as_disallowed_host`, `test_duplicate_origin_header_is_denied_as_cross_site`, `test_websocket_scope_is_closed`, `test_inactive_websocket_scope_is_closed` | `git grep -n "def test_inactive_404_every_path_and_method\|def test_duplicate_host_header_is_denied_as_disallowed_host\|def test_duplicate_origin_header_is_denied_as_cross_site\|def test_websocket_scope_is_closed\|def test_inactive_websocket_scope_is_closed" tests/fastapi/test_install.py` |
 | `tests/fastapi/test_threads_api.py:47-90` | `test_task_request_path_masked`, `test_threads_get_shape_and_filters`, `test_get_threads_mcp_no_side_effects` | `git grep -n "def test_task_request_path_masked\|def test_threads_get_shape_and_filters\|def test_get_threads_mcp_no_side_effects" tests/fastapi/test_threads_api.py` |
 | `tests/test_safety_matrix.py:647-690` | `DUPLICATES`, `test_duplicate_guard_headers_are_403`, `test_inactive_is_404_everywhere` | `git grep -n "DUPLICATES =\|def test_duplicate_guard_headers_are_403\|def test_inactive_is_404_everywhere" tests/test_safety_matrix.py` |
-
-### Revision 2: WSGI and Failure-Boundary Requirements
-
-#### Flask activation matrix
-
-The adapter enables the console in the serving process only when explicit activation enables it, or when both `WERKZEUG_RUN_MAIN=true` and process arguments identify the Werkzeug reloader / `flask run` launch. The variable alone is insufficient because subprocesses inherit it. Werkzeug's CLI sets `reload = debug` (`.venv/Lib/site-packages/flask/cli.py:984`); the reloader starts its child with `WERKZEUG_RUN_MAIN=true` (`.venv/Lib/site-packages/werkzeug/_reloader.py:274`).
-
-| Invocation | Parent result / reason | Serving child result / reason |
-|---|---|---|
-| `flask run` | Disabled: debug and reload default off. | No reloader child; disabled. |
-| `flask run --debug` | Disabled: parent is not the serving reloader child. | Enabled: reloader child signal plus Flask launcher argv; `RELOADING_DEV_SERVER`. |
-| `FLASK_DEBUG=1 flask run` | Disabled: parent is not the serving child. | Enabled: debug implies reload; valid child signal and launcher argv; `RELOADING_DEV_SERVER`. |
-| `flask run --reload` | Disabled in parent. | Enabled: child signal and Flask launcher argv; `RELOADING_DEV_SERVER`. |
-| `flask run --debug --no-reload` | Disabled: serving process has debug but reload is explicitly off; no child signal. | No serving child; disabled. |
-| `gunicorn --reload` | Disabled: Gunicorn reload is not a recognized Werkzeug/Flask reloader signal. | Reload worker remains disabled for the same reason. |
-| `gunicorn` | Disabled: no explicit activation or recognized dev-server signal. | Disabled. |
-| App subprocess inheriting `WERKZEUG_RUN_MAIN=true` | Disabled unless its argv independently identifies the Werkzeug reloader/Flask serving child; inherited env alone never activates. | Same rule; otherwise disabled. |
-
-**Proposal for maintainer — safety rule 1 wording:** “A disabled profile disables (unless `SHARPIT_ENABLED=ON`, with a warning) → `OFF` disables → `ON` enables → an enabled profile enables → a recognized reloading development server enables. For Flask, recognize the serving child only when `WERKZEUG_RUN_MAIN=true` and argv identifies the Werkzeug reloader or `flask run`; never trust the inherited variable alone. Otherwise disabled. Inactive means every path under the mount answers 404.”
-
-#### WSGI request-target validation
-
-Before any guard step, the Flask adapter returns 403 for absolute-form `RAW_URI` or `REQUEST_URI`, and returns 403 when `HTTP_HOST` is missing, blank, or whitespace. It does not synthesize an empty Host header. When neither URI variable exists, the adapter may use `PATH_INFO`; it still fails closed with 403 if the host is unknown. This validation belongs to the adapter because WSGI normalization can discard the original request-target authority before engine guard evaluation.
-
-#### Complete exception boundary
-
-The outermost adapter catch encloses all of `Console.handle`: header decoding/grouping, `decide_guard`, route matching, audit hook invocation, response-header filling, and WSGI stream `__next__` and `close`. `BadRequest` maps to 400; `AdvisorViolationError` retains its current status and message; every other `Exception` maps to masked 500 JSON with security headers and no traceback. Each adapter has one outermost catch. A contract test injects an exception at each pipeline step under `flask run --debug` semantics and asserts no Werkzeug debugger HTML is returned.
-
-#### WSGI stream capacity and HEAD cleanup
-
-Add `SharpitSettings.wsgi_stream_max` with environment name `SHARPIT_WSGI_STREAM_MAX`, parsed as a non-negative integer; invalid values fail safe to `0` and record a warning. When explicitly set, the default capacity is `4`; `0` disables WSGI streams. Capacity unknown means streaming is off and reports `WSGI_STREAM_CAPACITY_UNKNOWN`; it is never inferred as four. Validate values as integers >= 0. A WSGI stream route rejects HEAD (405) before acquiring a slot; test that HEAD returns 405 and leaves the slot count at zero.
