@@ -612,7 +612,6 @@ jobs:
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
       - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
-          SHARPIT_CI_VARIANT: lowest
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit
@@ -719,7 +718,6 @@ jobs:
       - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
       - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
-          SHARPIT_CI_VARIANT: no-sqlalchemy
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit
