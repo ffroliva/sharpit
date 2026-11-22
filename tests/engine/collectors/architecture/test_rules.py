@@ -392,3 +392,19 @@ def test_violation_never_contains_literal_secret(tmp_path: Path) -> None:
     for finding in findings["ARCH-PKG-001"]:
         assert "sk-live-" not in getattr(finding, "target", "")
         assert "sk-live-" not in getattr(finding, "message", "")
+
+
+# ported: ArchitectureRulesTests.internalPackagesMatchesInternalStrictlyBelowBasePackageEvenWhenBasePackageContainsInternal  # noqa: E501
+def test_internal_package_directly_under_the_application_package_is_owned_by_it(tmp_path: Path) -> None:
+    pkg = tmp_path / "fastapp"
+    _write(pkg / "__init__.py")
+    _write(pkg / "internal" / "__init__.py")
+    _write(pkg / "internal" / "db.py", "ENGINE = 1\n")
+    _write(pkg / "routers" / "__init__.py")
+    _write(pkg / "routers" / "users.py", "import fastapp.internal.db\n")
+
+    index = appsource.build_index(pkg, thread=False)
+    graph = build_graph(index, "fastapp")
+    findings = evaluate_rules(index, graph)
+
+    assert len(findings.get("ARCH-MOD-001", [])) == 0
