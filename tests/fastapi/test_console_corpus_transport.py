@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
-from tests.console_corpus import build_app, isolated_environment, record
+from tests.console_corpus import assert_corpus_match, build_app, isolated_environment, record
 from tests.console_corpus.transport import TRANSPORT_CASES
 
 CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "transport.json"
@@ -19,4 +19,4 @@ def test_transport_response_matches_corpus(case: dict[str, Any], tmp_path: Path)
         with TestClient(app, base_url="http://localhost", client=peer) as client:
             actual = record(client, case.get("method", "GET"), case["path"], case.get("headers"))
 
-    assert actual == expected
+    assert_corpus_match(actual, expected)

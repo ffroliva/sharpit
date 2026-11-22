@@ -91,6 +91,10 @@ def record(
     return {"status": response.status_code, "headers": dict(sorted(selected_headers.items())), "body": body}
 
 
+def assert_corpus_match(actual: Any, expected: Any, context: str = "") -> None:
+    assert actual == expected, context
+
+
 _SECURITY_HEADERS = frozenset(
     {
         "content-security-policy",

@@ -134,39 +134,46 @@ def normalise(value: Any) -> Any:
 
 def _normalise(value: Any, key: str = "") -> Any:
     if isinstance(value, Mapping):
-        result: dict[Any, Any] = {}
-        process_snapshot = "threads" in value and "capturedAt" in value
-        for field, item in value.items():
-            key_text = str(field)
-            if process_snapshot and key_text.casefold() == "page":
-                result[field] = "<PROCESS_PAGE>"
-                continue
-            if _PROTECTED_TEXT_KEY.search(key_text):
-                result[field] = item
-                continue
-            replacement = next(
-                (
-                    replacement
-                    for name, matcher, replacement, _reason in NORMALISERS
-                    if name not in {"uuid", "temp_path", "port"} and matcher(key_text, item)
-                ),
-                None,
-            )
-            if replacement is not None:
-                result[field] = replacement(item) if callable(replacement) else replacement
-            else:
-                result[field] = _normalise(item, key_text)
-        return result
+        return _normalise_mapping(value)
     if isinstance(value, list):
         return [_normalise(item, key) for item in value]
     if isinstance(value, tuple):
         return tuple(_normalise(item, key) for item in value)
     if isinstance(value, str):
-        if _PROTECTED_TEXT_KEY.search(key):
-            return value
-        result = value
-        for name, matcher, replacement, _reason in NORMALISERS:
-            if name in {"uuid", "temp_path", "port"} and matcher("", result):
-                result = replacement(result) if callable(replacement) else replacement
-        return result
+        return _normalise_string(value, key)
     return value
+
+
+def _normalise_mapping(value: Mapping[Any, Any]) -> dict[Any, Any]:
+    process_snapshot = "threads" in value and "capturedAt" in value
+    return {field: _normalise_field(field, item, process_snapshot) for field, item in value.items()}
+
+
+def _normalise_field(field: Any, value: Any, process_snapshot: bool) -> Any:
+    key = str(field)
+    if process_snapshot and key.casefold() == "page":
+        return "<PROCESS_PAGE>"
+    if _PROTECTED_TEXT_KEY.search(key):
+        return value
+    replacement = _matching_replacement(key, value, text_only=False)
+    if replacement is None:
+        return _normalise(value, key)
+    return replacement(value) if callable(replacement) else replacement
+
+
+def _normalise_string(value: str, key: str) -> str:
+    if _PROTECTED_TEXT_KEY.search(key):
+        return value
+    result = value
+    for name, matcher, replacement, _reason in NORMALISERS:
+        if name in {"uuid", "temp_path", "port"} and matcher("", result):
+            result = replacement(result) if callable(replacement) else replacement
+    return result
+
+
+def _matching_replacement(key: str, value: Any, *, text_only: bool) -> Any:
+    string_names = {"uuid", "temp_path", "port"}
+    for name, matcher, replacement, _reason in NORMALISERS:
+        if (name in string_names) == text_only and matcher(key, value):
+            return replacement
+    return None

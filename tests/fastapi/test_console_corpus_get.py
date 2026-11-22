@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from starlette.testclient import TestClient
-from tests.console_corpus import build_app, get_routes, isolated_environment, normalise, record
+from tests.console_corpus import assert_corpus_match, build_app, get_routes, isolated_environment, normalise, record
 
 CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "panels_get.json"
 
@@ -74,4 +74,4 @@ def _assert_get_corpus(no_side_effects) -> None:
                     no_side_effects.unblock_network()
         finally:
             no_side_effects.block_network()
-        assert actual == corpus[path], path
+        assert_corpus_match(actual, corpus[path], path)
