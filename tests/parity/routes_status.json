@@ -3,8 +3,8 @@
   "counts": {
     "matched": 5,
     "partial": 28,
-    "missing": 33,
-    "n-a": 30,
+    "missing": 32,
+    "n-a": 31,
     "total": 96
   },
   "routes": [
@@ -488,8 +488,8 @@
       "golden": "pentesting/captured.json",
       "panel": "pentesting",
       "route": "/sharpit/api/pentesting",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/pentesting (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "postgresql/captured.json",

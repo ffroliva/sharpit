@@ -32,10 +32,12 @@ def test_registry_specs():
         "rest-api": "rest-api",
         "vulnerabilities": "vulnerabilities",
         "test-runtime": None,
+        "http-security": None,
         "database-advisor": "database-advisor",
         "security": "security",
         "architecture": "architecture",
         "fastapi": "fastapi",
+        "pentesting": "pentesting",
     }
 
 

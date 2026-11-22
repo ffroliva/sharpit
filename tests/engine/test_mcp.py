@@ -532,9 +532,9 @@ def test_prompt_arguments_match_java_whitespace_and_mask_after_strip(no_side_eff
     assert "  ******  " not in rendered
 
 
-def test_prompt_named_action_tools_are_cli_only_with_commands(no_side_effects):
-    # new: sharpit MCP actions remain CLI-only and prompt guidance names their command
-    action_commands = {tool.name: COMMANDS[tool.name] for tool in TOOLS if tool.action}
+def test_prompt_names_cli_only_actions_and_mcp_pentest_action(no_side_effects):
+    # new: pentest_scan is the BootUI MCP action; other action tools remain CLI-only
+    action_commands = {tool.name: COMMANDS[tool.name] for tool in TOOLS if tool.action and tool.name != "pentest_scan"}
     for prompt in PROMPTS:
         for name, command in action_commands.items():
             if name in prompt.text:

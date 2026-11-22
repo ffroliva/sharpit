@@ -575,6 +575,30 @@
       "required": []
     },
     {
+      "name": "get_pentest_report",
+      "command": "pentest report",
+      "schema": "NONE",
+      "panel": "pentesting",
+      "action": false,
+      "summary": "Return the last completed Pentesting advisor report without sending any HTTP probes.",
+      "description": "Return the last completed Pentesting advisor report without sending any HTTP probes. Use this cached evidence before deciding whether an active pentest_scan is necessary.",
+      "example": "sharpit pentest report",
+      "arguments": [],
+      "required": []
+    },
+    {
+      "name": "pentest_scan",
+      "command": "pentest scan",
+      "schema": "NONE",
+      "panel": "pentesting",
+      "action": true,
+      "summary": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings.",
+      "description": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings. Run only with permission and verify findings before remediation. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence. Read the cached report with get_pentest_report without scanning again.",
+      "example": "sharpit pentest scan",
+      "arguments": [],
+      "required": []
+    },
+    {
       "name": "get_profile_diff",
       "command": "profile diff",
       "schema": "NONE",

@@ -129,7 +129,7 @@ the 0.7.0 lane fragments in `docs/reference/matrix-updates/` (117 entries):
 | C | cli:the-command-listing-tags-action | adapted | action tagging ported on individual tool help; full listing tags deferred to Task 7 HelpListing |
 | C | cli:missing-id-hint | adapted | usage error requires <id>; tools.json lacks BootUI idHelp property so detailed id source hint is omitted |
 | C | cli:fail-on-tools-fastapi | adapted | fastapi_scan and get_fastapi_report added to ADVISOR_TOOLS for FastAPI framework advisor |
-| C | cli:fail-on-tools-dropped | adapted | crac, graalvm, hibernate, memory, pentest, spring advisor tools dropped as absent from sharpit |
+| C | cli:fail-on-tools-dropped | adapted | crac, graalvm, hibernate, memory, spring advisor tools dropped as absent from sharpit; pentest_scan and get_pentest_report are kept |
 | C | cli:fail-on-tools-heap-dump | adapted | BootUI lists get_heap_dump_report in EXCLUDED; dropped because sharpit provides no heap dump analysis tool |
 | C | cli:fail-on-exceptions-sensor | adapted | get_exceptions removed from insufficient-criterion tools: sharpit records no caught-in-code evidence, so this gate cannot be evaluated (usage error) |
 | C | cli:fail-on-pytest-gate-comparison | n-a | note: CLI follows BootUI exactly (gates on INFO; scan status ERROR exits 1 unevaluable regardless of findings); the pytest gate follows the 0.4.0 ruling (INFO notes-only, ERROR with findings fails) |

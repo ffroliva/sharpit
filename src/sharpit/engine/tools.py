@@ -2,7 +2,7 @@
 
 Port of BootUI ``McpToolCatalog`` (the seven MVP rows), ``McpToolSchema`` rendered as in ``BootUiMcpService.schema``,
 ``McpToolDescriptions``, ``McpArguments.normalize``, ``McpDispatcher.callTool``, ``CliService`` and ``CliOutcomes``.
-MCP never sees an action tool (``vulnerabilities_scan`` and ``rest_api_scan`` are CLI-only, spec §9). Each ``via``
+MCP exposes only BootUI's ``pentest_scan`` action; other actions remain CLI-only. Each ``via``
 has its own caps, slots and counters, as BootUI's MCP and CLI each own a dispatcher.
 
 Timeout: Python threads cannot be interrupted (BootUI cancels the future), so the call's slot is released exactly
@@ -112,6 +112,11 @@ class Tool:
     action: bool
     handler: Callable[[CallContext, dict[str, Any]], dict[str, Any]]
     default_limit: int | None = None  # an absent ``limit`` (None: the via's max results); still capped by it
+
+    @property
+    def on_mcp(self) -> bool:
+        """Read tools and BootUI's one MCP action tool; every other action stays CLI-only."""
+        return not self.action or self.name == "pentest_scan"
 
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------

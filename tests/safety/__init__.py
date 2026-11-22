@@ -3,7 +3,8 @@
 A lane file may export ``PANEL`` (a sharpit panel id with a per-panel module: a 0.4 id or ``sql-trace``),
 ``GET_ROWS`` (every GET route path format the panel adds), ``WRITE_ROWS`` (every POST/PUT/PATCH/DELETE route as
 ``(method, path format)``), ``PATH_PARAMS`` (sample values for new path parameters) and ``CLI_ACTIONS`` (the
-panel's CLI-only action tool names: ``test_cli_action_tools_gated`` checks each is refused when gated, never on MCP),
+panel's CLI action tool names: ``test_cli_action_tools_gated`` checks each is refused when gated; BootUI's
+``pentest_scan`` is also exposed as an MCP action),
 ``TOOL_ARGS`` (MCP tool name -> callable taking the installed ``SharpitHandle`` and returning the tool's arguments, for
 the matrix's MCP sweep) and ``TOOL_SEEDS`` (the same over test_tools.py's bare ``SharpitContext``, which has no routes).
 ``tests/test_safety_matrix.py``
@@ -34,7 +35,7 @@ class Lane:
     gets: tuple[str, ...]  # GET path formats, Starlette convertors stripped
     writes: tuple[tuple[str, str], ...]  # (method, path format)
     params: dict[str, str] = field(default_factory=dict[str, str])  # PATH_PARAMS: samples for this lane's rows only
-    cli_actions: tuple[str, ...] = ()  # CLI_ACTIONS: the lane's CLI-only action tools (never on MCP)
+    cli_actions: tuple[str, ...] = ()  # CLI_ACTIONS: the lane's CLI action tools
 
 
 @dataclass(frozen=True)

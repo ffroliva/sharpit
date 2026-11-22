@@ -67,6 +67,60 @@ def test_panels_answer_on_starlette_without_fastapi(tmp_path: Path) -> None:
     assert done.stdout.strip().splitlines()[-1:] == [str([200] * len(PANELS))], done.stderr[-2000:]
 
 
+def test_starlette_exceptions_are_recorded_without_fastapi_and_sink_keeps_host_error(
+    tmp_path: Path,
+) -> None:
+    done = _run(
+        """
+        import logging
+        import sharpit
+        from starlette.applications import Starlette
+        from starlette.requests import Request
+        from starlette.responses import PlainTextResponse
+        from starlette.routing import Route
+        from starlette.testclient import TestClient
+        from sharpit.engine.sources import dispatch
+
+        async def broken_handler(_request: Request, _exc: Exception):
+            raise ValueError("handler failure")
+
+        async def route_failure(_request: Request):
+            raise RuntimeError("route failure")
+
+        app = Starlette(routes=[Route("/broken", route_failure)])
+        app.add_exception_handler(RuntimeError, broken_handler)
+        sharpit.install(app, enabled="ON", show_banner=False)
+        client = TestClient(
+            app, base_url="http://localhost", client=("127.0.0.1", 50000), raise_server_exceptions=False
+        )
+        client.get("/broken")
+        groups = client.get("/sharpit/api/exceptions").json()["groups"]
+        assert {item["exceptionClassName"] for item in groups} == {"RuntimeError", "ValueError"}
+
+        async def plain_failure(_request: Request):
+            raise LookupError("host type")
+        plain = Starlette(routes=[Route("/plain", plain_failure)])
+        sharpit.install(plain, enabled="ON", show_banner=False)
+        class Sink:
+            facts = type("Facts", (), {"warnings": [], "sources": []})()
+            def on_exception(self, exc, *_args):
+                raise AssertionError(type(exc).__name__)
+            def on_escaped(self, _exc):
+                pass
+        dispatch.session_sink = lambda: Sink()
+        try:
+            TestClient(plain, client=("127.0.0.1", 50000)).get("/plain")
+        except Exception as exc:
+            assert type(exc).__name__ == "LookupError"
+        else:
+            raise AssertionError("host exception was swallowed")
+        print("ok")
+        """,
+        state_dir=tmp_path / "state",
+    )
+    assert done.returncode == 0, (done.stdout + done.stderr)[-2000:]
+
+
 def test_the_pytest_plugin_loads_without_fastapi(tmp_path: Path) -> None:
     (tmp_path / "test_empty.py").write_text("def test_nothing():\n    pass\n", encoding="utf-8")
     done = _run(
