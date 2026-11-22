@@ -3,7 +3,15 @@ import os
 from pathlib import Path
 
 from starlette.testclient import TestClient
-from tests.console_corpus import assert_corpus_match, build_app, get_routes, isolated_environment, normalise, record
+from tests.console_corpus import (
+    assert_corpus_match,
+    build_app,
+    get_routes,
+    isolated_environment,
+    isolated_sqlalchemy_state,
+    normalise,
+    record,
+)
 
 CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "panels_get.json"
 
@@ -46,23 +54,27 @@ _DEFERRED_PATHS = {path for path, _reason in DEFERRED}
 
 
 def test_get_corpus_covers_each_non_deferred_get_route(no_side_effects) -> None:
-    state_dir = str(no_side_effects.state_dir)
-    with isolated_environment(state_dir):
-        assert set(os.environ) <= {
-            "HOME",
-            "USERPROFILE",
-            "TMP",
-            "TEMP",
-            "SYSTEMROOT",
-            "WINDIR",
-            "PATH",
-            "SHARPIT_TEST_API_TOKEN",
-        }
-        _assert_get_corpus(no_side_effects)
+    _assert_get_corpus(no_side_effects)
 
 
 def _assert_get_corpus(no_side_effects) -> None:
     state_dir = str(no_side_effects.state_dir)
+    with isolated_sqlalchemy_state():
+        with isolated_environment(state_dir):
+            assert set(os.environ) <= {
+                "HOME",
+                "USERPROFILE",
+                "TMP",
+                "TEMP",
+                "SYSTEMROOT",
+                "WINDIR",
+                "PATH",
+                "SHARPIT_TEST_API_TOKEN",
+            }
+            _compare_get_corpus(state_dir, no_side_effects)
+
+
+def _compare_get_corpus(state_dir, no_side_effects) -> None:
     routes = get_routes(build_app(state_dir=state_dir))
     get_paths = {path for method, path in routes if method == "GET"}
     deferred_paths = {path for path in get_paths if path in _DEFERRED_PATHS}

@@ -12,7 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from starlette.testclient import TestClient  # noqa: E402
-from tests.console_corpus import build_app, get_routes, isolated_environment, normalise, record  # noqa: E402
+from tests.console_corpus import (  # noqa: E402
+    build_app,
+    get_routes,
+    isolated_environment,
+    isolated_sqlalchemy_state,
+    normalise,
+    record,
+)
 from tests.console_corpus.transport import TRANSPORT_CASES  # noqa: E402
 from tests.fastapi.test_console_corpus_get import DEFERRED  # noqa: E402
 
@@ -26,29 +33,31 @@ def _write(path: Path, corpus: dict[str, Any]) -> None:
 
 def _transport_corpus() -> dict[str, Any]:
     corpus: dict[str, Any] = {}
-    for case in TRANSPORT_CASES:
-        with TemporaryDirectory(prefix="sharpit-console-corpus-") as state_dir, isolated_environment(state_dir):
-            app = build_app(state_dir=state_dir, **case.get("install", {}))
-            peer = case.get("peer", ("127.0.0.1", 50000))
-            with TestClient(app, base_url="http://localhost", client=peer) as client:
-                corpus[case["id"]] = record(client, case.get("method", "GET"), case["path"], case.get("headers"))
+    with isolated_sqlalchemy_state():
+        for case in TRANSPORT_CASES:
+            with TemporaryDirectory(prefix="sharpit-console-corpus-") as state_dir, isolated_environment(state_dir):
+                app = build_app(state_dir=state_dir, **case.get("install", {}))
+                peer = case.get("peer", ("127.0.0.1", 50000))
+                with TestClient(app, base_url="http://localhost", client=peer) as client:
+                    corpus[case["id"]] = record(client, case.get("method", "GET"), case["path"], case.get("headers"))
     return corpus
 
 
 def _get_corpus() -> dict[str, Any]:
     deferred = {path for path, _reason in DEFERRED}
-    with TemporaryDirectory(prefix="sharpit-console-corpus-") as state_dir, isolated_environment(state_dir):
-        paths = sorted(path for method, path in get_routes(build_app(state_dir=state_dir)) if method == "GET")
-        if not deferred <= set(paths):
-            raise RuntimeError(f"Deferred routes are absent from the mounted API: {sorted(deferred - set(paths))}")
-        corpus: dict[str, Any] = {}
-        for path in paths:
-            if path in deferred:
-                continue
-            app = build_app(state_dir=state_dir)
-            with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
-                corpus[path] = normalise(record(client, "GET", f"/sharpit{path}"))
-        return corpus
+    with isolated_sqlalchemy_state():
+        with TemporaryDirectory(prefix="sharpit-console-corpus-") as state_dir, isolated_environment(state_dir):
+            paths = sorted(path for method, path in get_routes(build_app(state_dir=state_dir)) if method == "GET")
+            if not deferred <= set(paths):
+                raise RuntimeError(f"Deferred routes are absent from the mounted API: {sorted(deferred - set(paths))}")
+            corpus: dict[str, Any] = {}
+            for path in paths:
+                if path in deferred:
+                    continue
+                app = build_app(state_dir=state_dir)
+                with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+                    corpus[path] = normalise(record(client, "GET", f"/sharpit{path}"))
+            return corpus
 
 
 def main() -> None:

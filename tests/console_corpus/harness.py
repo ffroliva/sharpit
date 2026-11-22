@@ -22,6 +22,7 @@ import sharpit.fastapi.adapter  # noqa: F401
 from fastapi import FastAPI
 from sharpit.engine.collectors.github.detector import Repository
 from sharpit.engine.collectors.vulns.inventory import Package
+from sharpit.engine.sqla import listeners as _sqla_listeners
 
 _FIXED_REPOSITORY = Repository(
     owner="ffroliva",
@@ -47,6 +48,24 @@ _FIXED_INVENTORY = (
     Package(name="starlette", version="0.40.0", location=None),
 )
 _OPTIONAL_GATEKEEPER_PACKAGES = frozenset({"apscheduler", "arq", "celery", "prometheus_client", "sqlalchemy"})
+
+
+@contextmanager
+def isolated_sqlalchemy_state() -> Iterator[None]:
+    """Run corpus requests without SQLAlchemy contexts left by earlier tests."""
+    statement_contexts = tuple(_sqla_listeners._statement_contexts.values())
+    discovery_contexts = tuple(_sqla_listeners._discovery_contexts.values())
+    session_attached = _sqla_listeners._session
+    routes = {context: _sqla_listeners.routed(context) for context in (*statement_contexts, *discovery_contexts)}
+    _sqla_listeners.detach_all()
+    try:
+        yield
+    finally:
+        _sqla_listeners.detach_all()
+        for context, (statements, discovery) in routes.items():
+            _sqla_listeners.add(context, statements=statements, discovery=discovery)
+        if session_attached:
+            _sqla_listeners.attach_session()
 
 
 def _is_optional_gatekeeper_module(name: str) -> bool:
