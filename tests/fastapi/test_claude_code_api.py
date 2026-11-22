@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -310,10 +311,21 @@ async def test_session_stream_sends_sessions_then_dashboard(tmp_path: Path, monk
     install(app, enabled="ON", show_banner=False)
 
     stream = OpenStream(app, "/sharpit/api/claude-code/stream")
+
+    async def _until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while not predicate():
+            if asyncio.get_running_loop().time() >= deadline:
+                pytest.fail(stream.body)
+            await asyncio.sleep(0.02)
+
     try:
         await asyncio.wait_for(stream.started.wait(), timeout=5.0)
         assert stream.status == 200
-        await asyncio.sleep(0.1)
+        await _until(
+            lambda: 0 <= stream.body.find("event: sessions\n") < stream.body.find("event: dashboard\n"),
+            timeout=5.0,
+        )
         body = stream.body
         pos_s1 = body.find("event: sessions\n")
         pos_d1 = body.find("event: dashboard\n")
@@ -321,7 +333,14 @@ async def test_session_stream_sends_sessions_then_dashboard(tmp_path: Path, monk
 
         # Add a new session file to trigger re-emission on change
         write_claude_session(tmp_path / "project-two" / "session-two.jsonl")
-        await asyncio.sleep(0.25)
+        await _until(
+            lambda: (
+                0
+                <= (s2 := stream.body.find("event: sessions\n", pos_d1 + 1))
+                < stream.body.find("event: dashboard\n", s2 + 1)
+            ),
+            timeout=5.0,
+        )
         body2 = stream.body
         pos_s2 = body2.find("event: sessions\n", pos_d1 + 1)
         pos_d2 = body2.find("event: dashboard\n", pos_s2 + 1)
