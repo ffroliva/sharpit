@@ -160,6 +160,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Metrics | `GET {api}/metrics`, `GET {api}/metrics/detail` | host Prometheus registry, collected on each read (every host collector runs once); label values and HELP text are masked. MCP and CLI: `get_metrics` / `metrics` |
 | AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
 | Email | `GET {api}/email`, `GET {api}/email/{id}`, `GET {api}/email/{id}/eml`, `DELETE {api}/email` | outgoing mail captured at `smtplib`/`aiosmtplib` `sendmail`, bounded; secret-shaped text masked unless `SHARPIT_EXPOSE_VALUES=FULL`; DELETE clears (refused on a read-only panel). `SHARPIT_EMAIL_DEV_TRAP=true` captures without connecting or sending. MCP: `get_emails`; CLI: `mail` |
+| Pentesting | `GET {api}/pentesting`, `POST {api}/pentesting/scan` | HTTP security headers and CORS preflight checks on in-process ASGI app without opening sockets. MCP: `get_pentest_report`; CLI: `pentest` |
 
 The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
 `get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
@@ -287,7 +288,8 @@ pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-ju
 ```
 
 Key CLI flags:
-- `--sharpit-app=module:app`: Point to the ASGI app instance or factory for offline advisors (e.g. `rest-api`).
+- `--sharpit-app=module:app`: Point to the ASGI or Flask app instance, router, or factory for offline advisors (e.g. `rest-api`); uninspectable objects report `UNKNOWN`.
+- `--sharpit-http-security=PATH`: Path to per-endpoint HTTP security header expectations file.
 - `--sharpit-max-queries=N`: Default per-test query budget for the `call` phase.
 - `--sharpit-fail-on=SEV`: Minimum advisor severity that fails the run (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`; default `HIGH`).
 - `--sharpit-allow-unknown`: Prevent `unknown` status from failing the session.
@@ -306,8 +308,8 @@ Every flag except `--sharpit-write-baseline` also has an ini option (`sharpit_re
 
 ### Finding the application
 
-When no app was installed with `sharpit.install(...)` and no `--sharpit-app` is given, sharpit picks the FastAPI or
-Starlette app defined in the project modules the tests already imported. It never imports a module or runs module code
+When no app was installed with `sharpit.install(...)` and no `--sharpit-app` is given, sharpit picks the FastAPI,
+Starlette or Flask app defined in the project modules the tests already imported. It never imports a module or runs module code
 to do this, and ignores installed packages, the standard library, `conftest` and test modules. The summary says which:
 
 ```
@@ -320,7 +322,8 @@ A skipped advisor does not make the session `unknown`; a database driver sharpit
 
 An advisor that read the routes it could and met an opaque `app.mount(...)` is `PARTIAL`: the run passes with a
 warning that names what was not read and says no finding is not proof there is none; a finding at or above
-`--sharpit-fail-on` still fails. Everything else stays `UNKNOWN`: no usable routes plus a limitation, a router or
+`--sharpit-fail-on` still fails. Everything else stays `UNKNOWN`: an uninspectable app or router passed to
+`--sharpit-app` (expected an app, a router or a zero-argument factory), no usable routes plus a limitation, a router or
 exception handler sharpit could not read, an errored scan or a rule that threw. An app with no routes and no limitation
 is confirmed empty and passes. Lost capture stays `unknown`.
 

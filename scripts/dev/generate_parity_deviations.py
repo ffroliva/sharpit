@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the 0.7.0 deviations table in docs/reference/PARITY.md from the matrix fragments."""
+"""Generate the parity deviations tables in docs/reference/PARITY.md from the matrix fragments."""
 
 from __future__ import annotations
 
@@ -33,7 +33,26 @@ FRAGMENTS_0_7_0: list[tuple[str, str]] = [
     ("W0", "w0-pin-24.tsv"),
 ]
 
-SECTION_HEADING = "## 0.7.0 against BootUI 2.4.0: deviations"
+FRAGMENTS_0_8_0: list[tuple[str, str]] = [
+    ("A1", "0.8.0-a1.tsv"),
+    ("A2", "0.8.0-a2.tsv"),
+    ("A3", "0.8.0-a3.tsv"),
+    ("A4a", "0.8.0-a4a.tsv"),
+    ("A5", "0.8.0-a5.tsv"),
+    ("A6", "0.8.0-a6.tsv"),
+    ("A7", "0.8.0-a7.tsv"),
+    ("A8", "0.8.0-a8.tsv"),
+    ("A9", "0.8.0-a9.tsv"),
+    ("A10", "0.8.0-a10.tsv"),
+    ("A11", "0.8.0-a11.tsv"),
+    ("F1", "0.8.0-f1.tsv"),
+    ("T1", "0.8.0-t1.tsv"),
+    ("W0b", "0.8.0-w0b.tsv"),
+]
+
+SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"
+SECTION_HEADING = SECTION_HEADING_0_7_0
+SECTION_HEADING_0_8_0 = "## 0.8.0 against BootUI 2.5.0: deviations"
 
 
 class DeviationRow(NamedTuple):
@@ -78,26 +97,44 @@ def generate_table(rows: list[DeviationRow]) -> str:
     return "\n".join(lines)
 
 
-def generate_section(rows: list[DeviationRow] | None = None) -> str:
+def generate_section(
+    rows: list[DeviationRow] | None = None,
+    heading: str = SECTION_HEADING_0_7_0,
+    release: str = "0.7.0",
+) -> str:
     if rows is None:
-        rows = collect_deviations()
+        fragments = FRAGMENTS_0_7_0 if release == "0.7.0" else FRAGMENTS_0_8_0
+        rows = collect_deviations(fragments=fragments)
     table = generate_table(rows)
     return (
-        f"{SECTION_HEADING}\n\n"
-        "Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across\n"
-        f"the 0.7.0 lane fragments in `docs/reference/matrix-updates/` ({len(rows)} entries):\n\n"
+        f"{heading}\n\n"
+        f"Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across\n"
+        f"the {release} lane fragments in `docs/reference/matrix-updates/` ({len(rows)} entries):\n\n"
         f"{table}\n"
     )
 
 
-def update_parity_md(parity_path: Path = PARITY_MD, rows: list[DeviationRow] | None = None) -> str:
-    section = generate_section(rows)
+def generate_section_0_7_0(rows: list[DeviationRow] | None = None) -> str:
+    return generate_section(rows=rows, heading=SECTION_HEADING_0_7_0, release="0.7.0")
+
+
+def generate_section_0_8_0(rows: list[DeviationRow] | None = None) -> str:
+    return generate_section(rows=rows, heading=SECTION_HEADING_0_8_0, release="0.8.0")
+
+
+def update_parity_md(
+    parity_path: Path = PARITY_MD,
+    rows_0_7_0: list[DeviationRow] | None = None,
+    rows_0_8_0: list[DeviationRow] | None = None,
+) -> str:
+    sec_0_7_0 = generate_section_0_7_0(rows_0_7_0)
+    sec_0_8_0 = generate_section_0_8_0(rows_0_8_0)
     content = parity_path.read_text(encoding="utf-8")
-    if SECTION_HEADING in content:
-        prefix = content.split(SECTION_HEADING, 1)[0].rstrip()
-        new_content = f"{prefix}\n\n{section}"
+    if SECTION_HEADING_0_7_0 in content:
+        prefix = content.split(SECTION_HEADING_0_7_0, 1)[0].rstrip()
+        new_content = f"{prefix}\n\n{sec_0_7_0}\n{sec_0_8_0}"
     else:
-        new_content = f"{content.rstrip()}\n\n{section}"
+        new_content = f"{content.rstrip()}\n\n{sec_0_7_0}\n{sec_0_8_0}"
     parity_path.write_text(new_content, encoding="utf-8")
     return new_content
 
@@ -105,30 +142,53 @@ def update_parity_md(parity_path: Path = PARITY_MD, rows: list[DeviationRow] | N
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Check if PARITY.md matches fragments")
-    parser.add_argument("--write", action="store_true", help="Update PARITY.md with generated section")
+    parser.add_argument("--write", action="store_true", help="Update PARITY.md with generated sections")
     args = parser.parse_args()
 
-    rows = collect_deviations()
-    section = generate_section(rows)
+    rows_0_7_0 = collect_deviations(fragments=FRAGMENTS_0_7_0)
+    rows_0_8_0 = collect_deviations(fragments=FRAGMENTS_0_8_0)
 
     if args.write:
-        update_parity_md(rows=rows)
-        print(f"Updated {PARITY_MD.relative_to(ROOT)} with {len(rows)} deviation rows.")
+        update_parity_md(rows_0_7_0=rows_0_7_0, rows_0_8_0=rows_0_8_0)
+        print(
+            f"Updated {PARITY_MD.relative_to(ROOT)} with {len(rows_0_7_0)} (0.7.0) "
+            f"and {len(rows_0_8_0)} (0.8.0) deviation rows."
+        )
         return 0
 
     if args.check:
         content = PARITY_MD.read_text(encoding="utf-8")
-        if SECTION_HEADING not in content:
-            print(f"FAIL: {SECTION_HEADING} not found in {PARITY_MD.name}")
+        if SECTION_HEADING_0_7_0 not in content:
+            print(f"FAIL: {SECTION_HEADING_0_7_0} not found in {PARITY_MD.name}")
             return 1
-        current_section = SECTION_HEADING + content.split(SECTION_HEADING, 1)[1]
-        if current_section.strip() != section.strip():
-            print(f"FAIL: {PARITY_MD.name} does not match generated section")
+        if SECTION_HEADING_0_8_0 not in content:
+            print(f"FAIL: {SECTION_HEADING_0_8_0} not found in {PARITY_MD.name}")
             return 1
-        print(f"PASS: {PARITY_MD.name} matches generated section ({len(rows)} rows)")
+
+        parts = content.split(SECTION_HEADING_0_7_0, 1)[1].split(SECTION_HEADING_0_8_0, 1)
+        current_0_7_0 = (SECTION_HEADING_0_7_0 + parts[0]).strip()
+        current_0_8_0 = (SECTION_HEADING_0_8_0 + parts[1]).strip()
+
+        expected_0_7_0 = generate_section_0_7_0(rows_0_7_0).strip()
+        expected_0_8_0 = generate_section_0_8_0(rows_0_8_0).strip()
+
+        if current_0_7_0 != expected_0_7_0:
+            print(f"FAIL: {PARITY_MD.name} 0.7.0 section does not match generated section")
+            return 1
+        if current_0_8_0 != expected_0_8_0:
+            print(f"FAIL: {PARITY_MD.name} 0.8.0 section does not match generated section")
+            return 1
+
+        print(
+            f"PASS: {PARITY_MD.name} matches generated sections "
+            f"({len(rows_0_7_0)} rows 0.7.0, {len(rows_0_8_0)} rows 0.8.0)"
+        )
         return 0
 
-    print(section)
+    sec_0_7_0 = generate_section_0_7_0(rows_0_7_0)
+    sec_0_8_0 = generate_section_0_8_0(rows_0_8_0)
+    print(sec_0_7_0)
+    print(sec_0_8_0)
     return 0
 
 

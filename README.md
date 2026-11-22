@@ -58,7 +58,7 @@ installed packages for known vulnerabilities when you ask for it. Every panel in
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
 run fails closed.
 
-> **Status: alpha (0.7.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.8.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Gate CI on findings
 
@@ -72,10 +72,10 @@ unhandled exception, the build fails. When capture cannot see enough to judge, t
 pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-junit.xml
 ```
 
-sharpit finds your app on its own: the one FastAPI or Starlette app defined in the modules your tests already imported.
+sharpit finds your app on its own: the one FastAPI, Starlette or Flask app defined in the modules your tests already imported.
 It never imports a module to look. Pass `--sharpit-app module:attr` when there are several. With none, several, or one
 without routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that
-`unknown`. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
+`unknown`. Pass `--sharpit-http-security` to gate responses against configured HTTP security headers. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
 lists every one. The JSON report and JUnit file always hold every finding.
 The terminal also adds a `swallowed exceptions:` block grouped by `except` clause; a clause includes the test-double
 note when a test double raised the swallowed exception.

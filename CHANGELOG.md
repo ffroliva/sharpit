@@ -7,13 +7,35 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Application responses include `X-Sharpit-Request-Id` by default when sharpit records the HTTP exchange. Set `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the header.
-- The pytest plugin names a swallowed exception a test double raised (a `unittest.mock` frame on its traceback, or text naming `MagicMock`, `AsyncMock`, `NonCallableMock`, `PropertyMock` or `ThreadingMock`): the finding adds "a test double raised this, so this code path did not run" and keeps its severity. The exception text decides this and is never stored or written; the worker facts carry one boolean, `testDouble`. The terminal summary adds a grouped `swallowed exceptions:` block with one line per `except` clause and its test count, most tests first (`swallowed exceptions: 13 clauses, 95 tests`). Per-test findings remain in the report (#68).
+- Application responses include `X-Sharpit-Request-Id` by default when sharpit records the HTTP exchange. Set `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the header (#269).
+- The pytest plugin names a swallowed exception a test double raised (a `unittest.mock` frame on its traceback, or text naming `MagicMock`, `AsyncMock`, `NonCallableMock`, `PropertyMock` or `ThreadingMock`): the finding adds "a test double raised this, so this code path did not run" and keeps its severity. The exception text decides this and is never stored or written; the worker facts carry one boolean, `testDouble`. The terminal summary adds a grouped `swallowed exceptions:` block with one line per `except` clause and its test count, most tests first (`swallowed exceptions: 13 clauses, 95 tests`). Per-test findings remain in the report (#68, #254).
+- The Pentesting panel (`GET {api}/pentesting`, `POST {api}/pentesting/scan`) and CLI commands (`sharpit pentest scan`, `sharpit pentest report`) probe the in-process ASGI app for HTTP security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Cache-Control) and error disclosures, bounded by 8 KiB body retention without opening sockets (BootUI 2.5.0 parity, #271).
+- CORS preflight pentesting checks (check `PT-A05-069`) evaluate synthetic OPTIONS preflight responses against `https://evil.example` for wildcard or echoing `Access-Control-Allow-Origin` with credentials, unconstrained `Access-Control-Allow-Headers`, and unsafe methods without opening network sockets (BootUI 2.5.0 parity, #275).
+- Per-endpoint HTTP security gate for the pytest plugin (`--sharpit-http-security=PATH`), evaluating expected HTTP response security headers per endpoint pattern during test runs (#272).
+- Static route model and inspection for Flask applications (`FlaskRouteModel`), closing #75 for route analysis and REST API advisor rules; unreadable URL maps degrade safely to UNKNOWN (#261).
+- Runtime Insights implements `route-latency-outliers`, identifying routes with disproportionate latency variance and correlating them with masked SQL shapes (BootUI 2.5.0 parity, #264).
+- Configurable vulnerability scan deadline via `SHARPIT_VULNERABILITIES_SCAN_TIMEOUT` (default 60s, keyword `vulnerabilities_scan_timeout`), preventing hangs on slow OSV/EPSS network calls and reporting `PARTIAL` on expiration (BootUI 2.5.0 parity, #258, #262).
+- FastAPI binding diagnostics for exception capture, extracting Pydantic validation error details (`type`, `loc`) in the adapter while redacting unknown path segments (BootUI 2.5.0 parity, #270).
+- Application `basePath` from ASGI `root_path` in mappings (`GET {api}/mappings/flat`), and route selection in the HTTP Probe UI (BootUI 2.5.0 parity, #266).
+- Investigation navigation across UI panels, linking Activity entries to HTTP Exchanges and stepping between profileable requests in the loaded feed (BootUI 2.5.0 parity, #267).
+
+### Changed
+
+- Rules `RAPI-NAME-002`, `RAPI-MAP-003`, `RAPI-MAP-005`, `RAPI-MAP-006`, and `RAPI-SEC-004` retired from active evaluation to match BootUI 2.5.0; they remain registered and return `SKIPPED` (#263).
+- Activity and mappings static response contract DTO keys aligned with BootUI 2.5.0 (#265).
 
 ### Fixed
 
-- `pytest --sharpit --sharpit-app` no longer reports the REST API advisor as `PASSED` for an object whose routes it cannot read (a WSGI app, a hand-wrapped middleware, the coroutine of an `async` factory, any factory result with no stored route list): the advisor is `UNKNOWN` with the reason `"application routes cannot be inspected (<module.Class>); expected an app, a router or a zero-argument factory"`. A suite that named such an object went green before and is now `unknown` (exit 1) unless `--sharpit-allow-unknown` is passed. An explicit FastAPI or Starlette app with no routes stays the confirmed-empty `PASSED`. Contributed by @michaelegner (#207).
-- `--sharpit-app` accepts an `APIRouter` or a Starlette `Router`: it was called as if it were a factory and reported `"application could not load (TypeError)"`. A router's assessment covers its routes only, not the handlers an app adds around it. The named object is called only when it accepts no arguments; one that is inspectable, has a `router` attribute, needs arguments or has an unreadable signature is used as it is. Contributed by @michaelegner (#207).
+- `pytest --sharpit --sharpit-app` no longer reports the REST API advisor as `PASSED` for an object whose routes it cannot read (a WSGI app, a hand-wrapped middleware, the coroutine of an `async` factory, any factory result with no stored route list): the advisor is `UNKNOWN` with the reason `"application routes cannot be inspected (<module.Class>); expected an app, a router or a zero-argument factory"`. A suite that named such an object went green before and is now `unknown` (exit 1) unless `--sharpit-allow-unknown` is passed. An explicit FastAPI or Starlette app with no routes stays the confirmed-empty `PASSED`. Contributed by @michaelegner (#207, #276).
+- `--sharpit-app` accepts an `APIRouter` or a Starlette `Router`: it was called as if it were a factory and reported `"application could not load (TypeError)"`. A router's assessment covers its routes only, not the handlers an app adds around it. The named object is called only when it accepts no arguments; one that is inspectable, has a `router` attribute, needs arguments or has an unreadable signature is used as it is. Contributed by @michaelegner (#207, #276).
+- REST API advisor rule accuracy adjustments and edge case alignment matching BootUI 2.5.0 (#268).
+- SQLite query analysis distinguishes double-quoted string literals from identifiers, preventing misclassification of SQLite table references (#59, #273).
+- Query capture and execution gates enabled for Flask applications using Flask-SQLAlchemy (#75, #255).
+- HTTP exchange capture records faithfully when request handlers terminate abnormally or raise unhandled exceptions (#257).
+
+### Internal
+
+- Pinned BootUI 2.5.0 parity targets (#259), refreshed CI test shard weights and Windows runner performance (#274), added CI DCO sign-off check (#252), and updated contributor documentation (#256).
 
 ## [0.7.0] - 2026-11-19
 

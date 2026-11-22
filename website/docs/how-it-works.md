@@ -64,6 +64,7 @@ When active, `install()` wires runtime capture hooks. Each hook is installed onl
    It records request method, masked path, status code, duration, and error flag.
    If a client disconnects before the app finishes, it records status 499.
    It creates a `ContextVar[RequestInfo | None]` token (`REQUEST`) so SQL statements and exceptions correlate with the HTTP request.
+   It attaches an `X-Sharpit-Request-Id` response header by default on loopback and detected container gateways (opt out via `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false`), allowing callers to inspect individual requests via `get_request_profile`.
    This middleware is skipped when `http-exchanges`, `exceptions`, `sql-trace`, and `activity` are all disabled.
 
 2. **Exception handler wrapping.**
@@ -147,6 +148,7 @@ token):
 | Threads | Thread dump and running asyncio tasks with request correlation | `threading.enumerate()` and `asyncio.all_tasks()` |
 | REST API Advisor | Static inspection of FastAPI route signatures for API design violations | Route analysis with severity scoring and rule dismissals |
 | HTTP Probe | In-process HTTP request execution against local routes without external network calls | Direct ASGI call using in-process client |
+| Pentesting | HTTP security headers and CORS preflight checks | In-process ASGI request evaluation without network sockets |
 | CLI | The same tools callable with curl (`POST /sharpit/api/cli/tools/<tool>`) | `engine/tools.py`, shared with MCP |
 
 ## Secrets and masking

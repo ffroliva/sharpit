@@ -200,3 +200,90 @@ the 0.7.0 lane fragments in `docs/reference/matrix-updates/` (117 entries):
 | G2 | mcp:prompt-assess_application | partial | Names available sharpit advisor scans with their CLI commands because action tools are omitted from MCP tools/list. |
 | G2 | mcp:prompt-diagnose_runtime_issue | partial | Matches Java String.strip/isBlank whitespace behavior, including retaining non-breaking spaces, and bounds at 500 UTF-16 code units without splitting a surrogate pair. |
 | G2 | mcp:prompt-verify_after_change | partial | Masks caller-supplied prompt and argument names in JSON-RPC errors, extending the required secret masking to error output. |
+
+## 0.8.0 against BootUI 2.5.0: deviations
+
+Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
+the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (79 entries):
+
+| Lane | Key | Status | Reason |
+|---|---|---|---|
+| A1 | rule:SEC-SESSION-007 | adapted | Retirement rationale summarized for the security-advisor-checks table; the Spring session rule has no Python evaluation. |
+| A1 | rule:SEC-HEAD-010 | adapted | Retirement rationale summarized for the security-advisor-checks table; cross-origin isolation is optional and outside this source scan. |
+| A1 | rule:SEC-ACT-004 | adapted | Retirement documented as a duplicate of BootUI SPRING-MGMT-003; Actuator is not evaluated by sharpit. |
+| A1 | rule:SEC-CONFIG-005 | adapted | Retirement documented as a duplicate of BootUI SPRING-WEB-004; the sharpit security rule covers Starlette debug tracebacks. |
+| A2 | mappings:basePath | adapted | FastAPI exposes the ASGI application's root_path through AppInfo; the empty string represents the root mount, instead of composing framework-specific prefixes. |
+| A2 | ui:http-probe.route-picker | adapted | Svelte uses a keyboard-accessible combobox backed by q and limit=50; selecting a route applies its basePath, method, media headers and an empty JSON body when needed, without sending. Route parameters remain editable in the path field. |
+| A2 | tool:get_request_profile.authorizations | partial | The ported tool description includes authorization evidence, but sharpit has no request-journal authorization source; this remains with lane B4. |
+| A3 | insight:route-latency-outliers | partial | BootUI fingerprints raw SQL statements; sharpit only retains masked SQL shapes, so it groups their case-insensitive normalized journal text and displays only that literal-free shape; src/sharpit/engine/collectors/insights/kinds/route_latency_outliers.py |
+| A4a | binding-diagnostics | adapted | FastAPI extracts only Pydantic type/loc values in the adapter and redacts unknown path segments at capture time because route metadata and exposure are adapter-specific; BootUI SpringBindingDiagnosticsExtractor and ExceptionStore |
+| A4a | binding-error-type | adapted | Unknown Pydantic custom error types become Invalid below FULL because validator-defined reason strings are untrusted; BootUI SpringBindingDiagnosticsExtractorTests |
+| A4a | validation-message | adapted | Every exposure stores only the validation error count because Pydantic's rendered exception includes input, msg, and ctx; BootUI 52ae2b63f |
+| A4a | diagnostic-exposure-timing | adapted | Non-FULL paths are redacted before storage; FULL preserves request-controlled map and unknown property names, following MessageExposure.current (MessageExposure.java:192-201) and ExceptionStore.exposeFieldPath (ExceptionStore.java:813-827), because the design permits them at FULL |
+| A4a | request-controlled-error-id | adapted | Unknown exception group errors include the requested id as specified by the error contract; BootUI ExceptionStore has no equivalent error string |
+| A4a | binding-parameter-paths | adapted | FastAPI validation locations retain declared query, path, header and cookie parameter names and their aliases; when no body model can be resolved, the location prefix remains and every following segment is redacted because Python route metadata supplies an explicit allowlist; BootUI SpringBindingDiagnosticsExtractor.resolveParameterName |
+| A4a | validation-exception-path | adapted | Outside FULL, the validation exception record uses the matched FastAPI route template while the shared request context, request profile, and journal retain the raw path; FULL retains the raw exception path as BootUI does (BootUiExceptionHandlerResolver.resolveException). The non-FULL adaptation prevents rejected path values from being echoed in exception records. |
+| A5 | ArchiveNames | n-a | Jar archive naming applies to Maven archives; PyPI distributions have no archive inventory in this scan. |
+| A5 | PackageUrls | n-a | Maven package URL production has no PyPI counterpart in sharpit's distribution inventory. |
+| A5 | VulnerabilityReach | n-a | BootUI runtime reach depends on Code Inventory and Maven dependency edges, neither of which sharpit exposes for PyPI. |
+| A5 | AdvisorySymbols | n-a | BootUI symbols are populated from Maven/Code Inventory evidence; PyPI advisory symbols remain unavailable. |
+| A5 | malicious-package-summary | missing | No MAL- or malicious-package guidance exists in sharpit; no malicious-package feature is added. |
+| A6 | RAPI-MAP-012 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | RAPI-MAP-013 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | RAPI-VER-008 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | RAPI-VALID-007 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | RAPI-PAGE-004 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | DB-SCHEMA-011 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | DB-PG-006 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | DB-POOL-005 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | DB-SERVER-008 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | DB-MYSQL-004 | missing | BootUI 2.5.0 defines this applicable rule; tracked for a later sharpit release. |
+| A6 | ARCH-CODE-019 | n-a | JDK formatter and XML processor thread-safety is specific to Java static and shared-bean fields. |
+| A6 | DB-DRIVER-010 | n-a | MySQL Connector/J autoReconnect is specific to the Java JDBC driver. |
+| A6 | rule:DB-SCHEMA-007 | partial | PostgreSQL serial2 is recognized as the smallint alias using SQLAlchemy inspector type names; broader JDBC metadata ranking remains specific to BootUI. |
+| A6 | rule:DB-HIB-005 | n-a | SQLAlchemy's supported model facts expose mapped tables and columns but no binding from an entity to one of multiple datasources, so datasource-attributed uniqueness cannot be resolved safely. |
+| A6 | rule:DB-CATALOG-ORACLE | n-a | Sharpit has no Oracle catalog reader; the applicable bounded and uncertainty-aware PostgreSQL and MySQL catalog behavior is ported. |
+| A6 | rule:RAPI-VALID-003 | n-a | FastAPI and Pydantic treat omitted optional Header and Cookie primitive values as valid None/default bindings; Spring's resolver failure for Java primitives does not apply. |
+| A6 | rule:ARCH-PKG-001 | adapted | Python detects cycles between resolved package imports directly, so BootUI's configured Java slice-root expansion is unnecessary; cross-root cycle behavior is covered by the existing package-cycle rule. |
+| A7 | request-profile-stepping | adapted | Activity steps between profileable entries in the loaded feed; BootUI's LiveActivityTest.opens the request profile an HTTP Exchanges link names covers profile opening, while stepping is a sharpit UI adaptation. |
+| A7 | request-profile-drawer-controls | n-a | The request profile is inline in sharpit's Activity panel, so BootUI's drawer width toggle and drawer section tabs have no corresponding container. |
+| A7 | request-profile-journal-highlights | n-a | BootUI's highlights and work breakdown require journal authorization, baseline, REST, and ORM fields that sharpit's RequestProfile DTO does not expose. |
+| A7 | http-route-exchange-drawer | adapted | Uses sharpit's existing GET /http-exchanges/routes ranking DTO and route-filtered GET /http-exchanges; the route drawer uses a native dialog and the existing paged table. |
+| A7 | runtime-insights-navigation | n-a | sharpit has no Runtime Insights panel or observation DTO to filter, group, or pivot. |
+| A7 | button-shaped-link-icons | n-a | sharpit's UI has no button-shaped navigation anchors; navigation uses plain anchors and actions use buttons. |
+| A8 | request-id-header-name | deviation | BootUI uses X-BootUI-Request-Id; sharpit uses the requested X-Sharpit-Request-Id name. |
+| A8 | request-id-header-trust | deviation | Trusted-proxy peers and forwarded headers do not grant trust; the existing raw-peer guard is the sole trust test. |
+| A8 | request-id-header-server-error | deviation | An unhandled exception response generated by Starlette ServerErrorMiddleware sits outside CaptureMiddleware and has no request-id header. |
+| A8 | request-id-header-response-start | deviation | ASGI adds the header to a copied response-start message, following the Quarkus capture-filter shape rather than Spring's response wrapper. |
+| A8 | request-id-header-exchanges-buffer-gate | deviation | The header is emitted only while the in-process HTTP exchange buffer is available so every emitted id resolves to a recorded exchange; BootUI has no buffer-availability gate. |
+| A9 | dto:activity.request-journal.authorizations | missing | GET /activity/request/{id}/journal is not implemented; authorization evidence depends on the journal authorization source. |
+| A9 | dto:activity.request-journal.baselineComparison | missing | GET /activity/request/{id}/journal is not implemented; same-route baseline comparison is recorded with that route gap. |
+| A9 | dto:runtime-insights.resource-profile.virtualThreadPinningSupported | partial | Reports false because Python has no BootUI JFR pinning capability. |
+| A9 | dto:runtime-insights.resource-profile.pinnedEvents | partial | Reports 0 until a pinning event source exists. |
+| A9 | dto:runtime-insights.resource-profile.outsidePinnedEvents | partial | Reports 0 until a pinning event source exists. |
+| A9 | dto:runtime-insights.resource-profile.pinnedDurationMicros | partial | Reports 0 until a pinning event source exists. |
+| A9 | dto:exceptions.occurrences.requestId | partial | Duplicates sharpit's request id; BootUI distinguishes requestId from traceId, but sharpit has no separate request/trace identity. |
+| A10 | pentesting:transport | adapted | Invoke the FastAPI/Starlette app object passed to install(), running its internal middleware without a socket; external ASGI wrappers and lifespan work are outside the probe. Listener-added headers and TLS are unobservable. Apply BootUI's 8 KiB body, decoded body and header-retention limits; connect timeout and redirect handling are inapplicable to direct ASGI calls. |
+| A10 | pentesting:deadline | adapted | Apply BootUI's 2-second timeout per request to cooperative async work; synchronous event-loop blocking delays timeout delivery, while an AnyIO threadpool handler may continue after timeout and single-flight release. The elapsed scan time is not a hard bound. |
+| A10 | pentesting:trusted-host | adapted | Send BootUI's literal loopback Host; a host TrustedHost rejection is incomplete evidence rather than a scan of its 400 error page. |
+| A10 | pentesting:body-evidence | adapted | Do not expose raw body, exception text, or unsafe response header values; retain only bounded sanitized evidence to preserve sharpit's masking boundary. |
+| A10 | pentesting:non-404 | adapted | A non-404 response without a positive disclosure marker leaves a no-finding conclusion indeterminate with the status recorded; positive stack or cause markers still produce PT-A05-006, and 3xx responses follow BootUI's rule-specific checks. |
+| A10 | pentesting:event-loop | adapted | Run the in-process ASGI probe on the host loop; acquire SingleFlight.try_acquire and release in finally after cancellation. A timed-out AnyIO threadpool callable may still run after release, so another scan can begin while it finishes. |
+| A10 | pentesting:tool-wait | adapted | MCP and CLI worker threads wait at most 5 seconds for the host-loop coroutine (two BootUI request budgets plus margin); timeout returns 504 without cancelling the coroutine, whose flight remains held until the loop releases it. |
+| A10 | pentesting:framework-evidence | adapted | The Python adapter evaluates the bounded HTTP response checks of the security-header and error-disclosure families on the GET probe, the TRACE advertisement and the CORS preflight checks (PT-A05-007, PT-A05-008, PT-A05-023, PT-A05-065) on the OPTIONS probe, and the CORS expose-headers check (PT-A05-073) on both probes. Spring Security, servlet configuration, JVM serialization, and Actuator metadata have no Python source equivalent and remain explicit coverage limitations. |
+| A10 | pentesting:cookie-pending | pending | The GET-derived cookie and session checks (PT-A02-001, PT-A02-002, PT-A02-003, PT-A02-007, PT-A02-008, PT-A05-005, PT-A05-064) are not evaluated yet; they belong to lane A12 and the report states them as pending. |
+| A10 | pentesting:error-marker | adapted | PT-A05-006 uses BootUI's JVM stack-frame and qualified-exception patterns plus the Python traceback header; a body under HTTP 400 without a stack frame or a cause line is not reported. The finding names no marker text. A truncated body is evaluated on its retained text and the truncation is a separate limitation. |
+| A10 | pentesting:browser-document | adapted | A response without a Content-Type is classified by its body, as in BootUI; BootUI's Spring whitelabel 404 exclusion has no Python equivalent and is not applied. |
+| A10 | pentesting:remediation-text | adapted | Finding titles, severities and remediation texts are BootUI's, including Spring-specific wording; header and body values are named, never echoed. |
+| A11 | pentesting:cors-transport | adapted | The CORS checks evaluate the response of the in-process ASGI app to BootUI's fixed preflight (origin https://evil.example, request method GET), not a loopback HTTP response; the report labels it heuristic synthetic evidence and does not claim browser, proxy or deployed-edge behaviour. The PT-A05-069 recommendation keeps the A10 wording because no loopback listener exists. Reason: no socket may be opened (consistent with pentesting:transport). |
+| A11 | pentesting:a02-description | adapted | The A02 coverage descriptions are BootUI's wording with the Spring and Quarkus sentences replaced by "Servlet mappings and servlet-security evidence are unavailable on this adapter." and "Route authorization and Actuator configuration are not assessed by this adapter."; statuses and precedence are BootUI's (a finding gives REVIEW, incomplete evidence gives INDETERMINATE, otherwise INFO). Reason: the Python ASGI adapter has neither framework. |
+| A11 | pentesting:cors-expose-limitation | adapted | A fixed limitation names PT-A05-073 as indeterminate when either of its probe halves is withheld; BootUI's PT-A05-069 text omits it. Reason: fail closed, at no parity cost; the 069 finding text is BootUI's. |
+| A11 | pentesting:cors-evidence-masking | adapted | Host-echoed fragments in CORS evidence (an origin, a header token) are masked one by one before the 240-character cut and become [masked] under METADATA_ONLY; BootUI does not mask evidence. Fixed text is never masked. Reason: secrets are masked before any output. |
+| A11 | pentesting:a10-truncated-get-inventory | gap | A10 is not INDETERMINATE on a truncated GET header inventory (BootUI: getFailed \|\| getBodyTruncated \|\| optionsFailed). Reason: outside lane A11. |
+| A11 | pentesting:a10-get-incomplete-order | gap | A GET-incomplete result overrides an A10 finding in coverage; BootUI checks findings first. The finding stays in the report; only the coverage label is more cautious (PT-A10-001 from an OPTIONS 5xx with a truncated GET 404 reports INDETERMINATE where BootUI reports REVIEW). A complete GET 5xx that fires PT-A10-001 is INDETERMINATE through the separate no-disclosure clause. Reason: outside lane A11; the OPTIONS input added by A11 follows BootUI's order. |
+| A11 | pentesting:coverage-review-vs-info | gap | A04, A10 and A03 report REVIEW where BootUI reports INFO; A02 follows BootUI. Reason: outside lane A11. |
+| A11 | pentesting:cors-starlette-methods | adapted | Starlette CORSMiddleware never sends Access-Control-Allow-Methods: *; PT-A05-023 reports only hosts that send the literal wildcard. Reason: framework behaviour; the check is ported as is. |
+| F1 | adapter:flask-route-metadata | adapted | BootUI 2.5.0 has no Flask route model; Flask route metadata is read statically, unreadable maps report UNKNOWN, and callable views are identified by class without invocation; docs/reference/FLASK-ROUTE-MODEL.md |
+| T1 | feature:http-security-observer | n-a | Sharpit-only pytest HTTP security observer; BootUI 2.5.0 has no equivalent per-test observation or configured endpoint expectation contract. |
+| T1 | rule:HTTP-SEC-001 | n-a | Sharpit-only rule for a configured missing response header (HIGH); no BootUI 2.5.0 counterpart. |
+| T1 | rule:HTTP-SEC-002 | n-a | Sharpit-only rule for a configured unexpected status (HIGH); no BootUI 2.5.0 counterpart. |
