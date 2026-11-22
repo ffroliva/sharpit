@@ -468,6 +468,29 @@ def test_allow_swallowed_marker() -> None:
     assert found[0]["severity"] == "INFO"
 
 
+def test_allow_swallowed_marker_carries_reason() -> None:
+    from sharpit.pytest_plugin.marker import budget_for
+
+    class Marker:
+        name = "sharpit"
+        kwargs = {"allow_swallowed": True, "reason": "intentional fallback in test"}
+
+    class Item:
+        own_markers = [Marker()]
+
+        def listchain(self) -> list[object]:
+            return [self]
+
+    budget = budget_for(Item(), None)
+    found = _swallowed_findings(_swallowed("AttributeError", True), budget)
+
+    assert budget.allow_swallowed is True
+    assert budget.reason == "intentional fallback in test"
+    assert len(found) == 1
+    assert found[0]["severity"] == "INFO"
+    assert found[0]["reason"] == "intentional fallback in test"
+
+
 def test_swallowed_message_names_handler_and_type_only() -> None:
     found = _swallowed_findings(_swallowed("AttributeError", True))
 

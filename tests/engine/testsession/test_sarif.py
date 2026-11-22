@@ -126,6 +126,18 @@ def test_new_or_unbaselined_finding_is_not_suppressed(state: str | None) -> None
     assert "suppressions" not in result
 
 
+def test_accepted_finding_reason_is_recorded_in_sarif() -> None:
+    finding = _finding(
+        severity="INFO",
+        reason="intentional fallback in test",
+    )
+    (result,) = _results(finding)
+
+    assert result["properties"].get("reason") == "intentional fallback in test"
+    assert [s["kind"] for s in result.get("suppressions", [])] == ["inSource"]
+    assert [s["justification"] for s in result.get("suppressions", [])] == ["intentional fallback in test"]
+
+
 def test_location_less_finding_keeps_its_target_as_a_logical_location() -> None:
     (result,) = _results(_finding())
 
