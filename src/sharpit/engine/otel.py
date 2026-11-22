@@ -51,7 +51,7 @@ def _sdk_provider() -> Any | None:
 def current_trace_id() -> str | None:
     """The trace id (32 lower-case hex) of the span in flight in this context, else ``None``; never imports OTel."""
     trace = sys.modules.get("opentelemetry.trace")
-    if trace is None:
+    if trace is None or trace.__dict__.get("_TRACER_PROVIDER", _MISSING) is None:
         return None
     try:
         context = trace.get_current_span().get_span_context()
