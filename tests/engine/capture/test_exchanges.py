@@ -130,7 +130,8 @@ def test_path_secret_segment_masked():
 
 
 def test_path_matrix_parameters_masked():
-    # ported: UriMaskingTests.masksPathMatrixParametersThroughMaskPath / neverMasksAPathSegmentThatSharesASensitiveParameterName
+    # ported: UriMaskingTests.masksPathMatrixParametersThroughMaskPath,
+    # UriMaskingTests.neverMasksAPathSegmentThatSharesASensitiveParameterName
     row = _row(path="/orders;token=abc/42", query_string=b"page=2")
     assert row["path"] == f"/orders;token={MASK}/42"
     assert row["uri"] == f"/orders;token={MASK}/42?page=2"

@@ -99,7 +99,7 @@ def exchange_row(
 ) -> dict[str, Any]:
     """One masked, capped row: the ``HttpExchangeDto`` keys plus ``error``, ``endpoint``, ``startNs`` and ``endNs``
     (epoch ns, for Live Activity's ordering and its after-the-response check). ``route`` is the matched template."""
-    shown_path = _cut(masker.mask_path(path), MAX_PATH)
+    shown_path = _cut(masker.mask_request_path(path), MAX_PATH)
     route_label, route_source = route_of(route, shown_path)
     raw_query = query_string.decode("latin-1")
     query = masker.mask_query(raw_query) if raw_query else None

@@ -521,7 +521,7 @@ def test_setup_failure_still_invokes_the_application_exactly_once(
     wiring = wiring_of(handle.context)
     assert wiring is not None
     owner, name = {
-        "mask_path": (handle.context.masker, "mask_path"),
+        "mask_path": (handle.context.masker, "mask_request_path"),
         "request_id": (capture_mod, "new_request_id"),
         "mail_wrapper": (capture_mod, "ensure_mail_wrapped"),
         "first_request_hook": (wiring, "on_first_request"),
@@ -546,7 +546,7 @@ def test_setup_failure_still_invokes_the_application_exactly_once(
 def test_a_setup_failure_leaves_no_trace_on_an_application_exception(monkeypatch: pytest.MonkeyPatch):
     # ported: BootUiHttpExchangesFilterTests.setupFailureStillInvokesTheApplicationExactlyOnce (the failure stays unchanged)  # noqa: E501
     handle = _handle()
-    monkeypatch.setattr(handle.context.masker, "mask_path", _explode("secret-metadata-message"))
+    monkeypatch.setattr(handle.context.masker, "mask_request_path", _explode("secret-metadata-message"))
     failure = ValueError("application")
 
     async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
