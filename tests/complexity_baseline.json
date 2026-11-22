@@ -9,6 +9,7 @@
   "src/sharpit/engine/tools.py": 0,
   "src/sharpit/fastapi/adapter.py": 0,
   "src/sharpit/fastapi/capture.py": 1,
+  "src/sharpit/fastapi/capture_exceptions.py": 0,
   "src/sharpit/fastapi/introspector.py": 1,
   "src/sharpit/settings.py": 2,
   "tests/test_masking_corpus.py": 1

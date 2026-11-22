@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.routing import Host, Mount, Router
 
 from sharpit.engine.spi import ErrorHandlerInfo
-from sharpit.fastapi.capture import WrappingHandlers
+from sharpit.fastapi.capture_exceptions import WrappingHandlers
 from sharpit.fastapi.introspection_common import MAX_DEPTH, attrs
 
 _FOLLOWED_WRAPPED = (types.FunctionType, types.MethodType, functools.partial)

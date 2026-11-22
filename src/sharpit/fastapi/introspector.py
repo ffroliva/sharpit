@@ -36,7 +36,7 @@ from sharpit.engine.spi import (
     SecurityScheme,
     opaque_mount_limitation,
 )
-from sharpit.fastapi.capture import WrappingHandlers
+from sharpit.fastapi.capture_exceptions import WrappingHandlers
 from sharpit.fastapi.introspection_common import (
     MAX_DEPTH,
 )
