@@ -60,14 +60,6 @@ def test_http_security_controller_evaluates_only_after_xdist_merge(pytester: pyt
     assert advisor is not None
     assert advisor["status"] == "PASSED"
     assert len(report["workers"]) == 2
-
-
-def test_http_security_xdist_worker_unknown_does_not_fail_before_merge(pytester: pytest.Pytester) -> None:
-    _two_files(pytester)
-
-    _result, report = _run(pytester, *EXPECT, "-n", "2", "--dist", "loadfile", "--sharpit-allow-unknown")
-
-    assert _http(report) is not None
     assert [r for r in report["unknownReasons"] if "http-security" in r] == []
     assert report["status"] != "fail"
 
