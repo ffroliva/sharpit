@@ -35,9 +35,10 @@ _PG_SQL = {
     "AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_create_index p WHERE p.index_relid = i.indexrelid) ORDER BY 1, 2",
     "sequences": "SELECT sequencename AS seq, last_value, min_value, max_value, increment_by FROM pg_sequences "
     "WHERE schemaname = current_schema() ORDER BY 1",
-    "notValid": "SELECT t.relname AS tbl, con.conname AS name FROM pg_constraint con "
+    "notValid": "SELECT t.relname AS tbl, con.conname AS name, con.contype AS type, "
+    "pg_get_constraintdef(con.oid) AS definition FROM pg_constraint con "
     "JOIN pg_class t ON t.oid = con.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace "
-    "WHERE n.nspname = current_schema() AND NOT con.convalidated ORDER BY 1, 2",
+    "WHERE n.nspname = current_schema() AND NOT con.convalidated AND con.contype IN ('f', 'c', 'n') ORDER BY 1, 2",
     "replicaIdentity": "SELECT DISTINCT c.relname AS tbl, c.relreplident::text AS identity, "
     "EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary) AS has_pk, "
     "EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisreplident AND i.indisvalid) AS has_index "
@@ -49,9 +50,8 @@ _PG_SQL = {
     "WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relpersistence = 'u' AND NOT EXISTS "
     "(SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') "
     "ORDER BY 1",
-    # reset_val: the role/database/server value, not the statement timeout the advisor's own read sets
-    "settings": "SELECT name, reset_val AS setting FROM pg_settings "
-    "WHERE name IN ('idle_in_transaction_session_timeout', 'statement_timeout')",
+    # Read the server value, not the transaction-local timeout on the advisor's read.
+    "settings": "SELECT name, reset_val AS setting FROM pg_settings WHERE name = 'idle_in_transaction_session_timeout'",
 }
 _MYSQL_SQL = {
     "engines": "SELECT TABLE_NAME AS tbl, ENGINE AS engine FROM information_schema.TABLES "
@@ -117,6 +117,8 @@ def _rows(source: Source, dialects: tuple[str, ...], fact: str) -> list[dict[str
         return NOT_READ
     if "error" in found:
         return f"The {fact} catalog read failed: {found['error']}"
+    if found.get("truncated"):
+        return f"The {fact} catalog was truncated at the configured row bound."
     return found["rows"]
 
 
@@ -139,6 +141,27 @@ def _listed(dialects: tuple[str, ...], fact: str, text: str) -> Callable[[Source
         return hits
 
     return check
+
+
+def _unvalidated_constraints(source: Source) -> Outcome:
+    rows = _rows(source, PG, "notValid")
+    if isinstance(rows, str):
+        return rows
+    kinds = {"f": "foreign key", "n": "not-null", "c": "check"}
+    hits: list[Hit] = []
+    for row in rows:
+        kind = row.get("type")
+        label = kinds[kind] if isinstance(kind, str) and kind in kinds else "check"
+        hits.append(
+            _hit(
+                source,
+                f"{row['tbl']}.{row['name']}",
+                f"{label} constraint `{row['name']}` on `{row['tbl']}` is NOT VALID.",
+                f"table={row['tbl']}",
+                f"object={row['tbl']}.{row['name']}",
+            )
+        )
+    return hits
 
 
 def _consumed(row: dict[str, Any]) -> float | None:
@@ -267,7 +290,7 @@ RULES = (
           "Reports a constraint currently not validated: new rows are checked, existing rows are not.",
           "Review the intended migration stage, then VALIDATE CONSTRAINT. " + _REVIEW,
           "https://www.postgresql.org/docs/current/sql-altertable.html",
-          _listed(PG, "notValid", "constraint `{name}` on `{tbl}` is NOT VALID.")),
+          _unvalidated_constraints),
     _rule("DB-PG-004", "PostgreSQL table lacking usable replica identity", "PostgreSQL", "MEDIUM",
           "Reviews a table in a publication that publishes UPDATE or DELETE whose replica identity is NOTHING, "
           "DEFAULT without a primary key, or an index that is missing or invalid.",
@@ -298,10 +321,4 @@ RULES = (
           "Set a limit on the role the application uses, unless it only runs short, trusted transactions.",
           "https://www.postgresql.org/docs/current/runtime-config-client.html",
           _setting("idle_in_transaction_session_timeout", "idle_in_transaction_session_timeout is 0.")),
-    _rule("DB-SERVER-002", "PostgreSQL has no statement timeout", "Server", "LOW",
-          "Fires when statement_timeout is 0 for the role (pg_settings.reset_val, not the advisor's own read): the "
-          "server never aborts a runaway statement.",
-          "Set a limit on the role the application's requests use; a migration role may need none.",
-          "https://www.postgresql.org/docs/current/runtime-config-client.html",
-          _setting("statement_timeout", "statement_timeout is 0.")),
 )  # fmt: skip

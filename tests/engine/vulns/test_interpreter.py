@@ -639,3 +639,51 @@ def test_aliases_and_references_are_unique_non_blank_and_capped():
     assert len(f.aliases) == 20
     assert f.references[:2] == ["https://a", "https://r/0"]
     assert len(f.references) == 20
+
+
+# ported: OsvAdvisoryInterpreterTests.evaluatesSubsequentFixedEventsInATimelineWhenTheFirstFixRemainsAffected
+def test_subsequent_fixed_event_is_used_when_first_fix_is_reintroduced():
+    item = explicit(
+        ["1.2.0"],
+        [CRITICAL],
+        [rng(ev("introduced", "1.0.0"), ev("fixed", "1.2.0"), ev("introduced", "1.2.1"), ev("fixed", "1.2.2"))],
+    )
+    assert run("1.1.0", item).fixed_versions == ["1.2.2"]
+
+
+# ported: OsvAdvisoryInterpreterTests.verifiesCrossBranchFixesWhenInstalledBranchEndsWithLastAffectedOrFiniteLimit
+def test_cross_branch_fixes_from_bounded_exact_package_branches():
+    eol = ranges(rng(ev("introduced", "1.0"), ev("last_affected", "1.9")))
+    maintained_two = entry("2.0", "2.4", CRITICAL)
+    maintained_three = entry("3.0", "3.2", CRITICAL)
+    assert run("1.5", eol, maintained_two, maintained_three).fixed_versions == ["2.4", "3.2"]
+    finite = ranges(rng(ev("introduced", "1.0"), ev("fixed", "1.9"), ev("limit", "2.0")))
+    assert run("1.5", finite, explicit(["1.9"], [LOW]), maintained_two).fixed_versions == ["2.4"]
+
+
+# ported: OsvAdvisoryInterpreterTests.rejectsCrossBranchFixesAffectedByAnotherEntryOrFromWildcardOrUnrelatedPackages
+def test_cross_branch_fix_rejects_reintroduced_wildcard_and_unrelated_targets():
+    eol = ranges(rng(ev("introduced", "1.0"), ev("last_affected", "1.9")))
+    assert run("1.5", eol, entry("2.0", "2.4", CRITICAL), entry("2.2", "3.0", CRITICAL)).fixed_versions == ["3.0"]
+    wildcard = named("PyPI", "*", CRITICAL)
+    other = named("PyPI", "other-lib", CRITICAL)
+    assert run("1.5", eol, wildcard).fixed_versions == []
+    assert run("1.5", eol, other).fixed_versions == []
+
+
+# ported: OsvVulnerabilityScannerTests.prioritizesCveAndGhsaAliasesAndIncludesUpstreamBeforeTruncatingToTwenty
+def test_aliases_prioritize_cve_and_ghsa_include_upstream_and_keep_stable_limit():
+    aliases = [f"VENDOR-{i}" for i in range(21)] + ["GHSA-aaaa-bbbb-cccc"]
+    doc = {"id": "OSV-1", "aliases": aliases, "upstream": ["CVE-2024-12345", "OSV-1"]}
+    finding = interpret(doc, Package(NAME, "1.0", None), "OSV-1")
+    assert finding is not None
+    assert finding.aliases[0] == "CVE-2024-12345"
+    assert finding.aliases[1] == "GHSA-aaaa-bbbb-cccc"
+    assert finding.aliases[2] == "VENDOR-0"
+    assert len(finding.aliases) == 20
+
+
+def test_unicode_digits_are_not_cve_ids():
+    from sharpit.engine.collectors.vulns.interpreter import _alias_priority
+
+    assert _alias_priority("CVE-١٢٣٤-٥٦٧٨") == 2

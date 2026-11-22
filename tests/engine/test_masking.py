@@ -636,3 +636,84 @@ def test_mask_text_value_scan_stays_fast(text: str) -> None:
 # derived: delete-the-control on the line bound: an open value stops at its line, the next line stays
 def test_mask_text_open_bracket_value_stops_at_its_line() -> None:
     assert Masker(M, True).mask_text("password=[a[1], hunter2\nnote=[b]") == f"password={MASK}\nnote=[b]"
+
+
+# ---- UriMasking.maskPath (request paths) ---------------------------------------------------------------------------
+# ported: UriMaskingTests.masksPathMatrixParametersThroughMaskPath
+def test_mask_request_path_masks_a_sensitive_matrix_parameter() -> None:
+    masker = Masker(M, True)
+    assert masker.mask_request_path("/orders;token=abc/42") == f"/orders;token={MASK}/42"
+    assert masker.mask_request_path("/orders/42") == "/orders/42"
+    assert Masker(FULL, True).mask_request_path("/orders;token=abc") == "/orders;token=abc"
+
+
+# ported: UriMaskingTests.masksSensitiveMatrixParametersInThePath
+def test_mask_request_path_masks_a_matrix_parameter_with_other_segments_after_it() -> None:
+    assert Masker(M, True).mask_request_path("/orders;token=pathsecret/42") == f"/orders;token={MASK}/42"
+
+
+# ported: UriMaskingTests.masksSensitiveMatrixParametersEvenUnderMetadataOnlyExposure
+def test_mask_request_path_masks_a_sensitive_matrix_parameter_under_metadata_only() -> None:
+    assert Masker(META, True).mask_request_path("/orders;token=pathsecret") == f"/orders;token={MASK}"
+
+
+# ported: UriMaskingTests.masksMatrixValuesUnderMetadataOnlyEvenWhenMaskSecretsIsOff
+def test_mask_request_path_masks_under_metadata_only_even_when_mask_secrets_is_off() -> None:
+    assert Masker(META, False).mask_request_path("/orders;token=secret") == f"/orders;token={MASK}"
+
+
+# ported: UriMaskingTests.keepsMatrixValuesVisibleUnderMaskedExposureWhenMaskSecretsIsOff
+def test_mask_request_path_keeps_matrix_values_when_mask_secrets_is_off() -> None:
+    assert Masker(M, False).mask_request_path("/orders;token=secret") == "/orders;token=secret"
+
+
+# ported: UriMaskingTests.neverMasksAPathSegmentThatSharesASensitiveParameterName
+def test_mask_request_path_never_masks_a_segment_named_like_a_sensitive_parameter() -> None:
+    assert Masker(M, True).mask_request_path("/api/token/refresh;v=1") == "/api/token/refresh;v=1"
+
+
+# ported: UriMaskingTests.masksAParameterValueCarryingANestedEncodedCredentialUrl
+def test_mask_request_path_masks_a_secret_shaped_value_under_any_name() -> None:
+    path = "/go;next=https%3A%2F%2Falice%3Apw%40host%2Fcb;v=1"
+    assert Masker(M, True).mask_request_path(path) == f"/go;next={MASK};v=1"
+
+
+def test_mask_request_path_masks_a_bare_sensitive_parameter_and_an_encoded_name() -> None:
+    masker = Masker(M, True)
+    assert masker.mask_request_path("/x;token;v=1") == f"/x;{MASK};v=1"
+    assert masker.mask_request_path("/x;%70assword=hunter2") == f"/x;%70assword={MASK}"
+
+
+def test_mask_request_path_keeps_the_path_segment_rules_of_mask_path() -> None:
+    assert Masker(M, True).mask_request_path(f"/reset/{JWT}/c;token=abc") == f"/reset/{MASK}/c;token={MASK}"
+    assert Masker(M, True, "tok-3f9a").mask_request_path("/hook/tok-3f9a;v=1") == f"/hook/{MASK}"
+
+
+def test_mask_path_leaves_text_with_semicolons_alone() -> None:
+    # scan.py and sensors/files.py pass text and file patterns through mask_path
+    assert Masker(META, True).mask_path("Set cookie a=b; token=c") == "Set cookie a=b; token=c"
+
+
+@pytest.mark.parametrize("mask_secrets", [True, False])
+def test_mask_request_path_masks_every_matrix_value_under_metadata_only(mask_secrets: bool) -> None:
+    # sharpit deviation: BootUI masks by name or credential shape there; names and segments stay visible
+    masker = Masker(META, mask_secrets)
+    assert masker.mask_request_path("/items;v=1;format=json/2;sort") == f"/items;v={MASK};format={MASK}/2;{MASK}"
+    assert masker.mask_request_path("/items/42") == "/items/42"
+    assert masker.mask_request_path("/a;;v=1;") == f"/a;;v={MASK};"
+
+
+@pytest.mark.parametrize("name", ["jsessionid", "JSESSIONID", "phpsessid", "session", "sessionid", "sid"])
+def test_mask_request_path_masks_a_session_id_matrix_parameter_like_traces_and_journal(name: str) -> None:
+    from sharpit.engine.capture import journal, traces
+
+    path = f"/orders;{name}=abc123/42"
+    expected = f"/orders;{name}={MASK}/42"
+    masker = Masker(M, True)
+    assert masker.mask_request_path(path) == expected
+    assert traces._path(masker, "http.target", path) == expected
+    assert journal._path(path, masker) == expected
+
+
+def test_mask_request_path_keeps_an_ordinary_matrix_parameter_visible() -> None:
+    assert Masker(M, True).mask_request_path("/orders;page=2/42") == "/orders;page=2/42"

@@ -92,8 +92,33 @@ def test_err011_is_a_skipped_result_not_an_evaluated_rule(tmp_path: Path):
     # ported: RestApiScanner.java:326 passes results.size(); ExceptionHandlersDoNotExposeStackTracesRule skipped(...)
     service = _service(tmp_path)
     done = service._run(None)  # pyright: ignore[reportPrivateUsage]
-    assert getattr(done, "skipped", ()) == ("RAPI-ERR-011",)
+    assert set(getattr(done, "skipped", ())) == {
+        "RAPI-ERR-011",
+        "RAPI-NAME-002",
+        "RAPI-DOC-001",
+        "RAPI-DOC-002",
+    }
     assert "RAPI-ERR-011" not in done.evaluated
+
+
+def test_retired_rapi_rules_are_skipped_and_not_evaluated(tmp_path: Path):
+    done = _service(tmp_path)._run(None)  # pyright: ignore[reportPrivateUsage]
+
+    assert {"RAPI-NAME-002", "RAPI-DOC-001", "RAPI-DOC-002"}.issubset(done.skipped)
+    assert {"RAPI-NAME-002", "RAPI-DOC-001", "RAPI-DOC-002"}.isdisjoint(done.evaluated)
+
+
+def test_retired_rapi_skips_keep_bootui_reasons(tmp_path: Path):
+    done = _service(tmp_path)._run(None)  # pyright: ignore[reportPrivateUsage]
+
+    assert getattr(done.detail, "skip_reasons", {}) == {
+        "RAPI-NAME-002": "Retired heuristic: English plural-suffix heuristics cannot establish resource"
+        " cardinality or naming defects.",
+        "RAPI-DOC-001": "Retired heuristic: OpenAPI generators derive operations from controller signatures"
+        " without requiring explicit @Operation annotations.",
+        "RAPI-DOC-002": "Retired heuristic: OpenAPI generators group operations automatically without requiring"
+        " explicit @Tag annotations.",
+    }
 
 
 def test_shape_keys_match_bootui(tmp_path: Path):
@@ -108,26 +133,26 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         3,
         5,
     )
-    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 27  # 21 + 5 RAPI-ERR + ERR-011 (SKIPPED)
+    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 27
     assert report["scan"]["status"] == "SCANNED"
     assert isinstance(report["scan"]["scannedAt"], int)
     assert report["scan"]["message"] == (
         "REST API rules completed against 3 module(s) and 5 route handler(s) in the host application."
     )
     ids = [r["id"] for r in report["results"]]
-    assert ids == ["RAPI-MAP-003", "RAPI-DOC-002", "RAPI-NAME-001", "RAPI-NAME-003"]  # severity, then count, then id
+    assert ids == ["RAPI-MAP-003", "RAPI-NAME-001", "RAPI-NAME-003"]  # severity, then count, then id
     assert all(r["status"] == "VIOLATION" and r["dismissed"] is False for r in report["results"])
-    assert report["violationsFound"] == report["scan"]["violationsFound"] == 4
+    assert report["violationsFound"] == report["scan"]["violationsFound"] == 3
     assert {c["severity"]: c["count"] for c in report["severityCounts"]} == {
         "CRITICAL": 0,
         "HIGH": 0,
         "MEDIUM": 0,
         "LOW": 1,
-        "INFO": 3,
+        "INFO": 2,
     }
     assert report["evidence"] == {"usable": True, "coverageComplete": True, "limitations": []}
     details = report["violationDetails"]
-    assert (details["total"], details["retained"], details["truncated"]) == (4, 4, False)
+    assert (details["total"], details["retained"], details["truncated"]) == (3, 3, False)
 
 
 def test_dismiss_restore_changes_counts(tmp_path: Path):
@@ -135,11 +160,11 @@ def test_dismiss_restore_changes_counts(tmp_path: Path):
     service.scan()
     service.dismissals.add("RAPI-NAME-001")
     report = service.report()
-    assert report["violationsFound"] == 3
+    assert report["violationsFound"] == 2
     assert next(r for r in report["results"] if r["id"] == "RAPI-NAME-001")["dismissed"] is True
-    assert {c["severity"]: c["count"] for c in report["severityCounts"]}["INFO"] == 2
+    assert {c["severity"]: c["count"] for c in report["severityCounts"]}["INFO"] == 1
     service.dismissals.remove("RAPI-NAME-001")
-    assert service.report()["violationsFound"] == 4
+    assert service.report()["violationsFound"] == 3
 
 
 def test_violations_are_masked(tmp_path: Path):

@@ -11,6 +11,7 @@ import functools
 import re
 from collections.abc import Callable, Sequence
 from enum import StrEnum
+from typing import Protocol
 from urllib.parse import unquote_plus
 
 from sharpit.engine.sqltext import MASK
@@ -277,6 +278,35 @@ def _mask_segments(path: str) -> str:
     return "/".join(MASK if is_secret_value(seg) else seg for seg in path.split("/"))
 
 
+# A session id is a secret wherever it travels; a matrix parameter carries it as ``;jsessionid=...``
+_SESSION_ID_NAMES = frozenset({"jsessionid", "phpsessid", "session", "sessionid", "sid"})
+
+
+def _is_matrix_secret_name(decoded: str) -> bool:
+    return is_sensitive_key(decoded) or decoded.strip().lower() in _SESSION_ID_NAMES
+
+
+def _mask_matrix_parameter(parameter: str, every: bool) -> str:
+    name, sep, value = parameter.partition("=")
+    decoded = unquote_plus(name)
+    if not sep:
+        return MASK if every or _is_matrix_secret_name(decoded) else parameter
+    if every or _is_matrix_secret_name(decoded) or is_secret_value(unquote_plus(value)):
+        return f"{name}={MASK}"
+    return parameter
+
+
+def _mask_segment_matrix(segment: str, every: bool) -> str:
+    """Mask the ``&``/``;``-separated parameters after a segment's first ``;``, keeping its name and separators."""
+    head, sep, rest = segment.partition(";")
+    if not sep:
+        return segment
+    parts = re.split("([&;])", rest)  # the separators stay in the list, so they survive the join
+    return (
+        head + sep + "".join(part if part in ("", "&", ";") else _mask_matrix_parameter(part, every) for part in parts)
+    )
+
+
 def _mask_pairs(pattern: re.Pattern[str], masked: str, tracked: Tracked, value: re.Pattern[str] | None = None) -> None:
     """Mask the value of each sensitive key in ``tracked``, to the end of its line, or to the end of ``value`` there.
 
@@ -365,6 +395,125 @@ def _shown_key(name: str) -> str:
     to the header (``<token>.set-cookie:``), which 0.4.0's token pass hid with the rest (owner, 2026-11-08)."""
     prefix, dot, header = name.rpartition(".")
     return f"{MASK}{dot}{header}" if prefix and header.lower() in _SECRET_HEADERS else name
+
+
+# ---- Binding literals ----------------------------------------------------------------------------------------------
+# Port of BootUI's ``MessageExposure.scrubBindingLiterals``: the user-input literal a framework message quotes is
+# replaced after the secret passes, in a fixed order, each pattern tied to one message grammar. The Java grammars
+# (Spring ``rejected value [..]``, Jackson, ``For input string``) do not occur in Python; the grammars of CPython
+# 3.12-3.14 and Pydantic v2 take their place. Every pattern starts at a fixed phrase, or consumes the literal it starts,
+# so a scan is linear in the text. A plain literal in an arbitrary message is not a binding-literal form and stays.
+_LITERAL = r"""b?(['"])(?:(?!\2)[^\\\r\n]|\\.)*+\2?"""  # a Python repr: its quote, escapes, and a closing quote if any
+
+
+def _quoted_mask(m: re.Match[str]) -> str:
+    return f"{m[1]}{m[2]}{MASK}{m[2]}"
+
+
+def _after_enum_literal(m: re.Match[str]) -> str:
+    """A repr or number is the input only when ``is not a valid <Enum>`` follows it; any other is kept as written."""
+    if not m[2]:
+        return m[0]
+    return f"{m[1]}{MASK}{m[1]}{m[2]}" if m[1] else f"{MASK}{m[2]}"
+
+
+_INT_LITERAL = re.compile(rf"(\binvalid literal for int\(\) with base \d+: ){_LITERAL}")
+_FLOAT_LITERAL = re.compile(rf"(\bcould not convert string to float: ){_LITERAL}")
+_TIME_DATA = re.compile(rf"(\btime data ){_LITERAL}")
+_UNCONVERTED_DATA = re.compile(r"(\bunconverted data remains:)[^\r\n]*")
+_ISOFORMAT = re.compile(rf"(\bInvalid isoformat string: ){_LITERAL}")
+# consumes every repr and number so a scan never restarts inside one; only one followed by the Enum message is replaced
+_ENUM_INPUT = re.compile(
+    r"""(?<![\w'"])(?:b?(['"])(?:(?!\1)[^\\\r\n]|\\.)*+\1?|-?\d+(?:\.\d+)?)( is not a valid [A-Za-z_])?"""  # NOSONAR - one anchored grammar; splitting it would change which text is masked  # noqa: E501
+)
+_PYDANTIC_INPUT_VALUE = re.compile(r"(\binput_value=)(?:[^\r\n]*(, input_type=)|[^\r\n]*)")
+_PYDANTIC_CUSTOM_MESSAGE = re.compile(
+    r"(\b(?:Value error|Assertion failed), )(?s:.*?( \[type=(?:value_error|assertion_error))|.*)"
+)
+# Pydantic v2 location line (``key``, ``c.<key>``, ``d.0.<key>``) before its indented message: a dict key is caller
+# input and text cannot tell it from a field name, so every segment is hidden except a request location, an index or
+# ``[key]``. The line stops before ``\r``, so CRLF text keeps its line endings.
+_PYDANTIC_LOC = re.compile(r"(?m)^(\S[^\r\n]*+)(?=\r?\n {2}\S)")
+_LOC_KEPT = frozenset({"body", "query", "path", "header", "cookie", "[key]"})
+_FOUND_AT = re.compile(r"(\bfound `)[^\r\n]*?(` at \d+)")
+_FOUND_END = re.compile(r"` at \d+")
+_LINE_BREAK = re.compile(r"(\r\n|\r|\n)")
+
+
+class _Substitutes(Protocol):
+    def sub(self, repl: Callable[[re.Match[str]], str], string: str, /) -> str: ...
+
+
+class _FoundAtScan:
+    """``_FOUND_AT.sub`` in linear time: a lazy scan from each ``found ` `` that has no end on its line is quadratic.
+
+    A start with an end later on its line always matches, so only the text up to the line's last end is scanned.
+    """
+
+    pattern = _FOUND_AT.pattern
+
+    @staticmethod
+    def sub(repl: Callable[[re.Match[str]], str], string: str, /) -> str:
+        parts = _LINE_BREAK.split(string)  # lines at even indexes, their breaks at odd ones
+        for index in range(0, len(parts), 2):
+            line = parts[index]
+            ends = list(_FOUND_END.finditer(line))
+            if not ends:
+                continue
+            last = ends[-1]
+            out: list[str] = []
+            cursor = 0
+            for found in _FOUND_AT.finditer(line, 0, last.end()):
+                out += (line[cursor : found.start()], repl(found))
+                cursor = found.end()
+            parts[index] = "".join(out) + line[cursor:]
+        return "".join(parts)
+
+
+_UUID_CHAR = _FoundAtScan()
+
+
+def _after_loc_head(m: re.Match[str]) -> str:
+    return ".".join(s if s.isdigit() or s in _LOC_KEPT else MASK for s in m[1].split("."))
+
+
+_BINDING_LITERALS: tuple[tuple[_Substitutes, Callable[[re.Match[str]], str]], ...] = (
+    (_PYDANTIC_LOC, _after_loc_head),
+    (_UUID_CHAR, lambda m: f"{m[1]}{MASK}{m[2]}"),
+    (_INT_LITERAL, _quoted_mask),
+    (_FLOAT_LITERAL, _quoted_mask),
+    (_TIME_DATA, _quoted_mask),
+    (_UNCONVERTED_DATA, lambda m: f"{m[1]} {MASK}"),
+    (_ISOFORMAT, _quoted_mask),
+    (_ENUM_INPUT, _after_enum_literal),
+    (_PYDANTIC_INPUT_VALUE, lambda m: f"{m[1]}{MASK}{m[2] or ''}"),
+    (_PYDANTIC_CUSTOM_MESSAGE, lambda m: f"{m[1]}{MASK}{m[2] or ''}"),
+)
+
+
+# A pattern can only match text that holds one of these phrases, so a text without them skips the pattern's scan.
+_NEEDLES: dict[_Substitutes, tuple[str, ...]] = {
+    _PYDANTIC_LOC: ("\n  ",),
+    _UUID_CHAR: ("found `",),
+    _INT_LITERAL: ("invalid literal for int() with base ",),
+    _FLOAT_LITERAL: ("could not convert string to float: ",),
+    _TIME_DATA: ("time data ",),
+    _UNCONVERTED_DATA: ("unconverted data remains:",),
+    _ISOFORMAT: ("Invalid isoformat string: ",),
+    _ENUM_INPUT: (" is not a valid ",),  # a repr or number without the Enum message is kept as written
+    _PYDANTIC_INPUT_VALUE: ("input_value=",),
+    _PYDANTIC_CUSTOM_MESSAGE: ("Value error, ", "Assertion failed, "),
+}
+
+
+def scrub_binding_literals(text: str | None) -> str | None:
+    """``text`` with the user-input literal of each recognized binding message replaced by the mask."""
+    if not text:
+        return text
+    for pattern, replacement in _BINDING_LITERALS:
+        if any(needle in text for needle in _NEEDLES[pattern]):
+            text = pattern.sub(replacement, text)
+    return text
 
 
 def _key_text(key: bytes | None) -> str:
@@ -465,6 +614,11 @@ class Masker:
         self._run_passes(tracked, strict=True)
         return tracked.text
 
+    def scrub_literals(self, text: str | None) -> str | None:
+        """``text`` with the binding literals of framework messages scrubbed; ``FULL`` shows it as written, whatever
+        the secret-mask setting (ported: ``ExceptionsService.displayMessage``, which scrubs the exposed text)."""
+        return text if self._exposure is Exposure.FULL else scrub_binding_literals(text)
+
     def mask_spans(self, text: str, strict: bool = True, view: Tracked | None = None) -> list[tuple[int, int]] | None:
         """The raw ``(start, end)`` runs the passes hide in ``text``; ``view``, a tracked text over it, is read instead.
 
@@ -493,6 +647,22 @@ class Masker:
         if self._exposure is Exposure.FULL or not self._mask_secrets:
             return path
         return _mask_segments(path)
+
+    def mask_request_path(self, path: str) -> str:
+        """``mask_path`` plus the matrix parameters of a URL request path (BootUI ``UriMasking.maskPath``).
+
+        A ``;name=value`` parameter is masked when its name is sensitive or its value is secret-shaped; a bare sensitive
+        ``;name`` is masked whole. Segment names stay visible. Under METADATA_ONLY every matrix value is masked
+        (stricter than BootUI), with secret masking on or off; under MASKED only with secret masking on; FULL is
+        untouched. Only for request paths: text and file patterns use ``mask_path``.
+        """
+        path = self.mask_path(path)
+        if ";" not in path or self._exposure is Exposure.FULL:
+            return path
+        if self._exposure is Exposure.MASKED and not self._mask_secrets:
+            return path
+        every = self._exposure is Exposure.METADATA_ONLY
+        return "/".join(_mask_segment_matrix(segment, every) for segment in path.split("/"))
 
     def mask_query(self, query: str) -> str | None:
         """Mask each ``name=value`` pair of a raw query string by name and by value; the raw name is kept.

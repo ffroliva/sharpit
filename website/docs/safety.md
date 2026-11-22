@@ -1,7 +1,8 @@
 # Safety model
 
-- **Local only.** Requests must come from a loopback address with a loopback or allow-listed `Host`. If `Forwarded`,
-  `X-Forwarded-For` or `X-Real-IP` is present and no trusted proxy is configured, the caller counts as remote.
+- **Local only.** Requests must come from a loopback address with a loopback or allow-listed `Host`. A request
+  carrying a forwarding or client-address header (for example `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or
+  `CF-Connecting-IP`) and no trusted proxy is configured counts as remote.
 - **Cross-site requests are refused** on every method (`Sec-Fetch-Site: cross-site`, or, on API paths, an `Origin` that differs from
   the request's full origin: scheme, host and port; other paths compare the host), even when your app has `CORSMiddleware(allow_origins=["*"])`.
 - **Remote access needs a token.** Only loopback, or the container gateway under
@@ -16,6 +17,7 @@
   harmless user name in a URL is shown as `******` too. That is intentional: sharpit errs towards hiding.
 - **GET has no side effects.** No network call, no file write, no logger change. The vulnerability scan (OSV and EPSS)
   runs only on an explicit POST.
+- **Request ID response header.** Recorded HTTP exchanges attach an `X-Sharpit-Request-Id` header to responses by default on loopback and detected container gateways. It is omitted for requests arriving via trusted proxies and can be disabled with `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false`.
 - **Fails closed.** When off, or in a `prod`/`production` profile (unless `SHARPIT_ENABLED=ON` forces it on, with a warning), the whole mount answers a plain 404 (see [Why does a plain `uvicorn app:app` give 404?](activation.md) for what that does and does not hide).
 
 ## If sharpit reaches production

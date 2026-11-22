@@ -209,4 +209,4 @@ def test_bootui_marks_equal_the_matched_rows() -> None:
         and isinstance(node.args[0].value, str)
     }
     route_keys = {f"route:GET {item['route'].removeprefix('/sharpit/api')}" for item in _MATCHED}
-    assert marked == route_keys
+    assert marked == route_keys | {"route:GET /mappings/flat"}

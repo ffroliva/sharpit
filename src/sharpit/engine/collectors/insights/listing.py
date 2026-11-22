@@ -43,6 +43,7 @@ _FOLDED = {
 }
 _OUTCOMES = {  # ExternalValidation.build, in its order
     "route-time-breakdown": Outcome.FAILED, "repeated-selects": Outcome.UNDER_SAMPLED,
+    "route-latency-outliers": Outcome.NOT_JUDGED,
     "lazy-sql-after-handler": Outcome.UNDER_SAMPLED, "exception-hotspots": Outcome.FAILED,
     "errors-behind-2xx": Outcome.PASSED, "connections-per-request": Outcome.FAILED,
     "safe-method-dml": Outcome.NOT_VALIDATED, "transaction-across-remote-call": Outcome.NOT_VALIDATED,

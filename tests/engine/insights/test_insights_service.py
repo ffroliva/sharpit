@@ -45,7 +45,7 @@ def _checks(journal: RuntimeJournal) -> dict[str, dict[str, object]]:
 # ported: RuntimeInsightsServiceTests.anEmptySnapshotLeavesEveryCheckWithoutEligibleWork
 def test_an_empty_snapshot_leaves_every_check_without_eligible_work() -> None:
     checks = InsightsService(_journal()).report()["checks"]
-    assert len(checks) == 28
+    assert len(checks) == 29
     assert {check["eligibleRequests"] for check in checks} == {0}
     assert {check["status"] for check in checks}.isdisjoint({"EVALUATED", "PARTIAL"})
 
@@ -219,7 +219,7 @@ def test_insights_report_golden_keys_23() -> None:
     assert {tuple(row) for row in report["coverage"]} == {
         ("source", "events", "byRequestId", "byExecutionId", "byTraceId", "unlinked", "dropped")
     }
-    assert len(report["checks"]) == 28
+    assert len(report["checks"]) == 29
     assert {tuple(check) for check in report["checks"]} == {
         ("kind", "title", "status", "eligibleRequests", "findings", "reason")
     }

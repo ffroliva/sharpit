@@ -27,6 +27,7 @@ src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + k
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
 src/sharpit/engine/sqla/       the SQLAlchemy gatekeeper: listeners, events, orm, inspect, readonly (sharpit's own reads)
 src/sharpit/fastapi/           the FastAPI/Starlette adapter: routes, introspection, dev-server signals
+src/sharpit/flask/             the Flask adapter: route introspection over the public URL map
 src/sharpit/pytest_plugin/     the pytest adapter: optional plugin entry point and test-session hooks
 src/sharpit/cli/               the command-line client adapter: talks to a running app over HTTP; standard library only
 src/sharpit/ui/static/         the built UI (committed; CI checks it matches ui/ when ui/ exists)
@@ -85,7 +86,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
    `OFF` disables → `ON` enables → an enabled profile enables → a reloading dev server (`uvicorn --reload`,
    `fastapi dev`) enables → otherwise disabled. Inactive means every path under the mount answers 404.
 2. **Guard chain on every request**, in order: security headers → trusted source → Host allow-list → cross-site →
-   token → panel access. Forwarded headers never grant trust.
+   token → panel access. A request carrying a forwarding or client-address header (the list in `engine/guard.py`) is never a trusted source; the trusted-source decision rests on the ASGI client address and those headers (`SECURITY.md`).
 3. **Secrets masked** before filtering and before any output (JSON, errors, MCP, CLI). `FULL` exposure warns.
 4. **No side effects on reads; actions only behind BootUI's gates** (above). Every read uses the `no_side_effects`
    fixture; every action has a test that a read-only panel refuses it.
@@ -107,7 +108,8 @@ these on every run (a planted violation proves each rule still bites); a failing
 to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
 
 1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
-2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin` or `sharpit.ui`,
+2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.flask`, `sharpit.pytest_plugin`
+   or `sharpit.ui`,
    not even for a type. No module under `src/sharpit/` outside `sharpit/cli/` imports `sharpit.cli`; modules under
    `sharpit/cli/` import only the standard-library modules named in `CLI_STDLIB` in
    `tests/engine/test_import_boundary.py`, `sharpit.cli`, and `__version__` from `sharpit`, not even for a type. When
@@ -117,8 +119,9 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...). Inside `engine/collectors/insights/` the rule holds per
    kind: a module under `kinds/` never imports another kind; shared code goes in the insights package.
-4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
-   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` and `dotenv` only in
+4. **Gatekeepers.** One named file (or package) per optional or network library: Flask only in `sharpit/flask/`,
+   SQLAlchemy only in the `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings`
+   and `dotenv` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, `prometheus_client` only in
    `engine/collectors/metrics/prometheus.py`, `urllib.request` only in `engine/collectors/vulns/osv.py`,
    `engine/collectors/vulns/epss.py`, `engine/collectors/github/client.py` and `sharpit/cli/client.py`;
@@ -151,7 +154,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 - **Port BootUI, do not reinvent** (owner, 2026-11-12: "whatever we can directly port from BootUI we should; we don't
   need to recreate anything, just rewrite and adapt"). Before writing any code for a feature, read BootUI's own source
   for it at the pinned tag, in a BootUI clone, not this repo (`git -C <bootui clone> show v2.3.0:<path>` for 0.6.0;
-  `v2.4.0` for 0.7.0), and translate it: same structure, order of checks, thresholds, user-facing texts (env names
+  `v2.4.0` for 0.7.0; `v2.5.0` for 0.8.0), and translate it: same structure, order of checks, thresholds, user-facing texts (env names
   adapted) and tests (`# ported:`). Adapt only where Python/FastAPI/SQLAlchemy forces it or an owner ruling differs;
   each adaptation is one deviation row, with its reason, in the lane's matrix fragment
   (`docs/reference/matrix-updates/<lane>.tsv`). Never design from a summary of BootUI: read the lines. The safety model

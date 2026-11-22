@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import sqlite3
 import threading
@@ -24,6 +25,7 @@ import pytest
 from examples.fastapi_sample.app import SignedSessionMiddleware, create_app
 from fastapi.testclient import TestClient
 from prometheus_client import CollectorRegistry, Gauge
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.requests import Request
 
 from conftest import get_paths
@@ -65,6 +67,16 @@ WIDENED = (
     "STORAGE_CONN",
     "BUS_CONN",
 )
+
+
+class BindingCorpusProfile(BaseModel):
+    email: str
+
+
+class BindingCorpusPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: int
+    person: BindingCorpusProfile = Field(alias="a_profile")
 
 
 def _opener() -> FakeOpener:
@@ -336,6 +348,179 @@ def test_probe_masking_corpus(tmp_path: Path):
     assert all(SENTINEL not in str(row) and JWT not in str(row) for row in exchange_rows)
 
 
+@pytest.mark.parametrize("exposure", ("METADATA_ONLY", "MASKED", "FULL"))
+def test_binding_diagnostics_corpus_r1_through_r12_over_real_requests(tmp_path: Path, exposure: str) -> None:
+    from fastapi.exceptions import RequestValidationError
+
+    app = FastAPI()
+
+    @app.post("/diagnostics")
+    async def diagnostics(request: Request, _payload: BindingCorpusPayload) -> None:
+        body = await request.json()
+        rows = [
+            # R1: an ordinary rejected value and message.
+            {
+                "type": "int_parsing",
+                "loc": ("body", "display_name"),
+                "input": "ordinary-secret-91",
+                "msg": "invalid ordinary-secret-91",
+            },
+            # R2: a benign-looking value interpolated into msg and ctx.
+            {
+                "type": "value_error",
+                "loc": ("body", "a_profile", "email"),
+                "msg": "invalid ordinary-secret-91",
+                "ctx": {"value": ["ordinary-secret-91"]},
+            },
+            # R3: a bare dictionary key.
+            {"type": "dict_type", "loc": ("body", SENTINEL), "input": SENTINEL},
+            # R4: a nested mapping key, index and pydantic [key] marker.
+            {"type": "int_parsing", "loc": ("body", "records", 0, SENTINEL, "[key]"), "input": SENTINEL},
+            # R5: a forbidden extra-property name.
+            {"type": "extra_forbidden", "loc": ("body", JWT), "input": SENTINEL},
+            # R6: a custom error type.
+            {"type": "bad_dynamic_type", "loc": ("body",), "input": "ordinary-secret-91"},
+            # R7: a nested list index.
+            {"type": "int_parsing", "loc": ("body", "records", 2, JWT), "input": SENTINEL},
+            # R8: malformed JSON.
+            {"type": "json_invalid", "loc": ("body", 9), "input": SENTINEL},
+            # R9: a declared alias remains readable.
+            {"type": "int_parsing", "loc": ("body", "a_profile", "email"), "input": "ordinary-secret-91"},
+            # R10 and R11: FULL and METADATA_ONLY are exercised by the parameterized request.
+            {"type": "string_type", "loc": ("body", "display_name"), "input": "ordinary-secret-91"},
+            {"type": "bool_type", "loc": ("body", "display_name"), "input": "ordinary-secret-91"},
+            # R12: twelve distinct diagnostics exceed BootUI's ten-row bound.
+            {"type": "float_type", "loc": ("body", "display_name"), "input": "ordinary-secret-91"},
+        ]
+        raise RequestValidationError(rows, body=body)
+
+    @app.post("/rejected-value")
+    def rejected_value(_payload: BindingCorpusPayload) -> None:  # pyright: ignore[reportUnusedFunction]
+        return None
+
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        state_dir=str(tmp_path / exposure),
+        expose_values=exposure,
+        mcp_enabled="ON",
+        cli_enabled=True,
+        panels={"exceptions": {"enabled": True}},
+    )
+    try:
+        with TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False) as client:
+            rejected = client.post(
+                "/rejected-value",
+                json={"display_name": "ordinary-secret-91", "a_profile": {"email": "ok"}},
+            )
+            response = client.post("/diagnostics", json={"display_name": 1, "a_profile": {"email": "ok"}})
+            assert response.status_code == 422
+            assert rejected.status_code == 422
+            listed = client.get(f"{API}/exceptions").json()
+            details = [client.get(f"{API}/exceptions/{group['id']}").json() for group in listed["groups"]]
+            occurrences = [item for detail in details for item in detail["occurrences"]]
+            profiles = [client.get(f"{API}/activity/request/{item['requestId']}").json() for item in occurrences]
+            group = listed["groups"][0]
+            occurrence = next(item for item in details[0]["occurrences"] if item["bindingDiagnostics"])
+            request_id = occurrence["requestId"]
+
+            def mcp_tool(name: str, arguments: dict[str, str]) -> str:
+                return client.post(
+                    f"{API}/mcp",
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": name, "arguments": arguments},
+                    },
+                ).text
+
+            mcp_exception = mcp_tool("get_exception_detail", {"id": group["id"]})
+            mcp_profile = mcp_tool("get_request_profile", {"id": request_id})
+            cli_exception = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": group["id"]}).text
+            cli_profile = client.post(f"{API}/cli/tools/get_request_profile", json={"id": request_id}).text
+            error_body = client.get(f"{API}/exceptions/{SENTINEL}").text
+            mcp_error = mcp_tool("get_exception_detail", {"id": SENTINEL})
+            cli_error = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": SENTINEL}).text
+            jwt_error_body = client.get(f"{API}/exceptions/{JWT}").text
+            jwt_mcp_error = mcp_tool("get_exception_detail", {"id": JWT})
+            jwt_cli_error = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": JWT}).text
+    finally:
+        handle.uninstall_capture()
+
+    destinations = {
+        "exceptions list": str(listed),
+        "exception details": str(details),
+        "request profiles": str(profiles),
+        "MCP exception": mcp_exception,
+        "MCP profile": mcp_profile,
+        "CLI exception": cli_exception,
+        "CLI profile": cli_profile,
+    }
+    error_surfaces = {
+        "Sharpit error body": error_body,
+        "MCP error": mcp_error,
+        "CLI error": cli_error,
+        "JWT error body": jwt_error_body,
+        "JWT MCP error": jwt_mcp_error,
+        "JWT CLI error": jwt_cli_error,
+    }
+    _assert_binding_corpus_outputs(exposure, destinations, error_surfaces)
+    _write_binding_corpus_jsonl(tmp_path, exposure, destinations, error_surfaces)
+    occurrence = next(item for item in occurrences if len(item["bindingDiagnostics"]) > 1)
+    rows = occurrence["bindingDiagnostics"]
+    assert len(rows) == 10
+    assert occurrence["bindingDiagnosticsTruncated"] is True
+    rejected_occurrence = next(item for item in occurrences if len(item["bindingDiagnostics"]) == 1)
+    assert rejected_occurrence["bindingDiagnostics"][0]["reason"] == "int_parsing"
+    if exposure == "FULL":
+        assert "bad_dynamic_type" in {row["reason"] for row in rows}
+    else:
+        assert "Invalid" in {row["reason"] for row in rows}
+    assert "json_invalid" in {row["reason"] for row in rows}
+    assert "a_profile.email" in {row["fieldPath"] for row in rows}
+
+
+def _assert_binding_corpus_outputs(exposure: str, destinations: dict[str, str], error_surfaces: dict[str, str]) -> None:
+    for name, text in destinations.items():
+        assert "ordinary-secret-91" not in text, name
+    for name, text in destinations.items():
+        assert '"ctx"' not in text, name
+    for name, text in destinations.items():
+        assert '"input"' not in text, name
+    for name, text in error_surfaces.items():
+        request_id = JWT if name.startswith("JWT") else SENTINEL
+        other_id = SENTINEL if request_id == JWT else JWT
+        assert f"Unknown exception group '{request_id}'" in text, name
+        assert other_id not in text, name
+        assert "ordinary-secret-91" not in text, name
+    for name, text in destinations.items():
+        present = {value for value in (SENTINEL, JWT) if value in text}
+        expected = {SENTINEL, JWT} if exposure == "FULL" and name in _BINDING_DIAGNOSTIC_SURFACES else set()
+        assert present == expected, name
+
+
+_BINDING_DIAGNOSTIC_SURFACES = {
+    "exception details",
+    "request profiles",
+    "MCP exception",
+    "MCP profile",
+    "CLI exception",
+    "CLI profile",
+}
+
+
+def _write_binding_corpus_jsonl(
+    tmp_path: Path, exposure: str, destinations: dict[str, str], error_surfaces: dict[str, str]
+) -> None:
+    rows = (*destinations.items(), *error_surfaces.items())
+    (tmp_path / f"binding-surfaces-{exposure}.jsonl").write_text(
+        "".join(json.dumps({"exposure": exposure, "surface": name, "text": text}) + "\n" for name, text in rows),
+        encoding="utf-8",
+    )
+
+
 def test_sentinel_never_leaks(
     corpus_app: tuple[FastAPI, Any], caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ):
@@ -513,6 +698,120 @@ def test_exceptions_mask_messages(tmp_path: Path):
     for where, text in texts.items():
         assert SENTINEL not in text, where
         assert JWT not in text, where
+
+
+# A4b: the user-input literal a framework message quotes (port of BootUI MessageExposure.scrubBindingLiterals), planted
+# with every corpus literal in every grammar over real requests; each projection is read back once per request.
+BINDING_ASCII = "cde-77-plain"
+BINDING_PLANTS = (
+    SENTINEL,
+    JWT,
+    STRIPE_KEY,
+    AWS_KEY,
+    GITHUB_TOKEN,
+    f"password={SENTINEL}",
+    f"ünï\"q'{BINDING_ASCII}\nz",
+)
+BINDING_CONTROL = "ordinary-control-91"
+
+
+def _binding_corpus_app(tmp_path: Path, exposure: str, mask_secrets: bool) -> tuple[FastAPI, Any]:
+    import datetime
+    import enum
+
+    class Corpus(enum.Enum):
+        ONE = 1
+
+    forms: dict[str, Callable[[str], object]] = {
+        "int": int,
+        "float": float,
+        "strptime": lambda v: datetime.datetime.strptime(v, "%Y-%m-%d"),
+        "isoformat": datetime.date.fromisoformat,
+        "enum": Corpus,
+    }
+    app = FastAPI()
+
+    @app.post("/lit/{form}")
+    async def lit(form: str, request: Request) -> None:  # pyright: ignore[reportUnusedFunction]
+        forms[form]((await request.json())["v"])
+
+    @app.post("/control")
+    def control() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise RuntimeError(f"cannot process '{BINDING_CONTROL}' right now")
+
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        state_dir=str(tmp_path / f"{exposure}-{mask_secrets}"),
+        expose_values=exposure,
+        mask_secrets=mask_secrets,
+        mcp_enabled="ON",
+        cli_enabled=True,
+        panels={"exceptions": {"enabled": True}},
+    )
+    return app, handle
+
+
+def _binding_corpus_surfaces(client: TestClient, request_path: str, plant: str) -> dict[str, str]:
+    assert client.post(request_path, json={"v": plant}).status_code == 500
+    listed = client.get(f"{API}/exceptions").json()
+    group = next(g for g in listed["groups"] if g["lastRequestPath"] == request_path)
+    detail = client.get(f"{API}/exceptions/{group['id']}").json()
+    request_id = detail["occurrences"][0]["requestId"]
+
+    def mcp(name: str, arguments: dict[str, str]) -> str:
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        return client.post(f"{API}/mcp", json=call).text
+
+    return {
+        "exceptions list": str(listed),
+        "exception detail": str(detail),
+        "request profile": client.get(f"{API}/activity/request/{request_id}").text,
+        "MCP list": mcp("get_exceptions", {}),
+        "MCP detail": mcp("get_exception_detail", {"id": group["id"]}),
+        "MCP profile": mcp("get_request_profile", {"id": request_id}),
+        "CLI detail": client.post(f"{API}/cli/tools/get_exception_detail", json={"id": group["id"]}).text,
+    }
+
+
+@pytest.mark.parametrize(
+    ("exposure", "mask_secrets"),
+    (("MASKED", True), ("MASKED", False), ("FULL", True), ("METADATA_ONLY", True)),
+)
+def test_exception_message_literals_corpus_over_real_requests(
+    tmp_path: Path, exposure: str, mask_secrets: bool
+) -> None:
+    app, handle = _binding_corpus_app(tmp_path, exposure, mask_secrets)
+    rows: dict[str, str] = {}
+    try:
+        with TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False) as client:
+            for form in ("int", "float", "strptime", "isoformat", "enum"):
+                for number, plant in enumerate(BINDING_PLANTS):
+                    surfaces = _binding_corpus_surfaces(client, f"/lit/{form}", plant)
+                    rows.update({f"{form}/{number}/{name}": text for name, text in surfaces.items()})
+            control = _binding_corpus_surfaces(client, "/control", BINDING_CONTROL)
+    finally:
+        handle.uninstall_capture()
+
+    needles = dict(enumerate(BINDING_PLANTS))
+    needles[len(BINDING_PLANTS) - 2] = SENTINEL  # the password pair: its value is what must not show
+    needles[len(BINDING_PLANTS) - 1] = BINDING_ASCII  # the quoted, multi-line unicode plant: its ASCII core
+    for where, text in rows.items():
+        _form, number, surface = where.split("/")
+        if exposure != "FULL":
+            assert needles[int(number)] not in text, where
+        elif surface in ("exceptions list", "exception detail"):
+            assert needles[int(number)] in text, where
+    assert MASK in rows["int/0/exceptions list"] or exposure != "MASKED"
+    assert ("invalid literal for int() with base 10: '******'" in rows["int/0/exceptions list"]) is (
+        exposure == "MASKED"
+    )
+    full_list = rows["int/0/exceptions list"]
+    assert (SENTINEL in full_list) is (exposure == "FULL")
+    # a plain literal in an arbitrary message is no binding-literal form: shown as before outside METADATA_ONLY
+    assert (BINDING_CONTROL in control["exceptions list"]) is (exposure != "METADATA_ONLY")
+    _write_binding_corpus_jsonl(tmp_path, f"{exposure}-{mask_secrets}", rows, control)
 
 
 # F3: SQL the host app runs, masked at capture (spec §7.3, §11); SQLAlchemy is imported lazily (needs_sqlalchemy)

@@ -9,7 +9,7 @@ description: >
 
 # sharpit: the local developer console for FastAPI apps
 
-> **0.7.0.** APIs, panels and settings can still change before 1.0.
+> **0.8.0.** APIs, panels and settings can still change before 1.0.
 > The design source is `docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md`; when this file and the code
 > disagree, the code wins.
 
@@ -126,8 +126,9 @@ The full list (`SHARPIT_MCP_*`, `SHARPIT_CLI_*`, `SHARPIT_VULNERABILITIES_*`, `S
 
 ## Safety model
 
-- **Local only.** Requests must come from loopback with a loopback or allow-listed `Host`. If `Forwarded`,
-  `X-Forwarded-For` or `X-Real-IP` is present and no trusted proxy is configured, the caller is treated as remote.
+- **Local only.** Requests must come from loopback with a loopback or allow-listed `Host`. A request
+  carrying a forwarding or client-address header (for example `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or
+  `CF-Connecting-IP`) and no trusted proxy is configured is treated as remote.
 - **Cross-site reads are refused** on every method (`Sec-Fetch-Site: cross-site`, or an `Origin` whose host differs),
   even if your app has `CORSMiddleware(allow_origins=["*"])`.
 - **Remote access needs a token.** With `SHARPIT_ALLOW_NON_LOCALHOST=true`, untrusted callers must send
@@ -153,13 +154,14 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
 | Live Memory | `GET {api}/live-memory/footprint`, `POST {api}/live-memory/footprint` (`{"enabled": bool}`) | inspect or pause sharpit's capture hooks; status is available over MCP and CLI, while enable/disable are CLI and route actions only |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
-| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 21 action tools (see Actions below), over plain HTTP. The `sharpit` command-line client runs against this endpoint: it supports the advertised tools plus `tools` and `mcp status|enable|disable` (see Command-line client below; `sharpit --help` for usage) |
+| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 22 action tools (see Actions below), over plain HTTP. The `sharpit` command-line client runs against this endpoint: it supports the advertised tools plus `tools` and `mcp status|enable|disable` (see Command-line client below; `sharpit --help` for usage) |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
 | Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason. The `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`, off by default) feed the runtime journal, not these panels; with them on, `POST {api}/java-agent/sensors/files` switches the files sensor, otherwise it is refused (409) as BootUI refuses it without the agent. MCP: `get_agent_status` |
 | Metrics | `GET {api}/metrics`, `GET {api}/metrics/detail` | host Prometheus registry, collected on each read (every host collector runs once); label values and HELP text are masked. MCP and CLI: `get_metrics` / `metrics` |
 | AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
 | Email | `GET {api}/email`, `GET {api}/email/{id}`, `GET {api}/email/{id}/eml`, `DELETE {api}/email` | outgoing mail captured at `smtplib`/`aiosmtplib` `sendmail`, bounded; secret-shaped text masked unless `SHARPIT_EXPOSE_VALUES=FULL`; DELETE clears (refused on a read-only panel). `SHARPIT_EMAIL_DEV_TRAP=true` captures without connecting or sending. MCP: `get_emails`; CLI: `mail` |
+| Pentesting | `GET {api}/pentesting`, `POST {api}/pentesting/scan` | HTTP security headers and CORS preflight checks on in-process ASGI app without opening sockets. MCP: `get_pentest_report`; CLI: `pentest` |
 
 The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
 `get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
@@ -176,10 +178,16 @@ the statements section is `SKIPPED`. sharpit's own PostgreSQL tests run only aga
 JSON follows BootUI's contract: camelCase keys, every key present (nulls included), epoch milliseconds, no envelope.
 Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": "..."}`.
 
+Loopback and detected container-gateway application responses carry `X-Sharpit-Request-Id` by default when an HTTP
+exchange is recorded. Pass its value to `get_request_profile` to inspect that request. Set
+`SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from trusted proxies do not receive the
+header. A same-host tunnel that adds no forwarding headers can expose it to outside callers, and a shared cache in
+front of the app can store it with the response.
+
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 50 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 51 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
@@ -194,6 +202,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - Agent sessions: `get_copilot_sessions`, `get_claude_code_sessions`.
 - AI Framework: `get_ai_overview` (CLI: `ai overview`).
 - Email: `get_emails` (CLI: `mail`).
+- Pentesting: `get_pentest_report` (CLI: `pentest report`; cached report, never probes).
 - Agent sensors: `get_agent_status` (CLI: `agent status`): `NOT_ATTACHED` in this version, which has no agent; the
   `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`) feed the runtime journal instead. BootUI's code inventory, method probe, and side-effect sensor tools are not
   advertised and answer "Tool not available in this application".
@@ -205,12 +214,12 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
 ### Actions (CLI endpoint only, never MCP)
 
-21 action tools change state, call out or scan. They are reachable through `POST {api}/cli/tools/<tool>`
+22 action tools change state, call out or scan. They are reachable through `POST {api}/cli/tools/<tool>`
 (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; Live Memory controls are also available through its guarded API route, and the CLI endpoint serves every read tool above.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
 - Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
-  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`.
+  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`, `pentest_scan` (CLI: `pentest scan`; one bounded in-process GET and OPTIONS probe of the host app; the cookie checks read the names and flags of that GET's `Set-Cookie` headers, never their values, the session checks read the host's `SessionMiddleware` options statically, and two framework checks read the registered documentation routes and uvicorn's `ProxyHeadersMiddleware` from the route table and middleware stacks (they report what is registered, not authorization or reachability; a non-Starlette mount, a host's own documentation handler and server-level forwarded-header flags are not recognised, and unreadable evidence makes the scan partial); the evidence is ASGI-only, with no TLS edge, and the Capture panel shows the probe exchange as it shows any host response, the probe's cookie under `FULL`).
 - Buffers and recording (sharpit's own in-memory capture only): `clear_exceptions`, `clear_sql_traces`,
   `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
   `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,
@@ -260,7 +269,7 @@ sharpit insights list --fail-on insufficient
 
 ### Exit codes
 
-Exit codes follow BootUI 2.4.0 (`sharpit.cli.exit_codes.ExitCodes`):
+Exit codes follow BootUI 2.5.0 (`sharpit.cli.exit_codes.ExitCodes`):
 
 - `0` (`SUCCESS`): command succeeded and findings are below the gate threshold.
 - `1` (`ERROR`): client or connection error, HTTP 500, invalid arguments, or gate could not be evaluated; a refused MCP toggle exits 1.
@@ -280,7 +289,8 @@ pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-ju
 ```
 
 Key CLI flags:
-- `--sharpit-app=module:app`: Point to the ASGI app instance or factory for offline advisors (e.g. `rest-api`).
+- `--sharpit-app=module:app`: Point to the ASGI or Flask app instance, router, or factory for offline advisors (e.g. `rest-api`); uninspectable objects report `UNKNOWN`.
+- `--sharpit-http-security`: observe the requests tests send through the `sharpit_http_observed` fixture and check them against `--sharpit-required-response-header 'METHOD ROUTE=HEADER'` and `--sharpit-expected-status 'METHOD ROUTE=STATUS[,STATUS...]'` (or the matching ini options).
 - `--sharpit-max-queries=N`: Default per-test query budget for the `call` phase.
 - `--sharpit-fail-on=SEV`: Minimum advisor severity that fails the run (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`; default `HIGH`).
 - `--sharpit-allow-unknown`: Prevent `unknown` status from failing the session.
@@ -289,6 +299,8 @@ Key CLI flags:
   0.3.0. Without it, the `rest-api` advisor is `SKIPPED` and a clean suite passes.
 - `--sharpit-verbose` (or `-vv`): List every finding in the terminal `gate counts:`; by default only failing ones are
   listed and advisor notes below the gate are summarised in one line.
+- The terminal `swallowed exceptions:` block groups findings by `except` clause and includes a note when a test double
+  raised the swallowed exception.
 - `--sharpit-report-only`: Run every gate and write the report, but findings fail nothing. Unknown reasons still exit 1.
 - `--sharpit-baseline=PATH` / `--sharpit-write-baseline=PATH`: Compare findings with a baseline, or write one.
 
@@ -297,8 +309,8 @@ Every flag except `--sharpit-write-baseline` also has an ini option (`sharpit_re
 
 ### Finding the application
 
-When no app was installed with `sharpit.install(...)` and no `--sharpit-app` is given, sharpit picks the FastAPI or
-Starlette app defined in the project modules the tests already imported. It never imports a module or runs module code
+When no app was installed with `sharpit.install(...)` and no `--sharpit-app` is given, sharpit picks the FastAPI,
+Starlette or Flask app defined in the project modules the tests already imported. It never imports a module or runs module code
 to do this, and ignores installed packages, the standard library, `conftest` and test modules. The summary says which:
 
 ```
@@ -311,7 +323,8 @@ A skipped advisor does not make the session `unknown`; a database driver sharpit
 
 An advisor that read the routes it could and met an opaque `app.mount(...)` is `PARTIAL`: the run passes with a
 warning that names what was not read and says no finding is not proof there is none; a finding at or above
-`--sharpit-fail-on` still fails. Everything else stays `UNKNOWN`: no usable routes plus a limitation, a router or
+`--sharpit-fail-on` still fails. Everything else stays `UNKNOWN`: an uninspectable app or router passed to
+`--sharpit-app` (expected an app, a router or a zero-argument factory), no usable routes plus a limitation, a router or
 exception handler sharpit could not read, an errored scan or a rule that threw. An app with no routes and no limitation
 is confirmed empty and passes. Lost capture stays `unknown`.
 

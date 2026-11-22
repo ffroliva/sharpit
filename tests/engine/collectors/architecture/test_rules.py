@@ -20,18 +20,33 @@ def _write(path: Path, text: str = "") -> Path:
     return path
 
 
-# ported: ArchitectureRulesTests.packagesShouldBeFreeOfCycles
+# ported: ArchitectureRulesTests.packageCyclesDetectCrossRootCyclesAcrossSharedMultiSegmentPrefixAndNeverCollapseSingleSegmentPrefix  # noqa: E501
 def test_rule_packages_free_of_cycles(tmp_path: Path) -> None:
-    pkg = tmp_path / "app_cycle"
+    pkg = tmp_path / "app_packages"
     _write(pkg / "__init__.py")
-    _write(pkg / "p1" / "__init__.py", "import app_cycle.p2\n")
-    _write(pkg / "p2" / "__init__.py", "import app_cycle.p1\n")
+    _write(pkg / "alpha" / "__init__.py")
+    _write(pkg / "alpha" / "consumer.py", "import app_packages.beta\n")
+    _write(pkg / "beta" / "__init__.py")
+    _write(pkg / "beta" / "consumer.py", "import app_packages.alpha\n")
 
     index = appsource.build_index(pkg, thread=False)
     graph = build_graph(index)
     findings = evaluate_rules(index, graph)
 
-    assert len(findings.get("ARCH-PKG-001", [])) >= 1
+    assert len(graph.find_cycles()) == 0
+    assert len(findings.get("ARCH-PKG-001", [])) == 1
+
+
+def test_package_cycle_roots_keep_shared_multisegment_prefix(tmp_path: Path) -> None:
+    # ported: ArchitectureRulesTests.packageCyclesDetectCrossRootCyclesAcrossSharedMultiSegmentPrefixAndNeverCollapseSingleSegmentPrefix  # noqa: E501
+    pkg = tmp_path / "com" / "acme"
+    _write(pkg / "inventory" / "__init__.py", "import com.acme.order\n")
+    _write(pkg / "order" / "__init__.py", "import com.acme.inventory\n")
+    index = appsource.build_index(pkg.parent, thread=False)
+
+    findings = evaluate_rules(index, build_graph(index, "com"))
+
+    assert len(findings.get("ARCH-PKG-001", [])) == 1
 
 
 # ported: ArchitectureRulesTests.internalPackagesShouldNotBeAccessedFromOtherModules
@@ -48,6 +63,21 @@ def test_rule_internal_packages(tmp_path: Path) -> None:
     findings = evaluate_rules(index, graph)
 
     assert len(findings.get("ARCH-MOD-001", [])) >= 1
+
+
+# ported: ArchitectureRulesTests.internalPackagesMatchesInternalStrictlyBelowBasePackageEvenWhenBasePackageContainsInternal  # noqa: E501
+def test_internal_package_is_relative_to_configured_base_package(tmp_path: Path) -> None:
+    pkg = tmp_path / "modulefixtures"
+    internal = pkg / "moduleone" / "internal"
+    _write(pkg / "__init__.py")
+    _write(internal / "__init__.py")
+    _write(internal / "helper" / "__init__.py", "import modulefixtures.moduleone.internal\n")
+
+    index = appsource.build_index(pkg, thread=False)
+    graph = build_graph(index, "modulefixtures.moduleone.internal")
+    findings = evaluate_rules(index, graph)
+
+    assert len(findings.get("ARCH-MOD-001", [])) == 0
 
 
 # ported: ArchitectureRulesTests.classesShouldNotAccessStandardStreams
@@ -76,7 +106,6 @@ def test_rule_generic_exceptions(tmp_path: Path) -> None:
     assert len(findings.get("ARCH-CODE-002", [])) >= 1
 
 
-# ported: ArchitectureRulesTests.classesShouldNotUseJodaTime
 def test_rule_joda_time(tmp_path: Path) -> None:
     pkg = tmp_path / "app_pytz"
     _write(pkg / "__init__.py")
@@ -86,7 +115,7 @@ def test_rule_joda_time(tmp_path: Path) -> None:
     graph = build_graph(index)
     findings = evaluate_rules(index, graph)
 
-    assert len(findings.get("ARCH-CODE-004", [])) >= 1
+    assert "ARCH-CODE-004" not in findings
 
 
 # ported: ArchitectureRulesTests.classesShouldNotForciblyTerminateTheJvm
@@ -193,7 +222,6 @@ def test_rule_instantiate_thread(tmp_path: Path) -> None:
     assert len(findings.get("ARCH-CODE-017", [])) >= 1
 
 
-# ported: ArchitectureRulesTests.assertionsShouldHaveADetailMessage
 def test_rule_assertions_detail_message(tmp_path: Path) -> None:
     pkg = tmp_path / "app_assert"
     _write(pkg / "__init__.py")
@@ -203,7 +231,7 @@ def test_rule_assertions_detail_message(tmp_path: Path) -> None:
     graph = build_graph(index)
     findings = evaluate_rules(index, graph)
 
-    assert len(findings.get("ARCH-CODE-018", [])) >= 1
+    assert "ARCH-CODE-018" not in findings
 
 
 # ported: ArchitectureRulesTests.controllersShouldNotDependOnRepositories
@@ -364,3 +392,19 @@ def test_violation_never_contains_literal_secret(tmp_path: Path) -> None:
     for finding in findings["ARCH-PKG-001"]:
         assert "sk-live-" not in getattr(finding, "target", "")
         assert "sk-live-" not in getattr(finding, "message", "")
+
+
+# ported: ArchitectureRulesTests.internalPackagesMatchesInternalStrictlyBelowBasePackageEvenWhenBasePackageContainsInternal  # noqa: E501
+def test_internal_package_directly_under_the_application_package_is_owned_by_it(tmp_path: Path) -> None:
+    pkg = tmp_path / "fastapp"
+    _write(pkg / "__init__.py")
+    _write(pkg / "internal" / "__init__.py")
+    _write(pkg / "internal" / "db.py", "ENGINE = 1\n")
+    _write(pkg / "routers" / "__init__.py")
+    _write(pkg / "routers" / "users.py", "import fastapp.internal.db\n")
+
+    index = appsource.build_index(pkg, thread=False)
+    graph = build_graph(index, "fastapp")
+    findings = evaluate_rules(index, graph)
+
+    assert len(findings.get("ARCH-MOD-001", [])) == 0

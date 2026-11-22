@@ -41,6 +41,7 @@ from sharpit.pytest_plugin.apps import (
 from sharpit.pytest_plugin.apps import (
     run_advisors as _run_advisors_impl,
 )
+from sharpit.pytest_plugin.http_security import sharpit_http_observed as sharpit_http_observed
 from sharpit.pytest_plugin.marker import budget_for
 from sharpit.pytest_plugin.options import PluginOptions
 from sharpit.pytest_plugin.options import pytest_addoption as pytest_addoption
@@ -108,7 +109,12 @@ class _ExceptionHandler(LockFreeHandler):
         if not record.exc_info or record.exc_info[1] is None:
             return
         try:
-            self.sink.on_exception(record.exc_info[1], "log", TEST.get())
+            exc = record.exc_info[1]
+            fastapi_errors = sys.modules.get("fastapi.exceptions")
+            validation_error_type = getattr(fastapi_errors, "RequestValidationError", None)
+            validation_error = isinstance(validation_error_type, type) and isinstance(exc, validation_error_type)
+            if not validation_error:
+                self.sink.on_exception(exc, "log", TEST.get())
         except Exception as exc:  # noqa: BLE001
             _record_hook_failure(self.sink, exc)
 
@@ -249,6 +255,7 @@ def _attach(config: Any) -> None:
         raise pytest.UsageError(str(exc)) from exc
     worker = getattr(config, "workerinput", {}).get("workerid", "master")
     sink = TestSessionSink(worker)
+    sink.configure_http(options.http_required_headers, options.http_expected_statuses)
     settings = load_settings({}, os.environ)
     loaded_baseline = None
     try:

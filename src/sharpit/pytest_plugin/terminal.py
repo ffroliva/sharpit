@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME_GATES
-from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE
+from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE, SWALLOWED, TEST_DOUBLE_NOTE
 from sharpit.engine.testsession.report import TEST_RUNTIME, finding_fails
 from sharpit.pytest_plugin.apps import AUTODETECT, DETECTED_BY, advisor_assessors, skip_reason
 
@@ -53,6 +53,7 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
         terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
     if not worst:
         terminalreporter.write_line("  (none)")
+    _write_swallowed(terminalreporter, shown)
     path = config.option.sharpit_report or config.getini("sharpit_report")
     terminalreporter.write_line(f"report: {path}")
     if notes and not state.options.verbose:
@@ -64,13 +65,51 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
     _write_coverage(terminalreporter, state, data)
 
 
+def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
+    """List swallowed-exception clauses with their distinct test counts; test-double notes appear when applicable."""
+    clauses: dict[str, dict[str, bool]] = {}  # location -> test node id -> whether a test double raised it there
+    for finding in findings:
+        if finding["ruleId"] != SWALLOWED:
+            continue
+        doubles = clauses.setdefault(finding["target"], {})
+        node = finding["testNodeId"]
+        # a test counts once per clause; one real raise among its attempts clears the note
+        doubles[node] = doubles.get(node, True) and TEST_DOUBLE_NOTE in finding["message"]
+    if not clauses:
+        return
+    tests = {node for doubles in clauses.values() for node in doubles}
+    terminalreporter.write_line(f"swallowed exceptions: {_count(len(clauses), 'clause')}, {_count(len(tests), 'test')}")
+    ordered = sorted(clauses.items(), key=lambda item: (-len(item[1]), *_location_key(item[0])))
+    for location, doubles in ordered[:5]:
+        raised = sum(doubles.values())
+        note = _double_note(raised, len(doubles))
+        terminalreporter.write_line(f"  {location}: {_count(len(doubles), 'test')}{note}")
+
+
+def _double_note(raised: int, total: int) -> str:
+    if raised == total:
+        return f", {TEST_DOUBLE_NOTE}"
+    return f", {raised} raised by a test double" if raised else ""
+
+
+def _location_key(location: str) -> tuple[str, tuple[int, int | str]]:
+    path, separator, line = location.rpartition(":")
+    return path, (0, int(line)) if separator and line.isdecimal() else (1, location)
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
+
+
 # an app SKIPPED or UNKNOWN was not assessed, so it proves nothing
 _ASSESSED = frozenset({"PASSED", "FAILED", "PARTIAL"})
 
 
 def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any]) -> None:
     try:
-        assessors: set[str] = {advisor for advisor, _ in advisor_assessors()} if state.options.advisors else set()
+        assessors: set[str] = (
+            {advisor for advisor, _ in advisor_assessors()} | {"http-security"} if state.options.advisors else set()
+        )
         ran = {
             advisor["advisor"]
             for advisor in data["advisors"]

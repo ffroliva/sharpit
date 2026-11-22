@@ -159,6 +159,14 @@ def test_routes_added_after_install_appear_later(tmp_path: Path, no_side_effects
     assert ("GET", "/late") in _by(intro.routes())
 
 
+# ported: BootUiEngineConfigurationTests.resolvesMappingsBasePathAccordingToServletOrReactiveContext
+def test_app_info_reports_application_root_path(no_side_effects: SideEffectGuard):
+    app = FastAPI()
+    app.root_path = "/service"
+
+    assert FastApiIntrospector(app).app_info().base_path == "/service"
+
+
 def test_endpoint_is_flat_json_and_sharpit_excluded(tmp_path: Path, no_side_effects: SideEffectGuard):
     no_side_effects.unblock_network()  # the Windows Proactor loop TestClient starts connects a self-pipe socketpair
     client = TestClient(_app(tmp_path, str(no_side_effects.state_dir)), base_url="http://localhost", client=LOCAL)

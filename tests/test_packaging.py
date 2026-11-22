@@ -11,8 +11,8 @@ PYPROJECT = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml
 PROJECT = PYPROJECT["project"]
 
 
-def test_version_is_0_7_0() -> None:
-    assert sharpit.__version__ == "0.7.0"
+def test_version_is_0_8_0() -> None:
+    assert sharpit.__version__ == "0.8.0"
 
 
 def test_record_security_event_is_public_api() -> None:

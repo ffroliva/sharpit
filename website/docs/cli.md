@@ -97,6 +97,7 @@ Advisors assess application configuration, architecture, and code. Each provides
 | FastAPI | `sharpit fastapi scan` | `sharpit fastapi report` | `sharpit fastapi violations --scan-id <scanId> <id>` |
 | REST API | `sharpit rest-api scan` | `sharpit rest-api report` | `sharpit rest-api violations --scan-id <scanId> <id>` |
 | Security | `sharpit security scan` | `sharpit security report` | `sharpit security violations --scan-id <scanId> <id>` |
+| Pentesting | `sharpit pentest scan` | `sharpit pentest report` | - |
 | Vulnerabilities | `sharpit vulnerabilities scan` | `sharpit vulnerabilities report` | (in report) |
 
 Additional database utilities:
@@ -179,7 +180,7 @@ Tools without severities (such as runtime activity or thread lists) or lacking e
 
 ## Exit Codes
 
-Exit codes follow BootUI 2.4.0 conventions (`ExitCodes`):
+Exit codes follow BootUI 2.5.0 conventions (`ExitCodes`):
 
 | Code | Label | Meaning |
 |---|---|---|

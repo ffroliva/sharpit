@@ -258,7 +258,7 @@ def on_security_event(buffer: SecurityEventBuffer, masker: Masker) -> Callable[[
 
     def hook(scope: Mapping[str, Any], status: int) -> None:
         info = REQUEST.get()
-        data = {"method": scope["method"], "path": masker.mask_path(scope["path"]), "status": status}
+        data = {"method": scope["method"], "path": masker.mask_request_path(scope["path"]), "status": status}
         kind = AUTHENTICATION_FAILURE if status == 401 else AUTHORIZATION_FAILURE
         buffer.add(kind, principal_of(scope.get("user")), data, info.id if info is not None else None)
 

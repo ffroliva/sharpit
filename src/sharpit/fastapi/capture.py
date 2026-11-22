@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]  # Starlette's own dispatch test
@@ -38,6 +39,7 @@ from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sensors.lane import build_lane
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sqltext import is_database_exception
+from sharpit.fastapi.request_id_header import with_request_id_header
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -130,6 +132,64 @@ def _endpoint_name(endpoint: object) -> str | None:
     return f"{getattr(endpoint, '__module__', None) or '?'}:{qualname}"
 
 
+def _validation_error(exc: BaseException) -> bool:
+    cls = getattr(sys.modules.get("fastapi.exceptions"), "RequestValidationError", None)  # no import: Pydantic 1 safe
+    return isinstance(cls, type) and isinstance(exc, cls)
+
+
+def _record_exception(
+    store: ExceptionStore,
+    exc: Exception,
+    source: str,
+    info: RequestInfo | None,
+    thread: str | None,
+    ctx: SharpitContext | None,
+    host_app: object,
+) -> None:
+    if not _validation_error(exc):
+        store.record(exc, source, info, thread)
+        return
+    _record_binding_exception(store, exc, source, info, thread, ctx, host_app)
+
+
+def _record_binding_exception(
+    store: ExceptionStore,
+    exc: Exception,
+    source: str,
+    info: RequestInfo | None,
+    thread: str | None,
+    ctx: SharpitContext | None,
+    host_app: object,
+) -> None:
+    try:
+        from sharpit.fastapi.binding_diagnostics import route_for_scope, validation_details
+    except ImportError:  # Pydantic 1 hosts: no binding diagnostics, the exception is still recorded
+        store.record(exc, source, info, thread)
+        return
+
+    full = ctx is not None and ctx.settings.expose_values.value == "FULL"
+    template = (
+        _route_template(info.scope, str(info.scope.get("root_path", "")), host_app)
+        if info is not None and info.scope is not None
+        else None
+    )
+    record_info = info
+    if template is not None and info is not None and not full:
+        record_info = replace(info, path=template)
+    route = route_for_scope(info.scope if info is not None else None, host_app)
+    message, diagnostics, truncated = validation_details(exc, route, full)
+    store.record(
+        exc,
+        source,
+        record_info,
+        thread,
+        message_override=message,
+        message_override_always=True,
+        binding_diagnostics=diagnostics,
+        binding_diagnostics_truncated=truncated,
+    )
+
+
 @functools.lru_cache(maxsize=1024)  # templates come from the host's code, never from a request
 def _template_regex(template: str) -> re.Pattern[str]:
     return compile_path(template)[0]
@@ -201,7 +261,7 @@ def _wrapped_key(key: object) -> bool:
     if not isinstance(key, type) or issubclass(key, HTTPException):
         return False
     fastapi_errors = sys.modules.get("fastapi.exceptions")
-    skipped = [getattr(fastapi_errors, n, None) for n in ("RequestValidationError", "WebSocketRequestValidationError")]
+    skipped = [getattr(fastapi_errors, "WebSocketRequestValidationError", None)]
     return not any(isinstance(c, type) and issubclass(key, c) for c in skipped)
 
 
@@ -210,12 +270,21 @@ def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: Ex
         if wiring.detached or HOOK_EXCEPTION_HANDLERS in wiring.suspended_hooks:  # the built stack keeps this wrapper
             return
         try:
-            if (sink := dispatch.session_sink()) is not None:
+            validation = _validation_error(exc)
+            if (sink := dispatch.session_sink()) is not None and not validation:
                 sink.on_exception(exc, "handler", TEST.get())
             info = REQUEST.get()
             if info is not None and info.endpoint is None:
                 info.endpoint = _endpoint_name(conn.scope.get("endpoint"))
-            store.record(exc, "handler", info, threading.current_thread().name)
+            _record_exception(
+                store,
+                exc,
+                "handler",
+                info,
+                threading.current_thread().name,
+                wiring._context,  # pyright: ignore[reportPrivateUsage]
+                wiring.app,  # pyright: ignore[reportPrivateUsage]
+            )
         except Exception as failure:  # noqa: BLE001 - the host's handler always runs
             wiring.hook_failed("exception handler", failure)
 
@@ -266,14 +335,27 @@ def unwrap_exception_handlers(app: Any) -> None:
         app.exception_handlers = {k: getattr(v, "__sharpit_original__", v) for k, v in handlers.items()}
 
 
-def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
+def _record_logged(store: ExceptionStore, record: logging.LogRecord, ctx: SharpitContext | None = None) -> None:
     """The log source: ``logger.exception(...)`` and any record with ``exc_info``."""
     exc = record.exc_info[1] if record.exc_info else None
-    if exc is not None:
-        if (sink := dispatch.session_sink()) is not None:
-            sink.on_exception(exc, "log", TEST.get())
-        override = None if is_database_exception(exc) else record.getMessage()
-        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
+    if not isinstance(exc, Exception):
+        return
+    sink = dispatch.session_sink()
+    validation = _validation_error(exc)
+    if sink is not None and not validation:
+        sink.on_exception(exc, "log", TEST.get())
+    if validation:
+        _record_logged_validation(store, record, exc, ctx)
+        return
+    override = None if is_database_exception(exc) else record.getMessage()
+    store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
+
+
+def _record_logged_validation(
+    store: ExceptionStore, record: logging.LogRecord, exc: Exception, ctx: SharpitContext | None
+) -> None:
+    wiring = wiring_of(ctx) if ctx is not None else None
+    _record_exception(store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None)
 
 
 def sqlite_holder(ctx: SharpitContext) -> str:
@@ -391,7 +473,7 @@ class CaptureWiring:
             )
             self.log_handler.journal, self.log_handler.context_id = journal, ctx.context_id
             if store is not None:
-                self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
+                self.log_handler.on_exc_info = lambda record: _record_logged(store, record, ctx)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         self._register_installed(ctx)
         self._add_actions(ctx)
@@ -626,6 +708,12 @@ class CaptureMiddleware:
     def __init__(self, app: ASGIApp, ctx: SharpitContext) -> None:
         self.app = app
         self.ctx = ctx
+        settings = ctx.settings
+        self._request_id_header_enabled = (
+            settings.http_exchanges_expose_request_id_header
+            and panel_is_implemented("http-exchanges")
+            and settings.panels["http-exchanges"].enabled
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -663,6 +751,9 @@ class CaptureMiddleware:
         if wiring is None or wiring.detached or HOOK_CAPTURE_MIDDLEWARE in wiring.suspended_hooks:
             await self.app(scope, receive, send)
             return
+        # the loop serving the host now runs the MCP/CLI scan; a trio host has none, so the old loop stays
+        with contextlib.suppress(RuntimeError):
+            self.ctx.capture.loop = asyncio.get_running_loop()
         buffer = self.ctx.capture.exchanges
         if under(route_path(scope), self.ctx.settings.path):  # sharpit's own traffic: counted, never captured
             try:
@@ -685,7 +776,7 @@ class CaptureMiddleware:
                 new_request_id(),
                 self.ctx.context_id,
                 scope["method"],
-                self.ctx.masker.mask_path(scope["path"]),
+                self.ctx.masker.mask_request_path(scope["path"]),
                 None,
                 time.perf_counter_ns(),
                 None,
@@ -714,8 +805,19 @@ class CaptureMiddleware:
                 try:
                     kind = message["type"]
                     if kind == "http.response.start":
+                        raw_headers = message.get("headers", ())
+                        response_headers = list(cast("Iterable[tuple[bytes, bytes]]", raw_headers))
+                        if not isinstance(raw_headers, list):
+                            message = {**message, "headers": response_headers}
+                        original_message = message
+                        if self._request_id_header_enabled:
+                            try:
+                                message = with_request_id_header(self.ctx, scope, message, info, response_headers)
+                            except Exception as exc:  # noqa: BLE001 - optional response decoration cannot alter host output
+                                wiring.hook_failed("request id response header", exc)
                         status = message["status"]
-                        response_headers = list(message.get("headers", ()))
+                        if message is not original_message:
+                            response_headers = message["headers"]
                     elif kind == "http.response.body":
                         size += len(message.get("body", b""))
                         if not message.get("more_body", False):
@@ -734,7 +836,7 @@ class CaptureMiddleware:
                 raise
             except Exception as exc:
                 failed, raised = True, exc
-                if (sink := dispatch.session_sink()) is not None:
+                if (sink := dispatch.session_sink()) is not None and not _validation_error(exc):
                     sink.on_escaped(exc)
                 raise
             finally:
@@ -756,7 +858,15 @@ class CaptureMiddleware:
                         try:
                             if raised is not None:
                                 with _request_end_guard(wiring):
-                                    store.record(raised, "request", info, threading.current_thread().name)
+                                    _record_exception(
+                                        store,
+                                        raised,
+                                        "request",
+                                        info,
+                                        threading.current_thread().name,
+                                        self.ctx,
+                                        wiring.app,
+                                    )
                         finally:
                             with _request_end_guard(wiring):
                                 store.forget_request(info.id)

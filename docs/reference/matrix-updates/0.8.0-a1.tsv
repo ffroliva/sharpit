@@ -1,0 +1,16 @@
+rule:RAPI-NAME-002	matched	Retired definition and SKIPPED reason match BootUI 2.5.0; the rule remains registered and is not evaluated.
+rule:RAPI-DOC-001	matched	Retired definition and SKIPPED reason match BootUI 2.5.0; the rule remains registered and is not evaluated.
+rule:RAPI-DOC-002	matched	Retired definition and SKIPPED reason match BootUI 2.5.0; the rule remains registered and is not evaluated.
+rule:RAPI-MAP-004	matched	SKIPPED reason updated to BootUI 2.5.0 retired rationale.
+rule:RAPI-RESP-004	matched	SKIPPED reason updated to BootUI 2.5.0 retired rationale.
+rule:RAPI-RESP-008	matched	SKIPPED reason updated to BootUI 2.5.0 retired rationale.
+rule:RAPI-VER-002	matched	SKIPPED reason updated to BootUI 2.5.0 retired rationale.
+rule:RAPI-VER-005	matched	SKIPPED reason updated to BootUI 2.5.0 retired rationale.
+rule:ARCH-CODE-004	matched	Removed from active rules and reserved so existing dismissals do not attach to a future rule.
+rule:ARCH-CODE-018	matched	Removed from active rules and reserved so existing dismissals do not attach to a future rule.
+rule:DB-POOL-004	matched	Removed from active rules and reserved so existing dismissals do not attach to a future rule.
+rule:DB-SERVER-002	matched	Removed from active rules and reserved so existing dismissals do not attach to a future rule; removed from the PostgreSQL settings read.
+rule:SEC-SESSION-007	adapted	Retirement rationale summarized for the security-advisor-checks table; the Spring session rule has no Python evaluation.
+rule:SEC-HEAD-010	adapted	Retirement rationale summarized for the security-advisor-checks table; cross-origin isolation is optional and outside this source scan.
+rule:SEC-ACT-004	adapted	Retirement documented as a duplicate of BootUI SPRING-MGMT-003; Actuator is not evaluated by sharpit.
+rule:SEC-CONFIG-005	adapted	Retirement documented as a duplicate of BootUI SPRING-WEB-004; the sharpit security rule covers Starlette debug tracebacks.

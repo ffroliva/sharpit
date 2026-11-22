@@ -86,6 +86,7 @@ ContainerGatewayDetectorTests
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,7 @@ from sharpit.engine.guard import (
     detect_container_gateway,
     extract_origin_host,
     extract_request_host,
+    has_forwarding_header,
     is_trusted_source,
     remote_access_configured,
     resolve_token,
@@ -253,6 +255,36 @@ def test_xff_with_no_trusted_proxies_is_untrusted():
     # with a trusted-proxies list the header is expected, so a peer outside it gets the ordinary message
     f = RequestFacts("GET", "127.0.0.1", {"x-forwarded-for": "127.0.0.1"}, None)
     assert decide_guard(f, trusted_range("10.0.0.0/8"), None, None) == SOURCE
+
+
+CLIENT_ADDRESS_HEADERS = [
+    "forwarded", "via", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port",
+    "x-real-ip", "cf-connecting-ip", "cf-connecting-ipv6", "cf-pseudo-ipv4", "true-client-ip", "x-client-ip",
+    "client-ip", "x-cluster-client-ip", "fastly-client-ip", "fly-client-ip", "akamai-client-ip",
+    "x-envoy-external-address", "x-original-forwarded-for", "cloudfront-viewer-address", "x-azure-clientip",
+    "x-azure-socketip", "x-appengine-user-ip", "x-vercel-forwarded-for", "x-vercel-proxied-for",
+    "x-originating-ip", "x-remote-ip", "x-remote-addr", "forwarded-for", "x-nf-client-connection-ip",
+    "x-sucuri-clientip", "proxy-client-ip", "wl-proxy-client-ip", "x-some-new-client-ip", "x-edge-remote-addr",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("peer", ["127.0.0.1", "::1", GATEWAY])
+@pytest.mark.parametrize("header", CLIENT_ADDRESS_HEADERS)
+def test_a_client_address_header_denies_a_loopback_or_gateway_peer(header: str, peer: str):
+    f = RequestFacts("GET", peer, {header: "203.0.113.9"}, None)
+    assert is_trusted_source(f, gateway_mode("AUTO"), GATEWAY) is False
+    assert decide_guard(f, gateway_mode("AUTO"), TOKEN, GATEWAY) == Denial(403, {"error": MESSAGE_FORWARDED_SOURCE})
+
+
+@pytest.mark.parametrize("header", ["x-request-id", "referer", "origin", "user-agent", "x-client-version", "via-x"])
+def test_unrelated_headers_leave_a_loopback_peer_trusted(header: str):
+    f = RequestFacts("GET", "127.0.0.1", {header: "http://127.0.0.1:8000/"}, None)
+    assert is_trusted_source(f, SharpitSettings(), None) is True
+
+
+def test_the_forwarded_denial_names_no_single_header():
+    assert "X-Forwarded-For or X-Real-IP" not in MESSAGE_FORWARDED_SOURCE
+    assert "client-address header" in MESSAGE_FORWARDED_SOURCE
 
 
 @pytest.mark.parametrize("header", ["forwarded", "x-forwarded-for", "x-real-ip"])
@@ -999,3 +1031,10 @@ def test_dismissed_findings_global_read_only():
     assert decide(facts("GET", api="/dismissed-findings"), s) is None
     assert decide(facts("POST", api="/dismissed-findings")) is None
     assert decide(facts("POST", api="/dismissed-rules"), s) == _panel_denial("dismissed-rules", RO_GLOBAL)
+
+
+def test_a_very_long_header_name_is_classified_in_linear_time() -> None:
+    name = "client" * 10_000 + "x"
+    start = time.perf_counter()
+    assert not has_forwarding_header({name: "1"})
+    assert time.perf_counter() - start < 0.05

@@ -27,7 +27,7 @@ MIGRATION_TABLES = frozenset(
         "changeloglock",
     }
 )
-_NARROW = frozenset({"TINYINT", "SMALLINT", "INT2", "SMALLSERIAL"})
+_NARROW = frozenset({"TINYINT", "SMALLINT", "INT2", "SMALLSERIAL", "SERIAL2"})
 
 Table = dict[str, Any]
 
@@ -124,7 +124,8 @@ def _fk_mismatches(
     for child, target in zip(fk["columns"], fk["referredColumns"], strict=False):
         if child not in own or target not in referred:  # an unread side is unknown, never a mismatch
             continue
-        child_type, target_type = own[child]["type"].upper(), referred[target]["type"].upper()
+        child_type = _comparable_type(own[child]["type"], source.dialect)
+        target_type = _comparable_type(referred[target]["type"], source.dialect)
         if child_type != target_type:
             hits.append(
                 (
@@ -135,6 +136,28 @@ def _fk_mismatches(
                 )
             )
     return hits
+
+
+def _comparable_type(type_name: str, dialect: str) -> str:
+    normalized = type_name.strip().upper()
+    if dialect != "postgresql":
+        return normalized
+    aliases = {
+        "SMALLSERIAL": "SMALLINT",
+        "SERIAL2": "SMALLINT",
+        "INT2": "SMALLINT",
+        "SERIAL": "INTEGER",
+        "SERIAL4": "INTEGER",
+        "INT4": "INTEGER",
+        "BIGSERIAL": "BIGINT",
+        "SERIAL8": "BIGINT",
+        "INT8": "BIGINT",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    if normalized in {"TEXT", "VARCHAR(2147483647)", "CHARACTER VARYING(2147483647)"}:
+        return "UNBOUNDED TEXT"
+    return normalized
 
 
 def _foreign_key_type_mismatch(source: Source) -> Outcome:
@@ -154,16 +177,21 @@ def _foreign_key_type_mismatch(source: Source) -> Outcome:
 def _unique_index_duplicating_primary_key(source: Source) -> Outcome:
     if (reason := unreadable(source)) is not None:
         return reason
+    # SQLAlchemy never lists the primary key's own index, so the constraint itself is the backing index
     return [
         (
-            _where(source, t, f".{ix['name']}"),
-            f"Datasource `{source.name}`: unique index `{ix['name']}` on `{t['name']}` repeats the primary key's "
-            "columns.",
-            _identity(source, t, f"index={ix['name']}"),
+            _where(source, table, f".{index['name']}"),
+            f"Datasource `{source.name}`: unique index `{index['name']}` on `{table['name']}` repeats the primary "
+            "key's columns.",
+            _identity(source, table, f"index={index['name']}"),
         )
-        for t in source.tables
-        for ix in t["indexes"]
-        if t["primaryKey"] and ix["unique"] and _plain(ix) and ix["columns"] == t["primaryKey"]
+        for table in source.tables
+        if not table["truncated"] and table["primaryKey"]
+        for index in table["indexes"]
+        if index["name"] != table.get("primaryKeyName")
+        and index["unique"]
+        and _plain(index)
+        and index["columns"] == table["primaryKey"]
     ]
 
 
@@ -266,7 +294,7 @@ RULES = (
             SCHEMA,
             "LOW",
             "Detects an ordinary unique index whose key columns are exactly the primary key's, in order; the "
-            "inspector reports the primary key's own backing index separately.",
+            "primary key's own index is never listed by the inspector.",
             "Review definitions, payload, constraint ownership and dependencies before considering removal. Matching "
             "primary-key columns alone is not evidence that an index is redundant.",
             "https://use-the-index-luke.com/sql/dml",

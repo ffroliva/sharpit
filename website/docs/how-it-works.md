@@ -36,9 +36,9 @@ There are two layers:
 - **The engine** (`src/sharpit/engine/`) knows nothing about FastAPI or Starlette. It holds the rules: activation,
   the guard, masking, collectors, live streams, and the MCP server. Each collector takes plain data and returns BootUI's JSON
   shapes.
-- **The FastAPI adapter** (`src/sharpit/fastapi/`) is the only code that touches the web framework. It reads your
-  app's routes, dependencies and lifespan (`introspector.py`), mounts the sub-app, attaches runtime capture hooks, and turns
-  HTTP requests into engine calls. A Django or Flask adapter would replace only this layer.
+- **The FastAPI adapter** (`src/sharpit/fastapi/`) mounts the console, reads app routes, dependencies and lifespan
+  (`introspector.py`), attaches runtime capture hooks, and turns HTTP requests into engine calls. The Flask adapter
+  (`src/sharpit/flask/`) reads route metadata for the pytest advisor; it does not mount the console.
 
 ## When it turns on
 
@@ -64,6 +64,7 @@ When active, `install()` wires runtime capture hooks. Each hook is installed onl
    It records request method, masked path, status code, duration, and error flag.
    If a client disconnects before the app finishes, it records status 499.
    It creates a `ContextVar[RequestInfo | None]` token (`REQUEST`) so SQL statements and exceptions correlate with the HTTP request.
+   It attaches an `X-Sharpit-Request-Id` response header by default on loopback and detected container gateways (opt out via `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false`), allowing callers to inspect individual requests via `get_request_profile`.
    This middleware is skipped when `http-exchanges`, `exceptions`, `sql-trace`, and `activity` are all disabled.
 
 2. **Exception handler wrapping.**
@@ -114,8 +115,9 @@ sharpit provides live Server-Sent Events (SSE) streams for activity, exceptions,
 Every request to `/sharpit` passes these checks in order. Any failure stops it with a 403 (or a 401 for a missing
 token):
 
-1. **Who is asking.** Only loopback (`127.0.0.1`, `::1`) by default. A request carrying a forwarding header
-   (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) never counts as loopback.
+1. **Who is asking.** Only loopback (`127.0.0.1`, `::1`) by default. A request carrying a forwarding or
+   client-address header (for example `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP`) never counts as
+   loopback.
 2. **Host header.** It must be `localhost`, a loopback address or a name in `SHARPIT_ALLOWED_HOSTS`. This blocks DNS
    rebinding, where a web page tricks your browser into calling your local server.
 3. **Cross-site.** An `Origin` or `Sec-Fetch-Site` from another site is rejected, for every method. On API paths the
@@ -147,6 +149,7 @@ token):
 | Threads | Thread dump and running asyncio tasks with request correlation | `threading.enumerate()` and `asyncio.all_tasks()` |
 | REST API Advisor | Static inspection of FastAPI route signatures for API design violations | Route analysis with severity scoring and rule dismissals |
 | HTTP Probe | In-process HTTP request execution against local routes without external network calls | Direct ASGI call using in-process client |
+| Pentesting | HTTP security headers and CORS preflight checks | In-process ASGI request evaluation without network sockets |
 | CLI | The same tools callable with curl (`POST /sharpit/api/cli/tools/<tool>`) | `engine/tools.py`, shared with MCP |
 
 ## Secrets and masking

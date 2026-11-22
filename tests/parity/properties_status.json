@@ -1,5 +1,5 @@
 {
-  "fixture": "tests/fixtures/bootui/2.4.0/properties.json",
+  "fixture": "tests/fixtures/bootui/2.5.0/properties.json",
   "panel_map_rule": "bootui.panels is the sole fixture entry for panel configuration; bootui.panels.* keys are map members, not property rows, and are not synthesized from the settings registry.",
   "properties": [
     {
@@ -236,6 +236,11 @@
       "difference": null
     },
     {
+      "name": "bootui.cli.instances-dir",
+      "status": "missing",
+      "difference": "No sharpit setting field/parser for cli_instances_dir"
+    },
+    {
       "name": "bootui.cli.max-concurrent-calls",
       "status": "matched",
       "difference": null
@@ -470,6 +475,11 @@
       "name": "bootui.heap-dump.top-classes",
       "status": "missing",
       "difference": "No sharpit setting field/parser for heap_dump_top_classes"
+    },
+    {
+      "name": "bootui.http-exchanges.expose-request-id-header",
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.http-exchanges.max-exchanges",
@@ -1013,6 +1023,11 @@
     },
     {
       "name": "bootui.vulnerabilities.request-timeout",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "name": "bootui.vulnerabilities.scan-timeout",
       "status": "matched",
       "difference": null
     },

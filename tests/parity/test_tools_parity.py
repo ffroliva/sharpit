@@ -12,10 +12,12 @@ from sharpit import install
 from sharpit.engine.tools import COMMANDS, TOOLS
 
 ROOT = Path(__file__).parents[1]
-FIXTURE_CURRENT = ROOT / "fixtures" / "bootui" / "2.4.0" / "tools.json"
-FIXTURE_PREVIOUS = ROOT / "fixtures" / "bootui" / "2.3.0" / "tools.json"
+FIXTURE_CURRENT = ROOT / "fixtures" / "bootui" / "2.5.0" / "tools.json"
+FIXTURE_PREVIOUS = ROOT / "fixtures" / "bootui" / "2.4.0" / "tools.json"
+FIXTURE_OLD = ROOT / "fixtures" / "bootui" / "2.3.0" / "tools.json"
 BOOTUI_TOOLS = json.loads(FIXTURE_CURRENT.read_text("utf-8"))["tools"]
 BOOTUI_TOOLS_PREVIOUS = json.loads(FIXTURE_PREVIOUS.read_text("utf-8"))["tools"]
+BOOTUI_TOOLS_OLD = json.loads(FIXTURE_OLD.read_text("utf-8"))["tools"]
 BOOTUI = {tool["name"]: tool for tool in BOOTUI_TOOLS}
 SHARPIT = {tool.name: tool for tool in TOOLS}
 
@@ -50,6 +52,8 @@ MATCHED_TOOLS = (
     "get_postgresql_report",
     "get_database_advisor_report",
     "database_advisor_scan",
+    "get_pentest_report",
+    "pentest_scan",
     "clear_exceptions",
     "get_exceptions",
     "get_exception_detail",
@@ -133,8 +137,6 @@ MISSING_TOOLS = (
     "get_memory_report",
     "memory_scan",
     "get_memory_rule_violations",
-    "get_pentest_report",
-    "pentest_scan",
     "get_method_probe",
     "start_method_probe",
     "get_rabbitmq_activity",
@@ -194,6 +196,8 @@ pytestmark = [
     pytest.mark.bootui("cli:insights show"),
     pytest.mark.bootui("cli:metrics"),
     pytest.mark.bootui("cli:overview"),
+    pytest.mark.bootui("cli:pentest report"),
+    pytest.mark.bootui("cli:pentest scan"),
     pytest.mark.bootui("cli:profile diff"),
     pytest.mark.bootui("cli:request-profile"),
     pytest.mark.bootui("cli:rest-api report"),
@@ -232,6 +236,7 @@ pytestmark = [
     pytest.mark.bootui("tool:get_metrics"),
     pytest.mark.bootui("tool:get_mysql_report"),
     pytest.mark.bootui("tool:get_overview"),
+    pytest.mark.bootui("tool:get_pentest_report"),
     pytest.mark.bootui("tool:get_postgresql_report"),
     pytest.mark.bootui("tool:get_profile_diff"),
     pytest.mark.bootui("tool:get_request_profile"),
@@ -246,6 +251,7 @@ pytestmark = [
     pytest.mark.bootui("tool:pause_sql_trace_recording"),
     pytest.mark.bootui("tool:pause_transaction_recording"),
     pytest.mark.bootui("tool:postgresql_read"),
+    pytest.mark.bootui("tool:pentest_scan"),
     pytest.mark.bootui("tool:rest_api_scan"),
     pytest.mark.bootui("tool:resume_sql_trace_recording"),
     pytest.mark.bootui("tool:resume_transaction_recording"),
@@ -358,23 +364,21 @@ DESCRIPTION_MATCHED = (
     "get_low_footprint",
     "get_mappings",
     "get_metrics",
+    "get_pentest_report",
     "get_postgresql_report",
+    "pentest_scan",
     "get_profile_diff",
+    "get_request_profile",
 )
-# Tools whose description or summary BootUI changed from 2.3.0 to 2.4.0 and that sharpit has not adopted yet.
-# Each value is the lane that closes the gap by moving the tool into DESCRIPTION_ADOPTED.
-DESCRIPTION_GAPS = {
-    "get_security_report": "A3",
-    "get_transactions": "A2",
-    "security_scan": "A3",
-}
-# Tools whose 2.4.0 description or summary a lane has adopted.
-DESCRIPTION_ADOPTED: tuple[str, ...] = (
+# BootUI 2.5.0 description changes are adopted by A2.
+DESCRIPTION_GAPS_25: dict[str, str] = {}
+# Tools whose 2.4.0 description changes sharpit adopted.
+DESCRIPTION_ADOPTED_24: tuple[str, ...] = (
     "get_exceptions",
     "get_runtime_insight",
     "get_runtime_insights",
 )
-MATCHED_TOOLS_PIN = 38  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
+MATCHED_TOOLS_PIN = 40  # a lane that moves a tool into MATCHED_TOOLS raises this in the same commit
 
 
 @pytest.mark.parametrize("name", DESCRIPTION_MATCHED)
@@ -389,7 +393,7 @@ def test_description_matched_is_complete() -> None:
     assert set(DESCRIPTION_MATCHED) == byte_equal
 
 
-def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
+def test_description_gaps_are_the_bootui_2_5_0_changes() -> None:
     previous = {tool["name"]: tool for tool in BOOTUI_TOOLS_PREVIOUS}
     changed = {
         name
@@ -397,9 +401,8 @@ def test_description_gaps_are_the_bootui_2_4_0_changes() -> None:
         if name not in previous
         or (tool["description"], tool.get("summary")) != (previous[name]["description"], previous[name].get("summary"))
     }
-    assert set(DESCRIPTION_GAPS) | set(DESCRIPTION_ADOPTED) == changed
-    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_ADOPTED))
-    assert not (set(DESCRIPTION_GAPS) & set(DESCRIPTION_MATCHED))
+    assert set(DESCRIPTION_GAPS_25) == changed - set(DESCRIPTION_MATCHED)
+    assert not (set(DESCRIPTION_GAPS_25) & set(DESCRIPTION_MATCHED))
 
 
 def test_matched_tools_ratchet() -> None:
@@ -408,7 +411,7 @@ def test_matched_tools_ratchet() -> None:
 
 
 def _added_sentences(name: str) -> list[str]:
-    previous = next(t for t in BOOTUI_TOOLS_PREVIOUS if t["name"] == name)["description"]
+    previous = next(t for t in BOOTUI_TOOLS_OLD if t["name"] == name)["description"]
     current = BOOTUI[name]["description"]
 
     def sentences(text: str) -> list[str]:
@@ -431,7 +434,7 @@ ADOPTED_PINNED_CHECKS: dict[str, tuple[str, ...]] = {
 
 
 # ported: McpToolDescriptionsTests.runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates (BootUI 2.4.0)
-@pytest.mark.parametrize("name", DESCRIPTION_ADOPTED)
+@pytest.mark.parametrize("name", DESCRIPTION_ADOPTED_24)
 def test_adopted_tool_descriptions_contain_2_4_0_changes(name: str) -> None:
     description = SHARPIT[name].description
     if name in ADOPTED_PINNED_CHECKS:

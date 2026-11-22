@@ -2,7 +2,7 @@
 
 Port of BootUI ``McpToolCatalog`` (the seven MVP rows), ``McpToolSchema`` rendered as in ``BootUiMcpService.schema``,
 ``McpToolDescriptions``, ``McpArguments.normalize``, ``McpDispatcher.callTool``, ``CliService`` and ``CliOutcomes``.
-MCP never sees an action tool (``vulnerabilities_scan`` and ``rest_api_scan`` are CLI-only, spec §9). Each ``via``
+MCP exposes only BootUI's ``pentest_scan`` action; other actions remain CLI-only. Each ``via``
 has its own caps, slots and counters, as BootUI's MCP and CLI each own a dispatcher.
 
 Timeout: Python threads cannot be interrupted (BootUI cancels the future), so the call's slot is released exactly
@@ -112,6 +112,11 @@ class Tool:
     action: bool
     handler: Callable[[CallContext, dict[str, Any]], dict[str, Any]]
     default_limit: int | None = None  # an absent ``limit`` (None: the via's max results); still capped by it
+
+    @property
+    def on_mcp(self) -> bool:
+        """Read tools and BootUI's one MCP action tool; every other action stays CLI-only."""
+        return not self.action or self.name == "pentest_scan"
 
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------
@@ -408,8 +413,9 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         "get_mappings",
-        "Search request routes and handlers and return a bounded result. Use a path, HTTP concept, or handler "
-        "name as the query when locating an endpoint.",
+        "Search request routes and handlers and return a bounded result, including the application's effective "
+        "`basePath` prefix when configured. Use a path, HTTP concept, or handler name as the query when locating "
+        "an endpoint.",
         _QUERY_LIMIT,
         "mappings",
         False,
@@ -641,9 +647,15 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         "get_request_profile",
-        "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the "
-        "request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. "
-        "An id no longer in the buffer returns available false.",
+        "Open a profileable request or scheduled/message execution id from get_live_activity or a "
+        "get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or execution label, "
+        "authorizations, resources and touched metadata when retained, plus HTTP-exchange details when available; "
+        "otherwise source=buffers with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation "
+        "tiers). An id neither retains is a tool error; available=false with source=none means the journal is off or "
+        "the id cannot be profiled, and says why. Journal events follow panel visibility and exposure policy; do not "
+        "infer absent work from a missing event. While relevant capture is held, lowFootprint identifies paused or "
+        "partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may "
+        "still run.",
         _ID,
         "activity",
         False,

@@ -41,7 +41,7 @@ fastapi dev app.py          # or: uvicorn app:app --reload; then open http://127
 
 ![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/overview-light.png)
 
-**What you get:** 46 panels. Change a logger's level while the app runs, spot N+1 queries per route, and scan your
+**What you get:** 47 panels. Change a logger's level while the app runs, spot N+1 queries per route, and scan your
 installed packages for known vulnerabilities when you ask for it. Every panel in light and dark:
 [screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
 
@@ -58,7 +58,7 @@ installed packages for known vulnerabilities when you ask for it. Every panel in
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
 run fails closed.
 
-> **Status: alpha (0.7.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.8.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Gate CI on findings
 
@@ -72,11 +72,13 @@ unhandled exception, the build fails. When capture cannot see enough to judge, t
 pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-junit.xml
 ```
 
-sharpit finds your app on its own: the one FastAPI or Starlette app defined in the modules your tests already imported.
+sharpit finds your app on its own: the one FastAPI, Starlette or Flask app defined in the modules your tests already imported.
 It never imports a module to look. Pass `--sharpit-app module:attr` when there are several. With none, several, or one
 without routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that
-`unknown`. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
+`unknown`. Pass `--sharpit-http-security` to gate responses against configured HTTP security headers. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
 lists every one. The JSON report and JUnit file always hold every finding.
+The terminal also adds a `swallowed exceptions:` block grouped by `except` clause; a clause includes the test-double
+note when a test double raised the swallowed exception.
 
 ### Adopting on an existing suite
 
@@ -135,15 +137,15 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
 
 ## How close to BootUI
 
-sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, and 0.7.0 targets BootUI 2.4.0.
+sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0.
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | BootUI 2.3.0 | BootUI 2.4.0 |
-|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 28 | 28 |
-| BootUI API routes served, of the 66 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 66 | not captured |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 73 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 28 | 28 | 29 |
+| BootUI API routes served, of the 65 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 65 | not captured | not captured |
 
 How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
 
@@ -224,7 +226,7 @@ sharpit security scan --fail-on high
 sharpit insights list --fail-on insufficient
 ```
 
-Exit codes follow BootUI 2.4.0 (`ExitCodes`):
+Exit codes follow BootUI 2.5.0 (`ExitCodes`):
 
 - `0`: success (the command completed and any gate passed).
 - `1`: error (network or HTTP error, invalid argument, gate cannot be evaluated); a refused MCP toggle exits 1.

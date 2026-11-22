@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import os
 import sys
 import sysconfig
@@ -16,10 +17,11 @@ from typing import Any, cast
 from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
+from sharpit.engine.advisors.scan import mask
 from sharpit.engine.collectors.restapi.rules import application_routes
-from sharpit.engine.spi import ApiModel
+from sharpit.engine.spi import ApiModel, ApiRouteInfo
 from sharpit.engine.testsession.outcome import AUTODETECT, NO_APPLICATION
-from sharpit.fastapi.introspector import FastApiIntrospector
+from sharpit.fastapi.introspector import FastApiIntrospector, inspectable
 
 __all__ = [
     "AUTODETECT",
@@ -43,6 +45,7 @@ __all__ = [
 
 
 _HINT = "pass --sharpit-app module:attr"
+_MISSING = object()
 _NOT_FOUND = (
     "no application found among the modules the tests imported "
     "(conftest, test modules and installed packages are not searched)"
@@ -50,6 +53,8 @@ _NOT_FOUND = (
 DETECTED_FROM = "detectedFrom"  # evidence key of an assessed run: its app was found in the imported modules
 DETECTED_BY = "detectedBy"  # evidence key under xdist: the workers whose imports held the app
 IMPORTS = "imports"
+_UNINSPECTABLE = "application routes cannot be inspected"
+_EXPECTED = "expected an app, a router or a zero-argument factory"
 TEST_FILES = ("test_*.py", "*_test.py")  # pytest's python_files default
 
 
@@ -109,8 +114,13 @@ def _mounted(app: object, mounts: frozenset[type]) -> list[int]:
 
 
 def autodetect_apps(test_files: Sequence[str] = TEST_FILES) -> tuple[tuple[str, object], ...]:
-    """FastAPI/Starlette instances in loaded project-module globals; imports nothing, runs no module hook."""
-    apps = _classes("starlette.applications", "Starlette") | _classes("fastapi.applications", "FastAPI")
+    """Flask/FastAPI/Starlette instances in loaded project-module globals; imports nothing, runs no module hook."""
+    apps = (
+        _classes("starlette.applications", "Starlette")
+        | _classes("fastapi.applications", "FastAPI")
+        | _classes("flask.app", "Flask")
+        | _classes("flask.sansio.app", "Flask")
+    )
     if not apps:
         return ()
     paths = sysconfig.get_paths()
@@ -185,16 +195,67 @@ def _name_detecting_workers(parts: Sequence[Any]) -> None:
         ]
 
 
+def _signature(target: Callable[..., object]) -> inspect.Signature:
+    """The call signature, annotations left unevaluated: only the parameters are read."""
+    if sys.version_info >= (3, 14):  # deferred annotations (PEP 649): evaluating one may name a TYPE_CHECKING import
+        from annotationlib import Format  # noqa: PLC0415 - Python 3.14+ only
+
+        return inspect.signature(target, annotation_format=Format.FORWARDREF)
+    return inspect.signature(target)
+
+
+def _zero_argument_callable(target: object) -> bool:
+    """Whether ``--sharpit-app`` names something to call for the app: it accepts no arguments and is no app itself.
+
+    Accepting no arguments does not prove it is a factory; an object that cannot be told apart is not called.
+    """
+    if inspectable(target) or not callable(target):
+        return False
+    if inspect.getattr_static(target, "router", _MISSING) is not _MISSING:
+        return False
+    try:
+        _signature(target).bind()
+    except (TypeError, ValueError):  # it needs arguments, or its signature cannot be read
+        return False
+    return True
+
+
+def _type_name(target: object) -> str:
+    """``module.qualname`` of the object's class; a part that is not a plain string is ``?``, never formatted."""
+    kind = type(target)
+    try:
+        parts = (type.__getattribute__(kind, "__module__"), type.__getattribute__(kind, "__qualname__"))
+    except Exception:  # noqa: BLE001 - a host metaclass never breaks the report
+        return "?"
+    return ".".join(part if type(part) is str else "?" for part in parts)
+
+
 def load_app(spec: str) -> tuple[str, object]:
     module_name, separator, attr = spec.partition(":")
     if not separator:
         raise ValueError("--sharpit-app must be MOD:ATTR")
     app = getattr(importlib.import_module(module_name), attr)
-    return spec, app() if callable(app) and not hasattr(app, "router") else app
+    return spec, app() if _zero_argument_callable(app) and not _is_flask_app(app) else app
+
+
+def _is_flask_app(app: object) -> bool:
+    return not (_classes("flask.app", "Flask") | _classes("flask.sansio.app", "Flask")).isdisjoint(type(app).__mro__)
+
+
+def _app_model(app: object) -> ApiModel | None:
+    if _is_flask_app(app):
+        from sharpit.flask import FlaskIntrospector
+
+        routes = FlaskIntrospector(app).routes()
+        if routes is None:
+            return None
+        return ApiModel(tuple(ApiRouteInfo(route.methods, route.path, route.handler) for route in routes), (), ())
+    return FastApiIntrospector(app).api_model()
 
 
 def model_of(app: object) -> ApiModel:
-    return FastApiIntrospector(app).api_model()
+    model = _app_model(app)
+    return model if model is not None else ApiModel((), (), ())
 
 
 def _configured_models(
@@ -202,7 +263,24 @@ def _configured_models(
 ) -> list[tuple[str, ApiModel]] | None:
     try:
         name, app = (load_app or _load_app)(state.options.app)
-        return [(name, FastApiIntrospector(app).api_model())]
+        if not _is_flask_app(app) and not inspectable(app):  # an empty model here would read as a confirmed-empty pass
+            reason = mask(state.sink.masker, f"{_UNINSPECTABLE} ({_type_name(app)}); {_EXPECTED}")
+            state.sink.facts.advisor_runs.append(AdvisorRun("rest-api", "UNKNOWN", (), {}, reason, state.options.app))
+            return None
+        model = _app_model(app)
+        if model is None:
+            state.sink.facts.advisor_runs.append(
+                AdvisorRun(
+                    "rest-api",
+                    "UNKNOWN",
+                    (),
+                    {},
+                    "application routes cannot be inspected (Flask URL map)",
+                    name,
+                )
+            )
+            return None
+        return [(name, model)]
     except Exception as exc:  # noqa: BLE001
         state.sink.facts.advisor_runs.append(
             AdvisorRun(
@@ -225,7 +303,19 @@ def _discovered_models(state: Any) -> list[tuple[str, ApiModel]] | None:
         if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
             state.sink.facts.advisor_runs.append(run)
         return None
-    model = FastApiIntrospector(chosen[1]).api_model()
+    model = _app_model(chosen[1])
+    if model is None:
+        state.sink.facts.advisor_runs.append(
+            AdvisorRun(
+                "rest-api",
+                "UNKNOWN",
+                (),
+                {},
+                "application routes cannot be inspected (Flask URL map)",
+                chosen[0],
+            )
+        )
+        return None
     if not application_routes(model.routes):
         state.sink.facts.advisor_runs.append(bare_app_run(chosen[0], state.options.require_app))
         return None

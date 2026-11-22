@@ -136,3 +136,11 @@ def test_proxy_headers_trusted_from_any_host(run_rule: RuleRun):
     listed = _app((ProxyHeadersMiddleware, {"trusted_hosts": ["10.0.0.1"]}))
     found = [_targets(run_rule("SEC-FAPI-003", app)) for app in (any_proxy, listed)]
     assert found == [["ProxyHeadersMiddleware"], []]
+
+
+def test_proxy_rule_keeps_its_own_trigger_where_the_pentesting_forwarded_header_check_fires(run_rule: RuleRun):
+    # PT-A05-044 fires for the middleware's presence; this rule fires only for trusted_hosts="*"
+    listed = _app((ProxyHeadersMiddleware, {"trusted_hosts": ["10.0.0.1"]}))
+    present = _app((ProxyHeadersMiddleware, {}))
+    assert run_rule("SEC-FAPI-003", listed) == []
+    assert run_rule("SEC-FAPI-003", present) == []

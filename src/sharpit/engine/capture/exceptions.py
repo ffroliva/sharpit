@@ -3,7 +3,7 @@
 Three sources feed one store: the capture middleware (``request``), the wrapped exception handlers (``handler``) and
 the log handler (``log``). One exception is recorded once per request: ``mark_seen`` stores the request id on the
 exception, so a second source in the same request sees its own mark and skips it. Frames keep the file, function and
-line only, never locals. Messages are masked, then cut.
+line only, never locals. Messages are masked, then cut, and their binding literals are scrubbed when shown.
 """
 
 from __future__ import annotations
@@ -98,8 +98,8 @@ def mark_seen(exc: BaseException, request_id: str | None, slot: str = "") -> boo
         return True
 
 
-def unknown_group(gid: str) -> str:
-    return f"Unknown exception group '{gid}'"
+def unknown_group(group_id: str) -> str:
+    return f"Unknown exception group '{group_id}'"
 
 
 def _frames(exc: BaseException, limit: int | None = None) -> list[dict[str, Any]]:
@@ -189,12 +189,12 @@ class _Group:
         self.status = "OPEN"
         self.regressions = 0
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, scrub: Callable[[str | None], str | None]) -> dict[str, Any]:
         last = self.occurrences[0] if self.occurrences else {}
         return {
             "id": self.id,
             "exceptionClassName": self.class_name,
-            "message": self.message,
+            "message": scrub(self.message),
             "count": self.count,
             "firstSeen": self.first_seen,
             "lastSeen": self.last_seen,
@@ -230,6 +230,42 @@ def caught_report() -> dict[str, Any]:
         "partial": 0,
         "rows": [],
     }
+
+
+def _location(chosen: dict[str, Any] | None) -> str | None:
+    if chosen is None:
+        return None
+    return f"{chosen['declaringClass']}.{chosen['methodName']}({chosen['fileName']}:{chosen['lineNumber']})"
+
+
+def _occurrence(
+    now_ms: int,
+    thread: str | None,
+    request: RequestInfo | None,
+    source: str,
+    binding_diagnostics: list[dict[str, object]] | None,
+    binding_diagnostics_truncated: bool,
+) -> dict[str, Any]:
+    method, path, handler, trace_id = _request_occurrence(request)
+    occurrence = {
+        "timestamp": now_ms,
+        "thread": thread,
+        "requestMethod": method,
+        "requestPath": path,
+        "handler": handler,
+        "source": source,
+        "traceId": trace_id,
+        "requestId": trace_id,
+        "bindingDiagnostics": binding_diagnostics or [],
+        "bindingDiagnosticsTruncated": binding_diagnostics_truncated,
+    }
+    return occurrence
+
+
+def _request_occurrence(request: RequestInfo | None) -> tuple[str | None, str | None, str | None, str | None]:
+    if request is None:
+        return None, None, None, None
+    return request.method, request.path, request.endpoint, request.id
 
 
 class ExceptionStore:
@@ -280,12 +316,24 @@ class ExceptionStore:
         request: RequestInfo | None,
         thread: str | None,
         message_override: str | None = None,
+        message_override_always: bool = False,
+        binding_diagnostics: list[dict[str, object]] | None = None,
+        binding_diagnostics_truncated: bool = False,
     ) -> None:
         if not isinstance(exc, Exception) or getattr(_BUSY, "on", False):  # CancelledError, KeyboardInterrupt
             return
         if not mark_seen(exc, request.id if request is not None else None, self._slot):
             return
-        self._record(exc, source, request, thread, message_override)
+        self._record(
+            exc,
+            source,
+            request,
+            thread,
+            message_override,
+            message_override_always,
+            binding_diagnostics,
+            binding_diagnostics_truncated,
+        )
         self._signal()
 
     def _offer(self, build: Callable[[], dict[str, object]]) -> None:
@@ -303,42 +351,65 @@ class ExceptionStore:
         request: RequestInfo | None,
         thread: str | None,
         message_override: str | None,
+        message_override_always: bool,
+        binding_diagnostics: list[dict[str, object]] | None,
+        binding_diagnostics_truncated: bool,
     ) -> None:
         leaves = exception_leaves(exc)
         exc, extra = (leaves[0], leaves[1:]) if leaves else (exc, [])
         walked = _frames(exc)  # one uncapped walk: fingerprint, location and applicationException agree
         frames = walked[: self.max_frames]
+        causes = self._recorded_causes(exc, extra, frames, message_override_always)
+        message = self._recorded_message(exc, message_override, message_override_always)
+        key = fingerprint(exc, walked)
+        chosen = _chosen(walked)
+        now_ms = time.time_ns() // 1_000_000
+        location = _location(chosen)
+        occurrence = _occurrence(now_ms, thread, request, source, binding_diagnostics, binding_diagnostics_truncated)
+        gid = hashlib.sha256(key.encode()).hexdigest()[:16]
+        self._store_record(exc, gid, now_ms, message, frames, causes, location, chosen, occurrence)
+        self._offer(lambda: self._event(exc, chosen, gid, occurrence, request))
+
+    def _recorded_causes(
+        self,
+        exc: BaseException,
+        extra: list[BaseException],
+        frames: list[dict[str, Any]],
+        message_override_always: bool,
+    ) -> list[dict[str, Any]]:
         causes: list[dict[str, Any]] = []
-        causes_raw = _causes(exc, extra)
-        for cause in causes_raw:
+        for cause in _causes(exc, extra):
             cause_frames = _frames(cause, self.max_frames)
             causes.append(
                 {
                     "exceptionClassName": class_name(type(cause)),
-                    "message": self._text(cause),
+                    "message": None if message_override_always else self._text(cause),
                     "frames": cause_frames,
                     "commonFrames": _common(cause_frames, frames),
                 }
             )
-        message = self._text(exc)
-        if message is None and message_override and not is_database_exception(exc):
-            message = self._message(message_override)
-        key = fingerprint(exc, walked)
-        chosen = _chosen(walked)
-        location = None
-        if chosen is not None:
-            location = f"{chosen['declaringClass']}.{chosen['methodName']}({chosen['fileName']}:{chosen['lineNumber']})"
-        now_ms = time.time_ns() // 1_000_000
-        occurrence = {
-            "timestamp": now_ms,
-            "thread": thread,
-            "requestMethod": request.method if request else None,
-            "requestPath": request.path if request else None,
-            "handler": request.endpoint if request else None,
-            "source": source,
-            "traceId": request.id if request else None,
-        }
-        gid = hashlib.sha256(key.encode()).hexdigest()[:16]
+        return causes
+
+    def _recorded_message(
+        self, exc: BaseException, message_override: str | None, message_override_always: bool
+    ) -> str | None:
+        message = None if message_override_always else self._text(exc)
+        if message_override and (message_override_always or message is None) and not is_database_exception(exc):
+            return self._message(message_override)
+        return message
+
+    def _store_record(
+        self,
+        exc: BaseException,
+        gid: str,
+        now_ms: int,
+        message: str | None,
+        frames: list[dict[str, Any]],
+        causes: list[dict[str, Any]],
+        location: str | None,
+        chosen: dict[str, Any] | None,
+        occurrence: dict[str, Any],
+    ) -> None:
         with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
@@ -355,7 +426,6 @@ class ExceptionStore:
                 group.occurrences.pop()
             if len(self._groups) > self.max_groups:
                 del self._groups[min(self._groups.values(), key=lambda g: g.order).id]
-        self._offer(lambda: self._event(exc, chosen, gid, occurrence, request))
 
     def _event(
         self,
@@ -388,7 +458,7 @@ class ExceptionStore:
     def report(self) -> dict[str, Any]:
         with _guarded(self._lock):
             groups = sorted(self._groups.values(), key=lambda g: g.order, reverse=True)
-            summaries = [g.summary() for g in groups]
+            summaries = [g.summary(self.masker.scrub_literals) for g in groups]
             total = sum(g.count for g in groups)
         return {
             "available": self.unavailable_reason is None,
@@ -405,12 +475,14 @@ class ExceptionStore:
             found = [
                 {
                     "exceptionClassName": g.class_name,
-                    "message": g.message,
+                    "message": self.masker.scrub_literals(g.message),
                     "location": g.location,
                     "timestamp": o["timestamp"],
                     "thread": o["thread"],
                     "handler": o["handler"],
                     "source": o["source"],
+                    "bindingDiagnostics": o["bindingDiagnostics"],
+                    "bindingDiagnosticsTruncated": o["bindingDiagnosticsTruncated"],
                 }
                 for g in self._groups.values()
                 for o in g.occurrences
@@ -424,9 +496,9 @@ class ExceptionStore:
             if group is None:
                 return None
             return {
-                "group": group.summary(),
+                "group": group.summary(self.masker.scrub_literals),
                 "frames": list(group.frames),
-                "causes": list(group.causes),
+                "causes": [{**c, "message": self.masker.scrub_literals(c["message"])} for c in group.causes],
                 "occurrences": list(group.occurrences),
             }
 
@@ -441,7 +513,7 @@ class ExceptionStore:
             if group is None:
                 return None
             group.status = status
-            updated = group.summary()
+            updated = group.summary(self.masker.scrub_literals)
         self._signal()
         return updated
 

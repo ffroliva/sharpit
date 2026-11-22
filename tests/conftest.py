@@ -130,6 +130,7 @@ TIMING_MODULES = (
     "test_traces_overhead.py",
     "test_transactions_overhead.py",  # lane R-transactions
     "test_sink_overhead.py",  # lane P-sink-mask-memo
+    "test_http_security_overhead.py",  # lane T1: the HTTP security observer, observed vs bare exchange
     "test_journal.py",  # lane W5a-J: the journal append budgets
     "test_sql_journal_overhead.py",  # lane W5a P-sql: journal on vs off per statement
     "test_sensors_overhead.py",  # lane W6-S3: the audit hook and processes sensor, per event
@@ -208,16 +209,26 @@ def get_paths() -> list[str]:
 def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
     """Every file and directory under root as path -> (mtime_ns, size); directories map to None."""
     snap: dict[str, tuple[int, int] | None] = {}
-    for base, dirs, files in os.walk(root):
+    pending = [str(root)]
+    while pending:
+        base = pending.pop()
         # pytest-cache-files-*: pytest's own atomic staging dir, which another xdist worker's cache writer may create in
         # the shared cwd mid-test; only that prefix is skipped, never a write the code under test makes
         staging = base == str(root)  # top level only: where pytest stages its cache next to the rootdir
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not (staging and d.startswith("pytest-cache-files-"))]
-        for name in dirs:
-            snap[os.path.join(base, name)] = None
-        for name in files:
-            st = os.stat(os.path.join(base, name))
-            snap[os.path.join(base, name)] = (st.st_mtime_ns, st.st_size)
+        try:
+            entries = list(os.scandir(base))
+        except OSError:  # a missing root or a directory removed mid-walk: os.walk skipped it too
+            continue
+        for entry in entries:
+            if entry.is_dir():
+                if entry.name in _SKIP_DIRS or (staging and entry.name.startswith("pytest-cache-files-")):
+                    continue
+                snap[entry.path] = None
+                if not entry.is_symlink():  # os.walk lists a symlinked directory but does not descend
+                    pending.append(entry.path)
+            else:
+                st = entry.stat()  # the listing already carries the stat on Windows: no syscall per file
+                snap[entry.path] = (st.st_mtime_ns, st.st_size)
     return snap
 
 
@@ -415,7 +426,7 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
     shortcut: 230+ tests install an app and never run its shutdown (a supported use), so the leak is only asserted
     for the files that exercise the source itself; upgrade if those tests get a shared fixture that uninstalls.
     """
-    sqlite.detach_all()
+    sqlite.detach_all(keep_scan=True)
     sqla.detach_all()  # install() without shutdown leaves contexts; 2+ make routing outside a request ambiguous
     # Transactions route through their own table: a leaked context (some with a fake engine registry) broke routing.
     with transactions._contexts_lock:  # pyright: ignore[reportPrivateUsage]
@@ -423,7 +434,7 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
         transactions._context_attachments.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     leaked = sqlite.is_attached()
-    sqlite.detach_all()
+    sqlite.detach_all(keep_scan=True)
     strict = any(word in request.node.path.name for word in ("sqlite", "dispatch", "sources"))
     assert not (leaked and strict), (
         "the test left sqlite3.connect patched; detach it (uninstall_capture / sqlite.detach)"

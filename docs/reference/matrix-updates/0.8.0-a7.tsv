@@ -1,0 +1,6 @@
+request-profile-stepping	adapted	Activity steps between profileable entries in the loaded feed; BootUI's LiveActivityTest.opens the request profile an HTTP Exchanges link names covers profile opening, while stepping is a sharpit UI adaptation.
+request-profile-drawer-controls	n-a	The request profile is inline in sharpit's Activity panel, so BootUI's drawer width toggle and drawer section tabs have no corresponding container.
+request-profile-journal-highlights	n-a	BootUI's highlights and work breakdown require journal authorization, baseline, REST, and ORM fields that sharpit's RequestProfile DTO does not expose.
+http-route-exchange-drawer	adapted	Uses sharpit's existing GET /http-exchanges/routes ranking DTO and route-filtered GET /http-exchanges; the route drawer uses a native dialog and the existing paged table.
+runtime-insights-navigation	n-a	sharpit has no Runtime Insights panel or observation DTO to filter, group, or pivot.
+button-shaped-link-icons	n-a	sharpit's UI has no button-shaped navigation anchors; navigation uses plain anchors and actions use buttons.

@@ -1,0 +1,1 @@
+insight:route-latency-outliers	partial	BootUI fingerprints raw SQL statements; sharpit only retains masked SQL shapes, so it groups their case-insensitive normalized journal text and displays only that literal-free shape; src/sharpit/engine/collectors/insights/kinds/route_latency_outliers.py

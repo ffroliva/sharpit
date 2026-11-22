@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -34,6 +37,123 @@ def _report(pytester: pytest.Pytester) -> dict[str, Any]:
 
 def _test_entry(data: dict[str, Any], name: str) -> dict[str, Any]:
     return next(t for t in data["tests"] if t["nodeId"].endswith(f"::{name}"))
+
+
+def test_validation_errors_never_enter_the_test_session_sink() -> None:
+    # approved A4a condition: a user's expected FastAPI 422 is not a test-session exception finding
+    from fastapi.exceptions import RequestValidationError
+
+    from sharpit.pytest_plugin import _ExceptionHandler
+
+    class Sink:
+        facts = type("Facts", (), {"warnings": [], "sources": []})()
+        calls: list[object] = []
+
+        def register_app(self, _app: object) -> None:
+            pass
+
+        def on_exception(self, *_args: object) -> None:
+            self.calls.append(_args)
+
+    error = RequestValidationError(
+        [{"type": "value_error", "loc": ("body",), "msg": "invalid ordinary-secret-91", "input": "ordinary-secret-91"}]
+    )
+    record = logging.LogRecord("app", logging.ERROR, "f", 1, "failed", (), (type(error), error, None))
+    sink = Sink()
+    _ExceptionHandler(sink).emit(record)  # type: ignore[arg-type]
+    assert sink.calls == []
+
+
+def test_log_exception_does_not_import_fastapi() -> None:
+    code = """
+import logging
+import sys
+from sharpit.pytest_plugin import _ExceptionHandler
+class Sink:
+    facts = type('Facts', (), {'warnings': [], 'sources': []})()
+    def on_exception(self, *_args): pass
+record = logging.LogRecord('app', logging.ERROR, 'f', 1, 'failed', (), (ValueError, ValueError(), None))
+_ExceptionHandler(Sink()).emit(record)
+print('fastapi' in sys.modules)
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "False"
+
+
+def test_422_handler_capture_skips_the_test_session_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+    from sharpit.engine.sources import dispatch
+
+    class Sink:
+        facts = type("Facts", (), {"warnings": [], "sources": []})()
+        calls: list[object] = []
+
+        def register_app(self, _app: object) -> None:
+            pass
+
+        def on_exception(self, *args: object) -> None:
+            self.calls.append(args)
+
+    sink = Sink()
+    monkeypatch.setattr(dispatch, "session_sink", lambda: sink)
+    app = FastAPI()
+
+    @app.get("/value")
+    def value(n: int) -> int:  # pyright: ignore[reportUnusedFunction]
+        return n
+
+    handle = install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    try:
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.get("/value?n=not-an-int")
+    finally:
+        handle.uninstall_capture()
+    assert response.status_code == 422
+    assert sink.calls == []
+
+
+def test_422_log_capture_skips_the_test_session_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.testclient import TestClient
+    from starlette.responses import PlainTextResponse
+
+    from fastapi import FastAPI
+    from sharpit import install
+    from sharpit.engine.sources import dispatch
+
+    class Sink:
+        facts = type("Facts", (), {"warnings": [], "sources": []})()
+        calls: list[object] = []
+
+        def register_app(self, _app: object) -> None:
+            pass
+
+        def on_exception(self, *args: object) -> None:
+            self.calls.append(args)
+
+    sink = Sink()
+    monkeypatch.setattr(dispatch, "session_sink", lambda: sink)
+    app = FastAPI()
+
+    @app.get("/logged-422")
+    def logged_422() -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
+        try:
+            raise RequestValidationError([{"type": "int_parsing", "loc": ("query", "n")}])
+        except RequestValidationError:
+            logging.getLogger("host").exception("expected validation response")
+            return PlainTextResponse("invalid", status_code=422)
+
+    handle = install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    try:
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.get("/logged-422")
+    finally:
+        handle.uninstall_capture()
+    assert response.status_code == 422
+    assert sink.calls == []
 
 
 def test_spike_f1_swallowed_attribute_error_fails(pytester: pytest.Pytester) -> None:
@@ -68,6 +188,67 @@ def _app_swallow() -> int:
 
 def _app_swallow_line() -> int:
     return _app_swallow.__code__.co_firstlineno + 3  # the ``except Exception:`` line
+
+
+def _record(*doubles: bool) -> list[bool]:
+    from types import SimpleNamespace
+
+    from sharpit.engine.testsession.facts import TestFacts, TestKey
+    from sharpit.pytest_plugin.swallowed import record
+
+    current = TestFacts(TestKey("t::a", "w", 1))
+    sink = SimpleNamespace(current_test=current)
+    for double in doubles:
+        record(sink, ("t::a", 1, "call"), SwallowedFact("a.py:3", "TypeError", True, test_double=double))
+    return [fact.test_double for fact in current.phases["call"].swallowed]
+
+
+def test_one_real_raise_among_the_doubles_clears_the_note() -> None:
+    assert _record(True, False, True) == [False]
+    assert _record(False, True) == [False]
+
+
+def test_monitoring_capture_classifies_double_and_resets_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.testsession.facts import SwallowedFact
+    from sharpit.pytest_plugin import swallowed
+
+    fact = SwallowedFact("app.py:4", "ValueError", True)
+    monkeypatch.setattr(swallowed, "_fact", lambda *_args: fact)
+    monitor = MonitoringCapture()
+    seen: list[tuple[TestTag, SwallowedFact]] = []
+    monitor._sink = lambda tag, item: seen.append((tag, item))
+    code = _app_swallow.__code__
+    first: TestTag = ("tests/test_x.py::test_first", 1, "call")
+    token = TEST.set(first)
+    try:
+        mock = Mock(side_effect=ValueError("raised by a mock"))
+        with pytest.raises(ValueError) as raised:
+            mock()
+        monitor._handled(code, 0, raised.value)
+        assert seen[-1][1].test_double is True
+
+        ordinary = ValueError("application error")
+        monitor._handled(code, 0, ordinary)
+        assert seen[-1][1].test_double is False
+        monitor._handled(code, 0, ordinary)
+        assert len(seen) == 3
+
+        second: TestTag = ("tests/test_x.py::test_second", 1, "call")
+        second_token = TEST.set(second)
+        try:
+            with pytest.raises(ValueError) as raised_again:
+                mock()
+            monitor._handled(code, 0, raised_again.value)
+        finally:
+            TEST.reset(second_token)
+        assert seen[-1][0] == second
+        assert seen[-1][1].test_double is True
+    finally:
+        TEST.reset(token)
+
+
+def test_only_doubles_keep_the_note_once() -> None:
+    assert _record(True, True) == [True]
 
 
 @pytest.fixture

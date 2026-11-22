@@ -20,7 +20,13 @@ from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scop
 from sharpit.engine.appsource import SourceIndex
 from sharpit.engine.collectors.restapi import report
 from sharpit.engine.collectors.restapi.error_contract import entries
-from sharpit.engine.collectors.restapi.rules import RETIRED_RULES, RULES, application_routes, evaluate
+from sharpit.engine.collectors.restapi.rules import (
+    RETIRED_RULE_REASONS,
+    RETIRED_RULES,
+    RULES,
+    application_routes,
+    evaluate,
+)
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import ApiModel, is_opaque_mount_limitation
@@ -42,6 +48,7 @@ class _Evaluation:
     evaluated: tuple[str, ...]  # ids of the rules that ran to completion
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
+    skip_reasons: Mapping[str, str]
     skipped: tuple[str, ...] = ()  # ids counted as SKIPPED results
     blocking: tuple[str, ...] = ()  # sharpit could not read the app or a rule threw: the gate cannot tell a clean run
 
@@ -76,6 +83,7 @@ def _evaluate(model: ApiModel, masker: Masker, index: SourceIndex | None = None)
         tuple(evaluated),
         tuple(findings),
         evidence(bool(routes), not limitations, limitations),  # no routes and no limitation: confirmed empty
+        RETIRED_RULE_REASONS if routes else {},
         tuple(sorted(RETIRED_RULES)) if routes else (),
         tuple(blocking),
     )

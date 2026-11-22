@@ -1,4 +1,4 @@
-"""Sharpit settings parity against the BootUI 2.4.0 property fixture."""
+"""Sharpit settings parity against the BootUI 2.5.0 property fixture."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from sharpit.engine.masking import Exposure
 from sharpit.settings import load_settings
 from sharpit.settings_registry import SPECS, UNSET
 
-_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.4.0" / "properties.json"
+_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.5.0" / "properties.json"
 _STATUS = Path(__file__).with_name("properties_status.json")
 
 pytestmark = [
@@ -67,6 +67,7 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.github.quota-safety-threshold"),
     pytest.mark.bootui("prop:bootui.github.request-timeout"),
     pytest.mark.bootui("prop:bootui.http-exchanges.max-exchanges"),
+    pytest.mark.bootui("prop:bootui.http-exchanges.expose-request-id-header"),
     pytest.mark.bootui("prop:bootui.mask-secrets"),
     pytest.mark.bootui("prop:bootui.mcp.enabled"),
     pytest.mark.bootui("prop:bootui.mcp.execution-timeout"),
@@ -121,6 +122,7 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.vulnerabilities.osv-base-uri"),
     pytest.mark.bootui("prop:bootui.vulnerabilities.osv-enabled"),
     pytest.mark.bootui("prop:bootui.vulnerabilities.request-timeout"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.scan-timeout"),
 ]
 
 

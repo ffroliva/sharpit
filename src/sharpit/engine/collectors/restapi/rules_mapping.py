@@ -9,7 +9,6 @@ from sharpit.engine.collectors.restapi.rules_common import (
     CATCH_ALL,
     DOUBLE_SLASH,
     MUTATING,
-    NON_MUTATING_PREFIXES,
     STATE_CHANGING_PREFIXES,
     Check,
     Violation,
@@ -31,7 +30,8 @@ def _map002(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Vi
     by_route: dict[tuple[str, str], list[str]] = {}
     for route in routes:
         for method in route.methods:
-            by_route.setdefault((method, route.path), []).append(route.handler)
+            path = re.sub(r"\{([^}:]+)(:[^}]+)?\}", lambda match: "{*" + (match.group(2) or "") + "}", route.path)
+            by_route.setdefault((method, path), []).append(route.handler)
     return [
         Violation(
             f"{method} {path}", f"{method} {path} with matching dispatch conditions handled by {', '.join(handlers)}"
@@ -43,9 +43,10 @@ def _map002(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Vi
 
 def _map003(route: ApiRouteInfo) -> str | None:
     name = shared_function(route)
-    if "GET" not in route.methods or name.replace("_", "").lower().startswith(NON_MUTATING_PREFIXES):
+    if "GET" not in route.methods:
         return None
-    return "mutation-like name on GET" if shared_first_word(name) in STATE_CHANGING_PREFIXES else None
+    prefixes = STATE_CHANGING_PREFIXES - {"post", "put", "patch"}
+    return "mutation-like name on GET" if shared_first_word(name) in prefixes else None
 
 
 def _map005(route: ApiRouteInfo) -> str | None:

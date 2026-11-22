@@ -508,3 +508,372 @@ def test_catalog_includes_conformance_test_classes(version: str) -> None:
         "testMcpRejectsUnsupportedProtocolVersionHeader",
     ):
         assert method in methods, f"{method} is missing from {name}"
+
+
+def test_capture_classifies_bootui_compat_ids_in_rule_exclusions() -> None:
+    from scripts import capture_bootui
+
+    source = "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/compatibility/PlatformCompatibility.java"
+    reviewer_union = {"BOOTUI-COMPAT-001", "BOOTUI-COMPAT-010"}
+    reviewer_java = {"BOOTUI-COMPAT-001": source, "BOOTUI-COMPAT-010": source}
+    try:
+        exclusions = capture_bootui._build_rule_exclusions(reviewer_union, set(), reviewer_java)
+    except ValueError as exc:
+        exclusions = [{"id": f"ERROR: {exc}", "source": "", "reason": ""}]
+    assert [item["id"] for item in exclusions] == ["BOOTUI-COMPAT-001", "BOOTUI-COMPAT-010"]
+    assert exclusions[0]["source"] == source
+    assert "PlatformCompatibility.java" in exclusions[0]["reason"]
+
+
+def test_capture_rules_marks_java_retired_sets_rapi_definitions_and_doc_retired(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    bootui_root = tmp_path / "bootui"
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    docs_dir = bootui_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "PENTEST-CHECKS.md").write_text(
+        "### PT-A02-005 - Session cookie HttpOnly flag is explicitly disabled\n\n"
+        "**Retired.** Duplicate of SEC-SESSION-003.\n\n"
+        "| ID | Disposition | Audit result | Sources |\n"
+        "| --- | --- | --- | --- |\n"
+        "| PT-A02-005 | UPDATE | Earlier audit row. | S07 |\n",
+        encoding="utf-8",
+    )
+    (docs_dir / "REST-API-CHECKS.md").write_text(
+        "### RAPI-DOC-001 - Consider explicit operation documentation\n\n"
+        "**Retired.** Always SKIPPED.\n\n"
+        "| Rule | Change | Source & rationale |\n"
+        "| --- | --- | --- |\n"
+        "| RAPI-DOC-001 | Reframe as explicit enrichment; INFO retained | Earlier audit. |\n"
+        "| RAPI-DOC-001, RAPI-DOC-002 | Retired | OpenAPI generators derive operations. |\n",
+        encoding="utf-8",
+    )
+    db_reg = (
+        bootui_root
+        / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/databaseadvisor/DatabaseAdvisorRuleRegistry.java"
+    )
+    db_reg.parent.mkdir(parents=True)
+    db_reg.write_text(
+        "package io.github.jdubois.bootui.engine.databaseadvisor;\n"
+        "import java.util.Set;\n"
+        "final class DatabaseAdvisorRuleRegistry {\n"
+        '    static final Set<String> RETIRED_RULE_IDS = Set.of("DB-POOL-004", "DB-SERVER-002");\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    sec_reg = (
+        bootui_root
+        / "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure"
+        / "security/SecurityRuleRegistry.java"
+    )
+    sec_reg.parent.mkdir(parents=True)
+    sec_reg.write_text(
+        "package io.github.jdubois.bootui.autoconfigure.security;\n"
+        "import java.util.Set;\n"
+        "final class SecurityRuleRegistry {\n"
+        '    static final Set<String> RETIRED_RULE_IDS = Set.of("SEC-AUTH-003");\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    rapi_java = bootui_root / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java"
+    rapi_java.parent.mkdir(parents=True)
+    rapi_java.write_text(
+        "package io.github.jdubois.bootui.engine.restapi;\n"
+        "final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {\n"
+        "    CollectionsUsePluralNounsRule() {\n"
+        "        super(new RestApiRuleDefinition(\n"
+        '            "RAPI-NAME-002",\n'
+        '            "Consider plural collection names",\n'
+        "            RestApiCategory.NAMING,\n"
+        '            "INFO",\n'
+        '            "Retired heuristic: an English-language suffix check cannot distinguish"\n'
+        '                + " resource collections.",\n'
+        '            "Choose names.",\n'
+        "            RestApiRuleHelp.RESOURCES_DOCS));\n"
+        "    }\n"
+        "    @Override\n"
+        "    RestApiRuleResultDto doEvaluate(RestApiContext context) {\n"
+        "        return RestApiRuleSupport.skipped(\n"
+        "            definition(),\n"
+        '            "Retired heuristic: literal resource names are valid.");\n'
+        "    }\n"
+        "}\n"
+        "final class ExplicitOperationDocumentationRule extends AbstractRestApiRule {\n"
+        "    ExplicitOperationDocumentationRule() {\n"
+        "        super(new RestApiRuleDefinition(\n"
+        '            "RAPI-DOC-002", "Consider operation documentation", RestApiCategory.ERROR_HANDLING, "INFO",\n'
+        '            "Documentation may be generated automatically.", "Add useful detail.",\n'
+        "            RestApiRuleHelp.OPENAPI_OPERATION_DOCS));\n"
+        "    }\n"
+        "    @Override\n"
+        "    RestApiRuleResultDto doEvaluate(RestApiContext context) {\n"
+        "        return RestApiRuleSupport.skipped(definition(),\n"
+        '            "Retired heuristic: generated docs already cover the operation.");\n'
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    capture_bootui._capture_rules(str(bootui_root), str(out_dir))
+    rules_data = json.loads((out_dir / "rule-ids.json").read_text(encoding="utf-8"))
+    diff_data = json.loads((out_dir / "rule-ids-diff.json").read_text(encoding="utf-8"))
+    retired_by_id = {r["id"]: r["retired"] for r in rules_data["rules"]}
+    assert retired_by_id == {
+        "DB-POOL-004": True,
+        "DB-SERVER-002": True,
+        "PT-A02-005": True,
+        "RAPI-DOC-001": True,
+        "RAPI-DOC-002": True,
+        "RAPI-NAME-002": True,
+        "SEC-AUTH-003": True,
+    }
+    assert all(r["retiredExplanation"] for r in rules_data["rules"])
+    assert next(r for r in rules_data["rules"] if r["id"] == "RAPI-DOC-002")["retiredExplanation"] == (
+        "Retired heuristic: generated docs already cover the operation."
+    )
+    assert next(r for r in rules_data["rules"] if r["id"] == "RAPI-NAME-002")["retiredExplanation"] == (
+        "Retired heuristic: literal resource names are valid."
+    )
+    assert diff_data.get("inDocOnlyCount") == len(diff_data["inDocOnly"])
+    assert diff_data.get("inJavaOnlyCount") == len(diff_data["inJavaOnly"])
+
+
+def test_capture_keeps_live_rest_rule_active_when_only_description_says_retired(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    source = tmp_path / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """package io.github.jdubois.bootui.engine.restapi;
+final class LiveRule extends AbstractRestApiRule {
+    LiveRule() {
+        super(new RestApiRuleDefinition(
+            "RAPI-ERR-007", "Live rule", RestApiCategory.ERROR_HANDLING, "INFO",
+            "Retired heuristic: description only", "Review this rule.", RestApiRuleHelp.RETRY_AFTER_DOCS));
+    }
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        return RestApiRuleSupport.fromViolations(context, definition(), new AdvisorFindings());
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    assert "RAPI-ERR-007" not in capture_bootui._collect_java_retired_rules(str(tmp_path))
+
+
+def test_capture_marks_guarded_rest_retirement_as_retired(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    source = tmp_path / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRules.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """package io.github.jdubois.bootui.engine.restapi;
+final class DeprecatedEndpointsRule extends AbstractRestApiRule {
+    DeprecatedEndpointsRule() {
+        super(new RestApiRuleDefinition(
+            "RAPI-DOC-003", "Signal endpoint deprecation", RestApiCategory.ERROR_HANDLING, "INFO",
+            "Retired heuristic: framework evidence cannot infer all documentation.",
+            "Review generated docs.", RestApiRuleHelp.DEPRECATION_DOCS));
+    }
+    @Override
+    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+        if (!context.evidence().openApiKnown())
+            return missingEvidence(context, "Required framework evidence could not be read.");
+        return RestApiRuleSupport.skipped(
+            definition(), "Retired heuristic: explicit annotations do not prove missing signals.");
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    assert capture_bootui._collect_java_retired_rules(str(tmp_path)).get("RAPI-DOC-003") == (
+        "Retired heuristic: explicit annotations do not prove missing signals."
+    )
+
+
+def test_capture_routes_records_starter_mappings_count_and_excludes_inherited_from_gaps(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    bootui_root = tmp_path / "bootui"
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    catalog = (
+        bootui_root
+        / "bootui-conformance/src/main/java/io/github/jdubois/bootui/conformance/BootUiApiContractCatalog.java"
+    )
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text('class BootUiApiContractCatalog { void init() { read("overview", "/overview"); } }\n', "utf-8")
+    web_dir = bootui_root / "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web"
+    web_dir.mkdir(parents=True)
+    (web_dir / "BaseSessionController.java").write_text(
+        'public abstract class BaseSessionController { @PostMapping("/clear") void clear() {} }\n',
+        encoding="utf-8",
+    )
+    (web_dir / "CopilotController.java").write_text(
+        '@RequestMapping("/bootui/api/copilot")\npublic class CopilotController extends BaseSessionController {}\n',
+        encoding="utf-8",
+    )
+    (web_dir / "OverviewController.java").write_text(
+        '@RequestMapping("/bootui/api")\n'
+        "public class OverviewController {\n"
+        '    @GetMapping("/overview") void get() {}\n'
+        '    @GetMapping("/panels") void panels() {}\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    capture_bootui._capture_routes(str(bootui_root), str(out_dir))
+    routes = json.loads((out_dir / "routes.json").read_text(encoding="utf-8"))
+    cross_check = routes["crossCheck"]
+    assert cross_check.get("starterMappingsCount") == 3
+    assert len(cross_check["gaps"]) == 2
+    assert cross_check["gaps"][0].get("category") == "starter-without-catalog"
+    assert cross_check["unpanelledRoutes"] == [
+        {
+            "controller": "OverviewController.java",
+            "source": (
+                "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure"
+                "/web/OverviewController.java"
+            ),
+            "line": 4,
+            "verb": "GET",
+            "path": "/panels",
+            "classification": "framework-introspection",
+            "reason": "Framework introspection metadata endpoint",
+        }
+    ]
+
+
+def test_capture_properties_reads_defaults_from_source_and_keeps_cli_max(tmp_path: Path) -> None:
+    from scripts import capture_bootui
+
+    bootui_root = tmp_path / "bootui"
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    props_java = (
+        bootui_root
+        / "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiProperties.java"
+    )
+    props_java.parent.mkdir(parents=True)
+    props_java.write_text(
+        "package io.github.jdubois.bootui.autoconfigure;\n"
+        "public class BootUiProperties {\n"
+        "    public static class DevServices {\n"
+        "        private int logTailBytes = 64 * 1024;\n"
+        "    }\n"
+        "    public static class Cli {\n"
+        "        private int maxConcurrentCalls = McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS;\n"
+        "        private int maxResults = 200;\n"
+        "        private String instancesDir;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    mcp_java = bootui_root / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/mcp/McpProtocol.java"
+    mcp_java.parent.mkdir(parents=True)
+    mcp_java.write_text(
+        "package io.github.jdubois.bootui.engine.mcp;\n"
+        "public final class McpProtocol {\n"
+        "    public static final int DEFAULT_MAX_CONCURRENT_CALLS = 20;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    meta_file = bootui_root / "bootui-spring-boot-starter/target/classes/META-INF/spring-configuration-metadata.json"
+    meta_file.parent.mkdir(parents=True)
+    meta_file.write_text(
+        json.dumps(
+            {
+                "properties": [
+                    {
+                        "name": "bootui.dev-services.log-tail-bytes",
+                        "type": "java.lang.Integer",
+                        "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$DevServices",
+                    },
+                    {
+                        "name": "bootui.cli.max-concurrent-calls",
+                        "type": "java.lang.Integer",
+                        "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+                    },
+                    {
+                        "name": "bootui.cli.max-results",
+                        "type": "java.lang.Integer",
+                        "defaultValue": 200,
+                        "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+                    },
+                    {
+                        "name": "bootui.cli.instances-dir",
+                        "type": "java.lang.String",
+                        "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    capture_bootui._capture_properties(str(bootui_root), str(out_dir))
+    props = {p["name"]: p for p in json.loads((out_dir / "properties.json").read_text(encoding="utf-8"))["properties"]}
+    assert sorted(props) == [
+        "bootui.cli.instances-dir",
+        "bootui.cli.max-concurrent-calls",
+        "bootui.cli.max-results",
+        "bootui.dev-services.log-tail-bytes",
+    ]
+    assert props["bootui.cli.max-concurrent-calls"]["defaultValue"] == 20
+    assert (
+        props["bootui.cli.max-concurrent-calls"].get("defaultValueSource")
+        == "BootUiProperties.java:7 (McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS)"
+    )
+    assert props["bootui.dev-services.log-tail-bytes"]["defaultValue"] == 65536
+    assert (
+        props["bootui.dev-services.log-tail-bytes"].get("defaultValueSource") == "BootUiProperties.java:4 (64 * 1024)"
+    )
+    assert props["bootui.cli.instances-dir"].get("defaultValueSource") == "BootUiProperties.java:9"
+    assert props["bootui.cli.max-results"]["defaultValue"] == 200
+    assert props["bootui.cli.max-results"].get("defaultValueSource") == "BootUiProperties.java:8"
+
+
+def test_capture_tests_handles_windows_long_paths_and_arch_tests(tmp_path: Path) -> None:
+    import os
+    import shutil
+
+    from scripts import capture_bootui
+
+    bootui_root = tmp_path / "bootui"
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    rel = (
+        "bootui-quarkus-integration-tests/datasource/src/test/java/io/github/jdubois/bootui/quarkus/it/"
+        + ("deep_" * 20)
+        + "/"
+        + (" sub_" * 15).replace(" ", "")
+        + "/DeepLongPathTest.java"
+    )
+    raw_target = bootui_root / rel
+    win_root = Path("\\\\?\\" + os.path.abspath(str(bootui_root))) if os.name == "nt" else bootui_root
+    win_target = Path("\\\\?\\" + os.path.abspath(str(raw_target))) if os.name == "nt" else raw_target
+    try:
+        win_target.parent.mkdir(parents=True, exist_ok=True)
+        win_target.write_text(
+            "package io.github.jdubois.bootui.deep;\n"
+            "class DeepLongPathTest {\n"
+            "    // @Test void commentedOut() {}\n"
+            "    @Test\n"
+            "    void standardTest() {}\n"
+            "    public void helperNotATest() {}\n"
+            "    @ArchTest\n"
+            "    static final ArchRule layerRule = null;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+
+        capture_bootui._capture_tests(str(bootui_root), str(out_dir))
+        data = json.loads((out_dir / "bootui-tests.json").read_text(encoding="utf-8"))
+        assert data["testClasses"] == {"io.github.jdubois.bootui.deep.DeepLongPathTest": ["layerRule", "standardTest"]}
+    finally:
+        shutil.rmtree(win_root, ignore_errors=True)

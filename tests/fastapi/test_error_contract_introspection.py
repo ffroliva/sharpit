@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.collectors.restapi.error_contract import error_contract_report
+from sharpit.engine.collectors.restapi.error_contract import entries, error_contract_report
 from sharpit.fastapi.introspector import FastApiIntrospector
 
 
@@ -50,6 +50,29 @@ def test_error_contract_handles_integer_exception_handler_keys() -> None:
     assert row.handler.endswith("status_error")
     assert row.scope == "SCOPED"
     assert row.scope_target == "status=404"
+
+
+# ported: RestApiContractDefectRulesTests.declaredExceptionsRuleRecognizesFrameworkMappedExceptionSubclasses
+def test_error_contract_retains_loaded_exception_key_mro() -> None:
+    class FrameworkMappedSubclass(HTTPException):
+        pass
+
+    app = FastAPI()
+
+    async def mapped_handler(_request: object, _exc: FrameworkMappedSubclass) -> JSONResponse:
+        return JSONResponse({}, status_code=418)
+
+    app.exception_handlers[FrameworkMappedSubclass] = mapped_handler
+    result = entries(FastApiIntrospector(app).api_model())
+
+    assert getattr(result[0], "exception_mro", ()) == (
+        f"{__name__}.test_error_contract_retains_loaded_exception_key_mro.<locals>.FrameworkMappedSubclass",
+        "starlette.exceptions.HTTPException",
+        "Exception",
+        "BaseException",
+        "object",
+    )
+    assert result[0].framework_mapped is True
 
 
 def test_error_contract_handles_partial_and_callable_handlers() -> None:

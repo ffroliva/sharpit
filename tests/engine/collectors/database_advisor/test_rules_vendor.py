@@ -21,7 +21,7 @@ from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
 MYSQL_URL = os.environ.get("SHARPIT_TEST_MYSQL_URL", "")
-PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001", "DB-SERVER-002")
+PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001")
 MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
 
 
@@ -68,6 +68,13 @@ def test_vendor_rule_skips_a_failed_catalog_read() -> None:
     assert isinstance(_check("DB-PG-005", source), str)
 
 
+def test_truncated_vendor_inventory_is_not_treated_as_complete() -> None:
+    # ported: VendorCatalogReaderTests.postgresServerSettingsRespectTheRowBound
+    source = _source("mysql", utf8mb3={"rows": [], "truncated": True})
+
+    assert isinstance(_check("DB-MYSQL-002", source), str)
+
+
 def test_schema_010_invisible_index() -> None:
     source = _source("mysql", invisible=_fact({"tbl": "orders", "idx": "ix_code"}))
 
@@ -102,6 +109,17 @@ def test_pg_003_not_valid_constraint() -> None:
     source = _source("postgresql", notValid=_fact({"tbl": "orders", "name": "orders_total_check"}))
 
     assert _targets(_check("DB-PG-003", source)) == ["db/orders.orders_total_check"]
+
+
+def test_pg_003_reports_not_null_constraints_as_not_null() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests.postgresUnvalidatedConstraintRuleReportsForeignKeyCheckAndNotNullConstraints  # noqa: E501
+    source = _source(
+        "postgresql", notValid=_fact({"tbl": "orders", "name": "orders_customer_id_not_null", "type": "n"})
+    )
+
+    outcome = _check("DB-PG-003", source)
+
+    assert "not-null constraint" in outcome[0][1]
 
 
 def test_pg_004_published_table_without_usable_replica_identity() -> None:
@@ -150,18 +168,6 @@ def test_server_001_idle_in_transaction_without_limit() -> None:
     source = _source("postgresql", settings=_fact({"name": "idle_in_transaction_session_timeout", "setting": "0"}))
 
     assert _targets(_check("DB-SERVER-001", source)) == ["db/idle_in_transaction_session_timeout"]
-
-
-def test_server_002_no_statement_timeout() -> None:
-    source = _source("postgresql", settings=_fact({"name": "statement_timeout", "setting": "0"}))
-
-    assert _targets(_check("DB-SERVER-002", source)) == ["db/statement_timeout"]
-
-
-def test_server_002_a_limit_passes() -> None:
-    source = _source("postgresql", settings=_fact({"name": "statement_timeout", "setting": "30000"}))
-
-    assert _check("DB-SERVER-002", source) == []
 
 
 def test_server_001_unreported_setting_skips() -> None:

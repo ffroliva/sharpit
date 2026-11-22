@@ -3,8 +3,8 @@
   "counts": {
     "matched": 5,
     "partial": 28,
-    "missing": 33,
-    "n-a": 30,
+    "missing": 32,
+    "n-a": 31,
     "total": 96
   },
   "routes": [
@@ -76,7 +76,7 @@
       "panel": "beans",
       "route": "/sharpit/api/beans",
       "status": "n-a",
-      "difference": "golden list beans[].dependencies has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec \u00a74.4)"
+      "difference": "golden list beans[].dependencies has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
     },
     {
       "golden": "cache/captured.json",
@@ -97,7 +97,7 @@
       "panel": "cli",
       "route": "/sharpit/api/cli",
       "status": "n-a",
-      "difference": "golden list tools[].arguments has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec \u00a74.4)"
+      "difference": "golden list tools[].arguments has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
     },
     {
       "golden": "code-inventory/captured.json",
@@ -293,7 +293,7 @@
       "panel": "fastapi-security",
       "route": "/sharpit/api/fastapi-security/explain",
       "status": "n-a",
-      "difference": "golden list filters has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec \u00a74.4)"
+      "difference": "golden list filters has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
     },
     {
       "golden": "fault-tolerance/captured.json",
@@ -405,7 +405,7 @@
       "panel": "live-memory",
       "route": "/sharpit/api/live-memory/footprint",
       "status": "n-a",
-      "difference": "golden list components has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec \u00a74.4)"
+      "difference": "golden list components has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
     },
     {
       "golden": "log-tail/recent.captured.json",
@@ -488,8 +488,8 @@
       "golden": "pentesting/captured.json",
       "panel": "pentesting",
       "route": "/sharpit/api/pentesting",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/pentesting (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "postgresql/captured.json",

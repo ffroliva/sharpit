@@ -13,7 +13,8 @@ from sharpit.settings_registry import JOURNAL_SOURCES
 
 KEYS = [
     "state", "reason", "sampler", "startedAt", "endsAt", "finishedAt", "maxDurationSeconds", "cpuSamples",
-    "outsideSamples", "requests", "routes", "routesOmitted", "limitations",
+    "outsideSamples", "requests", "virtualThreadPinningSupported", "pinnedEvents", "outsidePinnedEvents",
+    "pinnedDurationMicros", "routes", "routesOmitted", "limitations",
 ]  # fmt: skip
 
 
@@ -47,6 +48,10 @@ def test_resource_profile_floor_starts_nothing(call: str) -> None:
     assert shown["state"] == "UNAVAILABLE"
     assert shown["reason"] == NO_SAMPLER
     assert shown["maxDurationSeconds"] == 45
+    assert shown["virtualThreadPinningSupported"] is False
+    assert shown["pinnedEvents"] == 0
+    assert shown["outsidePinnedEvents"] == 0
+    assert shown["pinnedDurationMicros"] == 0
     assert (shown["cpuSamples"], shown["outsideSamples"], shown["requests"]) == (0, 0, 0)
     assert (shown["routes"], shown["routesOmitted"], shown["limitations"]) == ([], 0, [])
     assert threading.active_count() == threads

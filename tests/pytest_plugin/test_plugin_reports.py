@@ -40,6 +40,8 @@ def _run_report_corpus(
 
     result = pytester.runpytest_inprocess(
         "--sharpit",
+        "-n",
+        "0",
         "--sharpit-app=appmod:app",
         "--sharpit-allow-unknown",
         "--sharpit-report=report.json",
@@ -96,11 +98,10 @@ def test_live_engine_driver_counts_as_covered(pytester: pytest.Pytester) -> None
         from sqlalchemy.ext.asyncio import create_async_engine
         engine = create_async_engine('sqlite+aiosqlite:///:memory:')
         """,
-        test_app="def test_no_query(): pass",
+        # imported by the tests, so the driver is loaded when the session's facts are taken
+        test_app="import appmod\n\ndef test_no_query(): pass",
     )
-    result = pytester.runpytest_subprocess(
-        "--sharpit", "--sharpit-app=appmod:engine", "--sharpit-report=report.json", "-q"
-    )
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 0
     data = json.loads((pytester.path / "report.json").read_text())
@@ -116,6 +117,68 @@ def test_plugin_report_corpus_full_exposure(pytester: pytest.Pytester, monkeypat
 def test_plugin_report_corpus_masking_off(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     _run_report_corpus(
         pytester, monkeypatch, "SHARPIT_MASK_SECRETS", "false", "report ignores SHARPIT_MASK_SECRETS=false"
+    )
+
+
+@pytest.mark.parametrize("exposure", ("MASKED", "METADATA_ONLY", "FULL"))
+def test_binding_diagnostic_sentinels_do_not_enter_pytest_outputs(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, exposure: str
+) -> None:
+    field = "S3NT1NEL9f3c"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.S3NT1NEL9f3c.signature"
+    monkeypatch.setenv("SHARPIT_EXPOSE_VALUES", exposure)
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        from pydantic import BaseModel, ConfigDict
+        app = FastAPI()
+        class Payload(BaseModel):
+            model_config = ConfigDict(extra='forbid')
+            value: int
+        @app.post('/payload')
+        def payload(data: Payload): return data
+        """,
+        test_binding=f"""
+        from fastapi.testclient import TestClient
+        from appmod import app
+        def test_binding_request():
+            with TestClient(app, raise_server_exceptions=False) as client:
+                response = client.post('/payload', json={{'{field}': '{jwt}'}})
+            assert response.status_code == 422
+        """,
+    )
+
+    result = pytester.runpytest_inprocess(
+        "--sharpit",
+        "--sharpit-app=appmod:app",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "--sharpit-junit=report.xml",
+        "--sharpit-sarif=report.sarif",
+        "-q",
+    )
+
+    terminal = result.stdout.str()
+    json_report = (pytester.path / "report.json").read_text()
+    junit_report = (pytester.path / "report.xml").read_text()
+    sarif_report = (pytester.path / "report.sarif").read_text()
+    assert result.ret == 0
+    sentinels = (field, jwt)
+    assert all(sentinel not in terminal for sentinel in sentinels)
+    assert all(sentinel not in json_report for sentinel in sentinels)
+    assert all(sentinel not in junit_report for sentinel in sentinels)
+    assert all(sentinel not in sarif_report for sentinel in sentinels)
+    (pytester.path / f"binding-pytest-{exposure}.jsonl").write_text(
+        "".join(
+            json.dumps({"exposure": exposure, "surface": surface, "text": text}) + "\n"
+            for surface, text in (
+                ("pytest terminal", terminal),
+                ("pytest JSON", json_report),
+                ("pytest JUnit", junit_report),
+                ("pytest SARIF", sarif_report),
+            )
+        ),
+        encoding="utf-8",
     )
 
 
@@ -147,6 +210,6 @@ def test_default_terminal_counts_notes_but_reports_keep_findings(pytester: pytes
     cases = ET.parse(pytester.path / "report.xml").getroot().findall("testcase")
     assert f"sharpit: {len(rules)} advisor notes in report.json" in stdout
     assert "  RAPI-DOC-001" not in stdout
-    assert "RAPI-DOC-001" in rules
+    assert "RAPI-DOC-001" not in rules
     assert "RAPI-DTO-002" in rules
     assert len(cases) == len(rules) + 1

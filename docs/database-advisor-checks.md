@@ -24,7 +24,7 @@ MCP tool). `GET
 
 ## Rules
 
-BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are dropped with the reason shown.
+BootUI registers 46 checks. `P` marks a check sharpit ports (31); the others are dropped with the reason shown.
 `Status` says which lane implements a ported check.
 
 | Rule | Title | Family | Port | Status | Reason |
@@ -69,9 +69,7 @@ BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are
 | DB-POOL-001 | Connection pool can keep a connection idle longer than the server allows | Connection pool | P | implemented | |
 | DB-POOL-002 | Connection pool is larger than the server's connection limit | Connection pool | P | implemented | |
 | DB-POOL-003 | Connection pool has no maximum connection lifetime | Connection pool | P | implemented | |
-| DB-POOL-004 | Connection pool leaves no headroom for a second instance | Connection pool | P | implemented | |
 | DB-SERVER-001 | PostgreSQL does not end sessions that are idle in a transaction | Server | P | implemented | |
-| DB-SERVER-002 | PostgreSQL has no statement timeout | Server | P | implemented | |
 | DB-SERVER-003 | PostgreSQL autovacuum is disabled | Server | dropped | dropped | server-wide maintenance setting, not this application's use of the server; the postgresql panel shows it |
 | DB-SERVER-004 | PostgreSQL `pg_stat_statements` is not available | Server | dropped | dropped | server observability, not this application's use of the server; the postgresql panel reports it |
 | DB-SERVER-005 | PostgreSQL does not measure I/O time | Server | dropped | dropped | server observability (`track_io_timing`); the postgresql panel shows it |
@@ -79,6 +77,8 @@ BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are
 | DB-SERVER-007 | MySQL Performance Schema is disabled | Server | dropped | dropped | server observability; the mysql panel reports it |
 
 ## How sharpit differs from BootUI
+
+`DB-POOL-004` and `DB-SERVER-002` are retired and reserved. Existing dismissals for these IDs apply to no check.
 
 - Driver and pool evidence is SQLAlchemy's, not JDBC's or HikariCP's: `pool_recycle` is the maximum lifetime and
   `pool_pre_ping` the check that replaces a connection the server closed (it settles DB-POOL-001 as covered).

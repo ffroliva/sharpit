@@ -15,7 +15,7 @@ import pytest
 
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.findings import severity_counts_of
-from sharpit.engine.collectors.restapi.rules import RULES, evaluate, violations
+from sharpit.engine.collectors.restapi.rules import RETIRED_RULES, RULES, evaluate, violations
 from sharpit.engine.collectors.restapi.service import RestApiService, assess
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.singleflight import SingleFlight
@@ -74,7 +74,6 @@ CASES: dict[str, tuple[list[ApiRouteInfo], tuple[str, ...], list[str]]] = {
         ["GET /v1/a/{a}/b/{b}/c/{c}/d/{d} app.pets:read_pets"],
     ),
     "RAPI-NAME-001": ([route("/v1/getPets")], APP_HANDLER, ["GET /v1/getPets app.pets:read_pets"]),
-    "RAPI-NAME-002": ([route("/v1/pet", return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pet app.pets:read_pets"]),
     "RAPI-NAME-003": ([route("/v1/petTypes")], APP_HANDLER, ["GET /v1/petTypes app.pets:read_pets"]),
     "RAPI-RESP-001": (
         [route(methods=("POST",), name="create_pet")],
@@ -97,14 +96,10 @@ CASES: dict[str, tuple[list[ApiRouteInfo], tuple[str, ...], list[str]]] = {
     "RAPI-PAGE-001": ([route(return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
     "RAPI-VER-001": ([route("/pets")], APP_HANDLER, ["application"]),
     "RAPI-ERR-001": ([route()], (), ["application"]),
-    "RAPI-DOC-001": ([route(summary=None)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
-    "RAPI-DOC-002": ([route(tags=())], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
 }
 
 # the 0.2.0 violation strings for CASES, frozen from the code before this change
 FROZEN_TEXT: dict[str, list[str]] = {
-    "RAPI-DOC-001": ["app.pets:read_pets [GET /v1/pets] — no summary or description"],
-    "RAPI-DOC-002": ["app.pets:read_pets [GET /v1/pets] — no tags"],
     "RAPI-DTO-001": ["app.pets:read_pets [GET /v1/pets] — returns persistence class PetTable"],
     "RAPI-DTO-002": ["app.pets:read_pets [GET /v1/pets] — no response model or return annotation"],
     "RAPI-ERR-001": [
@@ -118,7 +113,6 @@ FROZEN_TEXT: dict[str, list[str]] = {
     "RAPI-MAP-010": ["app.pets:read_pets [GET /v1/files/{rest:path}] — catch-all path parameter"],
     "RAPI-MAP-011": ["app.pets:read_pets [GET /v1/a/{a}/b/{b}/c/{c}/d/{d}] — 4 levels of collection/{id} nesting"],
     "RAPI-NAME-001": ["app.pets:read_pets [GET /v1/getPets] — verb in path"],
-    "RAPI-NAME-002": ["app.pets:read_pets [GET /v1/pet] — singular collection name 'pet'"],
     "RAPI-NAME-003": ["app.pets:read_pets [GET /v1/petTypes] — segment 'petTypes' is not lowercase kebab-case"],
     "RAPI-PAGE-001": [
         "app.pets:read_pets [GET /v1/pets] — collection response without limit/offset/page/cursor parameters"
@@ -135,8 +129,6 @@ FROZEN_TEXT: dict[str, list[str]] = {
 
 # frozen fingerprints (sha256 of rule, target, "" computed independently of the code)
 FROZEN_FINGERPRINTS: dict[str, str] = {
-    "RAPI-DOC-001": "rest-api:RAPI-DOC-001:ead5b05c408c07ac",
-    "RAPI-DOC-002": "rest-api:RAPI-DOC-002:8a3754c73efc8b9b",
     "RAPI-DTO-001": "rest-api:RAPI-DTO-001:29c3648c64bc2f4f",
     "RAPI-DTO-002": "rest-api:RAPI-DTO-002:4ca8549f767f5266",
     "RAPI-ERR-001": "rest-api:RAPI-ERR-001:87254157ae547365",
@@ -148,7 +140,6 @@ FROZEN_FINGERPRINTS: dict[str, str] = {
     "RAPI-MAP-010": "rest-api:RAPI-MAP-010:9efaa8fc6c0f72be",
     "RAPI-MAP-011": "rest-api:RAPI-MAP-011:ebe7ae3204846926",
     "RAPI-NAME-001": "rest-api:RAPI-NAME-001:96687824dfd45c71",
-    "RAPI-NAME-002": "rest-api:RAPI-NAME-002:93d0aeb267830e2f",
     "RAPI-NAME-003": "rest-api:RAPI-NAME-003:0e0bc354b50c31da",
     "RAPI-PAGE-001": "rest-api:RAPI-PAGE-001:e04d3c8b317cbb82",
     "RAPI-RESP-001": "rest-api:RAPI-RESP-001:40e1bd988af5aa98",
@@ -181,7 +172,7 @@ ERROR_CONTRACT_RULES = {
 
 def test_cases_cover_every_rule():
     # Route-level and app-wide rules; error-contract rules are covered in test_rules_errors.py
-    assert set(CASES) == {r.id for r in RULES if r.id not in ERROR_CONTRACT_RULES}
+    assert set(CASES) == {r.id for r in RULES if r.id not in ERROR_CONTRACT_RULES | RETIRED_RULES}
 
 
 @pytest.mark.parametrize("rule_id", sorted(CASES))
@@ -365,7 +356,7 @@ def test_fingerprint_dismissal_reduces_panel_count(tmp_path: Path):
     assert result["violationCount"] == 1
     assert result["sampleViolations"] == [page["violations"][1]]
     assert result["dismissed"] is False
-    assert {c["severity"]: c["count"] for c in after["severityCounts"]}["INFO"] == 3  # 4 INFO minus the dismissed one
+    assert {c["severity"]: c["count"] for c in after["severityCounts"]}["INFO"] == 2
 
 
 def test_every_occurrence_dismissed_leaves_the_rule_restorable(tmp_path: Path):

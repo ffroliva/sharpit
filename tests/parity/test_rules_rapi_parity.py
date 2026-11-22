@@ -294,8 +294,7 @@ def test_rapi_name_001_passes_an_ambiguous_noun() -> None:
 
 @pytest.mark.bootui("rule:RAPI-NAME-002")
 def test_rapi_name_002_passes_an_uncountable_collection() -> None:
-    # ported: RestApiRulesTests.name002DoesNotFlagUncountableNouns
-    # BootUI 2.3.0 asserts only this does-not-fire case for NAME-002 (no ported firing case exists)
+    # Retired rule IDs remain registered as skipped results.
     app = _app()
 
     @app.get("/api/v1/history", summary="s", tags=["t"])
@@ -338,7 +337,6 @@ def test_rapi_name_003_passes_kebab_case_and_variables() -> None:
 @pytest.mark.bootui("rule:RAPI-RESP-001")
 def test_rapi_resp_001_fires_on_a_creation_post_with_the_default_status() -> None:
     # ported: RestApiRuleAccuracyTests.responseRulesRespectExplicitDynamicAndImperativeStatusSelection
-    # ported: RestApiRulesTests.responseRulesFlagCreationAndScalarReads
     app = _app()
 
     @app.post("/rule-accuracy/default", summary="s", tags=["t"])
@@ -616,21 +614,18 @@ def test_rapi_ver_001_passes_consistent_path_versioning() -> None:
 
 
 @pytest.mark.bootui("rule:RAPI-DOC-001")
-def test_rapi_doc_001_fires_on_an_undocumented_operation() -> None:
-    # ported: RestApiRulesTests.documentationRulesAreSkippedWithoutSpringdocAndFireWithIt
+def test_rapi_doc_001_is_retired_for_an_undocumented_operation() -> None:
     app = _app()
 
     @app.get("/api/v1/users", tags=["users"])
     def list_users(limit: int = 10) -> list[Payload]:
         return []
 
-    finding = _one(app, "RAPI-DOC-001", "INFO")
-    _located(finding, "GET", "/api/v1/users", "list_users")
+    assert _findings(app, "RAPI-DOC-001") == []
 
 
 @pytest.mark.bootui("rule:RAPI-DOC-001")
 def test_rapi_doc_001_passes_a_summary_or_docstring() -> None:
-    # ported: RestApiRuleAccuracyTests.documentationRecognizesTagContainersAndOperationTagsWithoutRequiringAnnotationsForGeneration  # noqa: E501
     app = _app()
 
     @app.get("/api/v1/users", summary="List users", tags=["users"])
@@ -646,21 +641,18 @@ def test_rapi_doc_001_passes_a_summary_or_docstring() -> None:
 
 
 @pytest.mark.bootui("rule:RAPI-DOC-002")
-def test_rapi_doc_002_fires_on_an_untagged_operation() -> None:
-    # ported: RestApiRulesTests.documentationRulesAreSkippedWithoutSpringdocAndFireWithIt
+def test_rapi_doc_002_is_retired_for_an_untagged_operation() -> None:
     app = _app()
 
     @app.get("/api/v1/users", summary="List users")
     def list_users(limit: int = 10) -> list[Payload]:
         return []
 
-    finding = _one(app, "RAPI-DOC-002", "INFO")
-    _located(finding, "GET", "/api/v1/users", "list_users")
+    assert _findings(app, "RAPI-DOC-002") == []
 
 
 @pytest.mark.bootui("rule:RAPI-DOC-002")
 def test_rapi_doc_002_passes_operation_tags() -> None:
-    # ported: RestApiRuleAccuracyTests.documentationRecognizesTagContainersAndOperationTagsWithoutRequiringAnnotationsForGeneration  # noqa: E501
     app = _app()
 
     @app.get("/api/v1/users", summary="List users", tags=["users"])

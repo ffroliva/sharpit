@@ -349,6 +349,7 @@ def test_request_profile_timing_and_exceptions():
     assert [(e["exceptionClassName"], e["source"]) for e in profile["exceptions"]] == [("ValueError", "request")]
     assert tuple(profile["exceptions"][0]) == (
         "exceptionClassName", "message", "location", "timestamp", "thread", "handler", "source",
+        "bindingDiagnostics", "bindingDiagnosticsTruncated",
     )  # fmt: skip
 
 
@@ -414,6 +415,7 @@ def test_shape_keys_match_bootui():
     assert REPORT_KEYS == (
         "available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption",
     )  # fmt: skip
+    # BootUI v2.5.0 RequestProfileDto.java:35-51
     assert PROFILE_KEYS == (
         "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
         "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",
