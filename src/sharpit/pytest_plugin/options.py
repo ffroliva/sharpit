@@ -80,6 +80,12 @@ def pytest_addoption(parser: Any) -> None:
         metavar="'METHOD ROUTE=STATUS[,STATUS...]'",
         help="the statuses the route may answer (repeatable; replaces the ini lines)",
     )
+    group.addoption(
+        "--sharpit-require-reason",
+        action="store_true",
+        default=None,
+        help="require a reason for accepted findings",
+    )
     _add_ini(parser)
 
 
@@ -104,6 +110,7 @@ def _add_ini(parser: Any) -> None:
     )
     parser.addini("sharpit_required_response_headers", "METHOD ROUTE=HEADER lines", type="linelist", default=[])
     parser.addini("sharpit_expected_statuses", "METHOD ROUTE=STATUS[,STATUS...] lines", type="linelist", default=[])
+    parser.addini("sharpit_require_reason", "Require a reason for accepted findings", type="bool", default=False)
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,7 @@ class PluginOptions:
     http_security_enabled: bool = False
     http_required_headers: tuple[HeaderExpectation, ...] = ()
     http_expected_statuses: tuple[StatusExpectation, ...] = ()
+    require_reason: bool = False
 
 
 def _value(config: Any, option: Any, name: str, default: Any) -> Any:
@@ -218,4 +226,5 @@ def resolve(config: Any) -> PluginOptions:
         observe,
         required_headers,
         expected_statuses,
+        bool(_value(config, option, "require_reason", False)),
     )

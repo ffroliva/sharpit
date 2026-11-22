@@ -35,7 +35,8 @@ def add_connection_listener(event: ConnectionEvent, fn: Callable[..., None]) -> 
     if sa is None:
         return None
     with _lock:
-        sa.event.listen(sa.engine.Engine, event, fn)
+        if not sa.event.contains(sa.engine.Engine, event, fn):
+            sa.event.listen(sa.engine.Engine, event, fn)
 
     def remove() -> None:
         with _lock:

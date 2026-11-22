@@ -156,7 +156,10 @@ def _run_advisors(state: _State) -> None:
 def pytest_configure(config: Any) -> None:
     config.addinivalue_line(
         "markers",
-        "sharpit(max_queries=None, allow_n_plus_one=False, max_exceptions=0): per-test capture gate overrides",
+        (
+            "sharpit(max_queries=None, allow_n_plus_one=False, max_exceptions=0, allow_swallowed=False, "
+            "allow_unbounded_read=False, reason=None): per-test capture gate overrides"
+        ),
     )
     try:
         options = resolve(config)
@@ -179,7 +182,7 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     options = resolve(config)
     if options.enabled:
         for item in items:
-            budget_for(item, options.max_queries)
+            budget_for(item, options.max_queries, require_reason=options.require_reason)
 
 
 def _validate_activation() -> list[str]:

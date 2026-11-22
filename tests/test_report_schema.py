@@ -69,10 +69,10 @@ def test_schema_requires_the_040_report_keys(key: str) -> None:
     assert _errors(data) != [], f"{key} is emitted on every report, so the schema must require it"
 
 
-@pytest.mark.parametrize("key", ["observed", "baselineState"])
+@pytest.mark.parametrize("key", ["observed", "baselineState", "reason"])
 def test_schema_requires_the_040_finding_keys(key: str) -> None:
     data = render_parts(busy_part())
-    del data["findings"][0][key]
+    data["findings"][0].pop(key, None)
     assert _errors(data) != [], f"finding {key} is always emitted, so the schema must require it"
 
 

@@ -74,10 +74,14 @@ def _result(finding: Mapping[str, Any], masker: Masker) -> dict[str, Any]:
             "testNodeId": None if finding.get("testNodeId") is None else _text(masker, finding["testNodeId"]),
         },
     }
+    if finding.get("reason"):
+        result["properties"]["reason"] = _text(masker, finding["reason"])
     if finding.get("dismissed"):
         result["suppressions"] = [{"kind": "external", "justification": "dismissed in sharpit"}]
     elif finding.get("baselineState") == "existing":
         result["suppressions"] = [{"kind": "external", "justification": "accepted in the sharpit baseline"}]
+    elif finding.get("reason"):
+        result["suppressions"] = [{"kind": "inSource", "justification": _text(masker, finding["reason"])}]
     return result
 
 
