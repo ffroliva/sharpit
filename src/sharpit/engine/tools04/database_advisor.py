@@ -7,7 +7,6 @@ read-only.
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine.advisors.retention import AdvisorViolationError
@@ -22,6 +21,7 @@ from sharpit.engine.tools import (
     ToolCallError,
     dismissal_store,
 )
+from sharpit.engine.tools04.hostloop import running_host_loop, wait_on_host_loop
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -30,6 +30,7 @@ ASYNC_FROM_CLI = (
     "Scans of async engines run from the panel only: the CLI cannot reach the application's event loop, and an async "
     "engine's pool must not be driven from a second loop."
 )
+TOOL_WAIT_TIMEOUT = SCAN_BUDGET + 2 * WALL_MARGIN + 5
 
 
 def database_advisor_service(ctx: SharpitContext) -> DatabaseAdvisorService:
@@ -52,10 +53,17 @@ def _scan(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
     """Tool handlers run on a worker thread: the scan goes to the app's loop when it is running, else a fresh one."""
     ctx = call.ctx
     service = database_advisor_service(ctx)
-    loop = ctx.capture.loop
-    if loop is not None and loop.is_running() and not loop.is_closed():
-        future = asyncio.run_coroutine_threadsafe(run_scan(ctx, service), loop)
-        return future.result(SCAN_BUDGET + 2 * WALL_MARGIN + 5)
+    loop = running_host_loop(ctx)
+    if loop is not None:
+        return wait_on_host_loop(
+            loop,
+            run_scan(ctx, service),
+            TOOL_WAIT_TIMEOUT,
+            "Database advisor scan timed out.",
+            "Database advisor scan is unavailable: the application's event loop is not running.",
+        )
+    import asyncio
+
     if _has_async_engine(ctx):
         return service.scan(ASYNC_FROM_CLI)
     return asyncio.run(run_scan(ctx, service))
