@@ -454,7 +454,7 @@ def test_allow_swallowed_marker_keeps_the_test_passing(pytester: pytest.Pytester
 def test_allow_swallowed_marker_records_reason_in_report_and_terminal(pytester: pytest.Pytester) -> None:
     _bare_project(pytester, '@pytest.mark.sharpit(allow_swallowed=True, reason="expected swallowed error")')
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
@@ -469,7 +469,7 @@ def test_allow_swallowed_marker_records_reason_in_report_and_terminal(pytester: 
 def test_accept_without_reason_fails_when_required_via_flag(pytester: pytest.Pytester) -> None:
     _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest(
         "--sharpit",
         "--sharpit-require-reason",
         "--sharpit-no-advisors",
@@ -493,7 +493,7 @@ def test_accept_without_reason_fails_when_required_via_ini(pytester: pytest.Pyte
         """
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest(
         "--sharpit",
         "--sharpit-no-advisors",
         "--sharpit-allow-unknown",
@@ -509,7 +509,7 @@ def test_accept_without_reason_fails_when_required_via_ini(pytester: pytest.Pyte
 def test_accept_with_reason_passes_when_reason_required(pytester: pytest.Pytester) -> None:
     _bare_project(pytester, '@pytest.mark.sharpit(allow_swallowed=True, reason="intentional fallback")')
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest(
         "--sharpit",
         "--sharpit-require-reason",
         "--sharpit-no-advisors",

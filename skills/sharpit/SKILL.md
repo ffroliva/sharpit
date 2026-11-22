@@ -297,6 +297,7 @@ Key CLI flags:
 - `--sharpit-no-advisors`: Run count gates only and skip advisor scans.
 - `--sharpit-require-app`: No application found (or several, or one without routes) makes the run `unknown`, as in
   0.3.0. Without it, the `rest-api` advisor is `SKIPPED` and a clean suite passes.
+- `--sharpit-require-reason`: Require a reason for accepted findings (`@pytest.mark.sharpit(allow_swallowed=True, reason=...)`). An accept without a reason fails the session.
 - `--sharpit-verbose` (or `-vv`): List every finding in the terminal `gate counts:`; by default only failing ones are
   listed and advisor notes below the gate are summarised in one line.
 - The terminal `swallowed exceptions:` block groups findings by `except` clause and includes a note when a test double
@@ -304,8 +305,8 @@ Key CLI flags:
 - `--sharpit-report-only`: Run every gate and write the report, but findings fail nothing. Unknown reasons still exit 1.
 - `--sharpit-baseline=PATH` / `--sharpit-write-baseline=PATH`: Compare findings with a baseline, or write one.
 
-Every flag except `--sharpit-write-baseline` also has an ini option (`sharpit_require_app`, `sharpit_verbose`,
-`sharpit_report_only`, `sharpit_baseline`, ...).
+Every flag except `--sharpit-write-baseline` also has an ini option (`sharpit_require_app`, `sharpit_require_reason`,
+`sharpit_verbose`, `sharpit_report_only`, `sharpit_baseline`, ...).
 
 ### Finding the application
 

@@ -25,6 +25,7 @@ class Finding:
     identity: str | None = None
     observed: int | None = None
     baseline_state: str | None = None
+    reason: str | None = None
 
     @property
     def fingerprint(self) -> str:
@@ -47,6 +48,7 @@ class Finding:
             "dismissed": self.dismissed,
             "observed": self.observed,
             "baselineState": self.baseline_state,
+            "reason": self.reason,
         }
 
 
