@@ -1008,3 +1008,13 @@ def test_w7_email_settings_invalid_values_fail_safe(field: str, env: str, raw: s
     s = load_settings({}, {env: raw})
     assert getattr(s, field, None) == expected
     assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
+def test_invalid_email_mask_content_fails_safe_to_masking():
+    settings = load_settings({}, {"SHARPIT_EMAIL_MASK_CONTENT": "not-a-bool"})
+    assert settings.email_mask_content is True
+
+
+def test_invalid_email_mask_content_warning():
+    settings = load_settings({}, {"SHARPIT_EMAIL_MASK_CONTENT": "not-a-bool"})
+    assert any("Ignoring invalid SHARPIT_EMAIL_MASK_CONTENT value" in warning for warning in settings.warnings)
