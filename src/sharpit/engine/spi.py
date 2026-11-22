@@ -147,7 +147,9 @@ class MiddlewareFacts:
     """One middleware on the app's own stack: its security-relevant options as fact names, never their values."""
 
     name: str  # ``module.qualname`` of the middleware class
-    flags: tuple[str, ...]  # sorted, e.g. ``any_origin``, ``credentials``, ``https_only``, ``short_secret``
+    flags: tuple[
+        str, ...
+    ]  # sorted, e.g. ``any_origin``, ``credentials``, ``https_only``, ``https_only_false``, ``short_secret``
     mount: str | None = None  # the mount path of the sub-app whose own stack holds it; None: the root app
 
 
