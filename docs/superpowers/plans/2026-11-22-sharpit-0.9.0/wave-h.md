@@ -137,7 +137,7 @@ handling.
 - [ ] **Step 3:** Implement `hostloop.py` per Interfaces. Replace the inline loop check and `future.result` in the four
       tool modules with `running_host_loop` and `wait_on_host_loop`. The pentest scan keeps its 503 refusal when there
       is no loop.
-- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/test_tools04_host_loop.py tests/engine/test_pentesting_tools.py tests/safety/test_a_database_advisor_safety.py tests/engine/collectors/mysql tests/engine/collectors/postgresql`
+- [ ] **Step 4:** Run `uv run pytest -q -n 4 tests/engine/test_tools04_host_loop.py tests/engine/test_pentesting_tools.py tests/safety/test_a_database_advisor_safety.py tests/engine/collectors/mysql tests/engine/postgresql tests/engine/collectors/database_advisor tests/fastapi/test_mysql_api.py tests/fastapi/test_postgresql_api.py tests/fastapi/test_pentesting_api.py`
       and expect PASS. `test_tool_wait_is_bounded_and_releases_scan_on_timeout` stays green unchanged.
 - [ ] **Step 5:** Commit the tests (`test: a timed-out database tool read is cancelled and releases its lock`) and
       then the code (`fix: cancel MySQL, PostgreSQL and Database advisor tool reads on a caller timeout`, closes
