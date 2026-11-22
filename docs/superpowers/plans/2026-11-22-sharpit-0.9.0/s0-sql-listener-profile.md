@@ -424,5 +424,5 @@ Inspection of BootUI `v2.5.0` (`bootui-engine/src/main/java/io/github/jdubois/bo
    - **Step 6 (Cuts 6 & 7 — `listeners.py`, `dispatch.py`, `otel.py`):** Use `context.__dict__.pop("_sharpit_start", None)` in `_pop_start`, replace `any(... for c in targets)` in `dispatch._record` with a `for` loop, and short-circuit `otel.current_trace_id()` when `trace.__dict__.get("_TRACER_PROVIDER", _MISSING) is None`.
 2. **Verify locally with `scripts/dev/profile_sql_listener.py`:**
    - Run `uv run python -m scripts.dev.profile_sql_listener --statements 20000 --runs 3` before and after to confirm the ~24% (~7 µs local) drop on both the default ring and the full ring.
-3. **Coordinator `sbx` measurement to run after S2 lands:**
+3. **sbx measurement to run after S2 lands:**
    - Run a 10-round paired and interleaved `sbx` comparison (`sbx_ab.sh 10` on `tests/fastapi/test_sql_trace_overhead.py::test_statement_overhead_budget` and `::test_statement_overhead_budget_on_a_full_ring`) against `0.9.0` base to confirm the `sbx` median drops from **47.1–47.7 µs** to **~36–38 µs** (≤ 40 µs target).
