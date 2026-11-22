@@ -80,12 +80,14 @@ def _targets(engine: object | None) -> list[SharpitContext]:
     info = REQUEST.get()
     if info is not None:
         return [c for c in contexts if c.context_id == info.context_id]
+    if len(contexts) <= 1:
+        return contexts
     held = (
         [c for c in contexts if c.capture.engine_registry is not None and c.capture.engine_registry.holds(engine)]
         if engine is not None
         else []
     )
-    return held or (contexts if len(contexts) == 1 else [])
+    return held
 
 
 def _raw_sqlite_seen() -> None:
@@ -145,11 +147,15 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
     (``sql_delivered``), before the pause and suspend filters: a paused or suspended capture still has its database."""
     if source == "sqlite3":
         _raw_sqlite_seen()
-    routed = [c for c in _targets(engine) if source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled]
-    for c in routed:
+    recording_contexts: list[SharpitContext] = []
+    for c in _targets(engine):
+        if source == "sqlite3" and not c.settings.sql_trace_sqlite3_enabled:
+            continue
         if source not in c.capture.sql_delivered:
             c.capture.sql_delivered.add(source)
-    return [c for c in routed if _records(c) and source not in c.capture.suspended_sources]
+        if _records(c) and source not in c.capture.suspended_sources:
+            recording_contexts.append(c)
+    return recording_contexts
 
 
 _SQL_KEYS = (

@@ -93,16 +93,29 @@ def category_of(sql: str) -> str:
 # --- call site ------------------------------------------------------------------------------------------------------
 
 
+def _starting_call_site_frame() -> FrameType | None:
+    try:
+        return sys._getframe(6)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    except ValueError:
+        try:
+            return sys._getframe(2)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        except ValueError:
+            return None
+
+
 def call_site(frame: FrameType | None) -> str | None:
     """The first application frame as ``module:function:line``, walking at most 64 frames; an ``AsyncSession``
     statement runs in a greenlet holding only SQLAlchemy frames, so the walk continues into its parent."""
-    current = frame if frame is not None else sys._getframe()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    greenlet_module = sys.modules.get("greenlet")
+    current = frame if frame is not None else _starting_call_site_frame()
     parent: Any = None
-    if greenlet_module is not None:
-        parent = getattr(greenlet_module.getcurrent(), "parent", None)
+    greenlet_checked = False
     for _ in range(MAX_CALL_SITE_FRAMES):
         if current is None:
+            if not greenlet_checked:
+                greenlet_module = sys.modules.get("greenlet")
+                if greenlet_module is not None:
+                    parent = getattr(greenlet_module.getcurrent(), "parent", None)
+                greenlet_checked = True
             if parent is None:
                 return None
             current, parent = parent.gr_frame, getattr(parent, "parent", None)

@@ -17,7 +17,7 @@ from sharpit.engine.sources import dispatch  # the module, not its names: dispat
 from sharpit.engine.sqla import _lock
 from sharpit.engine.sqla import connections as _connections
 from sharpit.engine.sqla import orm as _orm
-from sharpit.engine.sqla.dialect_source import engine_dialect
+from sharpit.engine.sqla.dialect_source import connection_dialect
 from sharpit.engine.sqla.orm import (
     _eager_relationship_batches,
     _lazy_seen,
@@ -133,9 +133,8 @@ def _emit(
         connection_id: str | None = hex(id(conn.connection.dbapi_connection))
     except Exception:  # noqa: BLE001 - an invalidated connection has no DBAPI connection
         connection_id = None
-    # the connection's, not the engine's: ``event_dialect`` compares the two. They are one object until a dialect is
-    # replaced, so the check proves the engine did not move, not which server answered.
-    dialect = engine_dialect(conn)
+    engine = conn.engine
+    dialect = connection_dialect(conn, engine)
     dispatch.deliver(
         dispatch.SqlEvent(
             "sqlalchemy",
@@ -148,7 +147,7 @@ def _emit(
             rowcount,
             error,
             connection_id,
-            conn.engine,
+            engine,
             Dialect.UNSUPPORTED if dialect is None else dialect,
         ),  # fmt: skip
         targets,
