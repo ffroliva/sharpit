@@ -154,9 +154,14 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> Spy:
     return recorded
 
 
-@pytest.fixture
-def ini(tmp_path: Path) -> Path:
-    return _project(tmp_path / "project")
+@pytest.fixture(scope="module")
+def ini(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _project(tmp_path_factory.mktemp("project"))
+
+
+@pytest.fixture(scope="module")
+def default_client(ini: Path) -> TestClient:
+    return _client(ini)
 
 
 def _post(client: TestClient, body: Any = None, **kwargs: Any) -> Any:
@@ -164,20 +169,18 @@ def _post(client: TestClient, body: Any = None, **kwargs: Any) -> Any:
 
 
 # ported: FlywayServiceTests.migrateRequiresConfirmation
-def test_migrate_requires_confirmation(ini: Path, spy: Spy):
-    client = _client(ini)
-    resp = _post(client, {"beanName": _name(client)})
+def test_migrate_requires_confirmation(default_client: TestClient, spy: Spy):
+    resp = _post(default_client, {"beanName": _name(default_client)})
     assert resp.status_code == 400
     assert resp.json()["status"] == "blocked"
     assert resp.json()["message"] == CONFIRM
-    assert resp.json()["beanName"] == _name(client)
+    assert resp.json()["beanName"] == _name(default_client)
     assert spy.calls == []
 
 
 @pytest.mark.parametrize("confirm", ["true", 1, "yes", [True], {"a": 1}, None, False])
-def test_migrate_confirm_must_be_json_true_exactly(ini: Path, spy: Spy, confirm: Any):
-    client = _client(ini)
-    resp = _post(client, {"beanName": _name(client), "confirm": confirm})
+def test_migrate_confirm_must_be_json_true_exactly(default_client: TestClient, spy: Spy, confirm: Any):
+    resp = _post(default_client, {"beanName": _name(default_client), "confirm": confirm})
     assert resp.status_code == 400
     assert spy.calls == []
 
@@ -195,22 +198,22 @@ def test_migrate_without_alembic_installed_is_404_unavailable(ini: Path, spy: Sp
 
 
 @pytest.mark.parametrize("name", [123, True, 1.5])
-def test_migrate_scalar_bean_name_is_not_found_not_blank(ini: Path, spy: Spy, name: Any):
-    resp = _post(_client(ini), {"beanName": name, "confirm": True})
+def test_migrate_scalar_bean_name_is_not_found_not_blank(default_client: TestClient, spy: Spy, name: Any):
+    resp = _post(default_client, {"beanName": name, "confirm": True})
     assert resp.status_code == 404
     assert spy.calls == []
 
 
 @pytest.mark.parametrize("name", [["x"], {"a": 1}])
-def test_migrate_structured_bean_name_is_400(ini: Path, spy: Spy, name: Any):
-    resp = _post(_client(ini), {"beanName": name, "confirm": True})
+def test_migrate_structured_bean_name_is_400(default_client: TestClient, spy: Spy, name: Any):
+    resp = _post(default_client, {"beanName": name, "confirm": True})
     assert resp.status_code == 400
     assert spy.calls == []
 
 
 # ported: FlywayServiceTests.migrateUnknownNameIsNotFound
-def test_migrate_unknown_name_is_not_found(ini: Path, spy: Spy):
-    resp = _post(_client(ini), {"beanName": "nope", "confirm": True})
+def test_migrate_unknown_name_is_not_found(default_client: TestClient, spy: Spy):
+    resp = _post(default_client, {"beanName": "nope", "confirm": True})
     assert resp.status_code == 404
     assert resp.json()["status"] == "unavailable"
     assert resp.json()["message"] == NO_TARGET
@@ -303,37 +306,34 @@ def test_migrate_without_alembic_config_is_not_found(tmp_path: Path, spy: Spy):
 
 
 # ported: FlywayControllerTests.migrateMapsBlockedStatusOntoResponseEntity
-def test_migrate_blocked_status_maps_onto_the_response(ini: Path, spy: Spy):
-    client = _client(ini)
-    resp = _post(client, {"beanName": _name(client)})
+def test_migrate_blocked_status_maps_onto_the_response(default_client: TestClient, spy: Spy):
+    resp = _post(default_client, {"beanName": _name(default_client)})
     assert (resp.status_code, resp.json()["status"]) == (400, "blocked")
 
 
 # ported: FlywayControllerTests.migrateMapsSuccessStatusOntoResponseEntity
-def test_migrate_success_status_maps_onto_the_response(ini: Path, spy: Spy):
-    client = _client(ini)
-    resp = _post(client, {"beanName": _name(client), "confirm": True})
+def test_migrate_success_status_maps_onto_the_response(default_client: TestClient, spy: Spy):
+    resp = _post(default_client, {"beanName": _name(default_client), "confirm": True})
     assert (resp.status_code, resp.json()["status"]) == (200, "success")
 
 
-def test_migrate_result_emits_every_key(ini: Path, spy: Spy):
-    client = _client(ini)
-    ok = _post(client, {"beanName": _name(client), "confirm": True}).json()
-    refused = _post(client, {"beanName": "nope"}).json()
+def test_migrate_result_emits_every_key(default_client: TestClient, spy: Spy):
+    ok = _post(default_client, {"beanName": _name(default_client), "confirm": True}).json()
+    refused = _post(default_client, {"beanName": "nope"}).json()
     assert list(ok) == KEYS
     assert list(refused) == KEYS
     assert (ok["schemasCleaned"], ok["schemasDropped"], ok["warnings"], ok["migrationPath"]) == ([], [], [], None)
 
 
 @pytest.mark.parametrize("raw", [b"[1]", b"not json", b'"x"'])
-def test_migrate_body_must_be_a_json_object(ini: Path, spy: Spy, raw: bytes):
-    resp = _client(ini).post(MIGRATE, content=raw, headers={"content-type": "application/json"})
+def test_migrate_body_must_be_a_json_object(default_client: TestClient, spy: Spy, raw: bytes):
+    resp = default_client.post(MIGRATE, content=raw, headers={"content-type": "application/json"})
     assert resp.status_code == 400
     assert spy.calls == []
 
 
-def test_migrate_empty_body_needs_confirmation(ini: Path, spy: Spy):
-    resp = _client(ini).post(MIGRATE)
+def test_migrate_empty_body_needs_confirmation(default_client: TestClient, spy: Spy):
+    resp = default_client.post(MIGRATE)
     assert resp.status_code == 400
     assert resp.json()["message"] == CONFIRM
     assert spy.calls == []
@@ -460,9 +460,8 @@ def test_alembic_second_call_while_running_is_409(ini: Path, monkeypatch: pytest
     assert inner[0].json()["operation"] == "alembic-migrate"
 
 
-def test_alembic_report_flags_are_real(ini: Path):
-    client = _client(ini)
-    (database,) = client.get(REPORT).json()["databases"]
+def test_alembic_report_flags_are_real(default_client: TestClient):
+    (database,) = default_client.get(REPORT).json()["databases"]
     assert database["migrateEnabled"] is True
     assert database["migrateDisabledReason"] is None
 
@@ -472,10 +471,9 @@ def test_alembic_report_flags_off_without_a_config(tmp_path: Path):
     assert client.get(REPORT).json()["databases"] == []
 
 
-def test_alembic_get_never_runs_alembic(ini: Path, spy: Spy):
-    client = _client(ini)
-    client.get(REPORT)
-    client.post("/sharpit/api/alembic/refresh")
+def test_alembic_get_never_runs_alembic(default_client: TestClient, spy: Spy):
+    default_client.get(REPORT)
+    default_client.post("/sharpit/api/alembic/refresh")
     assert spy.calls == []
 
 
@@ -494,14 +492,16 @@ def test_migrate_inactive_is_404_and_spawns_nothing(ini: Path, spy: Spy):
     assert resp.status_code == 404
 
 
-def test_migrate_foreign_host_is_refused_and_spawns_nothing(ini: Path, spy: Spy):
-    resp = _refused(ini, spy, _client, {"Host": "evil.example"})
+def test_migrate_foreign_host_is_refused_and_spawns_nothing(default_client: TestClient, spy: Spy):
+    resp = default_client.post(MIGRATE, json={"confirm": True}, headers={"Host": "evil.example"})
     assert resp.status_code == 403
+    assert spy.calls == []
 
 
-def test_migrate_cross_origin_is_refused_and_spawns_nothing(ini: Path, spy: Spy):
-    resp = _refused(ini, spy, _client, {"Origin": "http://evil.example"})
+def test_migrate_cross_origin_is_refused_and_spawns_nothing(default_client: TestClient, spy: Spy):
+    resp = default_client.post(MIGRATE, json={"confirm": True}, headers={"Origin": "http://evil.example"})
     assert resp.status_code == 403
+    assert spy.calls == []
 
 
 def test_migrate_remote_without_token_is_refused_and_spawns_nothing(ini: Path, spy: Spy):
@@ -530,9 +530,8 @@ def test_alembic_migrate_refused_panel_read_only_no_spawn(ini: Path, spy: Spy):
     assert resp.json()["reason"] == "Panel is read-only via SHARPIT_PANELS_ALEMBIC_READ_ONLY=true"
 
 
-def test_migrate_wrong_method_never_runs(ini: Path, spy: Spy):
-    client = _client(ini)
-    assert client.get(MIGRATE).status_code in (404, 405)
+def test_migrate_wrong_method_never_runs(default_client: TestClient, spy: Spy):
+    assert default_client.get(MIGRATE).status_code in (404, 405)
     assert spy.calls == []
 
 
@@ -550,7 +549,8 @@ def _tables(ini: Path) -> set[str]:
         return {r[0] for r in conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
-def test_migrate_runs_the_real_alembic_against_a_temp_sqlite(ini: Path):
+def test_migrate_runs_the_real_alembic_against_a_temp_sqlite(tmp_path: Path):
+    ini = _project(tmp_path / "real")
     client = _client(ini)
     body = {"beanName": _name(client), "confirm": True}
     first = _post(client, body)

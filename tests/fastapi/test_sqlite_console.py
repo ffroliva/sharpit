@@ -32,7 +32,7 @@ def _clean_slate() -> Iterator[None]:
     while _HANDLES:
         _HANDLES.pop().uninstall_capture()
     detach_sql_sources()
-    sqlite.detach_all()
+    sqlite.detach_all(keep_scan=True)
     sqlite3.connect = REAL_CONNECT
     dispatch.set_session_sink(None)
     sqla.detach_all()
