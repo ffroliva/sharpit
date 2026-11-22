@@ -12,6 +12,8 @@ from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.spi import HostLoopProvider
 
+_STATIC_ERROR_HEADERS = tuple(security_headers("api"))
+
 
 def _compile(template: str) -> re.Pattern[str]:
     parts = re.split(r"(\{[^}]+\})", template)
@@ -46,14 +48,20 @@ class Console:
     ) -> ConsoleResponse:
         try:
             return await self._handle(request, host_loop_provider)
-        except BadRequest as exc:
-            return self._json(400, {"error": str(exc)})
         except Exception as exc:
-            self.ctx.logger.warning("sharpit console request failed: %s", self.ctx.masker.mask_text(str(exc)))
             try:
+                if isinstance(exc, BadRequest):
+                    return self._json(400, {"error": str(exc)})
+                self.ctx.logger.warning(
+                    "sharpit console request failed: %s", self.ctx.masker.mask_text(str(exc))
+                )
                 return self._json(500, {"error": "Internal Server Error"})
             except Exception:
-                return ConsoleResponse(500, tuple(security_headers("api")), b'{"error":"Internal Server Error"}')
+                return ConsoleResponse(
+                    500,
+                    _STATIC_ERROR_HEADERS,
+                    b'{"error":"Internal Server Error"}',
+                )
 
     def _json(self, status: int, value: object, headers: tuple[tuple[str, str], ...] = ()) -> ConsoleResponse:
         return ConsoleResponse(status, tuple(headers) + tuple(security_headers("api")), json.dumps(value).encode())
@@ -62,9 +70,13 @@ class Console:
         values: dict[str, list[str]] = {}
         for key, value in request.raw_headers:
             values.setdefault(key.decode("latin-1").lower(), []).append(value.decode("latin-1"))
-        if len(values.get("host", ())) > 1:
+        if len(values.get("host", ())) > 1 or any("," in value for value in values.get("host", ())):
             return self._json(403, {"error": guard.MESSAGE_DISALLOWED_HOST})
-        if len(values.get("origin", ())) > 1 or len(values.get("sec-fetch-site", ())) > 1:
+        if (
+            len(values.get("origin", ())) > 1
+            or len(values.get("sec-fetch-site", ())) > 1
+            or any("," in value for name in ("origin", "sec-fetch-site") for value in values.get(name, ()))
+        ):
             return self._json(403, {"error": guard.MESSAGE_CROSS_SITE})
         headers = {key: ("; " if key == "cookie" else ", ").join(items) for key, items in values.items()}
         api_prefix = self.ctx.settings.api_path[len(self.ctx.settings.path) :]
