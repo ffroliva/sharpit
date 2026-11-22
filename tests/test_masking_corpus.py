@@ -721,10 +721,12 @@ def _sql_integrity_error(sa: Any, conn: Any) -> None:
             conn.execute(sa.text("insert into creds values (1, :s)"), {"s": SENTINEL})
 
 
-def _sql_positional(sa: Any, conn: Any) -> None:
-    conn.exec_driver_sql("create table if not exists creds (secret text)")
-    for p in VENDOR_PREFIXES:
-        conn.exec_driver_sql("insert into creds values (?)", (f"{p}{SENTINEL}{SENTINEL}",))
+def _sql_positional(val: str) -> Callable[[Any, Any], None]:
+    def _run(sa: Any, conn: Any) -> None:
+        conn.exec_driver_sql("create table if not exists creds (secret text)")
+        conn.exec_driver_sql("insert into creds values (?)", (val,))
+
+    return _run
 
 
 VENDOR_PREFIXES = (
@@ -756,12 +758,15 @@ SQL_CORPUS = [
     pytest.param("echo_bind_values", {}, True, _sql_bind_values, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("metadata_only_error", {"expose_values": "METADATA_ONLY", "sql_trace_capture_parameters": True},
                  False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),
-    pytest.param(
-        "positional_vendor_prefixes",
-        {"sql_trace_capture_parameters": True},
-        False,
-        _sql_positional,
-        marks=pytest.mark.needs_sqlalchemy,
+    *(
+        pytest.param(
+            f"positional_{p}",
+            {"sql_trace_capture_parameters": True},
+            False,
+            _sql_positional(f"{p}{SENTINEL}{SENTINEL}"),
+            marks=pytest.mark.needs_sqlalchemy,
+        )
+        for p in VENDOR_PREFIXES
     ),
 ]  # fmt: skip
 
@@ -795,27 +800,25 @@ def test_sql_trace_masks_statements(
         failed = next(e for e in report["entries"] if not e["success"])
         assert failed["errorMessage"] is None if "metadata" in row else "IntegrityError" in failed["errorMessage"]
     if "positional" in row:
-        insert_entries = [e for e in report["entries"] if "insert" in e["sql"]]
-        assert len(insert_entries) == len(VENDOR_PREFIXES)
-        for insert_entry in insert_entries:
-            assert insert_entry["parameters"] == [MASK]
+        insert_entry = next(e for e in report["entries"] if "insert" in e["sql"])
+        assert insert_entry["parameters"] == [MASK]
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
         assert SENTINEL not in text, (row, where)
         assert JWT not in text, (row, where)
 
 
-def test_sqlite3_source_masks_positional_secrets(tmp_path: Path) -> None:
+@pytest.mark.parametrize("prefix", VENDOR_PREFIXES)
+def test_sqlite3_source_masks_positional_secrets(tmp_path: Path, prefix: str):
     """A4: a vendor token as a positional parameter of raw ``sqlite3`` never reaches any surface."""
     app = create_app(
         show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", stream_max_seconds=0.05,
         sql_trace_capture_parameters=True,
     )  # fmt: skip
-    secrets = [f"{prefix}{SENTINEL}{SENTINEL}" for prefix in VENDOR_PREFIXES]
+    secret = f"{prefix}{SENTINEL}{SENTINEL}"
     with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
         connection = sqlite3.connect(":memory:")
         connection.execute("create table creds (secret text)")
-        for secret in secrets:
-            connection.execute("insert into creds values (?)", (secret,))
+        connection.execute("insert into creds values (?)", (secret,))
         connection.close()
         report = client.get(f"{API}/sql-trace").json()
         stream = client.get(f"{API}/sql-trace/stream").text
@@ -827,14 +830,10 @@ def test_sqlite3_source_masks_positional_secrets(tmp_path: Path) -> None:
         }
         mcp = client.post(f"{API}/mcp", json=call).text
         cli = client.post(f"{API}/cli/tools/get_sql_traces", json={}).text
-    insert_entries = [e for e in report["entries"] if "insert" in e["sql"]]
-    assert len(insert_entries) == len(VENDOR_PREFIXES)
-    for insert_entry in insert_entries:
-        assert insert_entry["parameters"] == [MASK]
+    insert_entry = next(e for e in report["entries"] if "insert" in e["sql"])
+    assert insert_entry["parameters"] == [MASK]
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli}.items():
-        assert SENTINEL not in text, where
-        for secret in secrets:
-            assert secret not in text, f"{secret} leaked into {where}"
+        assert SENTINEL not in text, (prefix, where)
 
 
 def _task_request_path(tmp_path: Path) -> str:
