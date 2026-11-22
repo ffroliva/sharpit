@@ -52,6 +52,7 @@ def sqlite3_traced(ctx: SharpitContext) -> bool:
 
 
 SQLALCHEMY, SQLITE3 = "sqlalchemy", "sqlite3"  # the two SQL sources, as ``dispatch`` names them
+NOT_WRAPPED = "No DataSource has been wrapped for tracing yet."
 # SqlCapture.NOT_RECORDED with sharpit's recorders
 NOT_RECORDED = (
     "This application's database access is not recorded: sharpit records statements through SQLAlchemy (2.0+) and"
@@ -168,6 +169,8 @@ __all__ = [
     "EngineRegistry",
     "GENERIC_BATCH",
     "MAX_STATEMENT_SITES",
+    "NOT_RECORDED",
+    "NOT_WRAPPED",
     "READ_ONLY_REFUSED",
     "SHARED_CONNECTION_REFUSED",
     "RELATIONSHIP_KEY",
