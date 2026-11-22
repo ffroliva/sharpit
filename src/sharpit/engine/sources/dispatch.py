@@ -333,6 +333,12 @@ def remove_context(ctx: SharpitContext) -> None:
         _refresh()
 
 
+def routes_context(ctx: SharpitContext) -> bool:
+    """Whether ``ctx`` is currently receiving SQL statements routed by dispatch."""
+    with _lock:
+        return ctx.context_id in _contexts
+
+
 def clear_contexts() -> None:
     with _lock:
         _contexts.clear()

@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from conftest import SideEffectGuard  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
-from sharpit.engine import sqla  # noqa: E402
+from sharpit.engine import sqla, tools  # noqa: E402
 from sharpit.engine.capture.sqltrace import (  # noqa: E402
     ENTRY_KEYS,
     GROUP_KEYS,
@@ -34,7 +34,10 @@ from sharpit.engine.capture.sqltrace import (  # noqa: E402
 )
 from sharpit.engine.masking import MASK  # noqa: E402
 from sharpit.engine.panels import panel_is_implemented  # noqa: E402
+from sharpit.engine.sqltext import Dialect  # noqa: E402
+from sharpit.engine.tools04 import sql_trace as sql_trace_tools  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
+from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
@@ -458,3 +461,129 @@ def test_a_sqlite_engine_keeps_the_generic_scan(monkeypatch: pytest.MonkeyPatch)
 
     assert "SELECT ?" in shown
     assert any("#" in sql for sql in shown)  # ``0x`` is a literal in every mode now: the ``#`` tells the scans apart
+
+
+def test_sql_trace_unavailable_when_sqlalchemy_imported_after_install_before_listeners_attach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ported: SqlTraceControllerSupportTests.unavailableWhenNoDataSourceWrappedYet
+    real_sa = sys.modules["sqlalchemy"]
+    monkeypatch.delitem(sys.modules, "sqlalchemy")
+    app = FastAPI()
+    handle = install(app, enabled="ON", sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        monkeypatch.setitem(sys.modules, "sqlalchemy", real_sa)
+        ctx = handle.context
+
+        assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
+        assert tools.sql_trace_report(ctx)["available"] is False
+        assert tools.sql_trace_report(ctx)["unavailableReason"] == sqla.NOT_WRAPPED
+        assert sql_trace_tools.insights(ctx)["available"] is False
+    finally:
+        handle.uninstall_capture()
+
+
+def test_sql_trace_unavailable_after_failed_sqlalchemy_listener_attach_even_with_registered_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_listen(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated listener failure")
+
+    engine = sa.create_engine("sqlite:///:memory:")
+    monkeypatch.setattr(sa.event, "listen", fail_listen)
+    app = FastAPI()
+    handle = install(app, enabled="ON", engines=[engine], sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        ctx = handle.context
+
+        assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
+        assert tools.sql_trace_report(ctx)["available"] is False
+        assert sql_trace_tools.insights(ctx)["available"] is False
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+
+
+def test_sql_trace_unavailable_after_failed_attach_when_hook_suspended(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_listen(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated listener failure")
+
+    engine = sa.create_engine("sqlite:///:memory:")
+    monkeypatch.setattr(sa.event, "listen", fail_listen)
+    app = FastAPI()
+    handle = install(app, enabled="ON", engines=[engine], sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        ctx = handle.context
+        assert ctx.capture.wiring is not None
+        ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+
+        assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
+        assert tools.sql_trace_report(ctx)["available"] is False
+        assert sql_trace_tools.insights(ctx)["available"] is False
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+
+
+def test_sql_trace_wrapped_when_statements_recorded_even_if_listeners_not_following() -> None:
+    app = FastAPI()
+    handle = install(app, enabled="ON", sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        ctx = handle.context
+        sqla.remove(ctx)
+        recorder = ctx.capture.sql_trace
+        assert recorder is not None
+        assert recorder.totals().statements == 0
+        assert not sqla.following_statements(ctx)
+        assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
+        assert tools.sql_trace_report(ctx)["available"] is False
+
+        recorder.record("SELECT 1", duration_ns=1, thread="main", connection_id=None, dialect=Dialect.SQLITE)
+        assert recorder.totals().statements == 1
+        assert tools.sql_trace_unavailable_reason(ctx) is None
+        assert tools.sql_trace_report(ctx)["available"] is True
+    finally:
+        handle.uninstall_capture()
+
+
+def test_sql_trace_wrapped_when_sql_delivered_sources_present() -> None:
+    app = FastAPI()
+    handle = install(app, enabled="ON", sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        ctx = handle.context
+        sqla.remove(ctx)
+        assert not ctx.capture.sql_delivered
+        assert not sqla.following_statements(ctx)
+        assert tools.sql_trace_unavailable_reason(ctx) == sqla.NOT_WRAPPED
+        assert tools.sql_trace_report(ctx)["available"] is False
+
+        ctx.capture.sql_delivered.add("sqlalchemy")
+        assert tools.sql_trace_unavailable_reason(ctx) is None
+        assert tools.sql_trace_report(ctx)["available"] is True
+    finally:
+        handle.uninstall_capture()
+
+
+def test_sql_trace_available_when_hook_suspended_after_successful_attach() -> None:
+    app = FastAPI()
+    handle = install(app, enabled="ON", sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    try:
+        ctx = handle.context
+        assert sqla.following_statements(ctx)
+        assert ctx.capture.wiring is not None
+        ctx.capture.wiring.suspend_hook(HOOK_SQLA_LISTENERS)
+
+        assert not sqla.following_statements(ctx)
+        assert sqla.SQLALCHEMY in ctx.capture.suspended_sources
+        assert tools.sql_trace_unavailable_reason(ctx) is None
+        assert tools.sql_trace_report(ctx)["available"] is True
+    finally:
+        handle.uninstall_capture()
