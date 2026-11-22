@@ -51,7 +51,6 @@ FRAGMENTS_0_8_0: list[tuple[str, str]] = [
 ]
 
 SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"
-SECTION_HEADING = SECTION_HEADING_0_7_0
 SECTION_HEADING_0_8_0 = "## 0.8.0 against BootUI 2.5.0: deviations"
 
 
