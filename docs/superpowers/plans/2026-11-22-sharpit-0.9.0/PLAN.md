@@ -321,7 +321,7 @@ every lane ── RW
 
 1. **Reference:** BootUI `v2.5.0`. BootUI has no newer tag, and the port rule reads a tag. The release after 0.9.0
    pins the next BootUI tag.
-2. **The 0.8.1 issues are fixed in this cycle** (Wave H). Whether they also ship early as a 0.8.1 patch is open.
+2. **No 0.8.1 release.** The 0.8.1 issues (#284–#288) are fixed in Wave H and ship in 0.9.0 with everything else.
 3. **The Flask console is in scope.** On #75 (2026-11-20) the console was planned only if Flask users asked for it.
    The maintainer decided on 2026-11-22 to build it in 0.9.0 under #260, now that the route model and the gate have
    shipped.
