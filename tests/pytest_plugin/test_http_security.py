@@ -114,6 +114,34 @@ def test_http_security_observer_requires_sharpit(pytester: pytest.Pytester) -> N
     assert "requires --sharpit" in stderr
 
 
+def test_http_security_ini_without_sharpit_leaves_the_run_alone(pytester: pytest.Pytester) -> None:
+    pytester.makeini("""
+        [pytest]
+        sharpit_http_security = true
+        sharpit_required_response_headers =
+            GET /a=X-A
+    """)
+    pytester.makepyfile("def test_ok():\n    assert True\n")
+
+    result = pytester.runpytest_subprocess()
+
+    assert result.ret == pytest.ExitCode.OK
+    result.assert_outcomes(passed=1)
+
+
+def test_http_security_ini_with_sharpit_and_no_advisors_is_refused(pytester: pytest.Pytester) -> None:
+    pytester.makeini("""
+        [pytest]
+        sharpit_http_security = true
+        sharpit_required_response_headers =
+            GET /a=X-A
+    """)
+
+    stderr = _refused(pytester, "--sharpit", "--sharpit-no-advisors")
+
+    assert "--sharpit-no-advisors" in stderr
+
+
 def test_http_security_expectations_conflict_with_no_advisors(pytester: pytest.Pytester) -> None:
     stderr = _refused(pytester, "--sharpit", "--sharpit-http-security", HEADER, "GET /a=X-A", "--sharpit-no-advisors")
 

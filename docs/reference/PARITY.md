@@ -204,7 +204,7 @@ the 0.7.0 lane fragments in `docs/reference/matrix-updates/` (117 entries):
 ## 0.8.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (114 entries):
+the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (116 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -322,3 +322,5 @@ the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (114 entries):
 | T1 | feature:http-security-observer | n-a | Sharpit-only pytest HTTP security observer; BootUI 2.5.0 has no equivalent per-test observation or configured endpoint expectation contract. |
 | T1 | rule:HTTP-SEC-001 | n-a | Sharpit-only rule for a configured missing response header (HIGH); no BootUI 2.5.0 counterpart. |
 | T1 | rule:HTTP-SEC-002 | n-a | Sharpit-only rule for a configured unexpected status (HIGH); no BootUI 2.5.0 counterpart. |
+| SHIPFIX | masking:matrix-session-id-names | adapted | UriMasking.maskPath keeps a ;jsessionid, ;sid or ;session matrix value unless its name matches a sensitive key; sharpit also masks jsessionid, phpsessid, session, sessionid and sid under MASKED, matching the trace and journal path masks that hide every matrix value |
+| SHIPFIX | rule:DB-SCHEMA-005 | adapted | BootUI reads the primary key backing index from JDBC index metadata; SQLAlchemy never lists it, so the primary key constraint stands in as the backing index and an ordinary unique index on exactly the primary key columns is reported |

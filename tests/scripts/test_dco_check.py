@@ -132,15 +132,30 @@ SIGNED = "fix: ok\n\nSigned-off-by: Ada Lovelace <ada@example.org>\n"
 
 
 class _Gh:
-    """A stand-in for subprocess.run that records the call and answers as `gh api` would."""
+    """A stand-in for subprocess.run that records the calls and answers as `gh api` would."""
 
-    def __init__(self, stdout: str = "[]", returncode: int = 0, stderr: str = "") -> None:
-        self.result = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
+    def __init__(
+        self,
+        stdout: str = "[]",
+        returncode: int = 0,
+        stderr: str = "",
+        *,
+        total: int | None = None,
+        compare: str = "[]",
+    ) -> None:
+        self.stdout, self.returncode, self.stderr, self.total, self.compare = stdout, returncode, stderr, total, compare
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
 
     def __call__(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append((args, kwargs))
-        return self.result
+        out = self.stdout
+        if self.returncode == 0 and "--jq" in args:
+            if args[-1] == ".commits":
+                out = self.compare
+            else:
+                total = self.total if self.total is not None else len(dco._parse_pages(self.stdout))
+                out = json.dumps({"commits": total, "base": "b" * 40, "head": "c" * 40})
+        return subprocess.CompletedProcess([], self.returncode, stdout=out, stderr=self.stderr)
 
 
 def _run_main(monkeypatch: pytest.MonkeyPatch, gh: _Gh, *, repo: str = "owner/repo", number: str = "7") -> int:
@@ -226,3 +241,57 @@ def test_main_rejects_a_malformed_environment_before_calling_gh(
     gh = _Gh()
     _run_main(monkeypatch, gh, repo=repo, number=number)
     assert gh.calls == []
+
+
+def test_main_reads_the_compare_range_when_the_commits_endpoint_is_short(monkeypatch: pytest.MonkeyPatch) -> None:
+    full = [_commit(SIGNED, sha=f"{i:040x}") for i in range(251)]
+    gh = _Gh(json.dumps(full[:250]), total=251, compare=json.dumps(full))
+    assert _run_main(monkeypatch, gh) == 0
+    assert gh.calls[-1][0][3] == f"repos/owner/repo/compare/{'b' * 40}...{'c' * 40}"
+
+
+def test_main_checks_the_commit_past_the_250th(monkeypatch: pytest.MonkeyPatch) -> None:
+    full = [_commit(SIGNED, sha=f"{i:040x}") for i in range(250)] + [_commit("fix: late\n", sha="f" * 40)]
+    assert _run_main(monkeypatch, _Gh(json.dumps(full[:250]), total=251, compare=json.dumps(full))) == 1
+
+
+def test_main_fails_closed_when_the_commits_cannot_all_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    full = [_commit(SIGNED, sha=f"{i:040x}") for i in range(250)]
+    assert _run_main(monkeypatch, _Gh(json.dumps(full), total=251, compare=json.dumps(full))) == 2
+
+
+ADA = "Signed-off-by: Ada Lovelace <ada@example.org>"
+
+
+def _remediation(sha: str, who: str = "Ada Lovelace <ada@example.org>") -> str:
+    return f"chore: dco remediation\n\nI, {who}, hereby add my Signed-off-by to this commit: {sha}\n\n{ADA}\n"
+
+
+def test_a_remediation_commit_of_the_author_clears_an_unsigned_commit() -> None:
+    bad = _commit("fix: a thing\n", sha="1" * 40)
+    fix = _commit(_remediation("1" * 40), sha="2" * 40)
+    assert _failures(bad, fix) == []
+
+
+def test_a_remediation_may_name_the_commit_by_a_short_sha() -> None:
+    bad = _commit("fix: a thing\n", sha="1234567" + "0" * 33)
+    assert _failures(bad, _commit(_remediation("1234567"), sha="2" * 40)) == []
+
+
+def test_a_remediation_by_another_person_does_not_clear_the_commit() -> None:
+    bad = _commit("fix: a thing\n", sha="1" * 40)
+    fix = _commit(
+        _remediation("1" * 40, "Grace Hopper <grace@example.org>").replace(
+            ADA, "Signed-off-by: Grace Hopper <grace@example.org>"
+        ),
+        sha="2" * 40,
+        name="Grace Hopper",
+        email="grace@example.org",
+    )
+    assert _failures(bad, fix) == [("1" * 40, MISSING)]
+
+
+def test_an_unsigned_remediation_commit_clears_nothing() -> None:
+    bad = _commit("fix: a thing\n", sha="1" * 40)
+    fix = _commit(_remediation("1" * 40).replace(ADA, ""), sha="2" * 40)
+    assert _failures(bad, fix) == [("1" * 40, MISSING), ("2" * 40, MISSING)]
