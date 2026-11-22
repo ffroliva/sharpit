@@ -8,35 +8,38 @@ from tests.console_corpus import assert_corpus_match, build_app, get_routes, iso
 CORPUS = Path(__file__).parents[1] / "fixtures" / "console_corpus" / "panels_get.json"
 
 DEFERRED = (
-    ("/api/activity/request/{id}", "param"),
-    ("/api/ai/chats/{spanId}", "param"),
-    ("/api/architecture/rules/{rule_id}/violations", "param"),
-    ("/api/claude-code/sessions/{id}", "param"),
-    ("/api/claude-code/sessions/{id}/events", "param"),
-    ("/api/claude-code/sessions/{id}/events/{eventId}/raw", "file"),
-    ("/api/activity/stream", "stream"),
-    ("/api/claude-code/stream", "stream"),
-    ("/api/copilot/sessions/{id}", "param"),
-    ("/api/copilot/sessions/{id}/events", "param"),
-    ("/api/copilot/sessions/{id}/events/{eventId}/raw", "file"),
-    ("/api/copilot/stream", "stream"),
-    ("/api/code-paths/probes/{id}", "param"),
-    ("/api/code-paths/requests/{id}", "param"),
-    ("/api/data/repositories/{name:path}", "param"),
-    ("/api/database-advisor/rules/{rule_id}/violations", "param"),
-    ("/api/database-connection-pools/pools/{name:path}/snapshot", "param"),
-    ("/api/email/{id}", "param"),
-    ("/api/email/{id}/eml", "file"),
-    ("/api/exceptions/stream", "stream"),
-    ("/api/exceptions/{id}", "param"),
-    ("/api/fastapi/rules/{rule_id}/violations", "param"),
-    ("/api/log-tail/stream", "stream"),
-    ("/api/rest-api/rules/{rule_id}/violations", "param"),
-    ("/api/security-logs/stream", "stream"),
-    ("/api/security/rules/{rule_id}/violations", "param"),
-    ("/api/sql-trace/stream", "stream"),
-    ("/api/traces/{id}", "param"),
-    ("/api/transactions/stream", "stream"),
+    ("/api/activity/request/{id}", "requires a concrete recorded request id"),
+    ("/api/ai/chats/{spanId}", "requires a concrete recorded span id"),
+    ("/api/architecture/rules/{rule_id}/violations", "requires a concrete recorded rule id"),
+    ("/api/claude-code/sessions/{id}", "requires a concrete path parameter value"),
+    ("/api/claude-code/sessions/{id}/events", "requires a concrete path parameter value"),
+    (
+        "/api/claude-code/sessions/{id}/events/{eventId}/raw",
+        "file response coverage is deferred to a dedicated fixture",
+    ),
+    ("/api/activity/stream", "server-sent events are covered by F1b"),
+    ("/api/claude-code/stream", "server-sent events are covered by F1b"),
+    ("/api/copilot/sessions/{id}", "requires a concrete path parameter value"),
+    ("/api/copilot/sessions/{id}/events", "requires a concrete path parameter value"),
+    ("/api/copilot/sessions/{id}/events/{eventId}/raw", "file response coverage is deferred to a dedicated fixture"),
+    ("/api/copilot/stream", "server-sent events are covered by F1b"),
+    ("/api/code-paths/probes/{id}", "requires a concrete path parameter value"),
+    ("/api/code-paths/requests/{id}", "requires a concrete path parameter value"),
+    ("/api/data/repositories/{name:path}", "requires a concrete path parameter value"),
+    ("/api/database-advisor/rules/{rule_id}/violations", "requires a concrete path parameter value"),
+    ("/api/database-connection-pools/pools/{name:path}/snapshot", "requires a concrete path parameter value"),
+    ("/api/email/{id}", "requires a concrete path parameter value"),
+    ("/api/email/{id}/eml", "file response coverage is deferred to a dedicated fixture"),
+    ("/api/exceptions/stream", "server-sent events are covered by F1b"),
+    ("/api/exceptions/{id}", "requires a concrete path parameter value"),
+    ("/api/fastapi/rules/{rule_id}/violations", "requires a concrete path parameter value"),
+    ("/api/log-tail/stream", "server-sent events are covered by F1b"),
+    ("/api/rest-api/rules/{rule_id}/violations", "requires a concrete path parameter value"),
+    ("/api/security-logs/stream", "server-sent events are covered by F1b"),
+    ("/api/security/rules/{rule_id}/violations", "requires a concrete path parameter value"),
+    ("/api/sql-trace/stream", "server-sent events are covered by F1b"),
+    ("/api/traces/{id}", "requires a concrete path parameter value"),
+    ("/api/transactions/stream", "server-sent events are covered by F1b"),
 )
 _DEFERRED_PATHS = {path for path, _reason in DEFERRED}
 
@@ -44,7 +47,16 @@ _DEFERRED_PATHS = {path for path, _reason in DEFERRED}
 def test_get_corpus_covers_each_non_deferred_get_route(no_side_effects) -> None:
     state_dir = str(no_side_effects.state_dir)
     with isolated_environment(state_dir):
-        assert set(os.environ) <= {"HOME", "USERPROFILE", "TMP", "TEMP", "SYSTEMROOT", "WINDIR", "PATH"}
+        assert set(os.environ) <= {
+            "HOME",
+            "USERPROFILE",
+            "TMP",
+            "TEMP",
+            "SYSTEMROOT",
+            "WINDIR",
+            "PATH",
+            "SHARPIT_TEST_API_TOKEN",
+        }
         _assert_get_corpus(no_side_effects)
 
 
@@ -59,7 +71,7 @@ def _assert_get_corpus(no_side_effects) -> None:
     assert set(corpus) == expected_paths
     assert deferred_paths == _DEFERRED_PATHS
     assert get_paths == set(corpus) | deferred_paths
-    assert all(len(reason.split()) == 1 for _path, reason in DEFERRED)
+    assert all(len(reason.split()) > 1 for _path, reason in DEFERRED)
 
     for path in sorted(expected_paths):
         app = build_app(state_dir=state_dir)

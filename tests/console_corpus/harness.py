@@ -39,13 +39,17 @@ def build_app(**install_kwargs: Any) -> FastAPI:
 
 @contextmanager
 def isolated_environment(temp_dir: str) -> Iterator[None]:
-    """Keep corpus responses clear of host environment values and retain the Windows runtime base paths."""
-    system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
-    environment = {"HOME": temp_dir, "USERPROFILE": temp_dir, "TMP": temp_dir, "TEMP": temp_dir}
+    """Keep corpus responses independent of host environment values."""
+    environment = {
+        "HOME": temp_dir,
+        "USERPROFILE": temp_dir,
+        "TMP": temp_dir,
+        "TEMP": temp_dir,
+        "SHARPIT_TEST_API_TOKEN": "s3cr3t-value",
+    }
     if os.name == "nt":
-        environment.update(
-            {"SystemRoot": system_root, "WINDIR": system_root, "PATH": str(Path(system_root) / "System32")}
-        )
+        # Python and Windows APIs require these base variables; their values are rooted in the isolated temp dir.
+        environment.update({"SystemRoot": temp_dir, "WINDIR": temp_dir, "PATH": ""})
     with patch.dict(os.environ, environment, clear=True):
         from sharpit.engine.collectors.config import config_report
 
@@ -55,7 +59,7 @@ def isolated_environment(temp_dir: str) -> Iterator[None]:
 
 
 def get_routes(app: FastAPI) -> list[tuple[str, str]]:
-    """Return mounted API route methods and path templates from Starlette's live route table."""
+    """Return every mounted console route method and path template."""
     mount = next(
         (route for route in app.routes if isinstance(route, Mount) and route.path == "/sharpit"),
         None,
@@ -64,10 +68,7 @@ def get_routes(app: FastAPI) -> list[tuple[str, str]]:
         return []
     routes = getattr(mount.app, "routes", ())
     return sorted(
-        (method, route.path)
-        for route in routes
-        if hasattr(route, "path") and route.path.startswith("/api")
-        for method in getattr(route, "methods", ())
+        (method, route.path) for route in routes if hasattr(route, "path") for method in getattr(route, "methods", ())
     )
 
 
@@ -77,12 +78,10 @@ def record(
     path: str,
     headers: list[tuple[str, str]] | dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Record a response's status, stable transport headers, and decoded body."""
+    """Record a response's status, non-volatile headers, and decoded body."""
     response = client.request(method, path, headers=headers)
     selected_headers = {
-        name: value
-        for name, value in response.headers.items()
-        if name.lower() in _CONTENT_HEADERS or name.lower() in _SECURITY_HEADERS
+        name: value for name, value in response.headers.items() if name.lower() not in _VOLATILE_HEADERS
     }
     try:
         body: Any = response.json()
@@ -95,15 +94,5 @@ def assert_corpus_match(actual: Any, expected: Any, context: str = "") -> None:
     assert actual == expected, context
 
 
-_SECURITY_HEADERS = frozenset(
-    {
-        "content-security-policy",
-        "permissions-policy",
-        "pragma",
-        "cache-control",
-        "referrer-policy",
-        "x-content-type-options",
-        "x-frame-options",
-    }
-)
-_CONTENT_HEADERS = frozenset({"content-type", "content-encoding", "content-disposition", "content-language"})
+# These values vary by clock, server implementation, or response body length.
+_VOLATILE_HEADERS = frozenset({"date", "server", "content-length"})

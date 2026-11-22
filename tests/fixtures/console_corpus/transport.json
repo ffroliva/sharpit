@@ -138,20 +138,6 @@
     },
     "status": 404
   },
-  "index_active": {
-    "body": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <meta name=\"color-scheme\" content=\"light dark\" />\n    <title>sharpit</title>\n    <script type=\"module\" crossorigin src=\"./assets/index-v0ytabFJ.js\"></script>\n    <link rel=\"stylesheet\" crossorigin href=\"./assets/index-pfmFdM9Q.css\">\n  </head>\n  <body>\n    <div id=\"app\"></div>\n  </body>\n</html>\n",
-    "headers": {
-      "cache-control": "no-cache",
-      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
-      "content-type": "text/html; charset=utf-8",
-      "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-      "pragma": "no-cache",
-      "referrer-policy": "strict-origin-when-cross-origin",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY"
-    },
-    "status": 200
-  },
   "panel_disabled": {
     "body": {
       "error": "sharpit panel access denied",
@@ -213,6 +199,7 @@
       "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
       "pragma": "no-cache",
       "referrer-policy": "strict-origin-when-cross-origin",
+      "www-authenticate": "Bearer realm=\"sharpit\"",
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY"
     },
@@ -229,6 +216,7 @@
       "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
       "pragma": "no-cache",
       "referrer-policy": "strict-origin-when-cross-origin",
+      "www-authenticate": "Bearer realm=\"sharpit\"",
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY"
     },

@@ -28,8 +28,17 @@ def test_corpus_comparison_detects_a_changed_response_header(monkeypatch: pytest
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             actual = record(client, "GET", "/sharpit/")
 
-    expected = _transport("index_active")
+    expected = _transport("security_headers")
     assert actual["headers"]["x-frame-options"] == "SAMEORIGIN"
+    assert {
+        "content-security-policy",
+        "permissions-policy",
+        "pragma",
+        "cache-control",
+        "referrer-policy",
+        "x-content-type-options",
+        "x-frame-options",
+    } <= set(expected["headers"])
     with pytest.raises(AssertionError):
         assert_corpus_match(actual, expected)
 
@@ -77,3 +86,59 @@ def test_corpus_comparison_detects_a_changed_panel_body_field(monkeypatch: pytes
     assert actual["body"]["platform"] == "flask"
     with pytest.raises(AssertionError):
         assert_corpus_match(actual, expected)
+
+
+def test_normaliser_keeps_structure_and_stable_values() -> None:
+    payload = {
+        "latencySampleCount": 7,
+        "maxDurationSeconds": 9,
+        "pinnedDurationMicros": 11,
+        "heapDumpEnabled": True,
+        "exemplarRequestIds": ["request-12345678", "request-87654321"],
+        "threads": {"items": [{"id": "thread-12345678", "name": "worker"}]},
+        "tasks": {"items": ["task-a", "task-b"]},
+        "stateCounts": {"running": 3},
+        "deadlockedThreadIds": ["thread-12345678"],
+        "page": 4,
+        "startupTimeMillis": None,
+    }
+    expected = normalise(payload)
+    mutations = []
+    removed = dict(payload)
+    removed.pop("latencySampleCount")
+    mutations.append(removed)
+    shrunk = dict(payload)
+    shrunk["exemplarRequestIds"] = payload["exemplarRequestIds"][:1]
+    mutations.append(shrunk)
+    flipped = dict(payload)
+    flipped["heapDumpEnabled"] = False
+    mutations.append(flipped)
+    changed = dict(payload)
+    changed["latencySampleCount"] = 8
+    mutations.append(changed)
+    for mutated in mutations:
+        assert normalise(mutated) != expected
+
+
+def test_corpus_contains_masked_config_secret_and_rejects_identity_masker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from sharpit.engine.masking import Masker
+
+    with isolated_environment(str(tmp_path)):
+        app = build_app(state_dir=str(tmp_path))
+        with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+            actual = record(client, "GET", "/sharpit/api/config")
+    expected = json.loads(GET_CORPUS.read_text(encoding="utf-8"))["/api/config"]
+    assert "s3cr3t-value" not in json.dumps(expected)
+    assert "******" in json.dumps(expected)
+    assert_corpus_match(normalise(actual), expected)
+
+    monkeypatch.setattr(Masker, "mask", lambda self, name, value: (value, False))
+    with isolated_environment(str(tmp_path)):
+        app = build_app(state_dir=str(tmp_path))
+        with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+            unmasked = normalise(record(client, "GET", "/sharpit/api/config"))
+    assert "s3cr3t-value" in json.dumps(unmasked)
+    with pytest.raises(AssertionError):
+        assert_corpus_match(unmasked, expected)

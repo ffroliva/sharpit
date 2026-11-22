@@ -58,5 +58,4 @@ TRANSPORT_CASES: tuple[dict[str, Any], ...] = (
         "install": {"read_only": True},
     },
     {"id": "security_headers", "path": "/sharpit/"},
-    {"id": "index_active", "path": "/sharpit/"},
 )
