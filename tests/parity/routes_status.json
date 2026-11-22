@@ -1,11 +1,11 @@
 {
-  "fixture": "tests/fixtures/bootui/2.3.0",
+  "fixture": "tests/fixtures/bootui/2.5.0",
   "counts": {
     "matched": 5,
     "partial": 28,
-    "missing": 32,
-    "n-a": 31,
-    "total": 96
+    "missing": 23,
+    "n-a": 41,
+    "total": 97
   },
   "routes": [
     {
@@ -21,6 +21,13 @@
       "route": "/sharpit/api/activity/journal",
       "status": "partial",
       "difference": "activity/journal.captured.json parity: oldestRetainedAt: null in payload, golden has number; not listed in nullable.json; recorded.connection: missing from payload; recorded.gc: missing from payload; recorded.lifecycle: missing from payload; recorded.log: missing from payload; recorded.sql: missing from payload; recorded.transaction: missing from payload"
+    },
+    {
+      "golden": "activity/request-journal.captured.json",
+      "panel": "activity",
+      "route": "/sharpit/api/activity/request/{id}/journal",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/activity/request/{id}/journal (HTTP 404)"
     },
     {
       "golden": "activity/resources.captured.json",
@@ -159,8 +166,8 @@
       "golden": "conditions/captured.json",
       "panel": "conditions",
       "route": "/sharpit/api/conditions",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/conditions (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: Spring/Quarkus conditional bean evaluation has no Python counterpart"
     },
     {
       "golden": "config/captured.json",
@@ -180,8 +187,8 @@
       "golden": "crac/captured.json",
       "panel": "crac",
       "route": "/sharpit/api/crac",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/crac (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: CRaC (Coordinated Restore at Checkpoint) checkpoints have no Python counterpart"
     },
     {
       "golden": "data/repositories.captured.json",
@@ -215,15 +222,15 @@
       "golden": "dev-services/captured.json",
       "panel": "dev-services",
       "route": "/sharpit/api/dev-services",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/dev-services (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: Quarkus Dev Services container orchestration has no Python counterpart"
     },
     {
       "golden": "devtools/captured.json",
       "panel": "devtools",
       "route": "/sharpit/api/devtools",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/devtools (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: Spring Boot DevTools restart and live-reload have no Python counterpart"
     },
     {
       "golden": "dismissed-findings/captured.json",
@@ -313,22 +320,22 @@
       "golden": "graalvm/captured.json",
       "panel": "graalvm",
       "route": "/sharpit/api/graalvm",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/graalvm (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: GraalVM native image analysis has no Python counterpart"
     },
     {
       "golden": "graalvm/metadata.captured.json",
       "panel": "graalvm",
       "route": "/sharpit/api/graalvm/metadata",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/graalvm/metadata (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: GraalVM native image reachability metadata has no Python counterpart"
     },
     {
       "golden": "graalvm/scan-progress.captured.json",
       "panel": "graalvm",
       "route": "/sharpit/api/graalvm/scan-progress",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/graalvm/scan-progress (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: GraalVM native image scan progress has no Python counterpart"
     },
     {
       "golden": "health/captured.json",
@@ -341,8 +348,8 @@
       "golden": "heap-dump/captured.json",
       "panel": "heap-dump",
       "route": "/sharpit/api/heap-dump",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/heap-dump (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: HotSpot JVM heap dump generation has no Python counterpart"
     },
     {
       "golden": "http-exchanges/captured.json",
@@ -376,8 +383,8 @@
       "golden": "jvm-tuning/captured.json",
       "panel": "jvm-tuning",
       "route": "/sharpit/api/jvm-tuning",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/jvm-tuning (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: JVM runtime flags and garbage collection tuning have no Python counterpart"
     },
     {
       "golden": "kafka/captured.json",
@@ -390,8 +397,8 @@
       "golden": "liquibase/changesets.captured.json",
       "panel": "liquibase",
       "route": "/sharpit/api/liquibase/changesets",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/liquibase/changesets (HTTP 404)"
+      "status": "n-a",
+      "difference": "JVM-only: Liquibase migration engine has no Python counterpart"
     },
     {
       "golden": "live-memory/captured.json",
