@@ -33,4 +33,4 @@ sharpit enforces strict safety invariants:
   - Network vulnerability scans can be disabled via `SHARPIT_VULNERABILITIES_OSV_ENABLED=false` and `SHARPIT_VULNERABILITIES_EPSS_ENABLED=false`.
 - Whole scans have a 60-second default deadline (`SHARPIT_VULNERABILITIES_SCAN_TIMEOUT`); each network request is capped by the remaining scan time.
 - **Fails closed**: If network requests to OSV or EPSS fail or time out, the scan reports the failure gracefully without compromising security or crashing the host application.
-- **Client address**: sharpit trusts the ASGI client address. A middleware that rewrites that address and removes the forwarding header it read cannot be detected, so such middleware must not wrap a sharpit-enabled app that other hosts can reach.
+- **Client address**: The trusted-source decision rests on the ASGI client address and the request's forwarding and client-address headers; the ASGI client address must be the real peer.
