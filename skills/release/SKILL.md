@@ -97,10 +97,13 @@ git push -u origin chore/release-<version>
 
 ```bash
 uv run python scripts/ci/sonar_ratchet.py --branch chore/release-<version>
+gh api "repos/ffroliva/sharpit/code-scanning/analyses?ref=refs/heads/chore/release-<version>" --jq 'length'
 gh api "repos/ffroliva/sharpit/code-scanning/alerts?ref=refs/heads/chore/release-<version>&state=open"
 ```
 
-The expected result is zero new alerts.
+The expected result is at least one analysis for the branch and zero new alerts. An empty alert list with no analysis
+means the branch was never scanned: open the release pull request as a draft, wait for its `CodeQL` check, then read
+the alerts again.
 
 **9. Open the release pull request and merge.**
 
