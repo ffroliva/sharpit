@@ -250,7 +250,7 @@ def _crosses_internal_boundary(app_package: str | None, src_mod: str, target: st
     internal_index = next((i for i, part in enumerate(parts) if _is_internal_part(part)), None)
     if internal_index is None:
         return False
-    owner = prefix + ".".join(parts[:internal_index])
+    owner = ".".join([app_package, *parts[:internal_index]])
     return not (src_mod == owner or src_mod.startswith(f"{owner}."))
 
 
