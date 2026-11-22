@@ -361,6 +361,47 @@ class RuntimeJournal:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
         return self._accepting and (self.sources is None or source in self.sources)
 
+    def sql_cursor(self) -> tuple[int, int]:
+        """Return SQL events accepted and ring evictions at connection checkout."""
+        return self._accepted.get("sql", 0), self._evicted
+
+    def count_sql_since(
+        self,
+        obtained_ns: int,
+        request_id: str | None,
+        thread: str,
+        start_accepted: int,
+        start_evicted: int,
+    ) -> int | None:
+        """Count retained SQL journal events for a checkout, or return None when the ring lost them."""
+        with self._lock:
+            if self.sources is not None and "sql" not in self.sources:
+                return None
+            if self._evicted != start_evicted:
+                return None
+            delta = self._accepted.get("sql", 0) - start_accepted
+            if delta == 0:
+                return 0
+            if delta < 0 or delta > len(self._events):
+                return None
+            seen_sql = 0
+            matched = 0
+            for stored, _, _, _ in reversed(self._events):
+                if stored["source"] != "sql":
+                    continue
+                seen_sql += 1
+                completed_ns = stored["completedNanos"]
+                if (
+                    isinstance(completed_ns, int)
+                    and completed_ns >= obtained_ns
+                    and stored["requestId"] == request_id
+                    and stored["thread"] == thread
+                ):
+                    matched += 1
+                if seen_sql >= delta:
+                    break
+            return matched
+
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
         event). Under the lock the other writers hold. A call from a thread that already holds it (a finalizer inside a

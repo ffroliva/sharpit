@@ -50,16 +50,56 @@ UNKNOWN_STATEMENTS = -1  # BootUI defines -1 as unknown only for ``checkoutNanos
 class Checkout:
     """One connection from checkout to release."""
 
-    __slots__ = ("contexts", "epoch_ms", "obtained_ns", "pool", "request_id", "thread", "trace_id")
+    __slots__ = ("contexts", "cursors", "epoch_ms", "obtained_ns", "pool", "request_id", "thread", "trace_id")
 
     def __init__(self, contexts: list[SharpitContext], pool: object, request: RequestInfo | None) -> None:
         self.contexts = [weakref.ref(c) for c in contexts]  # a leaked connection must not keep an install alive
+        self.cursors = _cursors(contexts)
         self.pool = pool
         self.request_id = None if request is None else request.id  # not the request: a record's info outlives it
         self.epoch_ms = time.time_ns() // 1_000_000
         self.thread = threading.current_thread().name
         self.trace_id = otel.current_trace_id()
         self.obtained_ns = time.perf_counter_ns()  # last, so the clock starts after the bookkeeping above
+
+
+def _cursors(targets: list[SharpitContext]) -> dict[str, tuple[int, int, int, int]]:
+    out: dict[str, tuple[int, int, int, int]] = {}
+    for ctx in targets:
+        journal = ctx.capture.journal
+        recorder = ctx.capture.sql_trace
+        if journal is not None and recorder is not None and journal.accepts(SOURCE):
+            total, evicted = recorder.checkout_cursor()
+            sql_accepted, journal_evicted = journal.sql_cursor()
+            out[ctx.context_id] = (total, evicted, sql_accepted, journal_evicted)
+    return out
+
+
+def _count_statements(ctx: SharpitContext, state: Checkout, connection_id: str | None) -> int:
+    cursor = state.cursors.get(ctx.context_id)
+    if cursor is None:
+        return UNKNOWN_STATEMENTS
+    start_total, start_evicted, start_sql_accepted, start_journal_evicted = cursor
+    recorder = ctx.capture.sql_trace
+    journal = ctx.capture.journal
+    if recorder is None or journal is None:
+        return UNKNOWN_STATEMENTS
+    current_sql_accepted, _ = journal.sql_cursor()
+    current_total, _ = recorder.checkout_cursor()
+    sql_delta = current_sql_accepted - start_sql_accepted
+    recorder_delta = current_total - start_total
+    if not journal.accepts("sql") or sql_delta == recorder_delta:
+        count = recorder.count_for_connection(connection_id, start_total, start_evicted)
+        if count is not None:
+            return count
+    count = journal.count_sql_since(
+        state.obtained_ns,
+        state.request_id,
+        state.thread,
+        start_sql_accepted,
+        start_journal_evicted,
+    )
+    return count if count is not None else UNKNOWN_STATEMENTS
 
 
 def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
@@ -84,15 +124,16 @@ def checkin(dbapi_connection: Any, record: Any) -> None:
         if state is None or dbapi_connection is None:
             return  # an invalidated record: includes a checkout that failed after our listener, never the app's
         held = max(0, time.perf_counter_ns() - state.obtained_ns)
+        connection_id = hex(id(dbapi_connection))
         for ref in state.contexts:
             ctx = ref()
             if ctx is not None:
-                _offer(ctx, state, held)
+                _offer(ctx, state, held, connection_id)
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's release
         dispatch.routing_failed(exc)
 
 
-def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
+def _offer(ctx: SharpitContext, state: Checkout, held: int, connection_id: str) -> None:
     journal = ctx.capture.journal
     recorder = ctx.capture.sql_trace
     # another install keeps the shared listeners attached: a suspended or uninstalled capture still takes nothing
@@ -111,7 +152,7 @@ def _offer(ctx: SharpitContext, state: Checkout, held: int) -> None:
                 "failedOrSlow": recorder.slow_held(held),
                 "dataSource": registry.name_of_pool(state.pool) if registry is not None else None,
                 "waitNanos": 0,
-                "statements": UNKNOWN_STATEMENTS,
+                "statements": _count_statements(ctx, state, connection_id),
                 "checkoutNanos": state.obtained_ns,
             },
             started=state.epoch_ms if state.request_id is not None or state.trace_id is not None else 0,
