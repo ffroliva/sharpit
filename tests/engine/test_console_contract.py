@@ -342,18 +342,17 @@ def test_response_headers_keeps_other_headers_when_csp_set(no_side_effects) -> N
     assert "x-content-type-options" in header_dict
 
 
-def test_joined_sec_fetch_site_denial_is_stricter_than_adapter_today(no_side_effects) -> None:
-    """Console contract joined Sec-Fetch-Site denial is stricter than the adapter today.
+def test_joined_sec_fetch_site_is_not_denied_before_the_guard(no_side_effects) -> None:
+    """A single comma-joined Sec-Fetch-Site value is not a duplicate on ASGI (design 3.1: no ASGI comma rule).
 
-    The design specifies that joined Sec-Fetch-Site is denied as cross-site (403),
-    whereas the FastAPI adapter today does not reject comma-joined Sec-Fetch-Site and returns 200.
+    Today's FastAPI adapter lets it reach the guard, and the console must keep those bytes; comma splitting belongs to
+    the WSGI adapter, where the server folds duplicates.
     """
     no_side_effects.unblock_network()
     ctx = _context(no_side_effects)
     headers = ((b"sec-fetch-site", b"same-origin,cross-site"),)
     response = asyncio.run(Console(ctx).handle(_request(headers=headers)))
-    assert response.status == 403
-    assert _json(response)["error"] == MESSAGE_CROSS_SITE
+    assert _json(response).get("error") != MESSAGE_CROSS_SITE
 
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, config_scan=False)
