@@ -39,7 +39,7 @@ continue to use `SHARPIT_*` environment variables.
 | `--sharpit-fail-on=SEV` | `sharpit_fail_on` | `HIGH` | Minimum advisor finding severity that fails the session |
 | `--sharpit-allow-unknown` | `sharpit_allow_unknown = true` | off | Allow `unknown` run status without failing the build |
 | `--sharpit-app=MOD:ATTR` | `sharpit_app` | none | Import path to a FastAPI, Starlette or Flask app, a router or a zero-argument factory for offline advisors; an object whose routes cannot be inspected makes the advisor `UNKNOWN` |
-| `--sharpit-http-security=PATH` | `sharpit_http_security` | none | Path to JSON/YAML per-endpoint HTTP security header expectations |
+| `--sharpit-http-security` | `sharpit_http_security` | off | Observe requests sent through the `sharpit_http_observed` fixture and check them against per-route expectations (`--sharpit-required-response-header`, `--sharpit-expected-status`; ini `sharpit_required_response_headers`, `sharpit_expected_statuses`) |
 | `--sharpit-no-advisors` | `sharpit_advisors = false` | advisors on | Run count gates only and skip advisor scans |
 | `--sharpit-max-unattributed=PCT` | `sharpit_max_unattributed` | `10` | Maximum percentage of non-filtered statements allowed unattributed before run is `unknown` |
 | `--sharpit-report-only` | `sharpit_report_only = true` | off | Report findings without letting them change pytest's exit status (unknown still fails) |
@@ -52,7 +52,7 @@ Without `--sharpit-app` or an installed app, the plugin looks for FastAPI, Starl
 
 ### Per-endpoint HTTP security gate (`--sharpit-http-security`)
 
-Pass `--sharpit-http-security=PATH` to evaluate observed HTTP responses against expected security headers (such as HSTS, CSP, X-Content-Type-Options, X-Frame-Options, and Referrer-Policy) per route pattern. Responses missing configured headers fail the HTTP security gate in CI based on `--sharpit-fail-on`.
+Pass `--sharpit-http-security` and build each test client from `sharpit_http_observed(app)`. The requests sent through it are checked against the configured expectations: a response header a route must carry (`--sharpit-required-response-header 'GET /items=X-Content-Type-Options'`) and the statuses a route may answer (`--sharpit-expected-status 'GET /items/{item_id}=200,304'`), or the ini options `sharpit_required_response_headers` and `sharpit_expected_statuses`. The gate sends no request of its own. A violated expectation is a `HIGH` finding (`HTTP-SEC-001`, `HTTP-SEC-002`); an expectation with no observed exchange is `UNKNOWN`. See `docs/security-advisor-checks.md`.
 
 ## Count gates and the marker
 

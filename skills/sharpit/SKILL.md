@@ -289,7 +289,7 @@ pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-ju
 
 Key CLI flags:
 - `--sharpit-app=module:app`: Point to the ASGI or Flask app instance, router, or factory for offline advisors (e.g. `rest-api`); uninspectable objects report `UNKNOWN`.
-- `--sharpit-http-security=PATH`: Path to per-endpoint HTTP security header expectations file.
+- `--sharpit-http-security`: observe the requests tests send through the `sharpit_http_observed` fixture and check them against `--sharpit-required-response-header 'METHOD ROUTE=HEADER'` and `--sharpit-expected-status 'METHOD ROUTE=STATUS[,STATUS...]'` (or the matching ini options).
 - `--sharpit-max-queries=N`: Default per-test query budget for the `call` phase.
 - `--sharpit-fail-on=SEV`: Minimum advisor severity that fails the run (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`; default `HIGH`).
 - `--sharpit-allow-unknown`: Prevent `unknown` status from failing the session.
