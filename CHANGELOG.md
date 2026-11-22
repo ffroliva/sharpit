@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-22
+
 ### Added
 
 - Application responses include `X-Sharpit-Request-Id` by default when sharpit records the HTTP exchange. Set `SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER=false` to opt out; requests from sources that are not trusted do not receive the header (#269).
@@ -487,6 +489,7 @@ Listed in section 14 of the design spec. The main ones:
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
 [Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.7.0...HEAD
+[0.8.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
