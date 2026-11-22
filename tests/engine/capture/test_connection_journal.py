@@ -103,7 +103,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["source"] == "connection"
     assert record["requestId"] == "0123456789abcdef"
     assert record["thread"] == "MainThread"
-    assert record["statements"] == -1  # unknown: see the deviation row; counting costs every statement
+    assert record["statements"] == 2
     assert record["waitNanos"] == 0
     assert record["failedOrSlow"] is False
     assert isinstance(record["durationNanos"], int)
@@ -111,8 +111,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["checkoutNanos"] >= before
 
 
-# deviation (r5): the statement path pays nothing for the count; -1 is "unknown", as BootUI gives checkoutNanos
-def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_connection_state():
+def test_connection_journal_counts_statements_at_checkin_and_statements_keep_no_connection_state():
     handle = _install()
     with handle.engine.connect() as conn:
         fairy = conn.connection
@@ -127,7 +126,27 @@ def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_co
         conn.execute(sa.text("select 2"))
         assert state() == before  # a statement writes nothing on the connection, under any key: no per-statement count
     _use(handle.engine, 3)
-    assert [r["statements"] for r in _records(handle)] == [-1, -1]
+    assert [r["statements"] for r in _records(handle)] == [3, 3]
+
+
+# ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
+def test_connection_journal_counts_zero_statements_when_released_unused():
+    handle = _install()
+    _use(handle.engine, 0)
+
+    assert _only(handle)["statements"] == 0
+
+
+# ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
+def test_connection_journal_counts_each_concurrent_connection_separately():
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
+    handle = _install(engine=engine)
+    with handle.engine.connect() as first, handle.engine.connect() as second:
+        first.execute(sa.text("SELECT 1")).fetchall()
+        second.execute(sa.text("SELECT 1")).fetchall()
+        first.execute(sa.text("SELECT 1")).fetchall()
+
+    assert sorted(r["statements"] for r in _records(handle)) == [1, 2]
 
 
 # ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
@@ -216,6 +235,7 @@ def test_connection_journal_is_offered_while_the_panel_is_paused():
     handle.context.capture.sql_trace.recording = False
     _use(handle.engine)
     assert len(_records(handle)) == 1
+    assert _only(handle)["statements"] == 1
     assert handle.context.capture.sql_trace.report([])["totalCaptured"] == 0
 
 
