@@ -322,6 +322,11 @@ def following_connections(ctx: SharpitContext) -> bool:
         return ctx.context_id in _statement_contexts and all(armed[name] for name in POOL_EVENTS)
 
 
+def following_statements(ctx: SharpitContext) -> bool:
+    """Whether the statement listeners run for ``ctx``: SQLAlchemy statements can be recorded."""
+    return True
+
+
 def note_request_captured() -> None:
     if not _session:
         return

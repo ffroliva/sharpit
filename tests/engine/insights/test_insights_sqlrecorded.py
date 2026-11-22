@@ -267,3 +267,40 @@ def test_the_only_used_source_suspended_names_every_used_hook_not_both(handles: 
     assert not capture.recorded
     assert capture.reason == sqla.SUSPENDED_ALL
     assert "hooks are detached" not in str(capture.reason)
+
+
+def test_a_failed_sqlalchemy_listener_attach_with_an_engine_registered_reads_not_recorded(
+    handles: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _engine()
+
+    def fail_listen(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated listener failure")
+
+    monkeypatch.setattr(sa.event, "listen", fail_listen)
+    ctx = _install(handles, engines=[engine], sql_trace_sqlite3_enabled=False)
+    capture = sqlcapture.for_context(ctx)
+
+    assert not capture.recorded
+    assert capture.reason == NOT_RECORDED
+    assert _dml_check(ctx)["status"] == "UNAVAILABLE"
+
+
+def test_a_failed_listener_attach_rolls_back_partial_listeners_and_routing(
+    handles: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_listen = sa.event.listen
+
+    def fail_on_after(target: object, identifier: str, fn: object, *args: object, **kwargs: object) -> None:
+        if identifier == "after_cursor_execute":
+            raise RuntimeError("simulated partial attach failure")
+        real_listen(target, identifier, fn, *args, **kwargs)
+
+    monkeypatch.setattr(sa.event, "listen", fail_on_after)
+    ctx = _install(handles, engines=[_engine()], sql_trace_sqlite3_enabled=False)
+
+    assert not sqla.following_statements(ctx)
+    assert sqla.routed(ctx) == (False, False)
+    assert not any(sqla.attached().values())
