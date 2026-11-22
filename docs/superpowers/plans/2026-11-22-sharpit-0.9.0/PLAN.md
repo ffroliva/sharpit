@@ -89,25 +89,25 @@ Status: `[ ]` not started, `[~]` in flight, `[x]` merged.
 
 ### Wave H: housekeeping (the 0.8.1 issues, CI, flakes)
 
-- [ ] **H1 Dead code** (#284, #286). Remove `is_validation_error` (`fastapi/binding_diagnostics.py`) and the dead
+- [x] **H1 Dead code** (#284, #286). Remove `is_validation_error` (`fastapi/binding_diagnostics.py`) and the dead
       `or text == ""` clause in the found-at scan test.
-- [ ] **H2 Cancel on caller timeout** (#285). The MySQL, PostgreSQL and Database advisor tools cancel their work on a
+- [x] **H2 Cancel on caller timeout** (#285). The MySQL, PostgreSQL and Database advisor tools cancel their work on a
       caller timeout, as the pentest tool does. A red test per tool.
 - [ ] **H3 Tool calls with several event loops** (#287), *predict*. A tool call runs on the loop of the request that
       issued it, not on the last recorded loop; this covers the pentest scan and the database advisor scan. The design
       also covers a WSGI host, which has no request loop, and its test includes that case. Its loop provider is an
       input to F0.
-- [ ] **H4 Tests on production code** (#288). The two 0.8.0 tests that use a stand-in (`_Store` stub, copied
+- [x] **H4 Tests on production code** (#288). The two 0.8.0 tests that use a stand-in (`_Store` stub, copied
       `run_probe` acquire and release) exercise the production code; delete the control and re-run to prove each one bites.
-- [ ] **H5 Flakes.** `test_session_stream_sends_sessions_then_dashboard` (intermittent on Windows CI): systematic
+- [x] **H5 Flakes.** `test_session_stream_sends_sessions_then_dashboard` (intermittent on Windows CI): systematic
       debugging and a fix on the cause, never a retry or a skip.
 - [ ] **H6 Scans before the release pull request.** CodeQL runs on pull requests into `release/**`, and
       `skills/release/SKILL.md` runs Sonar and CodeQL on the ship branch before the release pull request opens. This
       is a workflow change into `main` and needs the maintainer's go.
-- [ ] **H7 Documents.** `ROADMAP.md` rewritten (0.8.0 delivered, 0.9.0 next, Flask); the live-verify skill uses the
+- [~] **H7 Documents.** `ROADMAP.md` rewritten (0.8.0 delivered, 0.9.0 next, Flask); the live-verify skill uses the
       CLI's `--url` option; the 0.8.1 milestone issues move to 0.9.0.
-- [ ] **H8 Dependency updates.** The open Dependabot pull requests are triaged and merged or closed with a reason.
-- [ ] **H9 Split `fastapi/capture.py`** (908 of the 1,000-line cap), before H3, J and F4 add to it. `CaptureWiring`
+- [~] **H8 Dependency updates.** The open Dependabot pull requests are triaged and merged or closed with a reason.
+- [x] **H9 Split `fastapi/capture.py`** (908 of the 1,000-line cap), before H3, J and F4 add to it. `CaptureWiring`
       and the exception-handler wrapping move into their own modules. It is a behaviour-preserving move: the capture
       budget, the corpus rows that cover it, and the per-file C901 pin go down or stay the same.
 
