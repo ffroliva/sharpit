@@ -21,7 +21,7 @@ from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
 MYSQL_URL = os.environ.get("SHARPIT_TEST_MYSQL_URL", "")
-PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001")
+PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-PG-006", "DB-SERVER-001")
 MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
 
 
@@ -245,3 +245,33 @@ def test_mysql_vendor_rules_on_a_leased_server() -> None:
         assert "db/sharpit_dbadv2_logs" in _targets(_check("DB-MYSQL-002", source))
     finally:
         _ddl(url, "DROP TABLE IF EXISTS sharpit_dbadv2_logs")
+
+
+def test_postgres_empty_partitioned_table_is_reported() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests.postgresEmptyPartitionedTableRuleReportsEmptyPartitionedParent
+    source = _source("postgresql", emptyPartitioned=_fact({"tbl": "empty_metrics"}))
+
+    outcome = _check("DB-PG-006", source)
+    assert _targets(outcome) == ["db/empty_metrics"]
+    assert "empty_metrics" in outcome[0][1]
+    assert "no attached partitions in pg_inherits" in outcome[0][1]
+    assert "every INSERT into it will fail" in outcome[0][1]
+
+    healthy = _source("postgresql", emptyPartitioned=_fact())
+    assert _targets(_check("DB-PG-006", healthy)) == []
+
+
+def test_postgres_empty_partitioned_table_skips_before_postgres_10() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests
+    #   .postgresEmptyPartitionedTableRuleSkipsBeforePostgres10WithoutCoverageWarning
+    pg96 = Source(
+        "pg",
+        "postgresql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"vendor": {"emptyPartitioned": _fact({"tbl": "empty_metrics"})}, "server": {"server_version": "9.6"}},
+    )
+    outcome = _check("DB-PG-006", pg96)
+    assert isinstance(outcome, str)
+    assert "PostgreSQL 10 or later" in outcome

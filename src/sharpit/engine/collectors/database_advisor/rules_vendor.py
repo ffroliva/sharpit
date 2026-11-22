@@ -9,6 +9,7 @@ most ``bounds.vendor_rows``) or the error's first line. A rule on another dialec
 
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import Callable
 from typing import Any
@@ -50,6 +51,11 @@ _PG_SQL = {
     "WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relpersistence = 'u' AND NOT EXISTS "
     "(SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') "
     "ORDER BY 1",
+    "emptyPartitioned": "SELECT c.relname AS tbl FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE n.nspname = current_schema() AND c.relkind = 'p' "
+    "AND NOT EXISTS (SELECT 1 FROM pg_inherits inh WHERE inh.inhparent = c.oid) "
+    "AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid "
+    "AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e') ORDER BY 1",
     # Read the server value, not the transaction-local timeout on the advisor's read.
     "settings": "SELECT name, reset_val AS setting FROM pg_settings WHERE name = 'idle_in_transaction_session_timeout'",
 }
@@ -261,6 +267,25 @@ def _setting(name: str, text: str) -> Callable[[Source], Outcome]:
     return check
 
 
+def _empty_partitioned_tables(source: Source) -> Outcome:
+    if source.dialect not in PG:
+        return f"This check reads the {' or '.join(PG)} catalog; datasource {source.name} is {source.dialect}."
+    server_ver = source.server.get("server_version") or source.server.get("version")
+    if server_ver:
+        with contextlib.suppress(Exception):
+            parts = [int(p) for p in re.findall(r"\d+", str(server_ver))]
+            if parts and parts[0] < 10:
+                return "Not applicable: declarative partitioning requires PostgreSQL 10 or later."
+    rows = _rows(source, PG, "emptyPartitioned")
+    if isinstance(rows, str):
+        return rows
+    text = (
+        "partitioned table `{tbl}` has no attached partitions in pg_inherits; every INSERT into it will fail "
+        "until a partition is attached."
+    )
+    return [_hit(source, row["tbl"], text.format(**row), f"table={row['tbl']}", f"object={row['tbl']}") for row in rows]
+
+
 def _rule(rule_id: str, title: str, category: str, severity: Severity, description: str, recommendation: str,
           url: str, check: Callable[[Source], Outcome]) -> Rule:  # fmt: skip
     return Rule(RuleDefinition(rule_id, title, category, severity, description, recommendation, url), check)
@@ -302,6 +327,12 @@ RULES = (
           "If the data must be durable, ALTER TABLE ... SET LOGGED. " + _REVIEW,
           "https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-UNLOGGED",
           _listed(PG, "unlogged", "table `{tbl}` is UNLOGGED.")),
+    _rule("DB-PG-006", "PostgreSQL partitioned table has no attached partitions", "PostgreSQL", "HIGH",
+          "Detects declaratively partitioned parent tables (pg_class.relkind = 'p') with no child partitions in "
+          "pg_inherits, excluding system and extension-owned tables.",
+          "Create or attach at least one partition (or a DEFAULT partition) for the partitioned table before "
+          "inserting rows, or drop the unused partitioned parent table. " + _REVIEW,
+          "https://www.postgresql.org/docs/current/ddl-partitioning.html", _empty_partitioned_tables),
     _rule("DB-MYSQL-001", "Tables on a non-transactional storage engine", "MySQL", "MEDIUM",
           "Reviews a table on a known non-transactional engine (MyISAM, MEMORY, ARCHIVE, CSV, MERGE, Aria).",
           "Review the application's transaction requirements and the migration cost. " + _REVIEW,

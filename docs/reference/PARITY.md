@@ -328,7 +328,7 @@ the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (116 entries):
 ## 0.9.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (6 entries):
+the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (7 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -338,3 +338,4 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (6 entries):
 | M1 | RAPI-VALID-007 | n-a | Bean Validation skips nested objects without @Valid; pydantic validates nested models. |
 | M1 | RAPI-PAGE-004 | n-a | Spring Data Page serialization is specific to Spring Data. |
 | M2 | DB-SCHEMA-011 | ported | Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule. |
+| M2 | DB-PG-006 | ported | Ported from BootUI 2.5.0 PostgresEmptyPartitionedTableRule. |
