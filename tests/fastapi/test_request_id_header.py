@@ -60,6 +60,18 @@ def test_request_id_header_requires_property_panel_and_trusted_peer(monkeypatch:
     assert HEADER not in forwarded.headers
 
 
+@pytest.mark.parametrize(
+    "name",
+    [*sorted(guard._FORWARDED_HEADERS), "X-Forwarded-Host", "CF-Connecting-Foo", "Weird-Real-Client-IP"],  # pyright: ignore[reportPrivateUsage]
+)
+def test_request_id_header_is_withheld_for_every_forwarding_header_the_guard_knows(name: str) -> None:
+    app, _ = _app()
+
+    response = TestClient(app, client=LOCAL).get("/ok", headers={name: "x"})
+
+    assert HEADER not in response.headers
+
+
 def test_request_id_header_skips_disabled_per_response_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SHARPIT_HTTP_EXCHANGES_EXPOSE_REQUEST_ID_HEADER", "false")
     app, _ = _app()
