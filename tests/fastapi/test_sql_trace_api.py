@@ -466,7 +466,7 @@ def test_a_sqlite_engine_keeps_the_generic_scan(monkeypatch: pytest.MonkeyPatch)
 def test_sql_trace_unavailable_when_sqlalchemy_imported_after_install_before_listeners_attach(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # ported: SqlTraceControllerSupportTests.unavailableWhenNoDataSourceWrappedYet
+    # ported: SqlTraceInsightsServiceTests.reportsUnavailableWhenNoDataSourceHasBeenWrapped
     real_sa = sys.modules["sqlalchemy"]
     monkeypatch.delitem(sys.modules, "sqlalchemy")
     app = FastAPI()
