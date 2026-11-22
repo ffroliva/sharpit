@@ -8,6 +8,7 @@ coordinator runs them on leased servers; a skip is ``unverified``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from typing import Any
 
@@ -17,6 +18,7 @@ from sharpit.engine import sqla
 from sharpit.engine.collectors.database_advisor import rules_vendor
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqla import inspect as sqla_inspect
 from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
@@ -382,3 +384,40 @@ def test_mysql_unenforced_check_constraints_is_reported() -> None:
     old_outcome = _check("DB-MYSQL-004", old_mysql)
     assert isinstance(old_outcome, str)
     assert "MySQL 8.0.16 or later" in old_outcome
+
+
+def test_vendor_version_gates_read_dialect_server_version_info_from_inspect_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeInspector:
+        @staticmethod
+        def get_table_names() -> list[str]:
+            return []
+
+    monkeypatch.setattr(
+        sqla,
+        "sqlalchemy_module",
+        lambda: type("SA", (), {"inspect": staticmethod(lambda _c: FakeInspector())})(),
+    )
+
+    def inspected_source(dialect_name: str, version: tuple[int, ...], **vendor: dict[str, Any]) -> Source:
+        dialect = type("FakeDialect", (), {"name": dialect_name, "driver": "drv", "server_version_info": version})()
+        engine = type("FakeEngine", (), {"url": "db://localhost/app"})()
+        conn = type(
+            "FakeConn",
+            (),
+            {
+                "dialect": dialect,
+                "engine": engine,
+                "begin_nested": lambda self: contextlib.nullcontext(),
+                "exec_driver_sql": lambda self, _sql: type("Res", (), {"fetchmany": lambda self, _n: []})(),
+            },
+        )()
+        found = {**sqla_inspect.catalog(conn, CatalogBounds(), Masker("MASKED", True, None)), "vendor": vendor}
+        return Source("db", dialect_name, "drv", "AVAILABLE", None, found)
+
+    pg96 = inspected_source("postgresql", (9, 6), emptyPartitioned=_fact({"tbl": "empty_metrics"}))
+    old_server = inspected_source("mysql", (8, 0, 15), unenforcedChecks=_fact({"tbl": "orders", "name": "chk"}))
+
+    assert _check("DB-PG-006", pg96) == "Not applicable: declarative partitioning requires PostgreSQL 10 or later."
+    assert _check("DB-MYSQL-004", old_server) == "Not applicable: check constraints require MySQL 8.0.16 or later."
