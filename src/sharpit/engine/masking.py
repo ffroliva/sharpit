@@ -277,6 +277,27 @@ def _mask_segments(path: str) -> str:
     return "/".join(MASK if is_secret_value(seg) else seg for seg in path.split("/"))
 
 
+def _mask_matrix_parameter(parameter: str, every: bool) -> str:
+    name, sep, value = parameter.partition("=")
+    decoded = unquote_plus(name)
+    if not sep:
+        return MASK if every or is_sensitive_key(decoded) else parameter
+    if every or is_sensitive_key(decoded) or is_secret_value(unquote_plus(value)):
+        return f"{name}={MASK}"
+    return parameter
+
+
+def _mask_segment_matrix(segment: str, every: bool) -> str:
+    """Mask the ``&``/``;``-separated parameters after a segment's first ``;``, keeping its name and separators."""
+    head, sep, rest = segment.partition(";")
+    if not sep:
+        return segment
+    parts = re.split("([&;])", rest)  # the separators stay in the list, so they survive the join
+    return (
+        head + sep + "".join(part if part in ("", "&", ";") else _mask_matrix_parameter(part, every) for part in parts)
+    )
+
+
 def _mask_pairs(pattern: re.Pattern[str], masked: str, tracked: Tracked, value: re.Pattern[str] | None = None) -> None:
     """Mask the value of each sensitive key in ``tracked``, to the end of its line, or to the end of ``value`` there.
 
@@ -582,6 +603,22 @@ class Masker:
         if self._exposure is Exposure.FULL or not self._mask_secrets:
             return path
         return _mask_segments(path)
+
+    def mask_request_path(self, path: str) -> str:
+        """``mask_path`` plus the matrix parameters of a URL request path (BootUI ``UriMasking.maskPath``).
+
+        A ``;name=value`` parameter is masked when its name is sensitive or its value is secret-shaped; a bare sensitive
+        ``;name`` is masked whole. Segment names stay visible. Under METADATA_ONLY every matrix value is masked
+        (stricter than BootUI), with secret masking on or off; under MASKED only with secret masking on; FULL is
+        untouched. Only for request paths: text and file patterns use ``mask_path``.
+        """
+        path = self.mask_path(path)
+        if ";" not in path or self._exposure is Exposure.FULL:
+            return path
+        if self._exposure is Exposure.MASKED and not self._mask_secrets:
+            return path
+        every = self._exposure is Exposure.METADATA_ONLY
+        return "/".join(_mask_segment_matrix(segment, every) for segment in path.split("/"))
 
     def mask_query(self, query: str) -> str | None:
         """Mask each ``name=value`` pair of a raw query string by name and by value; the raw name is kept.

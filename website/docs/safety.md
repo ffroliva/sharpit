@@ -1,7 +1,8 @@
 # Safety model
 
-- **Local only.** Requests must come from a loopback address with a loopback or allow-listed `Host`. If `Forwarded`,
-  `X-Forwarded-For` or `X-Real-IP` is present and no trusted proxy is configured, the caller counts as remote.
+- **Local only.** Requests must come from a loopback address with a loopback or allow-listed `Host`. A request
+  carrying a forwarding or client-address header (for example `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or
+  `CF-Connecting-IP`) and no trusted proxy is configured counts as remote.
 - **Cross-site requests are refused** on every method (`Sec-Fetch-Site: cross-site`, or, on API paths, an `Origin` that differs from
   the request's full origin: scheme, host and port; other paths compare the host), even when your app has `CORSMiddleware(allow_origins=["*"])`.
 - **Remote access needs a token.** Only loopback, or the container gateway under

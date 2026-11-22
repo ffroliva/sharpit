@@ -126,8 +126,9 @@ The full list (`SHARPIT_MCP_*`, `SHARPIT_CLI_*`, `SHARPIT_VULNERABILITIES_*`, `S
 
 ## Safety model
 
-- **Local only.** Requests must come from loopback with a loopback or allow-listed `Host`. If `Forwarded`,
-  `X-Forwarded-For` or `X-Real-IP` is present and no trusted proxy is configured, the caller is treated as remote.
+- **Local only.** Requests must come from loopback with a loopback or allow-listed `Host`. A request
+  carrying a forwarding or client-address header (for example `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or
+  `CF-Connecting-IP`) and no trusted proxy is configured is treated as remote.
 - **Cross-site reads are refused** on every method (`Sec-Fetch-Site: cross-site`, or an `Origin` whose host differs),
   even if your app has `CORSMiddleware(allow_origins=["*"])`.
 - **Remote access needs a token.** With `SHARPIT_ALLOW_NON_LOCALHOST=true`, untrusted callers must send

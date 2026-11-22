@@ -771,7 +771,7 @@ class CaptureMiddleware:
                 new_request_id(),
                 self.ctx.context_id,
                 scope["method"],
-                self.ctx.masker.mask_path(scope["path"]),
+                self.ctx.masker.mask_request_path(scope["path"]),
                 None,
                 time.perf_counter_ns(),
                 None,
