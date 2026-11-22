@@ -131,7 +131,11 @@ def test_read_finished_at_the_deadline_returns_its_result(monkeypatch: pytest.Mo
                 raise FutureTimeoutError
             return "done"
 
-    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", lambda _coro, _loop: _Future())
+    def completed_future(coro, _loop):
+        coro.close()
+        return _Future()
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", completed_future)
     try:
         from sharpit.engine.tools04 import hostloop
 
