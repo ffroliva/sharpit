@@ -29,7 +29,7 @@ class ConsoleRequest:
     scheme: str
     peer_addr: str | None
     server: tuple[str, int | None] | None
-    is_probe: bool = False
+    is_probe: bool
 ```
 
 Field invariants:
@@ -199,9 +199,9 @@ class Console:
 #### Adapter-Owned Pre-Steps (Inactive 404 and WebSocket Refusal)
 
 1. **Inactive console (`not ctx.activation.enabled`, `src/sharpit/engine/activation.py:14-18`):**
-   - The inactive path stays in the adapter so the host renders its own 404 without sharpit headers, making an inactive console indistinguishable from an unmounted path (`tests/fastapi/test_install.py:49-62`, `tests/test_safety_matrix.py:669-690`).
-   - On FastAPI (ASGI), when `not activation.enabled`, `install()` mounts `SharpitMount(sharpit_settings.path, app=_not_found, name="sharpit")` (`src/sharpit/fastapi/install.py:324-331`). `_not_found` (`src/sharpit/fastapi/adapter.py:234-239`) raises Starlette `HTTPException(404)` on HTTP scopes so the host's exception handling renders the host's 404 with **no** `security_headers`.
-   - On Flask (WSGI), when `not activation.enabled`, the adapter passes every request straight through to the host `app.wsgi_app` without calling `Console.handle`, so Flask renders its own native 404 with **no** `security_headers`.
+   - The inactive path stays in the adapter. FastAPI mounts a host-rendered 404; Flask returns an adapter-owned 404 for every path under the mount. This prevents a Flask host catch-all route from answering under an inactive console mount, while preserving FastAPI's existing host exception behavior. The difference follows each adapter's routing model.
+   - On FastAPI (ASGI), when `not activation.enabled`, `install()` mounts `sharpit_mount_type(sharpit_settings.path, app=_not_found, name="sharpit")` (`src/sharpit/fastapi/install.py:324-331`). `_not_found` (`src/sharpit/fastapi/adapter.py:234-239`) raises Starlette `HTTPException(404)` on HTTP scopes so the host's exception handling renders the host's 404 with **no** `security_headers`.
+   - On Flask (WSGI), when `not activation.enabled`, the adapter returns 404 for every path under the mount and never calls the host `app.wsgi_app`; no host catch-all can answer there.
 2. **WebSocket refusal (`scope["type"] == "websocket"`):**
    - WebSocket refusal is an ASGI protocol concern and stays in the FastAPI adapter (`GuardMiddleware.__call__` at `src/sharpit/fastapi/adapter.py:111-114` when active, and `_not_found` at `src/sharpit/fastapi/adapter.py:236-238` when inactive), sending `{"type": "websocket.close", "code": 1000, "reason": ""}` before `Console.handle` is ever called.
 
@@ -239,7 +239,7 @@ For every active HTTP request under `settings.path`, `Console.handle` runs the f
 
 4. **Bare mount redirect and route matching (`src/sharpit/fastapi/adapter.py:70-81, 226-231`):**
    - If `request.path == ""` (bare `/sharpit`, matched by `SharpitMount.matches` at `src/sharpit/fastapi/adapter.py:72-80`): return `307 Temporary Redirect` with `Location` pointing to `{request.root_path}{ctx.settings.path}/` (preserving `?{raw_query}` when `request.raw_query` is non-empty, matching Starlette's slash redirect) and `security_headers("api")`.
-   - Match `(request.method, request.path)` against `ROUTES` (treating `HEAD` as matching any `GET` route and stripping the response body after dispatch).
+   - Match `(request.method, request.path)` against `ROUTES`. For WSGI, stream routes refuse `HEAD` with 405 so a suppressed body cannot leak a stream slot.
    - If `request.path` matches at least one route template for other HTTP methods only, return `405` JSON `{"error": "Method Not Allowed"}` with `Allow: <comma-joined methods, including HEAD when GET is supported>` and `security_headers("api")` (matching `_json_http_error` in `src/sharpit/fastapi/adapter.py:226-231`).
    - If no template matches `request.path`, return `404` JSON `{"error": "Not Found"}` with `security_headers("api")` (matching `_json_http_error` in `src/sharpit/fastapi/adapter.py:226-231`).
 
@@ -369,7 +369,7 @@ Choose option **(b): `asyncio` is a stated, tested runtime requirement for every
    - Today `src/sharpit/fastapi/adapter.py:245-284` constructs the route list by calling `build_routes(ctx, host_app)` (`src/sharpit/fastapi/routes/__init__.py:692-716`), splicing `dismissed_findings.build_routes(ctx)` after `/dismissed-rules` (`adapter.py:252-254`), and calling `_with_drift_routes(routes, ctx)` (`adapter.py:258-284`) so that `activity.py`, `http_exchanges.py`, and `exceptions.py` replace base routes or insert literal sub-paths (`GET /api/http-exchanges/routes`, `GET /api/activity/resources`, `GET /api/activity/journal`, `GET /api/exceptions/caught`, `GET /api/exceptions/stream`) ahead of parameterized siblings (`GET /api/exceptions/{id}`).
    - In `src/sharpit/engine/console/`, `ROUTES` places literal routes ahead of single-segment parameters (`{id}`, `{spanId}`, `{observation_id}`, `{sensor}`, `{tool}`, `{rule_id}`, `{file}`, `{name}`) and single-segment or multi-segment routes ahead of `:path` catch-alls (`{name:path}`, `{rule_id:path}`), retiring `_with_drift_routes` and the `dismissed_findings` splice in `src/sharpit/fastapi/adapter.py:245-284`.
 4. **Automated route inventory parity test:**
-   - `tests/engine/test_console_contract.py::test_routes_inventory_matches_fastapi_build_routes` calls `adapter._routes(ctx, app)` (`src/sharpit/fastapi/adapter.py:245-255`) and compares the resulting 138 Starlette `Route` entries (143 `(method, path)` pairs across `GET`, `POST`, and `DELETE`) against `ROUTES`, asserting that the set of `(method, path)` pairs is identical and that every literal sibling precedes any parameterized sibling that could shadow it.
+   - `tests/engine/test_console_contract.py::test_routes_inventory_matches_fastapi_build_routes` calls `adapter._routes(ctx, app)` (`src/sharpit/fastapi/adapter.py:245-255`) and compares the resulting 138 Starlette `Route` entries (144 `(method, path)` pairs across `GET`, `POST`, and `DELETE`) against `ROUTES`, asserting that the set of `(method, path)` pairs is identical and that every literal sibling precedes any parameterized sibling that could shadow it.
 
 **Reason:**
 - Splicing routes at runtime in `_with_drift_routes` (`src/sharpit/fastapi/adapter.py:258-284`) was a temporary lane-isolation shortcut noted in `adapter.py:250-251, 266-267`. Pre-ordering `ROUTES` and pinning it against `adapter._routes(ctx, app)` guarantees identical route resolution on FastAPI and Flask.
@@ -538,7 +538,7 @@ Every file, line range, and symbol cited across `f0-console-contract.md`, `f0-co
 | `src/sharpit/engine/capture/__init__.py:21-114` | `CaptureHooks`, `CaptureHooks.hook_failed`, `CaptureState`, `route_path`, `under` | `git grep -n "class CaptureHooks\|def hook_failed\|class CaptureState\|def route_path\|def under" src/sharpit/engine/capture/__init__.py` |
 | `src/sharpit/engine/capture/activity.py:82-386` | `unavailable_reason`, `activity_report`, `request_profile`, `journal_status_dto`, `resources_dto` | `git grep -n "def unavailable_reason\|def activity_report\|def request_profile\|def journal_status_dto\|def resources_dto" src/sharpit/engine/capture/activity.py` |
 | `src/sharpit/engine/capture/correlation.py:21-77` | `paging_of`, `RequestInfo`, `REQUEST`, `TEST`, `INTERNAL`, `new_request_id` | `git grep -n "def paging_of\|class RequestInfo\|REQUEST:\|TEST:\|INTERNAL:\|def new_request_id" src/sharpit/engine/capture/correlation.py` |
-| `src/sharpit/engine/capture/exceptions.py:217-533` | `CAUGHT_UNAVAILABLE`, `caught_report`, `ExceptionStore`, `unknown_group` | `git grep -n "CAUGHT_UNAVAILABLE\|def caught_report\|class ExceptionStore\|def unknown_group" src/sharpit/engine/capture/exceptions.py` |
+| `src/sharpit/engine/capture/exceptions.py:101,217-533` | `CAUGHT_UNAVAILABLE`, `caught_report`, `ExceptionStore`, `unknown_group` | `git grep -n "CAUGHT_UNAVAILABLE\|def caught_report\|class ExceptionStore\|def unknown_group" src/sharpit/engine/capture/exceptions.py` |
 | `src/sharpit/engine/capture/exchanges.py:80-269` | `exchange_row`, `http_event`, `unavailable_report`, `HttpExchangeBuffer` | `git grep -n "def exchange_row\|def http_event\|def unavailable_report\|class HttpExchangeBuffer" src/sharpit/engine/capture/exchanges.py` |
 | `src/sharpit/engine/capture/journal.py:239-457` | `RuntimeJournal` | `git grep -n "class RuntimeJournal" src/sharpit/engine/capture/journal.py` |
 | `src/sharpit/engine/capture/logtail.py:36-363` | `LogTailBuffer`, `log_events`, `SharpitLogHandler` | `git grep -n "class LogTailBuffer\|async def log_events\|class SharpitLogHandler" src/sharpit/engine/capture/logtail.py` |
@@ -588,7 +588,7 @@ Every file, line range, and symbol cited across `f0-console-contract.md`, `f0-co
 | `src/sharpit/engine/guard.py:24-435` | `SESSION_COOKIE`, `MESSAGE_NON_LOOPBACK_SOURCE`, `MESSAGE_FORWARDED_SOURCE`, `MESSAGE_DISALLOWED_HOST`, `MESSAGE_CROSS_SITE`, `AUTHENTICATION_REQUIRED_MESSAGE`, `PANEL_ACCESS_DENIED`, `_SAFE_METHODS`, `RequestFacts`, `Denial`, `extract_request_host`, `extract_origin_host`, `is_trusted_source`, `_session_cookie`, `_is_cross_site`, `_panel_access`, `owning_panel_access`, `decide_guard`, `detect_container_gateway` | `git grep -n "SESSION_COOKIE =\|MESSAGE_NON_LOOPBACK_SOURCE =\|MESSAGE_FORWARDED_SOURCE =\|MESSAGE_DISALLOWED_HOST =\|MESSAGE_CROSS_SITE =\|AUTHENTICATION_REQUIRED_MESSAGE =\|PANEL_ACCESS_DENIED =\|_SAFE_METHODS =\|class RequestFacts\|class Denial\|def extract_request_host\|def extract_origin_host\|def is_trusted_source\|def _session_cookie\|def _is_cross_site\|def _panel_access\|def owning_panel_access\|def decide_guard\|def detect_container_gateway" src/sharpit/engine/guard.py` |
 | `src/sharpit/engine/headers.py:7-32` | `CSP`, `PERMISSIONS_POLICY`, `NO_STORE`, `IMMUTABLE`, `NO_CACHE`, `security_headers` | `git grep -n "CSP =\|PERMISSIONS_POLICY =\|NO_STORE =\|IMMUTABLE =\|NO_CACHE =\|def security_headers" src/sharpit/engine/headers.py` |
 | `src/sharpit/engine/lowfootprint.py:11-50` | `LowFootprintService` | `git grep -n "class LowFootprintService" src/sharpit/engine/lowfootprint.py` |
-| `src/sharpit/engine/mcp.py:379-557` | `McpServer`, `McpServer.handle`, `McpServer._call_tool`, `payload_too_large` | `git grep -n "class McpServer\|def handle(\|def _call_tool(\|def payload_too_large" src/sharpit/engine/mcp.py` |
+| `src/sharpit/engine/mcp.py:324,379-557` | `McpServer`, `McpServer.handle`, `McpServer._call_tool`, `payload_too_large` | `git grep -n "class McpServer\|def handle(\|def _call_tool(\|def payload_too_large" src/sharpit/engine/mcp.py` |
 | `src/sharpit/engine/otel.py:71-128` | `SharpitSpanProcessor`, `attach`, `disarm` | `git grep -n "class SharpitSpanProcessor\|def attach\|def disarm" src/sharpit/engine/otel.py` |
 | `src/sharpit/engine/paging.py:11-43` | `BadRequest`, `parse_int_param`, `paged` | `git grep -n "class BadRequest\|def parse_int_param\|def paged" src/sharpit/engine/paging.py` |
 | `src/sharpit/engine/panels.py:13-132` | `Panel`, `PANELS`, `disabled_reason`, `read_only_reason`, `panel_for_api_path`, `panels_report` | `git grep -n "class Panel\|PANELS:\|def disabled_reason\|def read_only_reason\|def panel_for_api_path\|def panels_report" src/sharpit/engine/panels.py` |
@@ -625,3 +625,34 @@ Every file, line range, and symbol cited across `f0-console-contract.md`, `f0-co
 | `tests/fastapi/test_install.py:49-62, 415-438` | `test_inactive_404_every_path_and_method`, `test_duplicate_host_header_is_denied_as_disallowed_host`, `test_duplicate_origin_header_is_denied_as_cross_site`, `test_websocket_scope_is_closed`, `test_inactive_websocket_scope_is_closed` | `git grep -n "def test_inactive_404_every_path_and_method\|def test_duplicate_host_header_is_denied_as_disallowed_host\|def test_duplicate_origin_header_is_denied_as_cross_site\|def test_websocket_scope_is_closed\|def test_inactive_websocket_scope_is_closed" tests/fastapi/test_install.py` |
 | `tests/fastapi/test_threads_api.py:47-90` | `test_task_request_path_masked`, `test_threads_get_shape_and_filters`, `test_get_threads_mcp_no_side_effects` | `git grep -n "def test_task_request_path_masked\|def test_threads_get_shape_and_filters\|def test_get_threads_mcp_no_side_effects" tests/fastapi/test_threads_api.py` |
 | `tests/test_safety_matrix.py:647-690` | `DUPLICATES`, `test_duplicate_guard_headers_are_403`, `test_inactive_is_404_everywhere` | `git grep -n "DUPLICATES =\|def test_duplicate_guard_headers_are_403\|def test_inactive_is_404_everywhere" tests/test_safety_matrix.py` |
+
+### Revision 2: WSGI and Failure-Boundary Requirements
+
+#### Flask activation matrix
+
+The adapter enables the console in the serving process only when explicit activation enables it, or when both `WERKZEUG_RUN_MAIN=true` and process arguments identify the Werkzeug reloader / `flask run` launch. The variable alone is insufficient because subprocesses inherit it. Werkzeug's CLI sets `reload = debug` (`.venv/Lib/site-packages/flask/cli.py:984`); the reloader starts its child with `WERKZEUG_RUN_MAIN=true` (`.venv/Lib/site-packages/werkzeug/_reloader.py:274`).
+
+| Invocation | Parent result / reason | Serving child result / reason |
+|---|---|---|
+| `flask run` | Disabled: debug and reload default off. | No reloader child; disabled. |
+| `flask run --debug` | Disabled: parent is not the serving reloader child. | Enabled: reloader child signal plus Flask launcher argv; `RELOADING_DEV_SERVER`. |
+| `FLASK_DEBUG=1 flask run` | Disabled: parent is not the serving child. | Enabled: debug implies reload; valid child signal and launcher argv; `RELOADING_DEV_SERVER`. |
+| `flask run --reload` | Disabled in parent. | Enabled: child signal and Flask launcher argv; `RELOADING_DEV_SERVER`. |
+| `flask run --debug --no-reload` | Disabled: serving process has debug but reload is explicitly off; no child signal. | No serving child; disabled. |
+| `gunicorn --reload` | Disabled: Gunicorn reload is not a recognized Werkzeug/Flask reloader signal. | Reload worker remains disabled for the same reason. |
+| `gunicorn` | Disabled: no explicit activation or recognized dev-server signal. | Disabled. |
+| App subprocess inheriting `WERKZEUG_RUN_MAIN=true` | Disabled unless its argv independently identifies the Werkzeug reloader/Flask serving child; inherited env alone never activates. | Same rule; otherwise disabled. |
+
+**Proposal for maintainer — safety rule 1 wording:** “A disabled profile disables (unless `SHARPIT_ENABLED=ON`, with a warning) → `OFF` disables → `ON` enables → an enabled profile enables → a recognized reloading development server enables. For Flask, recognize the serving child only when `WERKZEUG_RUN_MAIN=true` and argv identifies the Werkzeug reloader or `flask run`; never trust the inherited variable alone. Otherwise disabled. Inactive means every path under the mount answers 404.”
+
+#### WSGI request-target validation
+
+Before any guard step, the Flask adapter returns 403 for absolute-form `RAW_URI` or `REQUEST_URI`, and returns 403 when `HTTP_HOST` is missing, blank, or whitespace. It does not synthesize an empty Host header. When neither URI variable exists, the adapter may use `PATH_INFO`; it still fails closed with 403 if the host is unknown. This validation belongs to the adapter because WSGI normalization can discard the original request-target authority before engine guard evaluation.
+
+#### Complete exception boundary
+
+The outermost adapter catch encloses all of `Console.handle`: header decoding/grouping, `decide_guard`, route matching, audit hook invocation, response-header filling, and WSGI stream `__next__` and `close`. `BadRequest` maps to 400; `AdvisorViolationError` retains its current status and message; every other `Exception` maps to masked 500 JSON with security headers and no traceback. Each adapter has one outermost catch. A contract test injects an exception at each pipeline step under `flask run --debug` semantics and asserts no Werkzeug debugger HTML is returned.
+
+#### WSGI stream capacity and HEAD cleanup
+
+Add `SharpitSettings.wsgi_stream_max` with environment name `SHARPIT_WSGI_STREAM_MAX`, parsed as a non-negative integer; invalid values fail safe to `0` and record a warning. When explicitly set, the default capacity is `4`; `0` disables WSGI streams. Capacity unknown means streaming is off and reports `WSGI_STREAM_CAPACITY_UNKNOWN`; it is never inferred as four. Validate values as integers >= 0. A WSGI stream route rejects HEAD (405) before acquiring a slot; test that HEAD returns 405 and leaves the slot count at zero.
