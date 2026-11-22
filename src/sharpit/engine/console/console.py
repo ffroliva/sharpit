@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import replace
+from urllib.parse import parse_qs
+
+from sharpit.engine import guard
+from sharpit.engine.console.types import ConsoleCall, ConsoleRequest, ConsoleResponse, RouteSpec
+from sharpit.engine.context import SharpitContext
+from sharpit.engine.headers import security_headers
+from sharpit.engine.paging import BadRequest
+from sharpit.engine.spi import HostLoopProvider
+
+
+def _compile(template: str) -> re.Pattern[str]:
+    parts = re.split(r"(\{[^}]+\})", template)
+    pattern = ""
+    for part in parts:
+        if part.startswith("{") and part.endswith("}"):
+            name = part[1:-1]
+            if name.endswith(":path"):
+                pattern += f"(?P<{name[:-5]}>.+)"
+            else:
+                pattern += f"(?P<{name}>[^/]+)"
+        else:
+            pattern += re.escape(part)
+    return re.compile("^" + pattern + "$")
+
+
+def match_route(routes: tuple[RouteSpec, ...], method: str, path: str):
+    for route in routes:
+        matched = _compile(route.template).fullmatch(path)
+        if route.method == method and matched:
+            return route, matched.groupdict()
+    return None
+
+
+class Console:
+    def __init__(self, ctx: SharpitContext, routes: tuple[RouteSpec, ...] = ()) -> None:
+        self.ctx = ctx
+        self.routes = routes
+
+    async def handle(
+        self, request: ConsoleRequest, *, host_loop_provider: HostLoopProvider | None = None
+    ) -> ConsoleResponse:
+        try:
+            return await self._handle(request, host_loop_provider)
+        except BadRequest as exc:
+            return self._json(400, {"error": str(exc)})
+        except Exception as exc:
+            self.ctx.logger.warning("sharpit console request failed: %s", self.ctx.masker.mask_text(str(exc)))
+            try:
+                return self._json(500, {"error": "Internal Server Error"})
+            except Exception:
+                return ConsoleResponse(500, tuple(security_headers("api")), b'{"error":"Internal Server Error"}')
+
+    def _json(self, status: int, value: object, headers: tuple[tuple[str, str], ...] = ()) -> ConsoleResponse:
+        return ConsoleResponse(status, tuple(headers) + tuple(security_headers("api")), json.dumps(value).encode())
+
+    async def _handle(self, request: ConsoleRequest, host_loop_provider: HostLoopProvider | None) -> ConsoleResponse:
+        values: dict[str, list[str]] = {}
+        for key, value in request.raw_headers:
+            values.setdefault(key.decode("latin-1").lower(), []).append(value.decode("latin-1"))
+        if len(values.get("host", ())) > 1:
+            return self._json(403, {"error": guard.MESSAGE_DISALLOWED_HOST})
+        if len(values.get("origin", ())) > 1 or len(values.get("sec-fetch-site", ())) > 1:
+            return self._json(403, {"error": guard.MESSAGE_CROSS_SITE})
+        headers = {key: ("; " if key == "cookie" else ", ").join(items) for key, items in values.items()}
+        api_prefix = self.ctx.settings.api_path[len(self.ctx.settings.path) :]
+        subpath = (
+            request.path[len(api_prefix) :]
+            if request.path == api_prefix or request.path.startswith(api_prefix + "/")
+            else None
+        )
+        facts = guard.RequestFacts(
+            request.method, request.peer_addr, headers, subpath, request.scheme, request.is_probe
+        )
+        settings = self.ctx.settings
+        gateway = (
+            self.ctx.lazy("gateway", guard.detect_container_gateway)
+            if settings.trust_container_gateway.upper() != "OFF"
+            else None
+        )
+        trusted = guard.is_trusted_source(facts, settings, gateway)
+        denial = guard.decide_guard(facts, settings, self.ctx.token, gateway)
+        if denial:
+            return self._json(denial.status, denial.body, denial.headers)
+        if request.path == "":
+            location = f"{request.root_path}{settings.path}/" + (
+                ("?" + request.raw_query.decode("latin-1")) if request.raw_query else ""
+            )
+            return ConsoleResponse(307, (("Location", location), *security_headers("api")), b"")
+        matched = match_route(self.routes, request.method, request.path)
+        if matched is None:
+            return self._json(404, {"error": "Not Found"})
+        route, params = matched
+        call = ConsoleCall(
+            self.ctx,
+            request,
+            headers,
+            params,
+            {k: v[-1] for k, v in parse_qs(request.raw_query.decode("latin-1")).items()},
+            trusted,
+            host_loop_provider,
+        )
+        response = route.handler(call)
+        if hasattr(response, "__await__"):
+            response = await response
+        merged = list(response.headers)
+        if not any(k.lower() == "content-security-policy" for k, _ in merged):
+            for key, value in security_headers(route.response_class):
+                if not any(existing.lower() == key.lower() for existing, _ in merged):
+                    merged.append((key, value))
+        return replace(response, headers=tuple(merged))
