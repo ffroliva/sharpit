@@ -1288,50 +1288,43 @@ def _probe_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.mark.needs_sqlalchemy
 @pytest.mark.usefixtures("_probe_env")
-def test_a_suspended_hook_stays_off_across_a_restart_and_its_siblings_keep_recording():
+@pytest.mark.parametrize("name", sorted(HOOK_NAMES))
+def test_a_suspended_hook_stays_off_across_a_restart_and_its_siblings_keep_recording(name: str):
     """Review R4: suspending one hook leaves every sibling recording, and a lifespan restart keeps it off."""
     pytest.importorskip("sqlalchemy")
     app, handle = _probe_app()
     everything = dict.fromkeys(HOOK_NAMES, True)
-    try:
-        for name in sorted(HOOK_NAMES):
-            expected = everything | dict.fromkeys({name, *RIDES_ON.get(name, ())}, False)
-            with TestClient(app) as client:
-                assert _recording(handle, client) == everything
-                _hook(handle, name).suspend()
-                assert _recording(handle, client) == expected
-            with TestClient(app) as client:  # a lifespan restart
-                assert _recording(handle, client) == expected
-                _hook(handle, name).resume()
-                assert _recording(handle, client) == everything
-    finally:
-        handle.uninstall_capture()
+    expected = everything | dict.fromkeys({name, *RIDES_ON.get(name, ())}, False)
+    with TestClient(app) as client:
+        assert _recording(handle, client) == everything
+        _hook(handle, name).suspend()
+        assert _recording(handle, client) == expected
+    with TestClient(app) as client:  # a lifespan restart
+        assert _recording(handle, client) == expected
+        _hook(handle, name).resume()
+        assert _recording(handle, client) == everything
+    handle.uninstall_capture()
 
 
 @pytest.mark.needs_sqlalchemy
 @pytest.mark.usefixtures("_probe_env")
-def test_suspending_a_hook_in_one_context_leaves_another_recording():
+@pytest.mark.parametrize("name", sorted(HOOK_NAMES))
+def test_suspending_a_hook_in_one_context_leaves_another_recording(name: str):
     """Review R4: hooks share process-wide state (root logger, sqlite3.connect, Engine listeners, the span processor);
     suspending one context's hook never silences another context."""
     pytest.importorskip("sqlalchemy")
     (first_app, first), (second_app, second) = _probe_app(), _probe_app()
     everything = dict.fromkeys(HOOK_NAMES, True)
-    try:
-        with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
-            for name in sorted(HOOK_NAMES):
-                hook = _hook(first, name)
-                hook.suspend()
-                mine = _recording(first, first_client)
-                # the middleware also feeds the security log, and an untagged request's raw sqlite3 has two candidate
-                # contexts (so none records); every other hook is independent of it
-                silenced = {name, "security-log", "sqlite-listeners"} if name == "capture-middleware" else {name}
-                assert mine == everything | dict.fromkeys(silenced, False)
-                assert _recording(second, second_client) == everything
-                hook.resume()
-                assert _recording(first, first_client) == everything
-    finally:
-        first.uninstall_capture()
-        second.uninstall_capture()
+    with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
+        _hook(first, name).suspend()
+        mine = _recording(first, first_client)
+        # the middleware also feeds the security log, and an untagged request's raw sqlite3 has two candidate
+        # contexts (so none records); every other hook is independent of it
+        silenced = {name, "security-log", "sqlite-listeners"} if name == "capture-middleware" else {name}
+        assert mine == everything | dict.fromkeys(silenced, False)
+        assert _recording(second, second_client) == everything
+    first.uninstall_capture()
+    second.uninstall_capture()
 
 
 def test_shutting_down_after_suspending_sqla_takes_the_context_out_of_dispatch():
