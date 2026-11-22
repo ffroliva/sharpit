@@ -245,34 +245,51 @@ def _fk_action_and_trigger(delete_set_null: bool, update_set_null: bool) -> tupl
     return "ON UPDATE SET NULL", "update"
 
 
+def _fk_nullability(cols_by_name: dict[str, Any], fk_cols: list[str]) -> str:
+    if any(cols_by_name.get(c, {}).get("nullable") is True for c in fk_cols):
+        return "nullable"
+    if all(cols_by_name.get(c, {}).get("nullable") is False for c in fk_cols):
+        return "not_null"
+    return "unknown"
+
+
+def _fk_set_null_hit(
+    source: Source, t: Table, fk: dict[str, Any], position: int, delete_set_null: bool, update_set_null: bool
+) -> Hit:
+    fk_cols = fk["columns"]
+    action, trigger = _fk_action_and_trigger(delete_set_null, update_set_null)
+    columns_text = (
+        f"column {fk_cols[0]} is NOT NULL"
+        if len(fk_cols) == 1
+        else f"all referencing columns [{', '.join(fk_cols)}] are NOT NULL"
+    )
+    fk_name = _fk_label(fk, position)
+    cols_repr = f"[{', '.join(fk_cols)}]"
+    text = (
+        f"{source.name}: {t['name']} foreign key {fk_name} {cols_repr} specifies {action}, but {columns_text}; "
+        f"a parent {trigger} will fail the NOT NULL constraint."
+    )
+    return _where(source, t, f": {fk_name}"), text, _identity(source, t, f"fk={fk_name}")
+
+
 def _foreign_key_set_null_on_not_null_column(source: Source) -> Outcome:
     if (reason := unreadable(source)) is not None:
         return reason
     hits: list[Hit] = []
+    unknown: str | None = None
     for t in source.tables:
         cols_by_name = {c["name"]: c for c in t["columns"]}
         for position, fk in enumerate(t["foreignKeys"]):
             delete_set_null, update_set_null = _fk_set_null_rules(fk)
-            if not delete_set_null and not update_set_null:
-                continue
             fk_cols = fk["columns"]
-            if not fk_cols or not all(cols_by_name.get(c, {}).get("nullable") is False for c in fk_cols):
+            if not fk_cols or (not delete_set_null and not update_set_null):
                 continue
-
-            action, trigger = _fk_action_and_trigger(delete_set_null, update_set_null)
-            columns_text = (
-                f"column {fk_cols[0]} is NOT NULL"
-                if len(fk_cols) == 1
-                else f"all referencing columns [{', '.join(fk_cols)}] are NOT NULL"
-            )
-            fk_name = _fk_label(fk, position)
-            cols_repr = f"[{', '.join(fk_cols)}]"
-            text = (
-                f"{source.name}: {t['name']} foreign key {fk_name} {cols_repr} specifies {action}, but {columns_text}; "
-                f"a parent {trigger} will fail the NOT NULL constraint."
-            )
-            hits.append((_where(source, t, f": {fk_name}"), text, _identity(source, t, f"fk={fk_name}")))
-    return hits
+            state = _fk_nullability(cols_by_name, fk_cols)
+            if state == "unknown":
+                unknown = unknown or f"{t['name']}: referencing column nullability is unknown."
+            elif state == "not_null":
+                hits.append(_fk_set_null_hit(source, t, fk, position, delete_set_null, update_set_null))
+    return hits if hits or unknown is None else unknown
 
 
 RULES = (
