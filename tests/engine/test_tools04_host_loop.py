@@ -12,7 +12,7 @@ from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.tools import CallContext, ToolCallError, call_tool
-from sharpit.engine.tools04 import database_advisor, mysql, postgresql
+from sharpit.engine.tools04 import database_advisor, hostloop, mysql, postgresql
 from sharpit.settings import load_settings
 
 _CASES = [
@@ -94,9 +94,11 @@ def test_timed_out_read_is_cancelled_and_releases_its_lock(
 ) -> None:
     started = threading.Event()
     never = asyncio.Event()
+    # The collectors' own lock (`ctx.lazy(f"singleflight:{OPERATION}", SingleFlight)`), not the context's shared one.
+    single = ctx.lazy(f"singleflight:{operation}", SingleFlight)
 
     async def blocking(*_args: object) -> dict[str, Any]:
-        release = ctx.single_flight.try_acquire(operation)
+        release = single.try_acquire(operation)
         assert release is not None
         try:
             started.set()
@@ -106,14 +108,18 @@ def test_timed_out_read_is_cancelled_and_releases_its_lock(
             release()
 
     monkeypatch.setattr(module, refresh, blocking)
-    monkeypatch.setattr(module, "TOOL_WAIT_TIMEOUT", 0.02, raising=False)
+    monkeypatch.setattr(module, "TOOL_WAIT_TIMEOUT", 0.2)
     with pytest.raises(Exception) as caught:
         call_tool(CallContext(ctx, {}), tool, {}, via="cli")
     assert started.wait(1)
     assert isinstance(caught.value, ToolCallError)
     assert caught.value.status == 504
     assert str(caught.value) == message
-    assert _released_within(ctx.single_flight, operation, 1.0)
+    assert _released_within(single, operation, 1.0)
+
+    with pytest.raises(ToolCallError) as again:
+        call_tool(CallContext(ctx, {}), tool, {}, via="cli")
+    assert again.value.status == 504  # a later read started (and timed out in turn), not 409 busy
 
 
 def test_read_finished_at_the_deadline_returns_its_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,8 +143,6 @@ def test_read_finished_at_the_deadline_returns_its_result(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", completed_future)
     try:
-        from sharpit.engine.tools04 import hostloop
-
         assert hostloop.wait_on_host_loop(loop, completed(), 0.01, "timed out", "unavailable") == "done"
     finally:
         loop.close()
@@ -155,8 +159,6 @@ def test_loop_closed_during_submit_answers_unavailable(monkeypatch: pytest.Monke
         raise RuntimeError("loop closed")
 
     monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", close_then_submit)
-    from sharpit.engine.tools04 import hostloop
-
     with pytest.raises(ToolCallError) as caught:
         hostloop.wait_on_host_loop(loop, pending(), 0.01, "timed out", "loop unavailable")
     assert caught.value.status == 503
