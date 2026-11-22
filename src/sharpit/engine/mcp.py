@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from sharpit import __version__
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.spi import HostLoopProvider
 from sharpit.engine.tools import (
     INTERNAL_ERROR,
     INTERNAL_ERROR_MESSAGE,
@@ -383,7 +384,13 @@ class McpServer:
         self._lock = threading.Lock()
         self.cancellations = 0
 
-    def handle(self, body: bytes, headers: Mapping[str, str], scope: Mapping[str, object]) -> _Response:
+    def handle(
+        self,
+        body: bytes,
+        headers: Mapping[str, str],
+        scope: Mapping[str, object],
+        host_loop_provider: HostLoopProvider | None = None,
+    ) -> _Response:
         """``(status, body or None for an empty 202, extra headers)``."""
         lower = {k.lower(): v for k, v in headers.items()}
         if lower.get("content-type", "").partition(";")[0].strip().lower() != "application/json":
@@ -407,7 +414,7 @@ class McpServer:
                 return 202, None, []
             envelope = _as_object(request)
             return 200, _error(None if envelope is None else envelope.get("id"), SERVER_DISABLED, DISABLED_MESSAGE), []
-        response = self._handle(request, scope)
+        response = self._handle(request, scope, host_loop_provider)
         return (202, None, []) if response is None else (200, response, [])
 
     def toggle(self, enabled: bool | None, api_path: str | None = None) -> dict[str, Any]:
@@ -440,7 +447,9 @@ class McpServer:
             "tools": infos,
         }
 
-    def _handle(self, request: object, scope: Mapping[str, object]) -> dict[str, Any] | None:
+    def _handle(
+        self, request: object, scope: Mapping[str, object], host_loop_provider: HostLoopProvider | None = None
+    ) -> dict[str, Any] | None:
         envelope = _as_object(request)
         if envelope is None:
             return _error(None, INVALID_REQUEST, "Request must be a JSON-RPC object")
@@ -457,7 +466,7 @@ class McpServer:
         if not isinstance(method, str) or not method:
             return None if notification else _error(rid, INVALID_PARAMS, "Missing 'method'")
         try:
-            response = _result(rid, self._dispatch(method, params, scope))
+            response = _result(rid, self._dispatch(method, params, scope, host_loop_provider))
         except RpcError as exc:
             response = _error(rid, exc.code, exc.message)
         except ToolCallError as exc:
@@ -477,13 +486,19 @@ class McpServer:
             return _error(rid, RESPONSE_TOO_LARGE, "MCP response exceeds configured byte limit")
         return response
 
-    def _dispatch(self, method: str, params: dict[str, object], scope: Mapping[str, object]) -> dict[str, Any]:
+    def _dispatch(
+        self,
+        method: str,
+        params: dict[str, object],
+        scope: Mapping[str, object],
+        host_loop_provider: HostLoopProvider | None = None,
+    ) -> dict[str, Any]:
         handlers: dict[str, Callable[[dict[str, object], Mapping[str, object]], dict[str, Any]]] = {
             "initialize": self._initialize,
             "ping": lambda _params, _scope: {},
             "notifications/cancelled": self._cancelled,
             "tools/list": lambda _params, _scope: {"tools": [_describe(t) for t in self.tools if t.on_mcp]},
-            "tools/call": self._call_tool,
+            "tools/call": lambda params, scope: self._call_tool(params, scope, host_loop_provider),
             "prompts/list": lambda _params, _scope: {
                 "prompts": [
                     {
@@ -521,9 +536,18 @@ class McpServer:
             self.cancellations += 1
         return {}
 
-    def _call_tool(self, params: dict[str, object], scope: Mapping[str, object]) -> dict[str, Any]:
+    def _call_tool(
+        self,
+        params: dict[str, object],
+        scope: Mapping[str, object],
+        host_loop_provider: HostLoopProvider | None = None,
+    ) -> dict[str, Any]:
         payload = call_tool(
-            CallContext(self.ctx, scope), params.get("name"), params.get("arguments", {}), via="mcp", tools=self.tools
+            CallContext(self.ctx, scope, host_loop_provider),
+            params.get("name"),
+            params.get("arguments", {}),
+            via="mcp",
+            tools=self.tools,
         )
         try:
             text = _dumps(payload)
