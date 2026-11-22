@@ -33,7 +33,7 @@ TOOL_WAIT_TIMEOUT = READ_BUDGET + 2 * STATEMENT_TIMEOUT + 5
 def _read(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
     """Tool handlers run on a worker thread: the read goes to the app's loop when it is running, else a fresh one."""
     ctx = call.ctx
-    loop = running_host_loop(ctx)
+    loop = running_host_loop(call.host_loop_provider)
     if loop is not None:
         return summary(
             wait_on_host_loop(

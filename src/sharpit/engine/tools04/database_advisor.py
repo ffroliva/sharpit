@@ -54,7 +54,7 @@ def _scan(call: CallContext, _args: dict[str, Any]) -> dict[str, Any]:
     """Tool handlers run on a worker thread: the scan goes to the app's loop when it is running, else a fresh one."""
     ctx = call.ctx
     service = database_advisor_service(ctx)
-    loop = running_host_loop(ctx)
+    loop = running_host_loop(call.host_loop_provider)
     if loop is not None:
         return wait_on_host_loop(
             loop,

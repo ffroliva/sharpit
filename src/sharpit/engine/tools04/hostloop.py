@@ -7,12 +7,12 @@ from collections.abc import Coroutine
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Any
 
-from sharpit.engine.context import SharpitContext
+from sharpit.engine.spi import HostLoopProvider
 from sharpit.engine.tools import ToolCallError
 
 
-def running_host_loop(ctx: SharpitContext) -> asyncio.AbstractEventLoop | None:
-    loop = ctx.capture.loop
+def running_host_loop(provider: HostLoopProvider | None) -> asyncio.AbstractEventLoop | None:
+    loop = provider.current_loop() if provider is not None else None
     return loop if loop is not None and loop.is_running() and not loop.is_closed() else None
 
 
