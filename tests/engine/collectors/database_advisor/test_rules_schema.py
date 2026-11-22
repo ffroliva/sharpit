@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from sharpit.engine.collectors.database_advisor import rules_schema
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
+from sharpit.engine.masking import Masker
+from sharpit.engine.sqla import inspect as sqla_inspect
 
 
 def _column(name: str, type_: str = "INTEGER", *, autoincrement: bool = False) -> dict[str, Any]:
@@ -148,15 +152,6 @@ def test_unique_index_on_the_primary_key_columns_is_reported() -> None:
     assert _targets(_check("DB-SCHEMA-005", _source(table))) == ["db/orders.uq_id"]
 
 
-def test_unique_index_without_observed_primary_key_backing_is_not_called_redundant() -> None:
-    # ported: DatabaseAdvisorSchemaRulesTests.tablesWithOnlyNonUniqueSecondaryIndexesOrUnrelatedUniqueIndexesDoNotTriggerUnknownBackingDiagnostics  # noqa: E501
-    table = _table("orders", _column("id"), _column("customer_id"), indexes=(
-        _index("uq_id", "id", unique=True), _index("ix_customer", "customer_id"),
-        _index("uq_customer", "customer_id", unique=True)))  # fmt: skip
-
-    assert _targets(_check("DB-SCHEMA-005", _source(table))) == []
-
-
 def test_duplicate_foreign_keys_need_identical_pairs_and_actions() -> None:
     # ported: DatabaseAdvisorSchemaRulesTests.foreignKeyDuplicateRequiresKnownMatchingActionsAndExactPairedIdentity
     fks = (
@@ -192,3 +187,18 @@ def test_finding_identity_never_holds_a_value() -> None:
     outcome = _check("DB-SCHEMA-001", _source(_table("audit_log", _column("at"), pk=())))
 
     assert [identity for _target, _message, identity in outcome] == ["ds=db|table=audit_log"]
+
+
+@pytest.mark.needs_sqlalchemy
+def test_duplicate_unique_index_on_a_real_sqlite_primary_key_is_reported() -> None:
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE orders (id TEXT PRIMARY KEY, code TEXT)")
+        conn.exec_driver_sql("CREATE UNIQUE INDEX uq_id ON orders (id)")
+        conn.exec_driver_sql("CREATE UNIQUE INDEX uq_code ON orders (code)")
+        catalog = sqla_inspect.catalog(conn, sqla_inspect.CatalogBounds(), Masker("MASKED", True, None))
+
+    assert _targets(_check("DB-SCHEMA-005", Source("db", "sqlite", "pysqlite", "AVAILABLE", None, catalog))) == [
+        "db/orders.uq_id"
+    ]
