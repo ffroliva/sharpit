@@ -110,7 +110,7 @@ def test_idle_limit_is_skipped_when_the_server_limit_is_unknown() -> None:
 
 def test_pool_rules_ignore_dialects_they_do_not_judge() -> None:
     # ported: DatabaseAdvisorPoolRulesTests.poolRulesIgnoreDialectsTheyDoNotJudge
-    outcomes = [rule.check(_source("sqlite", driver="pysqlite", server={})) for rule in rules_driver_pool.RULES[2:]]
+    outcomes = [rule.check(_source("sqlite", driver="pysqlite", server={})) for rule in rules_driver_pool.RULES[2:5]]
 
     assert [isinstance(o, str) for o in outcomes] == [True, True, True]
 
@@ -150,6 +150,40 @@ def test_an_unlimited_lifetime_is_undecided_while_ownership_is_unsettled() -> No
 def test_a_limited_lifetime_is_not_reported() -> None:
     # ported: DatabaseAdvisorPoolRulesTests.aLimitedLifetimeIsNotReported
     assert _identities(_check("DB-POOL-003", _source(pool=_pool(recycle=1800)))) == []
+
+
+def test_acquisition_timeout_fires_when_disabled_or_above_five_minutes() -> None:
+    # ported: DatabaseAdvisorPoolRulesTests.acquisitionTimeoutFiresWhenDisabledOrAboveFiveMinutes
+    rule = next(r for r in rules_driver_pool.RULES if r.definition.id == "DB-POOL-005")
+    assert rule.definition.severity == "MEDIUM"
+
+    server = {"wait_timeout": "600", "max_connections": "151"}
+    agroal_zero = _source("mysql", pool=_pool(timeout=0.0), server=server)
+    res_zero = rule.check(agroal_zero)
+    assert isinstance(res_zero, list)
+    assert _identities(res_zero) == ["ds=db|pool=connection-timeout"]
+    assert "timeout is 0 (disabled)" in res_zero[0][1]
+
+    hikari_disabled = _source("mysql", pool=_pool(timeout=None), server=server)
+    res_none = rule.check(hikari_disabled)
+    assert isinstance(res_none, list)
+    assert _identities(res_none) == ["ds=db|pool=connection-timeout"]
+    assert "timeout is 0 (disabled)" in res_none[0][1]
+
+    excessive = _source("mysql", pool=_pool(timeout=600.0), server=server)
+    res_excessive = rule.check(excessive)
+    assert isinstance(res_excessive, list)
+    assert _identities(res_excessive) == ["ds=db|pool=connection-timeout"]
+    assert "timeout is 10 min (above 5 min)" in res_excessive[0][1]
+
+    five_minutes = _source("mysql", pool=_pool(timeout=300.0), server=server)
+    assert rule.check(five_minutes) == []
+
+    thirty_seconds = _source("mysql", pool=_pool(timeout=30.0), server=server)
+    assert rule.check(thirty_seconds) == []
+
+    unreadable = _source("mysql", pool=None, server=server)
+    assert isinstance(rule.check(unreadable), str)
 
 
 def test_password_never_read(monkeypatch: pytest.MonkeyPatch) -> None:

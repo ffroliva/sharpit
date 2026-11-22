@@ -165,6 +165,38 @@ def _exceeds_server(source: Source) -> Outcome:
     return [(source.name, text, f"ds={source.name}|pool=maximum-size")]
 
 
+def _duration(millis: int) -> str:
+    if millis == 0:
+        return "0"
+    if millis % 3_600_000 == 0:
+        return f"{millis // 3_600_000} h"
+    if millis % 60_000 == 0:
+        return f"{millis // 60_000} min"
+    if millis % 1_000 == 0:
+        return f"{millis // 1_000} s"
+    return f"{millis} ms"
+
+
+def _acquisition_timeout(source: Source) -> Outcome:
+    if (reason := _applies(source)) is not None or source.pool is None:
+        return reason or ""
+    timeout = source.pool.timeout
+    if timeout is None or timeout == 0:
+        text = (
+            f"Datasource `{source.name}`: timeout is 0 (disabled), so callers wait "
+            "indefinitely when the pool is exhausted. Evidence: effective."
+        )
+        return [(source.name, text, f"ds={source.name}|pool=connection-timeout")]
+    timeout_ms = int(timeout * 1000)
+    if timeout_ms > 300_000:
+        text = (
+            f"Datasource `{source.name}`: timeout is {_duration(timeout_ms)} (above 5 min), "
+            "so callers can block for minutes when the pool is exhausted. Evidence: effective."
+        )
+        return [(source.name, text, f"ds={source.name}|pool=connection-timeout")]
+    return []
+
+
 RULES = (
     Rule(
         RuleDefinition(
@@ -248,5 +280,20 @@ RULES = (
             "https://docs.sqlalchemy.org/en/20/core/pooling.html#setting-pool-recycle",
         ),
         _unlimited_lifetime,
+    ),
+    Rule(
+        RuleDefinition(
+            "DB-POOL-005",
+            "Connection pool has a disabled or excessive acquisition timeout",
+            POOL,
+            "MEDIUM",
+            "Detects a connection pool whose connection acquisition timeout (timeout on QueuePool) is disabled "
+            "(0 or None) or exceeds 5 minutes (300,000 ms). Callers waiting on an exhausted pool or an unreachable "
+            "database then block for minutes or indefinitely instead of failing fast.",
+            "Configure a bounded connection acquisition timeout (SQLAlchemy QueuePool defaults to 30 seconds via "
+            "pool_timeout) so callers fail fast under pool exhaustion.",
+            "https://docs.sqlalchemy.org/en/20/core/pooling.html#sqlalchemy.pool.QueuePool.params.timeout",
+        ),
+        _acquisition_timeout,
     ),
 )

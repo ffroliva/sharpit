@@ -42,6 +42,7 @@ class Pool:
     unbounded: bool  # an overflow of -1: no maximum at all
     recycle: int | None  # seconds; -1 means connections are never retired for age
     pre_ping: bool | None
+    timeout: float | None = 30.0
 
 
 @dataclass(frozen=True)
@@ -110,12 +111,15 @@ def _pool(pool: Any) -> Pool | None:
             max_size = None if unbounded else int(cast("int", size())) + overflow
     except Exception:  # noqa: BLE001 - an unreadable number stays unknown
         max_size = None
+    raw_timeout = getattr(pool, "_timeout", None)
+    timeout = float(raw_timeout) if isinstance(raw_timeout, (int, float)) else None
     return Pool(
         type(pool).__name__,
         max_size,
         unbounded,
         recycle if isinstance(recycle, int) else None,
         pre_ping if isinstance(pre_ping, bool) else None,
+        timeout,
     )
 
 
