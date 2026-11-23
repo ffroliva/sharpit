@@ -137,7 +137,9 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    a budget failure means.
 6. **Ratchets only go down** (`tests/test_code_shape.py`, `scripts/ci/sonar_ratchet.py`): no module under `src/` over
    1000 lines; ruff C901 counts per file pinned in `tests/complexity_baseline.json`; open code-scan issues on `main`
-   equal to `sonar-baseline.txt`. A change that fixes one lowers the pinned number in the same commit; nothing is ever raised.
+   never above `sonar-baseline.txt`, and every pull request fails while `main` sits below it, so the PR after a fixing
+   merge lowers it (`scripts/ci/sonar_ratchet.py`). A change that fixes one lowers the pinned number in the same commit;
+   nothing is ever raised.
 
 ### Writing tests that prove something
 

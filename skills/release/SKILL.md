@@ -40,8 +40,8 @@ stops the release until the owner decides where it goes.
 
 - `/sharpit:check` green.
 - CI green on `main`: `gh run list --branch main --limit 3`, the `sonar` job included. The code-scan ratchet
-  (`scripts/ci/sonar_ratchet.py`) fails on `main` when a merged PR fixed issues and `sonar-baseline.txt` was not
-  lowered (0.3.0: 122 open against 123); lower it in a one-line PR before tagging, and tag the release merge commit
+  (`scripts/ci/sonar_ratchet.py`) fails every pull request while `main` has fewer open issues than
+  `sonar-baseline.txt`; lower it in the release PR or a one-line PR before tagging, and tag the release merge commit
   explicitly if `main` moved (step 10).
 - `/sharpit:known-issues`: no open Critical or High safety issue.
 - `/sharpit:doc-review` clean: version references, links (github.com only) and the changelog footer.
