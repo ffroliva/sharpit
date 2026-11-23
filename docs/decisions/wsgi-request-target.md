@@ -32,4 +32,4 @@ standard library's `wsgiref`, receives HTTP 403 for every console request.
 ## Enforced by
 
 - `src/sharpit/engine/guard.py` implements the Host allow-list and `tests/engine/test_guard.py` verifies it.
-- Section 3 of `docs/superpowers/plans/2026-11-22-sharpit-0.9.0/f0-console-contract.md` specifies the WSGI request-target checks.
+- The Flask console issue, [#260](https://github.com/ffroliva/sharpit/issues/260), tracks the specification of the WSGI request-target checks.
