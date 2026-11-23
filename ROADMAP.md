@@ -11,10 +11,10 @@ Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 t
 | Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | - | - | - |
 | Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
 | Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of the 56 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 56 | not captured | not captured |
+| BootUI API routes served, of those that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 65 | not captured | 56 |
 
 `tests/docs/test_parity_matrix.py` recomputes the sharpit 0.9.0 column from the code and the BootUI 2.5.0 fixtures
-on every run. Routes remain measured against the 2.3.0 live goldens; the 2.5.0 static fixtures pin tools, properties,
+on every run. The route inventory is BootUI 2.5.0's, while route shapes remain compared with the 2.3.0 live goldens; the 2.5.0 static fixtures pin tools, properties,
 and rule identifiers, while 2.5.0 live goldens await the reference app and databases. The sharpit 0.5.0, 0.6.0,
 0.7.0 and 0.8.0 columns are frozen literals; BootUI columns use their respective tags.
 
@@ -34,7 +34,9 @@ How each row is counted:
   BootUI counts the classes implementing `Observation`.
 - **Routes:** the BootUI 2.5.0 route inventory (`tests/parity/routes_status.json`): 97 routes, of
   which 41 are not applicable (including 10 JVM-only routes); of the other 56, 5 match BootUI's shape, 28 are served with known differences and 23 are
-  not built yet.
+  not built yet. The sharpit 0.6.0 to 0.8.0 route counts were measured against the BootUI 2.3.0 inventory (65
+  applicable routes) and the 0.9.0 count against the BootUI 2.5.0 inventory (56 applicable routes, after 10 JVM-only
+  routes were reclassified as not applicable).
 
 ## The 8 insight kinds that evaluate in 0.6.0 and the 10 that evaluate in 0.7.0
 
