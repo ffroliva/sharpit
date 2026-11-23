@@ -148,9 +148,9 @@ def write(stream: TextIO, text: str) -> None:
 
 
 def write_utf8(stream: TextIO, text: str) -> None:
-    """Write UTF-8 when a binary buffer is available."""
+    """Write UTF-8 when a binary buffer is available; never replace characters of machine-readable output."""
     buffer = getattr(stream, "buffer", None)
     if buffer is not None:
         buffer.write(text.encode("utf-8"))
     else:
-        write(stream, text)
+        stream.write(text)

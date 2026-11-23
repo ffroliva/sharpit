@@ -46,7 +46,7 @@ jobs:
           wheel=false
           while IFS= read -r path; do
             case "$path" in
-              website/docs/*|docs/decisions/*|hatch_build.py|llms.txt|*/llms.txt) wheel=true ;;
+              website/docs/*|docs/decisions/*|llms.txt|*/llms.txt) wheel=true ;;
               website/*|*.md|"") ;;
               *) code=true; wheel=true; break ;;
             esac
@@ -958,6 +958,11 @@ jobs:
           uv venv "$RUNNER_TEMP/smoke" --python 3.12
           uv pip install --python "$RUNNER_TEMP/smoke/bin/python" "$RUNNER_TEMP"/dist/sharpit-*.whl fastapi pydantic-settings uvicorn httpx
           PYTHONPATH=. "$RUNNER_TEMP/smoke/bin/python" scripts/ci/wheel_smoke.py
+      - name: docs catalog and bundled-file tests against the built wheel
+        if: needs.changes.outputs.wheel != 'false'
+        run: |
+          uv sync --locked --extra test
+          SHARPIT_TEST_WHEEL="$(ls "$RUNNER_TEMP"/dist/sharpit-*.whl)" uv run --no-sync pytest -q -n auto tests/docs/test_bundled_docs.py tests/cli/test_docs.py
 
   live:
     name: live (${{ matrix.server }})

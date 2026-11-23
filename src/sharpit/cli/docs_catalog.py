@@ -39,9 +39,16 @@ def read_page(file: str) -> str:
     """Read a catalog path from package resources or the editable source tree."""
     bundled = resources.files("sharpit").joinpath("_docs")
     src = path.dirname(path.dirname(path.dirname(path.abspath(__file__))))
+    checkout = path.dirname(src)
     try:
-        if not bundled.is_dir() and path.basename(src) == "src":
-            with open(path.join(path.dirname(src), file), "rb") as page:
+        # Only a sharpit source checkout (marked by its build hook) may stand in for the bundled pages.
+        if (
+            not bundled.is_dir()
+            and path.basename(src) == "src"
+            and path.isfile(path.join(checkout, "hatch_build.py"))
+            and path.isfile(path.join(checkout, "docs", "decisions", "README.md"))
+        ):
+            with open(path.join(checkout, file), "rb") as page:
                 return page.read().decode("utf-8")
         return bundled.joinpath(*file.split("/")).read_bytes().decode("utf-8")
     except FileNotFoundError as error:
