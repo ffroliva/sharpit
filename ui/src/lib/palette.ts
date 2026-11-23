@@ -22,7 +22,7 @@ export function search(index: readonly Entry[], query: string, limit = 50): Hit[
   const q = query.trim().toLowerCase();
   if (!q) return index.slice(0, limit).map((entry) => ({ entry, score: 0 }));
   // a word starts after a separator common in logger names, config keys and titles
-  const wordStart = new RegExp(`[\\s._\\-/:]${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+  const wordStart = new RegExp(String.raw`[\s._\-/:]${q.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}`);
   const hits: Hit[] = [];
   for (const entry of index) {
     const score = scoreOf(entry.label.toLowerCase(), q, wordStart);
@@ -33,7 +33,10 @@ export function search(index: readonly Entry[], query: string, limit = 50): Hit[
 }
 
 // the same order in every browser locale
-const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const byCodeUnit = (a: string, b: string) => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
 
 function scoreOf(label: string, q: string, wordStart: RegExp): number {
   if (label === q) return EXACT;
