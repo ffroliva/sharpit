@@ -19,6 +19,7 @@ from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal  #
 from sharpit.engine.collectors.insights.service import insights_service  # noqa: E402
 from sharpit.engine.collectors.insights.snapshot import PRODUCED_SOURCES  # noqa: E402
 from sharpit.engine.collectors.pools import pools_report  # noqa: E402
+from sharpit.engine.sqla import connections  # noqa: E402
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -103,7 +104,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["source"] == "connection"
     assert record["requestId"] == "0123456789abcdef"
     assert record["thread"] == "MainThread"
-    assert record["statements"] == -1  # unknown: see the deviation row; counting costs every statement
+    assert record["statements"] == 2
     assert record["waitNanos"] == 0
     assert record["failedOrSlow"] is False
     assert isinstance(record["durationNanos"], int)
@@ -111,8 +112,7 @@ def test_connection_journal_event_offered_once_per_release_with_bootui_fields():
     assert record["checkoutNanos"] >= before
 
 
-# deviation (r5): the statement path pays nothing for the count; -1 is "unknown", as BootUI gives checkoutNanos
-def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_connection_state():
+def test_connection_journal_counts_statements_at_checkin_and_statements_keep_no_connection_state():
     handle = _install()
     with handle.engine.connect() as conn:
         fairy = conn.connection
@@ -127,7 +127,27 @@ def test_connection_journal_statement_count_is_unknown_and_statements_keep_no_co
         conn.execute(sa.text("select 2"))
         assert state() == before  # a statement writes nothing on the connection, under any key: no per-statement count
     _use(handle.engine, 3)
-    assert [r["statements"] for r in _records(handle)] == [-1, -1]
+    assert [r["statements"] for r in _records(handle)] == [3, 3]
+
+
+# ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
+def test_connection_journal_counts_zero_statements_when_released_unused():
+    handle = _install()
+    _use(handle.engine, 0)
+
+    assert _only(handle)["statements"] == 0
+
+
+# ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
+def test_connection_journal_counts_each_concurrent_connection_separately():
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
+    handle = _install(engine=engine)
+    with handle.engine.connect() as first, handle.engine.connect() as second:
+        first.execute(sa.text("SELECT 1")).fetchall()
+        second.execute(sa.text("SELECT 1")).fetchall()
+        first.execute(sa.text("SELECT 1")).fetchall()
+
+    assert sorted(r["statements"] for r in _records(handle)) == [1, 2]
 
 
 # ported: SqlTracingProxiesTests.publishesEachLogicalConnectionOnceWithItsWaitHoldStatementsAndCheckoutRequest
@@ -166,7 +186,6 @@ def test_connection_journal_second_checkin_is_ignored():
     with handle.engine.connect() as conn:
         record = conn.connection._connection_record  # noqa: SLF001
     assert len(_records(handle)) == 1
-    from sharpit.engine.sqla import connections  # noqa: PLC0415
 
     connections.checkin(record.dbapi_connection, record)  # a live release: None is skipped
     assert len(_records(handle)) == 1
@@ -174,7 +193,6 @@ def test_connection_journal_second_checkin_is_ignored():
 
 def test_connection_journal_a_stale_checkout_is_not_offered_at_a_later_release():
     # review finding: a state left by a checkout whose checkin listener was gone must not surface at the next release
-    from sharpit.engine.sqla import connections  # noqa: PLC0415
 
     handle = _install()
     with handle.engine.connect() as conn:
@@ -216,6 +234,8 @@ def test_connection_journal_is_offered_while_the_panel_is_paused():
     handle.context.capture.sql_trace.recording = False
     _use(handle.engine)
     assert len(_records(handle)) == 1
+    # deviation: BootUI keeps counting; the count comes only from SQL Trace rows, and a paused panel records none
+    assert _only(handle)["statements"] == -1
     assert handle.context.capture.sql_trace.report([])["totalCaptured"] == 0
 
 
@@ -439,3 +459,59 @@ def test_connection_released_after_uninstall_is_not_journaled_with_a_second_inst
     conn.close()
     assert _records(handle) == ()
     assert len(_records(other)) == 1  # control: the install still capturing journals the release
+
+
+# review finding (0.9.0): a full SQL Trace ring evicts on every statement, which made every count unknown
+def test_connection_journal_counts_statements_once_the_trace_ring_is_full():
+    handle = _install(sources=("connection",), sql_trace_max_entries=5)  # no sql journal events: the ring counts
+    _use(handle.engine, 8)  # warm: the ring is full and every later statement evicts one row
+    _use(handle.engine, 2)
+    assert _records(handle)[-1]["statements"] == 2
+
+
+# review finding (0.9.0): a full journal evicts on every event; the count reads the SQL Trace rows, so it stays exact
+def test_connection_journal_counts_statements_once_the_journal_is_full():
+    handle = _install(runtime_journal_max_events=6)
+    _use(handle.engine, 8)  # warm: the journal is full and every later event evicts one
+    _use(handle.engine, 2)
+    assert _records(handle)[-1]["statements"] == 2
+
+
+# review finding (0.9.0): a count taken after the statements since checkout left the ring counted only what was left
+def test_connection_journal_count_is_unknown_when_the_rows_left_the_trace_ring():
+    handle = _install(sources=("connection",))  # no sql journal events: the -1 is the ring's own answer
+    with handle.engine.connect() as conn:
+        conn.execute(sa.text("select 1"))
+        conn.execute(sa.text("select 2"))
+        handle.context.capture.sql_trace.clear()  # the first two statements leave the ring
+        conn.execute(sa.text("select 3"))
+    assert _only(handle)["statements"] == -1
+
+
+# review finding (0.9.0): a raw sqlite3 statement on the same thread was counted as the held connection's
+def test_connection_journal_never_counts_a_raw_sqlite3_statement_as_the_connections():
+    import sqlite3  # noqa: PLC0415
+
+    handle = _install()
+    raw = sqlite3.connect(":memory:")
+    try:
+        with handle.engine.connect() as conn:
+            conn.execute(sa.text("select 1"))
+            raw.execute("select 2")  # the raw sqlite3 source: no pool checkout follows it
+    finally:
+        raw.close()
+    assert _only(handle)["statements"] == 1
+
+
+# review finding (0.9.0): a statement the connection ran after its request ended was left out of the count
+def test_connection_journal_counts_a_statement_run_after_the_checkouts_request():
+    handle = _install()
+    token = _request(handle, "0123456789abcdef")
+    conn = handle.engine.connect()
+    try:
+        conn.execute(sa.text("select 1"))
+    finally:
+        REQUEST.reset(token)
+    conn.execute(sa.text("select 2"))  # the same connection, outside the request it was checked out in
+    conn.close()
+    assert _only(handle)["statements"] == 2

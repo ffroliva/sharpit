@@ -324,3 +324,35 @@ the 0.8.0 lane fragments in `docs/reference/matrix-updates/` (116 entries):
 | T1 | rule:HTTP-SEC-002 | n-a | Sharpit-only rule for a configured unexpected status (HIGH); no BootUI 2.5.0 counterpart. |
 | SHIPFIX | masking:matrix-session-id-names | adapted | UriMasking.maskPath keeps a ;jsessionid, ;sid or ;session matrix value unless its name matches a sensitive key; sharpit also masks jsessionid, phpsessid, session, sessionid and sid under MASKED, matching the trace and journal path masks that hide every matrix value |
 | SHIPFIX | rule:DB-SCHEMA-005 | adapted | BootUI reads the primary key backing index from JDBC index metadata; SQLAlchemy never lists it, so the primary key constraint stands in as the backing index and an ordinary unique index on exactly the primary key columns is reported |
+
+## 0.9.0 against BootUI 2.5.0: deviations
+
+Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
+the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
+
+| Lane | Key | Status | Reason |
+|---|---|---|---|
+| M1 | RAPI-MAP-012 | n-a | An unannotated Spring parameter binds as a query parameter; FastAPI binds a parameter named like a path token to the path. |
+| M1 | RAPI-MAP-013 | n-a | Spring's RequestMethodsRequestCondition.combine() unions the class-level and method-level HTTP methods; neither FastAPI nor Flask has a class-level method mapping to combine with a route's own methods. |
+| M1 | RAPI-VER-008 | n-a | FastAPI has no restrictive consumes condition counterpart. |
+| M1 | RAPI-VALID-007 | n-a | Bean Validation skips nested objects without @Valid; pydantic validates nested models. |
+| M1 | RAPI-PAGE-004 | n-a | Spring Data Page serialization is specific to Spring Data. |
+| M2 | DB-SCHEMA-011 | ported | Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule. |
+| M2 | DB-PG-006 | adapted | Scans current_schema() only, like the other PostgreSQL vendor rules, whereas BootUI scans all non-system schemas. |
+| M2 | DB-SERVER-008 | adapted | Ported from BootUI 2.5.0 MySqlStrictSqlModeRule; the recommendation names SQLAlchemy's places for session SQL (an init_command connect argument, a connect event) in place of the JDBC URL's sessionVariables and the pool's connectionInitSql, which a Python application does not have. |
+| M2 | DB-MYSQL-004 | ported | Ported from BootUI 2.5.0 MySqlUnenforcedCheckConstraintRule. |
+| M2 | DB-POOL-005 | adapted | BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's QueuePool timeout, where None, an infinite timeout or one too large for milliseconds disables the timeout and 0 fails immediately rather than waiting indefinitely; a pool class with no acquisition timeout (NullPool, StaticPool, SingletonThreadPool) is not evaluated. The texts name SQLAlchemy's pool_timeout in place of HikariCP's connectionTimeout. |
+| R0 | route:GET /activity/request/{id}/journal | missing | Route added in BootUI 2.5.0 route catalog; sharpit has no route at /sharpit/api/activity/request/{id}/journal (HTTP 404). |
+| R0 | route:GET /conditions | n-a | JVM-only: Spring/Quarkus conditional bean evaluation has no Python counterpart. |
+| R0 | route:GET /crac | n-a | JVM-only: CRaC (Coordinated Restore at Checkpoint) checkpoints have no Python counterpart. |
+| R0 | route:GET /dev-services | n-a | JVM-only: Quarkus Dev Services container orchestration has no Python counterpart. |
+| R0 | route:GET /devtools | n-a | JVM-only: Spring Boot DevTools restart and live-reload have no Python counterpart. |
+| R0 | route:GET /graalvm | n-a | JVM-only: GraalVM native image analysis has no Python counterpart. |
+| R0 | route:GET /graalvm/metadata | n-a | JVM-only: GraalVM native image reachability metadata has no Python counterpart. |
+| R0 | route:GET /graalvm/scan-progress | n-a | JVM-only: GraalVM native image scan progress has no Python counterpart. |
+| R0 | route:GET /heap-dump | n-a | JVM-only: HotSpot JVM heap dump generation has no Python counterpart. |
+| R0 | route:GET /jvm-tuning | n-a | JVM-only: JVM runtime flags and garbage collection tuning have no Python counterpart. |
+| R0 | route:GET /liquibase/changesets | n-a | JVM-only: Liquibase migration engine has no Python counterpart. |
+| S3/S4 | xc:sql-trace-panel-availability | adapted | BootUI checks recorder.hasWrappedDataSource() after SqlTraceDataSourceBeanPostProcessor wraps a Spring DataSource bean; Python has no container DataSource beans, so sharpit treats the SQL source as wrapped once SQLAlchemy statement listeners are attached (or sqlite3 is traced, or an engine is registered on an attached context) and returns "No DataSource has been wrapped for tracing yet." otherwise |
+| S3/S4 | journal-source:connection | adapted | Pool connect/checkout/checkin listeners publish ConnectionPayload on checkin with dataSource, waitNanos, statements and obtainedNanos; executed statements pay no per-statement cost: the count is derived at check-in, only from the SQL Trace rows recorded since the checkout, which carry the connection; the count is exact or -1: -1 when there is no SQL Trace recorder, when the rows since checkout left the SQL Trace ring, or when the SQL Trace panel was paused (BootUI keeps counting then); the journal's sql events carry no connection and are never used for the count; one gap remains: with no sql journal source, a SQL Trace panel paused for part of a checkout undercounts it |
+| S3/S4 | xc:insights-sqlcapture-not-recorded | adapted | BootUI calls SqlTraceRecorder.registerDataSource only after DataSource proxy wrapping succeeds; sharpit rolls back sqla.add on listener attach failure and requires attached (or explicitly suspended) statement listeners before a registered engine counts as a recorded SQLAlchemy source |

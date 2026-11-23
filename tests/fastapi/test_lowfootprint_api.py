@@ -195,7 +195,7 @@ def test_free_on_idle_disabled_starts_no_thread() -> None:
     with TestClient(app):
         before = {thread.ident for thread in threading.enumerate()}
         threading.Event().wait(0.04)
-        assert {thread.ident for thread in threading.enumerate()} == before
+        assert {thread.ident for thread in threading.enumerate()} - before == set()  # no new thread; one may end
 
 
 def test_idle_tracker_keeps_explicit_hold_and_closes_auto_hold() -> None:

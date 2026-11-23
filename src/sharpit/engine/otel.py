@@ -53,7 +53,12 @@ def current_trace_id() -> str | None:
     trace = sys.modules.get("opentelemetry.trace")
     if trace is None:
         return None
+    context_api = sys.modules.get("opentelemetry.context")
     try:
+        # An empty context holds no span: skip the span lookup (the SQL listener's hot path). A span may come from a
+        # provider passed directly to an instrumentation or from a propagated remote context, never only the global one.
+        if context_api is not None and not context_api.get_current():
+            return None
         context = trace.get_current_span().get_span_context()
         return f"{context.trace_id:032x}" if context.is_valid else None
     except Exception:  # noqa: BLE001 - a host's tracing never changes a query

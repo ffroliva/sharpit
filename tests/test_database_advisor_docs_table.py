@@ -1,4 +1,4 @@
-"""``docs/database-advisor-checks.md`` lists BootUI's 48 checks; its implemented rows are exactly the registry."""
+"""``docs/database-advisor-checks.md`` lists BootUI's checks; its implemented rows are exactly the registry."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ def test_docs_table_matches_registry() -> None:
     rows = _rows()
     implemented = sorted(rule_id for rule_id, *_rest, status, _reason in rows if status == "implemented")
 
-    assert len(rows) == 46
-    assert sum(1 for row in rows if row[3] == "P") == 31
+    assert len(rows) == 51
+    assert sum(1 for row in rows if row[3] == "P") == 36
     assert implemented == sorted(r.definition.id for r in RULES)
 
 

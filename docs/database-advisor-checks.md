@@ -37,14 +37,17 @@ BootUI registers 46 checks. `P` marks a check sharpit ports (31); the others are
 | DB-SCHEMA-006 | Potential duplicate foreign-key definitions | Schema | P | implemented | |
 | DB-SCHEMA-007 | Narrow auto-generated primary key | Schema | P | implemented | |
 | DB-SCHEMA-010 | Invisible or ignored indexes | Schema | P | implemented | |
+| DB-SCHEMA-011 | Foreign key specifies SET NULL on a NOT NULL column | Schema | P | implemented | |
 | DB-PG-001 | Invalid PostgreSQL indexes | PostgreSQL | P | implemented | |
 | DB-PG-002 | PostgreSQL sequence nearing exhaustion | PostgreSQL | P | implemented | |
 | DB-PG-003 | PostgreSQL NOT VALID constraint never validated | PostgreSQL | P | implemented | |
 | DB-PG-004 | PostgreSQL table lacking usable replica identity | PostgreSQL | P | implemented | |
 | DB-PG-005 | PostgreSQL unlogged tables | PostgreSQL | P | implemented | |
+| DB-PG-006 | PostgreSQL partitioned table has no attached partitions | PostgreSQL | P | implemented | |
 | DB-MYSQL-001 | Tables on a non-transactional storage engine | MySQL | P | implemented | |
 | DB-MYSQL-002 | Tables/columns using the legacy utf8mb3 character set | MySQL | P | implemented | |
 | DB-MYSQL-003 | MySQL/MariaDB AUTO_INCREMENT nearing exhaustion | MySQL | P | implemented | |
+| DB-MYSQL-004 | Unenforced MySQL check constraints | MySQL | P | implemented | |
 | DB-ORACLE-001 | Unusable Oracle indexes | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
 | DB-ORACLE-002 | Disabled or unvalidated Oracle constraints | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
 | DB-ORACLE-003 | Oracle sequence or identity generator nearing exhaustion | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
@@ -69,12 +72,14 @@ BootUI registers 46 checks. `P` marks a check sharpit ports (31); the others are
 | DB-POOL-001 | Connection pool can keep a connection idle longer than the server allows | Connection pool | P | implemented | |
 | DB-POOL-002 | Connection pool is larger than the server's connection limit | Connection pool | P | implemented | |
 | DB-POOL-003 | Connection pool has no maximum connection lifetime | Connection pool | P | implemented | |
+| DB-POOL-005 | Connection pool has a disabled or excessive acquisition timeout | Connection pool | P | implemented | |
 | DB-SERVER-001 | PostgreSQL does not end sessions that are idle in a transaction | Server | P | implemented | |
 | DB-SERVER-003 | PostgreSQL autovacuum is disabled | Server | dropped | dropped | server-wide maintenance setting, not this application's use of the server; the postgresql panel shows it |
 | DB-SERVER-004 | PostgreSQL `pg_stat_statements` is not available | Server | dropped | dropped | server observability, not this application's use of the server; the postgresql panel reports it |
 | DB-SERVER-005 | PostgreSQL does not measure I/O time | Server | dropped | dropped | server observability (`track_io_timing`); the postgresql panel shows it |
 | DB-SERVER-006 | PostgreSQL does not log slow statements | Server | dropped | dropped | server logging policy; sharpit's SQL Trace measures the application's own statements |
 | DB-SERVER-007 | MySQL Performance Schema is disabled | Server | dropped | dropped | server observability; the mysql panel reports it |
+| DB-SERVER-008 | MySQL/MariaDB strict transactional SQL mode is disabled | Server | P | implemented | |
 
 ## How sharpit differs from BootUI
 

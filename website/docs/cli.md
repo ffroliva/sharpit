@@ -44,11 +44,27 @@ Authentication tokens are never leaked into console output or stored files. The 
 
 Global options apply to every command and may appear before or after the command name:
 
-- `--json`: Print the application's JSON response verbatim. When stdout is redirected to a pipe or file, JSON output is enabled automatically.
+- `--json`: Print the application's JSON response verbatim. Redirecting stdout to a pipe or file enables JSON output automatically for application commands. `sharpit docs` uses JSON only when requested explicitly.
 - `--no-color`: Disable ANSI color codes in terminal output (honors the `NO_COLOR` standard).
 - `-v`, `--verbose`: Print detailed error output and server causes when a request fails.
 - `-V`, `--version`: Print program version and exit.
 - `-h`, `--help`: Display available commands and options.
+
+## Bundled documentation
+
+`sharpit docs` lists the topics shipped with the installed version. It needs no application, URL, token, or network.
+
+```bash
+sharpit docs
+sharpit docs cli
+sharpit docs decisions
+sharpit docs --search "local development"
+sharpit docs --search "local development" --json
+```
+
+A topic ID selects a raw Markdown page, including when the output is piped. Search matches a literal phrase without
+regard to case and prints `file:line:text` using one-based source line numbers. `--json` includes the installed version
+and the topic list, page, or search matches.
 
 ## Command Groups
 

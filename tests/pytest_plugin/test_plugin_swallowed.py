@@ -17,6 +17,7 @@ import pytest
 
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.testsession.facts import SwallowedFact
+from sharpit.engine.testsession.sink import report_masker
 from sharpit.engine.testsession.swallowed import site_identity, swallowing_sites
 from sharpit.pytest_plugin.swallowed import TOOL_IDS, MonitoringCapture, TestTag
 
@@ -449,6 +450,97 @@ def test_allow_swallowed_marker_keeps_the_test_passing(pytester: pytest.Pytester
     notes = [f for f in data["findings"] if f["ruleId"] == RULE]
     assert _test_entry(data, "test_lookup")["outcome"] == "passed"
     assert [f["severity"] for f in notes] == ["INFO"]
+
+
+def test_allow_swallowed_marker_records_reason_in_report_and_terminal(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, '@pytest.mark.sharpit(allow_swallowed=True, reason="expected swallowed error")')
+
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = _report(pytester)
+    notes = [f for f in data["findings"] if f["ruleId"] == RULE]
+    assert _test_entry(data, "test_lookup")["outcome"] == "passed"
+    assert [f["severity"] for f in notes] == ["INFO"]
+    assert [f["reason"] for f in notes] == ["expected swallowed error"]
+    result.stdout.fnmatch_lines(["*appcode.py:4*reason: expected swallowed error*"])
+
+
+def test_allow_swallowed_reason_is_masked_in_report_and_terminal(pytester: pytest.Pytester) -> None:
+    # council 0.9.0: the reason is text the test author wrote; SARIF masked it, the JSON report and terminal did not
+    secret = "hunter2-S3CRET"
+    _bare_project(pytester, f'@pytest.mark.sharpit(allow_swallowed=True, reason="fallback password={secret}")')
+
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = _report(pytester)
+    notes = [f for f in data["findings"] if f["ruleId"] == RULE]
+    assert [f["reason"] for f in notes] == [report_masker().mask_text(f"fallback password={secret}")]
+    assert secret not in (pytester.path / "report.json").read_text(encoding="utf-8")
+    assert secret not in result.stdout.str()
+    result.stdout.fnmatch_lines(["*appcode.py:4*reason: fallback password=*"])
+
+
+def test_accept_without_reason_fails_when_required_via_flag(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+
+    result = pytester.runpytest(
+        "--sharpit",
+        "--sharpit-require-reason",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "-q",
+    )
+
+    assert result.ret != 0
+    output = result.stderr.str() + result.stdout.str()
+    assert "test_bare.py::test_lookup" in output
+    assert "@pytest.mark.sharpit" in output
+    assert "reason" in output
+
+
+def test_accept_without_reason_fails_when_required_via_ini(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+    pytester.makeini(
+        """
+        [pytest]
+        sharpit_require_reason = true
+        """
+    )
+
+    result = pytester.runpytest(
+        "--sharpit",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "-q",
+    )
+
+    assert result.ret != 0
+    output = result.stderr.str() + result.stdout.str()
+    assert "test_bare.py::test_lookup" in output
+    assert "@pytest.mark.sharpit" in output
+
+
+def test_accept_with_reason_passes_when_reason_required(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, '@pytest.mark.sharpit(allow_swallowed=True, reason="intentional fallback")')
+
+    result = pytester.runpytest(
+        "--sharpit",
+        "--sharpit-require-reason",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+    )
+
+    assert result.ret == 0
+    data = _report(pytester)
+    assert _test_entry(data, "test_lookup")["outcome"] == "passed"
+    notes = [f for f in data["findings"] if f["ruleId"] == RULE]
+    assert [f["reason"] for f in notes] == ["intentional fallback"]
 
 
 def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) -> None:

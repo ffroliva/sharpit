@@ -1001,10 +1001,20 @@ def test_w7_email_settings_defaults():
         ("email_max_entries", "SHARPIT_EMAIL_MAX_ENTRIES", "0", 100),
         ("email_max_body_length", "SHARPIT_EMAIL_MAX_BODY_LENGTH", "many", 200_000),
         ("email_dev_trap", "SHARPIT_EMAIL_DEV_TRAP", "maybe", False),
-        ("email_mask_content", "SHARPIT_EMAIL_MASK_CONTENT", "maybe", False),
+        ("email_mask_content", "SHARPIT_EMAIL_MASK_CONTENT", "maybe", True),
     ],
 )
 def test_w7_email_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
     s = load_settings({}, {env: raw})
     assert getattr(s, field, None) == expected
     assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
+def test_invalid_email_mask_content_fails_safe_to_masking():
+    settings = load_settings({}, {"SHARPIT_EMAIL_MASK_CONTENT": "not-a-bool"})
+    assert settings.email_mask_content is True
+
+
+def test_invalid_email_mask_content_warning():
+    settings = load_settings({}, {"SHARPIT_EMAIL_MASK_CONTENT": "not-a-bool"})
+    assert any("Ignoring invalid SHARPIT_EMAIL_MASK_CONTENT value" in warning for warning in settings.warnings)

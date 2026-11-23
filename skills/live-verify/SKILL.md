@@ -51,7 +51,10 @@ Use only routes that exist on the branch (`grep -n "Route(" src/sharpit/fastapi/
 cd <scratchpad> && uv run --project <repo> --with "fastapi[standard]" fastapi dev live_app.py --port <leased port>   # background it
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/sharpit/api/panels
 curl -s -H "Host: evil.example" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/sharpit/api/panels
+uv run sharpit --url http://127.0.0.1:<port> health
 ```
+
+The CLI command returns a health tree with masked details. The CLI's connection options are `--url`, `--api-path` and `--token` (see `uv run sharpit --help`); there is no `--api` option.
 
 Lease the port first when other agents are registered (`multi-agent-dev`). Stop the server by its task id or PID.
 

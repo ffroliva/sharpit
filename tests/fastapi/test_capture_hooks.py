@@ -19,7 +19,8 @@ from sharpit.engine import sqla
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
-from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
+from sharpit.fastapi.capture import LOG_PANELS
+from sharpit.fastapi.capture_exceptions import WrappingHandlers
 from sharpit.settings_registry import JOURNAL_SOURCES
 
 

@@ -23,6 +23,7 @@ from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
 import sharpit.fastapi.capture as capture_mod
+import sharpit.fastapi.capture_exceptions as capture_exceptions
 from fastapi import FastAPI, Request, WebSocket
 from sharpit import install
 from sharpit.engine import sqla
@@ -674,7 +675,7 @@ def test_route_template_internal_error_still_records_exchange_and_journal(
         return {"item_id": item_id}
 
     handle = install(app, enabled="ON", show_banner=False)
-    monkeypatch.setattr(capture_mod, "_mount_prefix", _explode("route template lookup failed"))
+    monkeypatch.setattr(capture_exceptions, "_mount_prefix", _explode("route template lookup failed"))
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):

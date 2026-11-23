@@ -52,6 +52,7 @@ def sqlite3_traced(ctx: SharpitContext) -> bool:
 
 
 SQLALCHEMY, SQLITE3 = "sqlalchemy", "sqlite3"  # the two SQL sources, as ``dispatch`` names them
+NOT_WRAPPED = "No DataSource has been wrapped for tracing yet."
 # SqlCapture.NOT_RECORDED with sharpit's recorders
 NOT_RECORDED = (
     "This application's database access is not recorded: sharpit records statements through SQLAlchemy (2.0+) and"
@@ -70,9 +71,14 @@ def _in_use(ctx: SharpitContext) -> dict[str, bool]:
     """Which SQL sources have a database in use here: a statement routed here, or (SQLAlchemy) an engine registered."""
     capture = ctx.capture
     registry = capture.engine_registry
+    sqla_in_use = SQLALCHEMY in capture.sql_delivered or (
+        registry is not None
+        and registry.seen_any
+        and (following_statements(ctx) or SQLALCHEMY in capture.suspended_sources)
+    )
     return {
         # seen_any is write-once: the registry holds engines weakly, so a collected engine stays a database used here
-        SQLALCHEMY: SQLALCHEMY in capture.sql_delivered or (registry is not None and registry.seen_any),
+        SQLALCHEMY: sqla_in_use,
         SQLITE3: SQLITE3 in capture.sql_delivered,
     }
 
@@ -96,11 +102,32 @@ def sources_recorded(ctx: SharpitContext) -> tuple[bool, str | None]:
     return False, " ".join([SUSPENDED_ALL if missed else NOT_RECORDED, *extra])
 
 
-def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
-    """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
+def sql_trace_wrapped(ctx: SharpitContext) -> bool:
+    """Whether ``ctx`` has wrapped a SQL source: listeners are attached, an engine is registered, or SQL ran."""
+    recorder = ctx.capture.sql_trace
+    if (
+        sqlite3_traced(ctx)
+        or following_statements(ctx)
+        or bool(ctx.capture.sql_delivered)
+        or (recorder is not None and recorder.totals().statements > 0)
+    ):
+        return True
+    return SQLALCHEMY in ctx.capture.suspended_sources and listeners_were_attached(ctx)
+
+
+def tracing_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """Unavailable reason when SQL tracing is disabled or SQLAlchemy 2.0+ is absent."""
     if not ctx.settings.sql_trace_enabled:
         return TRACING_DISABLED
     return None if sqlite3_traced(ctx) else unavailable_reason()
+
+
+def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """Unavailable reason for the SQL Trace panel, report, and insights."""
+    reason = tracing_unavailable_reason(ctx)
+    if reason is not None:
+        return reason
+    return None if sql_trace_wrapped(ctx) else NOT_WRAPPED
 
 
 # the submodules import the names above, so they load after them
@@ -128,7 +155,9 @@ from sharpit.engine.sqla.listeners import (  # noqa: E402
     detach_session,
     engine_connect,
     following_connections,
+    following_statements,
     handle_error,
+    listeners_were_attached,
     note_request_captured,
     remove,
     routed,
@@ -162,6 +191,8 @@ __all__ = [
     "EngineRegistry",
     "GENERIC_BATCH",
     "MAX_STATEMENT_SITES",
+    "NOT_RECORDED",
+    "NOT_WRAPPED",
     "READ_ONLY_REFUSED",
     "SHARED_CONNECTION_REFUSED",
     "RELATIONSHIP_KEY",
@@ -184,8 +215,10 @@ __all__ = [
     "detach_session",
     "engine_connect",
     "following_connections",
+    "following_statements",
     "handle_error",
     "is_internal",
+    "listeners_were_attached",
     "live_engine_drivers",
     "maximum_pool_size",
     "logger",
@@ -201,8 +234,10 @@ __all__ = [
     "SUSPENDED_ALL",
     "sources_recorded",
     "sql_trace_unavailable_reason",
+    "sql_trace_wrapped",
     "sqlalchemy_module",
     "sqlite3_traced",
+    "tracing_unavailable_reason",
     "unavailable_reason",
     "unbounded_read_capture_limitation_needed",
 ]

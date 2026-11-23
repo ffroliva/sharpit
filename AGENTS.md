@@ -6,7 +6,7 @@ Single source of truth for every agent working in this repo (Claude Code, Codex,
 ## What sharpit is
 
 An embedded, local-only developer console for Python web apps: a Python port of BootUI (Spring Boot). It is at
-**0.5.0.** It targets FastAPI. One call mounts it:
+**0.9.0.** It targets FastAPI. One call mounts it:
 
 ```python
 import sharpit
@@ -22,6 +22,7 @@ Implementation plan: `docs/superpowers/plans/2026-10-30-sharpit-mvp.md`. BootUI 
 
 ```
 design/                        shared tokens, cross-surface design rules and slide kit
+docs/decisions/                indexed design decisions and their enforcement
 src/sharpit/__init__.py        install, __version__ (the one source; the manifests under plugins/sharpit/ carry a copy the Agent Plugins schema requires, pinned by tests/test_agent_plugin.py)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
@@ -97,7 +98,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
    installed in a host application imports it (`tests/engine/test_import_boundary.py`). It connects directly, without
    configured proxies and without following redirects, only to the API URL the user names, and sends only
    `GET {api}/cli`, `POST {api}/cli/tools/{tool}` and the MCP status and toggle requests of `sharpit mcp`; it makes no
-   update check.
+   update check. `sharpit docs` reads files bundled with the package and makes no request.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
@@ -107,7 +108,7 @@ sharpit is a modular monolith with one port at the framework edge. `tests/engine
 these on every run (a planted violation proves each rule still bites); a failing rule is a design question, not a test
 to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
 
-1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
+1. **Framework-free engine.** `engine/` never imports `fastapi`, `starlette` or `flask` (a `TYPE_CHECKING` block is allowed).
 2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.flask`, `sharpit.pytest_plugin`
    or `sharpit.ui`,
    not even for a type. No module under `src/sharpit/` outside `sharpit/cli/` imports `sharpit.cli`; modules under
@@ -151,6 +152,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 ## Workflow
 
+- Before changing behavior covered by a decision, read `docs/decisions/` (`sharpit docs decisions`). Each new
+  decision gets a file there and a line in its index.
 - **Port BootUI, do not reinvent** (owner, 2026-11-12: "whatever we can directly port from BootUI we should; we don't
   need to recreate anything, just rewrite and adapt"). Before writing any code for a feature, read BootUI's own source
   for it at the pinned tag, in a BootUI clone, not this repo (`git -C <bootui clone> show v2.3.0:<path>` for 0.6.0;

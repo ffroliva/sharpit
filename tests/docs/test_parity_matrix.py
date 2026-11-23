@@ -1,5 +1,6 @@
 """ROADMAP.md and README.md state how close sharpit is to BootUI; these numbers are recomputed from the code and the
-BootUI 2.5.0 fixtures (routes stay measured against the 2.3.0 live goldens), so the docs cannot drift from either."""
+BootUI 2.5.0 fixtures (the route inventory is 2.5.0's; route shapes stay compared with the 2.3.0 live goldens), so the
+docs cannot drift from either."""
 
 from __future__ import annotations
 
@@ -42,16 +43,19 @@ def _matrix() -> dict[str, str]:
     applicable = routes["total"] - routes["n-a"]
     bootui_panels = len(json.loads((BOOTUI / "panels.json").read_text("utf-8"))["panels"])
     return {
-        "tools": f"| MCP/CLI tools | 54 | 71 | 71 | {len(ours)} | 116 | 116 | {len(bootui_tools)} |",
-        "names": f"| Tools under BootUI's exact names | 45 | 62 | 62 | {len(ours & bootui_tools)} | - | - | - |",
-        "panels": f"| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | {len(PANELS)} "
+        "tools": f"| MCP/CLI tools | 54 | 71 | 71 | 73 | {len(ours)} | 116 | 116 | {len(bootui_tools)} |",
+        "names": f"| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | {len(ours & bootui_tools)} | - | - | - |",
+        "panels": f"| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | "
+        f"49 (47 listed in the console) | {len(PANELS)} "
         f"({_listed_panels()} listed in the console) | 65 (Spring) | 65 (Spring) | {bootui_panels} (Spring) |",
-        "insights": f"| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | "
-        f"{len(evaluating)} of {len(KINDS)} registered | 28 | 28 | 29 |",
-        "routes": f"| BootUI API routes served, of the {applicable} that apply to Python | not measured | "
+        "insights": "| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | "
+        f"11 of 29 registered | {len(evaluating)} of {len(KINDS)} registered | 28 | 28 | 29 |",
+        # BootUI 2.3.0: 65 applicable routes in its inventory; 2.5.0: computed from tests/parity/routes_status.json
+        "routes": "| BootUI API routes served, of those that apply to Python | not measured | "
         "33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | "
+        "33 (5 shape-identical, 28 partial) | "
         f"{routes['matched'] + routes['partial']} ({routes['matched']} shape-identical, {routes['partial']} partial) | "
-        f"{applicable} | not captured | not captured |",
+        f"65 | not captured | {applicable} |",
     }
 
 

@@ -42,7 +42,7 @@ stops the release until the owner decides where it goes.
 - CI green on `main`: `gh run list --branch main --limit 3`, the `sonar` job included. The code-scan ratchet
   (`scripts/ci/sonar_ratchet.py`) fails on `main` when a merged PR fixed issues and `sonar-baseline.txt` was not
   lowered (0.3.0: 122 open against 123); lower it in a one-line PR before tagging, and tag the release merge commit
-  explicitly if `main` moved (step 8).
+  explicitly if `main` moved (step 10).
 - `/sharpit:known-issues`: no open Critical or High safety issue.
 - `/sharpit:doc-review` clean: version references, links (github.com only) and the changelog footer.
 - `/sharpit:live-verify` for each user-facing change in this release, or a line in the PR saying why not.
@@ -85,12 +85,29 @@ python -m zipfile -l "$TEMP"/sharpit-dist/sharpit-<version>-py3-none-any.whl  # 
 
 The file name must carry `<version>`; CI refuses the tag otherwise. Do not commit `dist/`.
 
-**7. Commit, PR, merge.**
+**7. Commit and push.**
 
 ```bash
 git add src/sharpit/__init__.py CHANGELOG.md     # plus any declaration from step 4
 git commit -m "chore: release <version>"
 git push -u origin chore/release-<version>
+```
+
+**8. Scan the ship branch.**
+
+```bash
+uv run python scripts/ci/sonar_ratchet.py --branch chore/release-<version>
+gh api "repos/ffroliva/sharpit/code-scanning/analyses?ref=refs/heads/chore/release-<version>" --jq 'length'
+gh api "repos/ffroliva/sharpit/code-scanning/alerts?ref=refs/heads/chore/release-<version>&state=open"
+```
+
+The expected result is at least one analysis for the branch and zero new alerts. An empty alert list with no analysis
+means the branch was never scanned: open the release pull request as a draft, wait for its `CodeQL` check, then read
+the alerts again.
+
+**9. Open the release pull request and merge.**
+
+```bash
 gh pr create --base main --title "chore: release <version>" --body "Release <version>. See CHANGELOG.md."
 gh pr checks <N> --watch                          # background it
 ```
@@ -105,7 +122,7 @@ cd <main checkout> && git worktree remove ../sharpit-release-<version>
 On Windows a held `.venv` can block the removal: merge without `--delete-branch`, run
 `git push origin --delete chore/release-<version>`, and list the directory for manual deletion.
 
-**8. Sign the tag on the merged `main`.**
+**10. Sign the tag on the merged `main`.**
 
 ```bash
 git switch main && git pull --ff-only
@@ -119,14 +136,14 @@ If `main` moved past the release merge, those commits are not in the changelog s
 `git tag -v` failing with `gpg.ssh.allowedSignersFile needs to be configured` is a local verify setting only; the tag is
 signed and CI accepts it.
 
-**9. Point of no return: confirm with the owner, then push the tag.** Show the version, the commit and the signature
+**11. Point of no return: confirm with the owner, then push the tag.** Show the version, the commit and the signature
 check, and wait for an explicit go-ahead in this session.
 
 ```bash
 git push origin v<version>
 ```
 
-**10. Watch the release run.**
+**12. Watch the release run.**
 
 ```bash
 gh run list --workflow release.yml --limit 1
@@ -147,7 +164,7 @@ On failure, read the log (`gh run view <run id> --log-failed`):
 Deleting and re-pushing a tag is safe **only if PyPI never received that version**. Once it is on PyPI the tag is
 permanent: fix forward with a patch release.
 
-**11. Report.** Version, PR, tag commit, the release run link, the GitHub Release link, the PyPI page
+**13. Report.** Version, PR, tag commit, the release run link, the GitHub Release link, the PyPI page
 (<https://pypi.org/project/sharpit/>), and that the agents from step 3 may merge again.
 
 ## Never

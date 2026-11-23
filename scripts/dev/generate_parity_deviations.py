@@ -53,8 +53,16 @@ FRAGMENTS_0_8_0: list[tuple[str, str]] = [
     ("SHIPFIX", "0.8.0-shipfix.tsv"),
 ]
 
+FRAGMENTS_0_9_0: list[tuple[str, str]] = [
+    ("M1", "0.9.0-m1.tsv"),
+    ("M2", "0.9.0-m2.tsv"),
+    ("R0", "0.9.0-r0.tsv"),
+    ("S3/S4", "0.9.0-s34.tsv"),
+]
+
 SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"
 SECTION_HEADING_0_8_0 = "## 0.8.0 against BootUI 2.5.0: deviations"
+SECTION_HEADING_0_9_0 = "## 0.9.0 against BootUI 2.5.0: deviations"
 
 
 class DeviationRow(NamedTuple):
@@ -105,7 +113,12 @@ def generate_section(
     release: str = "0.7.0",
 ) -> str:
     if rows is None:
-        fragments = FRAGMENTS_0_7_0 if release == "0.7.0" else FRAGMENTS_0_8_0
+        if release == "0.7.0":
+            fragments = FRAGMENTS_0_7_0
+        elif release == "0.8.0":
+            fragments = FRAGMENTS_0_8_0
+        else:
+            fragments = FRAGMENTS_0_9_0
         rows = collect_deviations(fragments=fragments)
     table = generate_table(rows)
     return (
@@ -124,20 +137,26 @@ def generate_section_0_8_0(rows: list[DeviationRow] | None = None) -> str:
     return generate_section(rows=rows, heading=SECTION_HEADING_0_8_0, release="0.8.0")
 
 
+def generate_section_0_9_0(rows: list[DeviationRow] | None = None) -> str:
+    return generate_section(rows=rows, heading=SECTION_HEADING_0_9_0, release="0.9.0")
+
+
 def update_parity_md(
     parity_path: Path = PARITY_MD,
     rows_0_7_0: list[DeviationRow] | None = None,
     rows_0_8_0: list[DeviationRow] | None = None,
+    rows_0_9_0: list[DeviationRow] | None = None,
 ) -> str:
     sec_0_7_0 = generate_section_0_7_0(rows_0_7_0)
     sec_0_8_0 = generate_section_0_8_0(rows_0_8_0)
+    sec_0_9_0 = generate_section_0_9_0(rows_0_9_0)
     content = parity_path.read_text(encoding="utf-8")
     if SECTION_HEADING_0_7_0 in content:
         prefix = content.split(SECTION_HEADING_0_7_0, 1)[0].rstrip()
-        new_content = f"{prefix}\n\n{sec_0_7_0}\n{sec_0_8_0}"
+        new_content = f"{prefix}\n\n{sec_0_7_0}\n{sec_0_8_0}\n{sec_0_9_0}"
     else:
-        new_content = f"{content.rstrip()}\n\n{sec_0_7_0}\n{sec_0_8_0}"
-    parity_path.write_text(new_content, encoding="utf-8")
+        new_content = f"{content.rstrip()}\n\n{sec_0_7_0}\n{sec_0_8_0}\n{sec_0_9_0}"
+    parity_path.write_text(new_content, encoding="utf-8", newline="\n")
     return new_content
 
 
@@ -149,12 +168,13 @@ def main() -> int:
 
     rows_0_7_0 = collect_deviations(fragments=FRAGMENTS_0_7_0)
     rows_0_8_0 = collect_deviations(fragments=FRAGMENTS_0_8_0)
+    rows_0_9_0 = collect_deviations(fragments=FRAGMENTS_0_9_0)
 
     if args.write:
-        update_parity_md(rows_0_7_0=rows_0_7_0, rows_0_8_0=rows_0_8_0)
+        update_parity_md(rows_0_7_0=rows_0_7_0, rows_0_8_0=rows_0_8_0, rows_0_9_0=rows_0_9_0)
         print(
-            f"Updated {PARITY_MD.relative_to(ROOT)} with {len(rows_0_7_0)} (0.7.0) "
-            f"and {len(rows_0_8_0)} (0.8.0) deviation rows."
+            f"Updated {PARITY_MD.relative_to(ROOT)} with {len(rows_0_7_0)} (0.7.0), "
+            f"{len(rows_0_8_0)} (0.8.0), and {len(rows_0_9_0)} (0.9.0) deviation rows."
         )
         return 0
 
@@ -166,13 +186,19 @@ def main() -> int:
         if SECTION_HEADING_0_8_0 not in content:
             print(f"FAIL: {SECTION_HEADING_0_8_0} not found in {PARITY_MD.name}")
             return 1
+        if SECTION_HEADING_0_9_0 not in content:
+            print(f"FAIL: {SECTION_HEADING_0_9_0} not found in {PARITY_MD.name}")
+            return 1
 
-        parts = content.split(SECTION_HEADING_0_7_0, 1)[1].split(SECTION_HEADING_0_8_0, 1)
-        current_0_7_0 = (SECTION_HEADING_0_7_0 + parts[0]).strip()
-        current_0_8_0 = (SECTION_HEADING_0_8_0 + parts[1]).strip()
+        parts_0_7 = content.split(SECTION_HEADING_0_7_0, 1)[1].split(SECTION_HEADING_0_8_0, 1)
+        current_0_7_0 = (SECTION_HEADING_0_7_0 + parts_0_7[0]).strip()
+        parts_0_8 = parts_0_7[1].split(SECTION_HEADING_0_9_0, 1)
+        current_0_8_0 = (SECTION_HEADING_0_8_0 + parts_0_8[0]).strip()
+        current_0_9_0 = (SECTION_HEADING_0_9_0 + parts_0_8[1]).strip()
 
         expected_0_7_0 = generate_section_0_7_0(rows_0_7_0).strip()
         expected_0_8_0 = generate_section_0_8_0(rows_0_8_0).strip()
+        expected_0_9_0 = generate_section_0_9_0(rows_0_9_0).strip()
 
         if current_0_7_0 != expected_0_7_0:
             print(f"FAIL: {PARITY_MD.name} 0.7.0 section does not match generated section")
@@ -180,17 +206,22 @@ def main() -> int:
         if current_0_8_0 != expected_0_8_0:
             print(f"FAIL: {PARITY_MD.name} 0.8.0 section does not match generated section")
             return 1
+        if current_0_9_0 != expected_0_9_0:
+            print(f"FAIL: {PARITY_MD.name} 0.9.0 section does not match generated section")
+            return 1
 
         print(
             f"PASS: {PARITY_MD.name} matches generated sections "
-            f"({len(rows_0_7_0)} rows 0.7.0, {len(rows_0_8_0)} rows 0.8.0)"
+            f"({len(rows_0_7_0)} rows 0.7.0, {len(rows_0_8_0)} rows 0.8.0, {len(rows_0_9_0)} rows 0.9.0)"
         )
         return 0
 
     sec_0_7_0 = generate_section_0_7_0(rows_0_7_0)
     sec_0_8_0 = generate_section_0_8_0(rows_0_8_0)
+    sec_0_9_0 = generate_section_0_9_0(rows_0_9_0)
     print(sec_0_7_0)
     print(sec_0_8_0)
+    print(sec_0_9_0)
     return 0
 
 

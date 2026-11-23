@@ -138,3 +138,32 @@ def test_set_provider_is_read_from_the_global(monkeypatch: pytest.MonkeyPatch):
     plant_api(monkeypatch, provider, calls)
     otel.attach(Sink())
     assert calls == []
+
+
+@pytest.fixture
+def real_api_without_global_provider(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The real OpenTelemetry API with no global tracer provider set, as when an app passes its provider directly."""
+    trace = pytest.importorskip("opentelemetry.trace")
+    monkeypatch.setitem(sys.modules, "opentelemetry.trace", trace)
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER", None)
+    return trace
+
+
+def test_trace_id_of_a_span_from_a_non_global_provider(real_api_without_global_provider: Any):
+    # council 0.9.0: instrument_app(app, tracer_provider=tp) never sets the global provider; its spans keep their id
+    from opentelemetry.sdk.trace import TracerProvider
+
+    with TracerProvider().get_tracer("t").start_as_current_span("q") as span:
+        expected = f"{span.get_span_context().trace_id:032x}"
+        assert otel.current_trace_id() == expected
+
+
+def test_trace_id_of_a_propagated_remote_span_context(real_api_without_global_provider: Any):
+    trace = real_api_without_global_provider
+    remote = trace.SpanContext(0x0AF7651916CD43DD8448EB211C80319C, 0xB7AD6B7169203331, is_remote=True)
+    with trace.use_span(trace.NonRecordingSpan(remote)):
+        assert otel.current_trace_id() == "0af7651916cd43dd8448eb211c80319c"
+
+
+def test_no_trace_id_without_a_current_span(real_api_without_global_provider: Any):
+    assert otel.current_trace_id() is None

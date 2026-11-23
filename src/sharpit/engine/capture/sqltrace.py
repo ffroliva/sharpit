@@ -93,16 +93,35 @@ def category_of(sql: str) -> str:
 # --- call site ------------------------------------------------------------------------------------------------------
 
 
+def _starting_call_site_frame() -> FrameType | None:
+    try:
+        return sys._getframe(6)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    except ValueError:
+        try:
+            return sys._getframe(2)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        except ValueError:
+            return None
+
+
+def _greenlet_parent() -> Any:
+    """The current greenlet's parent, or None when greenlet is not loaded or the current greenlet has none."""
+    greenlet_module = sys.modules.get("greenlet")
+    if greenlet_module is None:
+        return None
+    return getattr(greenlet_module.getcurrent(), "parent", None)
+
+
 def call_site(frame: FrameType | None) -> str | None:
     """The first application frame as ``module:function:line``, walking at most 64 frames; an ``AsyncSession``
     statement runs in a greenlet holding only SQLAlchemy frames, so the walk continues into its parent."""
-    current = frame if frame is not None else sys._getframe()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    greenlet_module = sys.modules.get("greenlet")
+    current = frame if frame is not None else _starting_call_site_frame()
     parent: Any = None
-    if greenlet_module is not None:
-        parent = getattr(greenlet_module.getcurrent(), "parent", None)
+    greenlet_checked = False
     for _ in range(MAX_CALL_SITE_FRAMES):
         if current is None:
+            if not greenlet_checked:
+                parent = _greenlet_parent()
+                greenlet_checked = True
             if parent is None:
                 return None
             current, parent = parent.gr_frame, getattr(parent, "parent", None)
@@ -161,6 +180,11 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _statement_output(masker: Masker, max_sql_length: int, sql: str, dialect: Dialect) -> tuple[Shape, str, str]:
+    shape = sqltext.statement_shape(masker, sql, dialect)
+    return shape, _truncate(shape.text, max_sql_length), category_of(sql)
+
+
 @dataclass(eq=False)
 class _Aggregate:
     sql: str
@@ -197,7 +221,9 @@ class SqlTraceRecorder:
     ) -> None:
         self._masker = masker
         # the same statements repeat: per recorder, so one masker's results never reach another's
-        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(sqltext.statement_shape, masker))
+        self._statement_output = functools.lru_cache(maxsize=1024)(
+            functools.partial(_statement_output, masker, max_sql_length)
+        )
         self.max_entries = max_entries
         self.slow_query_threshold_millis = slow_query_threshold_millis
         self._max_sql_length = max_sql_length
@@ -236,6 +262,27 @@ class SqlTraceRecorder:
     def slow_held(self, nanos: int) -> bool:
         """BootUI ``isSlow(heldNanos / 1_000)`` for a connection held ``nanos``: at least the slow-query threshold."""
         return self._slow(nanos // 1_000_000)
+
+    def checkout_cursor(self) -> int:
+        """Return the rows recorded so far, at connection checkout."""
+        return self._total
+
+    def count_for_connection(self, connection_id: str | None, start_total: int) -> int | None:
+        """Count the rows recorded for a connection since ``start_total``, or None when the ring no longer holds them.
+
+        Rows are appended in order, so the last ``delta`` rows are exactly those recorded since the checkout while the
+        ring still holds ``delta`` rows; an eviction of older rows loses none of them, a clear leaves fewer."""
+        with self._lock:
+            delta = self._total - start_total
+            if delta == 0:
+                return 0 if self.recording else None
+            if connection_id is None or delta < 0 or delta > len(self._entries):
+                return None
+            return sum(
+                1
+                for entry in itertools.islice(reversed(self._entries), delta)
+                if entry.get("connectionId") == connection_id
+            )
 
     def _parameters(self, parameters: object, executemany: bool) -> list[str]:
         sets: Sequence[object] = cast_sets(parameters, executemany)
@@ -280,12 +327,9 @@ class SqlTraceRecorder:
         if not self.recording:
             return None
         masker = self._masker
-        shape: Shape = self._shape(sql, dialect)
+        shape, text, category = self._statement_output(sql, dialect)
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
-        text = _truncate(
-            shape.text, self._max_sql_length
-        )  # the journal event's text (``journal_text``), the row's unless raw
         stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
         error_message: str | None = None
         if error is not None:
@@ -293,7 +337,6 @@ class SqlTraceRecorder:
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
         millis = duration_ns // 1_000_000
-        category = category_of(sql)
         site = call_site if self.capture_call_site else None
         row = {
             "id": 0,
@@ -330,29 +373,34 @@ class SqlTraceRecorder:
             self._selects += category == "SELECT"
             if category == "SELECT" and millis > self._slowest[0]:  # rare: only a new slowest SELECT pays to mask
                 self._new_max(millis, shape.text)
-            key = shape.fingerprint
-            if key is not None:
-                aggregate = self._aggregates.get(key)
-                if aggregate is None:
-                    aggregate = self._aggregates[key] = _Aggregate(shape.text, category)
-                    if len(self._aggregates) > MAX_AGGREGATES:
-                        self._aggregates.popitem(last=False)
-                else:
-                    try:
-                        self._aggregates.move_to_end(key)
-                    except KeyError:  # a finalizer on this thread evicted it since the ``get``
-                        self._aggregates[key] = aggregate
-                aggregate.executions += 1
-                aggregate.total_duration += millis
-                aggregate.max_duration = max(aggregate.max_duration, millis)
-                if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
-                    aggregate.call_sites[site] = None
+            self._update_aggregate(shape.fingerprint, shape.text, category, millis, site)
         self.changes.signal()
         return text
 
+    def _update_aggregate(self, key: str | None, sql: str, category: str, millis: int, site: str | None) -> None:
+        if key is None:
+            return
+        aggregate = self._aggregates.get(key)
+        if aggregate is None:
+            aggregate = self._aggregates[key] = _Aggregate(sql, category)
+            if len(self._aggregates) > MAX_AGGREGATES:
+                self._aggregates.popitem(last=False)
+        elif len(self._aggregates) > 1:
+            try:
+                self._aggregates.move_to_end(key)
+            except KeyError:  # a finalizer on this thread evicted it since the ``get``
+                self._aggregates[key] = aggregate
+        elif not self._aggregates:
+            self._aggregates[key] = aggregate
+        aggregate.executions += 1
+        aggregate.total_duration += millis
+        aggregate.max_duration = max(aggregate.max_duration, millis)
+        if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
+            aggregate.call_sites[site] = None
+
     def journal_text(self, sql: str, dialect: Dialect) -> str:
         """The literal-free text ``record`` returns, for the journal while the panel is paused (no row is kept)."""
-        return _truncate(self._shape(sql, dialect).text, self._max_sql_length)
+        return self._statement_output(sql, dialect)[1]
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""

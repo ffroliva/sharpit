@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Literal, Protocol
+
+
+class HostLoopProvider(Protocol):
+    """Supplies the event loop belonging to the current host request, when one exists."""
+
+    def current_loop(self) -> asyncio.AbstractEventLoop | None: ...
 
 
 @dataclass(frozen=True)

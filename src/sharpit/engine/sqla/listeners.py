@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 import weakref
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
@@ -17,7 +18,8 @@ from sharpit.engine.sources import dispatch  # the module, not its names: dispat
 from sharpit.engine.sqla import _lock
 from sharpit.engine.sqla import connections as _connections
 from sharpit.engine.sqla import orm as _orm
-from sharpit.engine.sqla.dialect_source import engine_dialect
+from sharpit.engine.sqla.dialect_source import connection_dialect
+from sharpit.engine.sqla.inspect import EngineRegistry
 from sharpit.engine.sqla.orm import (
     _eager_relationship_batches,
     _lazy_seen,
@@ -53,6 +55,7 @@ _discovery_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.
 _discovery_refs: tuple[weakref.ref[SharpitContext], ...] = ()
 # contexts that asked for statements through ``add`` (``routed`` reads it); weak, so a collected one stops counting
 _statement_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
+_attached_contexts: set[str] = set()
 _session = False  # the test-session sink wants statements too (spec 0.3.0 §8.1)
 
 
@@ -95,9 +98,10 @@ def before_cursor_execute(
 
 
 def _pop_start(conn: Any, context: Any) -> tuple[int, list[SharpitContext]] | None:
-    state = cast("dict[str, Any]", vars(context)) if context is not None else None
-    if state is not None and "_sharpit_start" in state:
-        return state.pop("_sharpit_start")
+    if context is not None:
+        start = context.__dict__.pop("_sharpit_start", None)
+        if start is not None:
+            return start
     return conn.info.pop(START_KEY, None)
 
 
@@ -133,9 +137,8 @@ def _emit(
         connection_id: str | None = hex(id(conn.connection.dbapi_connection))
     except Exception:  # noqa: BLE001 - an invalidated connection has no DBAPI connection
         connection_id = None
-    # the connection's, not the engine's: ``event_dialect`` compares the two. They are one object until a dialect is
-    # replaced, so the check proves the engine did not move, not which server answered.
-    dialect = engine_dialect(conn)
+    engine = conn.engine
+    dialect = connection_dialect(conn, engine)
     dispatch.deliver(
         dispatch.SqlEvent(
             "sqlalchemy",
@@ -148,7 +151,7 @@ def _emit(
             rowcount,
             error,
             connection_id,
-            conn.engine,
+            engine,
             Dialect.UNSUPPORTED if dialect is None else dialect,
         ),  # fmt: skip
         targets,
@@ -225,21 +228,57 @@ def _sync_listeners() -> None:
             sa.event.remove(target, name, fn)
 
 
+def _rollback_add(
+    ctx: SharpitContext,
+    *,
+    statements: bool,
+    discovery: bool,
+    had_statements: bool,
+    had_discovery: bool,
+    had_dispatch: bool,
+) -> None:
+    if statements and not had_statements:
+        _statement_contexts.pop(ctx.context_id, None)
+        if not had_dispatch:
+            dispatch.remove_context(ctx)
+    if discovery and not had_discovery:
+        _discovery_contexts.pop(ctx.context_id, None)
+    with contextlib.suppress(Exception):
+        _sync_listeners()
+
+
 def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
     """Route statements and/or engine discovery to ``ctx``; False while SQLAlchemy is not imported (retry later)."""
-    if _sqla.sqlalchemy_module() is None:
+    # Safe to return False when neither is requested: nothing needs routing, and callers do not retry this path.
+    if _sqla.sqlalchemy_module() is None or (not statements and not discovery):
         return False
-    registry = ctx.capture.engine_registry
-    if registry is not None:
-        for engine in ctx.engines:
-            registry.add(engine)
     with _lock:
+        had_statements = ctx.context_id in _statement_contexts
+        had_discovery = ctx.context_id in _discovery_contexts
+        had_dispatch = dispatch.routes_context(ctx)
         if statements:
             dispatch.add_context(ctx)
             _statement_contexts[ctx.context_id] = ctx
         if discovery:
             _discovery_contexts[ctx.context_id] = ctx
-        _sync_listeners()
+        try:
+            _sync_listeners()
+        except Exception:
+            _rollback_add(
+                ctx,
+                statements=statements,
+                discovery=discovery,
+                had_statements=had_statements,
+                had_discovery=had_discovery,
+                had_dispatch=had_dispatch,
+            )
+            raise
+        registry = ctx.capture.engine_registry
+        if isinstance(registry, EngineRegistry):
+            for engine in ctx.engines:
+                registry.add(engine)
+        if statements:
+            _attached_contexts.add(ctx.context_id)
     return True
 
 
@@ -263,6 +302,7 @@ def detach_all() -> None:
         dispatch.clear_contexts()
         _statement_contexts.clear()
         _discovery_contexts.clear()
+        _attached_contexts.clear()
         _session = False
         _relationship_groups.clear()
         _relationship_sites.clear()
@@ -320,6 +360,19 @@ def following_connections(ctx: SharpitContext) -> bool:
     with _lock:
         armed = attached()
         return ctx.context_id in _statement_contexts and all(armed[name] for name in POOL_EVENTS)
+
+
+def following_statements(ctx: SharpitContext) -> bool:
+    """Whether the statement listeners run for ``ctx``: SQLAlchemy statements can be recorded."""
+    with _lock:
+        armed = attached()
+        return ctx.context_id in _statement_contexts and all(armed[name] for name in STATEMENT_EVENTS)
+
+
+def listeners_were_attached(ctx: SharpitContext) -> bool:
+    """Whether statement listeners were successfully attached at least once for ``ctx``."""
+    with _lock:
+        return ctx.context_id in _attached_contexts
 
 
 def note_request_captured() -> None:

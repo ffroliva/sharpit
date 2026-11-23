@@ -47,10 +47,6 @@ def _diagnostic_row(
     return _target_type(endpoint), _bounded(path), _bounded(reason)
 
 
-def is_validation_error(exc: BaseException) -> bool:
-    return isinstance(exc, RequestValidationError)
-
-
 def route_for_scope(scope: object, app: Any = None) -> Any:
     if not isinstance(scope, dict):
         return None

@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.capture.exceptions import GROUP_KEYS, ExceptionStore
 from sharpit.fastapi.adapter import SharpitHandle
-from sharpit.fastapi.capture import WrappingHandlers
+from sharpit.fastapi.capture_exceptions import WrappingHandlers
 
 LOCAL = ("127.0.0.1", 50000)
 API = "/sharpit/api/exceptions"
@@ -554,7 +554,7 @@ def test_exceptions_report_carries_caught_in_code():
 # derived: Task 27 Opus review r2 #3: the log source passes no override for a classified exception, so the store's own
 # guard is not the only one (with only the store's, removing this one fails nothing above)
 def test_the_log_source_passes_no_override_for_a_classified_exception() -> None:
-    from sharpit.fastapi.capture import _record_logged  # pyright: ignore[reportPrivateUsage]
+    from sharpit.fastapi.capture_exceptions import _record_logged  # pyright: ignore[reportPrivateUsage]
 
     psycopg_errors = pytest.importorskip("psycopg.errors")
     passed: list[object] = []

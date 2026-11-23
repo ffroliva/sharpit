@@ -85,11 +85,14 @@ def test_bulk_legacy_sync():
     pass
 ```
 
-The marker accepts only three keyword arguments:
+The marker accepts keyword arguments for budgets and accepted findings:
 
 - `max_queries: int`: maximum queries allowed in the `call` phase.
 - `allow_n_plus_one: bool`: allow N+1 query patterns without triggering a failure.
 - `max_exceptions: int`: maximum allowed swallowed exceptions (default 0).
+- `allow_swallowed: bool`: allow broad exception handlers swallowing errors without triggering a failure.
+- `allow_unbounded_read: bool`: allow unpaged queries without triggering a failure.
+- `reason: str`: explanation for accepted findings (required when `--sharpit-require-reason` is set).
 
 Any other argument raises `pytest.UsageError` during test collection.
 The closest marker wins (function level over class level over module level).
