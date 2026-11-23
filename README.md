@@ -58,7 +58,7 @@ installed packages for known vulnerabilities when you ask for it. Every panel in
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
 run fails closed.
 
-> **Status: alpha (0.8.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.9.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Gate CI on findings
 
@@ -137,15 +137,15 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
 
 ## How close to BootUI
 
-sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0.
+sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0; 0.9.0 stays on BootUI 2.5.0 and closes recorded gaps.
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
-|---|---|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 73 | 116 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | - | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of the 56 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 56 | not captured | not captured |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | sharpit 0.9.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
+| BootUI API routes served, of the 56 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 56 | not captured | not captured |
 
 How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
 

@@ -342,6 +342,10 @@ every lane ── RW
    J0–J2, M, X, R0–R1 and F0, F0b and F1 in 0.9.0, and move F2–F6, J3–J5, R2–R3 and the Flask console to 0.10.0 on
    top of the contract and the corpus; (b) keep Track F whole and move Track R after it; (c) keep everything and
    accept a longer release. The maintainer decides.
+   **Decided 2026-11-23:** 0.9.0 ships the lanes merged on `release/0.9.0`: Wave H, Track S (S0–S4b), R0, Track M
+   except M3, X2, X4, F0 (not wired) and the D1 documentation lane. F1–F6, J0–J5, R1–R3, M3, X1 and X3 move to 0.10.0
+   (#260, #299, #300, #301, #253, #302). The definition-of-done items that depend on Track F (the F1 corpus, the Flask
+   live-verify) move with it; the H6 workflow change into `main` stays open.
 
 ## Definition of done
 
