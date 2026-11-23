@@ -306,6 +306,24 @@ def _cancel_host(cancel_host: list[Callable[[], None]], task: asyncio.Task[Any])
         task.cancel()
 
 
+def _detach_timed_out(
+    task: asyncio.Task[Any], cancel_host: list[Callable[[], None]], on_complete: Callable[[], None] | None
+) -> bool:
+    """Cancel a timed-out host task and keep it referenced until it ends; True when it now owns the slot release."""
+    _cancel_host(cancel_host, task)
+    _PENDING_TASKS.add(task)
+    if on_complete is None:
+        task.add_done_callback(lambda completed: _PENDING_TASKS.discard(completed))
+        return False
+
+    def finish(completed: asyncio.Task[Any]) -> None:
+        _PENDING_TASKS.discard(completed)
+        _task_done(completed, on_complete)
+
+    task.add_done_callback(finish)
+    return True
+
+
 async def run_probe(
     host_app: Any,
     request: ProbeRequest,
@@ -364,18 +382,7 @@ async def run_probe(
         done, _ = await asyncio.wait({task}, timeout=timeout)
         if not done:
             finished.set()
-            _cancel_host(cancel_host, task)
-            _PENDING_TASKS.add(task)
-            if on_complete is not None:
-
-                def finish(completed: asyncio.Task[Any]) -> None:
-                    _PENDING_TASKS.discard(completed)
-                    _task_done(completed, on_complete)
-
-                task.add_done_callback(finish)
-                transferred_slot = True
-            else:
-                task.add_done_callback(lambda completed: _PENDING_TASKS.discard(completed))
+            transferred_slot = _detach_timed_out(task, cancel_host, on_complete)
             return _probe_result(
                 status, {}, _body(bytes(sent_body), None, masker), started,
                 f"HTTP Probe timed out after {timeout:g}s", False,
