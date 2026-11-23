@@ -48,9 +48,7 @@ NO_ENGINE = "No database engine is registered yet: pass engines=[...] to install
 MAX_REVISION_BYTES = 1024 * 1024
 MAX_ERROR_BYTES = 4096
 DEFAULT_VERSION_TABLE = "alembic_version"
-_IDENTIFIER = re.compile(
-    r"[A-Za-z_][A-Za-z0-9_]{0,62}"
-)  # NOSONAR - \w also matches non-ASCII letters; a plain identifier is ASCII
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w{0,62}", re.ASCII)
 _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _SEPARATORS = {"os": os.pathsep, ":": ":", ";": ";", "space": " ", "newline": "\n"}
 _VARIABLES = ("revision", "down_revision", "branch_labels", "depends_on")
@@ -66,7 +64,7 @@ _OPTIONS = (
 
 @dataclass(frozen=True)
 class Revision:
-    revision: str  # NOSONAR - the Alembic revision id, named as in the migration scripts
+    id: str  # the Alembic revision id
     down_revisions: tuple[str, ...]
     description: str | None
     script: str  # relative to the config file's directory, with forward slashes
@@ -196,10 +194,12 @@ def _variables(tree: ast.Module) -> dict[str, object] | str:
 
 def _down_revisions(down: object) -> tuple[str, ...]:
     if isinstance(down, str):
-        return (down,)
-    if isinstance(down, tuple | list):
-        return tuple(d for d in cast("tuple[object, ...]", tuple(cast("Any", down))) if isinstance(d, str))
-    return ()
+        items: tuple[object, ...] = (down,)
+    elif isinstance(down, tuple | list):
+        items = cast("tuple[object, ...]", tuple(cast("Any", down)))
+    else:
+        items = ()
+    return tuple(d for d in items if isinstance(d, str))
 
 
 def _parse_revision(path: Path, base: Path, masker: Masker) -> Revision | str | None:
@@ -231,8 +231,8 @@ def _order(revisions: dict[str, Revision]) -> list[Revision]:
     for rev in revisions.values():
         for parent in rev.down_revisions:
             if parent in revisions:
-                children[parent].append(rev.revision)
-                waiting[rev.revision] += 1
+                children[parent].append(rev.id)
+                waiting[rev.id] += 1
     ready = [(revisions[r].script, r) for r, n in waiting.items() if n == 0]
     heapq.heapify(ready)
     ordered: list[Revision] = []
@@ -243,8 +243,8 @@ def _order(revisions: dict[str, Revision]) -> list[Revision]:
             waiting[child] -= 1
             if waiting[child] == 0:
                 heapq.heappush(ready, (revisions[child].script, child))
-    seen = {r.revision for r in ordered}
-    return ordered + sorted((r for r in revisions.values() if r.revision not in seen), key=lambda r: r.script)
+    seen = {r.id for r in ordered}
+    return ordered + sorted((r for r in revisions.values() if r.id not in seen), key=lambda r: r.script)
 
 
 def _table_error(files: AlembicFiles, masker: Masker) -> str | None:
@@ -277,10 +277,10 @@ def _collect_revisions(files: AlembicFiles, here: Path, masker: Masker) -> dict[
             parsed = _parse_revision(path, here, masker)
             if isinstance(parsed, str):
                 files.skipped.append((_relative(path, here), parsed))
-            elif parsed is not None and parsed.revision in found:
-                files.skipped.append((parsed.script, f"duplicate revision {parsed.revision!r}"))
+            elif parsed is not None and parsed.id in found:
+                files.skipped.append((parsed.script, f"duplicate revision {parsed.id!r}"))
             elif parsed is not None:
-                found[parsed.revision] = parsed
+                found[parsed.id] = parsed
     return found
 
 
@@ -350,7 +350,7 @@ def _row(rev: Revision | None, version: str, state: str) -> dict[str, Any]:
 
 
 def _applied(files: AlembicFiles, heads: tuple[str, ...]) -> set[str]:
-    by_id = {r.revision: r for r in files.revisions}
+    by_id = {r.id: r for r in files.revisions}
     applied: set[str] = set()
     todo = [h for h in heads if h in by_id]
     while todo:
@@ -371,11 +371,11 @@ def _database(
     migrate_reason, clean_reason = gates
     heads = read.heads if read else None
     if heads is None:
-        rows = [_row(r, r.revision, "Unknown") for r in files.revisions]
+        rows = [_row(r, r.id, "Unknown") for r in files.revisions]
     else:
         applied = _applied(files, heads)
-        known = {r.revision for r in files.revisions}
-        rows = [_row(r, r.revision, "Success" if r.revision in applied else "Pending") for r in files.revisions]
+        known = {r.id for r in files.revisions}
+        rows = [_row(r, r.id, "Success" if r.id in applied else "Pending") for r in files.revisions]
         rows += [_row(None, h, "Missing") for h in heads if h not in known]
     return {
         "name": name,
