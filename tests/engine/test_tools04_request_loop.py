@@ -121,8 +121,9 @@ def test_closed_request_loop_does_not_fall_back_to_another_loop(monkeypatch: pyt
     _install_spies(monkeypatch, ctx)
     ctx.capture.loop = stale.loop
     try:
+        call = _call(ctx, closed)
         with pytest.raises(ToolCallError) as caught:
-            call_tool(_call(ctx, closed), "pentest_scan", {}, via="cli")
+            call_tool(call, "pentest_scan", {}, via="cli")
         assert caught.value.status == 503
         assert str(caught.value) == "Pentesting scan is unavailable: the application's event loop is not running."
     finally:
@@ -132,8 +133,9 @@ def test_closed_request_loop_does_not_fall_back_to_another_loop(monkeypatch: pyt
 def test_wsgi_without_request_loop_returns_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _context()
     _install_spies(monkeypatch, ctx)
+    call = _call(ctx, None)
     with pytest.raises(ToolCallError) as caught:
-        call_tool(_call(ctx, None), "pentest_scan", {}, via="cli")
+        call_tool(call, "pentest_scan", {}, via="cli")
     assert caught.value.status == 503
     assert str(caught.value) == "Pentesting scan is unavailable: the application's event loop is not running."
 
