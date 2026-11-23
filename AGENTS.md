@@ -138,12 +138,12 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 6. **Ratchets only go down** (`tests/test_code_shape.py`, `scripts/ci/sonar_ratchet.py`): no module under `src/` over
    1000 lines; ruff C901 counts per file pinned in `tests/complexity_baseline.json`; open code-scan issues on `main`
    equal to `sonar-baseline.txt`. A change that fixes one lowers the pinned number in the same commit; nothing is ever raised.
-7. **A Sonar suppression is the exception; the refactor comes first.** An issue is suppressed (`# NOSONAR - <reason>`,
-   `// NOSONAR - <reason>`) only when the refactor it asks for would change behaviour or break a contract (an ASGI
+7. **A code-scan suppression is the exception; the refactor comes first.** An issue is suppressed
+   (`# NOSONAR - <reason>`, `// NOSONAR - <reason>`) only when the refactor it asks for would change behaviour or break a contract (an ASGI
    coroutine, a snapshot copy another thread needs, a pattern whose rewrite widens what it matches) or would touch a
    safety path or an overhead budget without the evidence those need. The reason names why the refactor was rejected;
    `tests/test_code_shape.py` fails a suppression without one. Each pull request that adds one lists it, with the
-   refactor that was tried, in its body. Issues are never accepted or marked false positive in the SonarCloud UI: a
+   refactor that was tried, in its body. Issues are never accepted or marked false positive in the code-scan service: a
    suppression lives in the code, where review sees it.
 
 ### Writing tests that prove something
