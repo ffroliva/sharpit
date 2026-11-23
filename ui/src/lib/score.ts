@@ -26,8 +26,8 @@ const SCAN_STATUS_LABELS: Record<string, string> = {
 };
 
 export function scanStatusLabel(status: unknown): string {
-  if (!status) return 'Unknown';
-  const text = String(status); // NOSONAR - JSON scalar (string or number); an object is not a status
+  if (!status || (typeof status !== 'string' && typeof status !== 'number')) return 'Unknown';
+  const text = String(status);
   return (
     SCAN_STATUS_LABELS[text] ??
     text.toLowerCase().split('_').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
@@ -50,8 +50,7 @@ export function overallScore(scores: unknown): number | null {
 }
 
 function severityWeight(severity: unknown): number {
-  if (!severity) return 0;
-  return SEVERITY_WEIGHTS[String(severity).toUpperCase()] ?? 0; // NOSONAR - JSON scalar; an object maps to no weight
+  return typeof severity === 'string' ? (SEVERITY_WEIGHTS[severity.toUpperCase()] ?? 0) : 0;
 }
 
 function isKnownSeverity(severity: unknown): boolean {
