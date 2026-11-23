@@ -27,7 +27,7 @@ from sharpit.cli.fail_on import parse as parse_fail_on
 from sharpit.cli.manifest import Manifest, ManifestTool
 from sharpit.cli.options import ClientOptions, GlobalOptions, normalize_token, positive_seconds
 from sharpit.cli.outcomes import OutcomeKind, confirm_answered
-from sharpit.cli.render import render, safe_controls, write, write_json
+from sharpit.cli.render import render, safe_controls, write, write_utf8
 
 __all__ = ["main", "run"]
 
@@ -64,7 +64,7 @@ def _emit(out: TextIO, raw_body: str, payload: object, options: _Emission) -> No
     else:
         text = render(redact_payload(payload, options.token), color=options.color)
     if text:
-        (write_json if options.json_output or not options.terminal else write)(
+        (write_utf8 if options.json_output or not options.terminal else write)(
             out, text if text.endswith("\n") else f"{text}\n"
         )
     if hasattr(out, "flush"):
@@ -246,6 +246,19 @@ def _build_root_parser(
     )
     tools_parser.set_defaults(_builtin="tools")
     all_parsers.append(tools_parser)
+    if not selected_path:
+        docs_parser: SharpitParser = root_sub.add_parser(
+            "docs",
+            parents=[globals_parser],
+            help="List, read, or search bundled documentation.",
+            description="List, read, or search bundled documentation. No application or network is needed.\n"
+            "Pages are raw Markdown, even when piped. Use --json for structured output.",
+            epilog='Examples\n  sharpit docs cli\n  sharpit docs --search "local development" --json',
+        )
+        docs_parser.set_defaults(_builtin="docs")
+        docs_parser.add_argument("topic", nargs="?", metavar="<topic>")
+        docs_parser.add_argument("--search", metavar=TEXT_METAVAR, help="Case-insensitive literal search")
+        all_parsers.append(docs_parser)
     mcp_parser: SharpitParser = root_sub.add_parser(
         "mcp",
         parents=[globals_parser],
@@ -376,7 +389,7 @@ def _selected_path(argv: Sequence[str], manifest: Manifest) -> tuple[str, ...] |
         and (index == 0 or argv[index - 1] not in {"--url", "--api-path", "--token", "--timeout", "--fail-on"})
     )
     known_paths = {path for path, _ in manifest.command_specs}
-    if candidates and candidates[0] in {"tools", "mcp"}:
+    if candidates and candidates[0] in {"tools", "mcp", "docs"}:
         return ()
     path = next(
         (candidates[:length] for length in range(len(candidates), 0, -1) if candidates[:length] in known_paths),
@@ -667,11 +680,22 @@ def run(
 
     builtin = getattr(namespace, "_builtin", None)
     global_options = _extract_global_options(namespace)
+    if builtin is not None and getattr(namespace, "fail_on", None) is not None:
+        return _usage_failure(root_parser, "--fail-on is only supported by tool commands")
+    if builtin == "docs":
+        from sharpit.cli.docs_command import show_docs
+
+        try:
+            show_docs(namespace.topic, namespace.search, out, json_output=global_options.json, terminal=terminal)
+        except BrokenPipeError:
+            raise
+        except (OSError, ValueError) as exc:
+            _emit_error(err, _redact_usage_error(str(exc), tokens), None)
+            return ExitCodes.ERROR
+        return ExitCodes.SUCCESS
     client_options = global_options.to_client_options(environment)
     factory = client_factory or Client
     if builtin is not None:
-        if getattr(namespace, "fail_on", None) is not None:
-            return _usage_failure(root_parser, "--fail-on is only supported by tool commands")
         return _run_builtin(builtin, factory, client_options, out, err, terminal, global_options, environment)
 
     return _run_tool_command(

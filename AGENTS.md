@@ -22,6 +22,7 @@ Implementation plan: `docs/superpowers/plans/2026-10-30-sharpit-mvp.md`. BootUI 
 
 ```
 design/                        shared tokens, cross-surface design rules and slide kit
+docs/decisions/                indexed design decisions and their enforcement
 src/sharpit/__init__.py        install, __version__ (the one source; the manifests under plugins/sharpit/ carry a copy the Agent Plugins schema requires, pinned by tests/test_agent_plugin.py)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
@@ -97,7 +98,7 @@ and `release/**` and on `workflow_dispatch` only (owner, 2026-11-12), so every m
    installed in a host application imports it (`tests/engine/test_import_boundary.py`). It connects directly, without
    configured proxies and without following redirects, only to the API URL the user names, and sends only
    `GET {api}/cli`, `POST {api}/cli/tools/{tool}` and the MCP status and toggle requests of `sharpit mcp`; it makes no
-   update check.
+   update check. `sharpit docs` reads files bundled with the package and makes no request.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
@@ -151,6 +152,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 ## Workflow
 
+- Before changing behavior covered by a decision, read `docs/decisions/` (`sharpit docs decisions`). Each new
+  decision gets a file there and a line in its index.
 - **Port BootUI, do not reinvent** (owner, 2026-11-12: "whatever we can directly port from BootUI we should; we don't
   need to recreate anything, just rewrite and adapt"). Before writing any code for a feature, read BootUI's own source
   for it at the pinned tag, in a BootUI clone, not this repo (`git -C <bootui clone> show v2.3.0:<path>` for 0.6.0;

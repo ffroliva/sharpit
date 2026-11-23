@@ -8,6 +8,8 @@ This page covers choosing between the MCP server and the command-line client (CL
 installing the plugin (`plugins/sharpit`), the improvement playbooks, connecting an agent to the MCP server, and
 runtime investigation recipes.
 
+Run `sharpit docs --search <term>` to look up sharpit behavior offline before making assumptions.
+
 ## Why use sharpit from an agent
 
 An agent reading source code can only guess at runtime behavior. sharpit provides machine-readable context from the

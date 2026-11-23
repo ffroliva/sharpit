@@ -2,7 +2,9 @@
 
 import json
 
-from sharpit.cli.render import render
+import pytest
+
+from sharpit.cli.render import render, write_utf8
 
 
 # ported: TextRendererTests.scalarMembersRenderAsKeyValueLines
@@ -114,3 +116,19 @@ def test_violation_locations_remain_readable():
     assert "violations (1)" in text
     assert "className  line" in text
     assert "a.B        42" in text
+
+
+def test_utf8_output_without_a_byte_buffer_is_never_silently_replaced():
+    written: list[str] = []
+
+    class TextOnly:
+        encoding = "cp1252"
+
+        def write(self, text: str) -> int:
+            text.encode(self.encoding)
+            written.append(text)
+            return len(text)
+
+    with pytest.raises(UnicodeEncodeError):
+        write_utf8(TextOnly(), '{"name": "→ ok"}\n')  # type: ignore[arg-type]
+    assert written == []
