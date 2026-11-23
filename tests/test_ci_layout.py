@@ -472,7 +472,7 @@ def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path
     [
         ("website/docs/cli.md", "false", "true"),
         ("docs/decisions/README.md", "false", "true"),
-        ("hatch_build.py", "false", "true"),
+        ("hatch_build.py", "true", "true"),
         ("website/docs/llms.txt", "false", "true"),
         ("llms.txt", "false", "true"),
         ("docs/README.md\nwebsite/mkdocs.yml", "false", "false"),
@@ -927,3 +927,10 @@ def test_push_only_aggregators_pass_on_pr_and_require_shards_on_push() -> None:
     assert _run_test_aggregator("workflow_dispatch", {**GREEN, "test-shard-locked": "failure"}).returncode != 0
     docs_only = _run_test_aggregator("push", {**skipped, "test-shard": "skipped"}, code_changed="false")
     assert docs_only.returncode == 0
+
+
+def test_the_wheel_job_runs_the_docs_tests_against_the_built_wheel() -> None:
+    body = JOBS["wheel"]
+    assert "SHARPIT_TEST_WHEEL" in body
+    assert "tests/docs/test_bundled_docs.py" in body
+    assert "tests/cli/test_docs.py" in body

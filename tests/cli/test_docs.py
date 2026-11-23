@@ -178,3 +178,18 @@ def test_docs_search_treats_metacharacters_literally_and_strips_crlf(bundled_cli
     for path in (ROOT / "docs/decisions").glob("*.md"):
         (decisions / path.name).touch()
     assert _docs("docs", "--search", "[.*] LITERAL") == (ExitCodes.SUCCESS, f"{CLI_PAGE}:2:  a [.*] literal  \n", "")
+
+
+def test_docs_outside_a_sharpit_checkout_never_read_the_host_tree(monkeypatch, tmp_path):
+    from sharpit.cli import docs_catalog
+
+    module = tmp_path / "src" / "sharpit" / "cli" / "docs_catalog.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("", encoding="utf-8")
+    host_page = tmp_path / "website" / "docs" / "index.md"
+    host_page.parent.mkdir(parents=True)
+    host_page.write_text("host application page", encoding="utf-8")
+    monkeypatch.setattr(docs_catalog, "__file__", str(module))
+    monkeypatch.setattr(docs_catalog.resources, "files", lambda _: tmp_path / "no-bundle")
+    with pytest.raises(FileNotFoundError, match="Bundled documentation is missing"):
+        docs_catalog.read_page("website/docs/index.md")
