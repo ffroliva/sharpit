@@ -23,9 +23,9 @@ def test_severity_order():
     assert severity_rank("UNKNOWN") == 5  # unknown sorts after every known severity (SeverityOrder.rank)
 
 
-def test_rule_definition_is_frozen(monkeypatch: pytest.MonkeyPatch):
+def test_rule_definition_is_frozen():
     with pytest.raises(dataclasses.FrozenInstanceError):
-        monkeypatch.setattr(RULE, "severity", "LOW")
+        RULE.severity = "LOW"  # type: ignore[misc]  # NOSONAR - the test asserts that this assignment raises
 
 
 def test_failed_result_keeps_first_ten_samples():
