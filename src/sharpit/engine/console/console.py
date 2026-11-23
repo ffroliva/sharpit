@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import time
-from dataclasses import replace
 from urllib.parse import parse_qs
 
 from sharpit.engine import guard
@@ -159,7 +158,8 @@ class Console:
         )
         response = await self._run_handler(route, call)
         self._audit(route, response)
-        return replace(response, headers=_response_headers(response.headers, route.response_class))
+        headers = _response_headers(response.headers, route.response_class)
+        return ConsoleResponse(response.status, headers, response.body, response.file, response.stream)
 
     async def _run_handler(self, route: RouteSpec, call: ConsoleCall) -> ConsoleResponse:
         if inspect.iscoroutinefunction(route.handler):
