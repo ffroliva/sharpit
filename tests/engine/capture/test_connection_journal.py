@@ -522,3 +522,39 @@ def test_connection_journal_never_counts_a_raw_sqlite3_statement_as_the_connecti
     finally:
         raw.close()
     assert _only(handle)["statements"] in {1, -1}
+
+
+# review finding (0.9.0): a statement the connection ran after its request ended was left out of the journal count
+def test_connection_journal_count_is_unknown_when_a_statement_left_the_checkouts_request():
+    handle = _paused(_install())
+    token = _request(handle, "0123456789abcdef")
+    conn = handle.engine.connect()
+    try:
+        conn.execute(sa.text("select 1"))
+    finally:
+        REQUEST.reset(token)
+    conn.execute(sa.text("select 2"))  # the same connection, outside the request it was checked out in
+    conn.close()
+    assert _only(handle)["statements"] in {2, -1}
+
+
+# review finding (0.9.0): a checkout made on the same thread while a release was being counted was not seen
+def test_connection_journal_a_checkout_during_the_release_count_is_seen(monkeypatch: pytest.MonkeyPatch):
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
+    handle = _paused(_install(engine=engine))
+    journal = handle.context.capture.journal
+    original = journal.count_sql_since
+    neighbours: list[Any] = []
+
+    def neighbour_first(*args: Any) -> int | None:
+        if not neighbours:  # once: a neighbour on this thread checks out and runs a statement before the count
+            neighbours.append(engine.connect())
+            neighbours[0].execute(sa.text("select 2"))
+        return original(*args)
+
+    monkeypatch.setattr(journal, "count_sql_since", neighbour_first)
+    with engine.connect() as conn:
+        conn.execute(sa.text("select 1"))
+    monkeypatch.undo()
+    neighbours[0].close()
+    assert _records(handle)[0]["statements"] in {1, -1}

@@ -212,6 +212,18 @@ def test_an_infinite_timeout_is_an_unbounded_wait_and_fires() -> None:
     assert "callers wait indefinitely" in outcome[0][1]
 
 
+# review finding (0.9.0): a finite timeout too large for milliseconds overflowed as the infinite one did
+def test_a_timeout_too_large_for_milliseconds_is_an_unbounded_wait_and_fires() -> None:
+    server = {"wait_timeout": "600", "max_connections": "151"}
+    try:
+        outcome = _check("DB-POOL-005", _source("mysql", pool=_pool(timeout=1e308), server=server))
+    except OverflowError as exc:
+        outcome = f"raised {exc}"
+
+    assert isinstance(outcome, list)
+    assert _identities(outcome) == ["ds=db|pool=connection-timeout"]
+
+
 def test_zero_timeout_fails_fast_and_does_not_fire() -> None:
     server = {"wait_timeout": "600", "max_connections": "151"}
     zero = _source("mysql", pool=_pool(timeout=0.0), server=server)
