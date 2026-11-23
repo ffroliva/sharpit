@@ -41,7 +41,7 @@ def test_decision_index_lists_every_decision_and_its_paths_exist():
         content = (DECISIONS / name).read_text(encoding="utf-8")
         for section in ("Status", "Decision", "Rationale", "Consequences", "Enforced by"):
             assert f"## {section}\n" in content
-        paths = re.findall(r"`((?:src|tests|docs)/[^`]+)`", content)
+        paths = re.findall(r"`((?:src|tests|docs/decisions|website)/[^`]+)`", content)
         assert paths, name
         for path in paths:
             assert (ROOT / path).is_file(), path

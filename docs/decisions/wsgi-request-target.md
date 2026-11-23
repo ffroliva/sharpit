@@ -2,8 +2,7 @@
 
 ## Status
 
-WSGI request target validation is specified, not implemented (planned for 0.9.0). The policy for servers that omit
-the original request target is open.
+WSGI request target validation is specified, not implemented (planned for 0.9.0).
 
 ## Decision
 
@@ -11,10 +10,12 @@ The WSGI adapter checks `RAW_URI`, `REQUEST_URI`, and `HTTP_HOST` for active req
 passing them to the console guard. If either raw target is present and uses a form other than origin form, or if
 `HTTP_HOST` is missing or blank, the adapter returns HTTP 403 with the disallowed-host error and security headers.
 
-Two options remain open for servers that supply neither a nonempty `RAW_URI` nor a nonempty `REQUEST_URI`.
+When the server supplies neither a nonempty `RAW_URI` nor a nonempty `REQUEST_URI`, the adapter fails closed: it
+returns HTTP 403 with an availability reason that names the server limitation.
 
-- Fail closed with HTTP 403 and report that the server does not supply the original target.
-- Apply the Host allow-list to the `HTTP_HOST` supplied by the WSGI server.
+An alternative under review applies the Host allow-list to the `HTTP_HOST` supplied by the WSGI server in that case,
+because a client able to send an absolute-form target can also send an allowed `Host` header directly. Adopting it
+changes the guard chain and requires the project's safety review.
 
 ## Rationale
 
@@ -24,9 +25,9 @@ For an absolute-form request target, Werkzeug can replace `HTTP_HOST` with the a
 
 ## Consequences
 
-The configured WSGI server determines whether the adapter can validate the original request target. Returning
-HTTP 403 without a raw target preserves that requirement and limits server compatibility. Using the Host allow-list
-supports servers that omit raw targets and relies on those servers to preserve the authority used for validation.
+The configured WSGI server determines whether the adapter can validate the original request target. Werkzeug's
+development server supplies both keys. A server that supplies neither, such as the
+standard library's `wsgiref`, receives HTTP 403 for every console request.
 
 ## Enforced by
 

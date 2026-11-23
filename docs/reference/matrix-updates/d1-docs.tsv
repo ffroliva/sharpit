@@ -1,3 +1,6 @@
 cli:docs:packaging	adapted	The 2026-11-23 project decision to ship the docs command, decision records and llms.txt in 0.9.0 uses a Hatch wheel build hook in place of Maven resources.
 cli:docs:corpus	adapted	The 2026-11-23 project decision to ship the docs command, decision records and llms.txt in 0.9.0 selects sharpit's user guides and decision records as the bundled corpus.
 cli:docs:llms.txt	adapted	The 2026-11-23 project decision to ship the docs command, decision records and llms.txt in 0.9.0 adds llms.txt to the published site outside the CLI topic catalog.
+cli:docs:editable-checkout	adapted	An editable install of a sharpit source checkout has no bundled pages, so the docs command reads the same catalog files from that checkout; installed wheels read only the bundled copies.
+cli:docs:search-output	adapted	The docs search collects every match before printing, so a missing page reports an error with no partial output.
+cli:docs:tutorial	adapted	The interactive tutorial page depends on browser scripts and recorded captures, so it stays on the published site and is not a bundled topic.

@@ -9,6 +9,7 @@
 
 Activation evaluates the following signals in order.
 
+1. An invalid `SHARPIT_ENABLED` value disables the console and produces a warning.
 1. A disabled profile disables the console unless `SHARPIT_ENABLED=ON` forces it on and produces a warning.
 2. `SHARPIT_ENABLED=OFF` disables the console.
 3. `SHARPIT_ENABLED=ON` enables the console.
