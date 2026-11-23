@@ -32,6 +32,7 @@ _LOGGER = logging.getLogger("sharpit")
 
 class _NoOpAuditHook:
     def on_action(self, event: ActionAuditEvent) -> None:
+        # the default hook: an install without an audit hook records nothing
         pass
 
 
@@ -156,12 +157,15 @@ class Console:
             trusted,
             host_loop_provider,
         )
+        response = await self._run_handler(route, call)
+        self._audit(route, response)
+        return replace(response, headers=_response_headers(response.headers, route.response_class))
+
+    async def _run_handler(self, route: RouteSpec, call: ConsoleCall) -> ConsoleResponse:
         if inspect.iscoroutinefunction(route.handler):
-            response = await route.handler(call)
-        elif route.on_loop:
+            return await route.handler(call)
+        if route.on_loop:
             response = route.handler(call)
-            if inspect.isawaitable(response):
-                response = await response
         else:
             loop = asyncio.get_running_loop()
             executor = self.ctx.lazy(
@@ -169,9 +173,11 @@ class Console:
                 lambda: DaemonExecutor(4, thread_name_prefix="sharpit-console"),
             )
             response = await loop.run_in_executor(executor, route.handler, call)
-            if inspect.isawaitable(response):
-                response = await response
+        if inspect.isawaitable(response):
+            response = await response
+        return response
 
+    def _audit(self, route: RouteSpec, response: ConsoleResponse) -> None:
         if route.kind == "action" and route.id not in ("mcp.rpc", "cli.invoke"):
             event = ActionAuditEvent(
                 action_id=route.id,
@@ -182,5 +188,3 @@ class Console:
                 ok=200 <= response.status < 400,
             )
             self.audit_hook.on_action(event)
-
-        return replace(response, headers=_response_headers(response.headers, route.response_class))

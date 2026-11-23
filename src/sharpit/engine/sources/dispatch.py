@@ -250,15 +250,17 @@ def _trace_text(
     )
 
 
-def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
-    info = REQUEST.get()
-    capture_call_site = False
+def _captures_call_site(targets: list[SharpitContext]) -> bool:
     for ctx in targets:
         recorder = ctx.capture.sql_trace
         if recorder is not None and recorder.capture_call_site:
-            capture_call_site = True
-            break
-    site = call_site(None) if capture_call_site else None
+            return True
+    return False
+
+
+def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
+    info = REQUEST.get()
+    site = call_site(None) if _captures_call_site(targets) else None
     thread = threading.current_thread().name
     for ctx in targets:
         recorder = ctx.capture.sql_trace

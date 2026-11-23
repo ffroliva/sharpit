@@ -103,6 +103,14 @@ def _starting_call_site_frame() -> FrameType | None:
             return None
 
 
+def _greenlet_parent() -> Any:
+    """The current greenlet's parent, or None when greenlet is not loaded or the current greenlet has none."""
+    greenlet_module = sys.modules.get("greenlet")
+    if greenlet_module is None:
+        return None
+    return getattr(greenlet_module.getcurrent(), "parent", None)
+
+
 def call_site(frame: FrameType | None) -> str | None:
     """The first application frame as ``module:function:line``, walking at most 64 frames; an ``AsyncSession``
     statement runs in a greenlet holding only SQLAlchemy frames, so the walk continues into its parent."""
@@ -112,9 +120,7 @@ def call_site(frame: FrameType | None) -> str | None:
     for _ in range(MAX_CALL_SITE_FRAMES):
         if current is None:
             if not greenlet_checked:
-                greenlet_module = sys.modules.get("greenlet")
-                if greenlet_module is not None:
-                    parent = getattr(greenlet_module.getcurrent(), "parent", None)
+                parent = _greenlet_parent()
                 greenlet_checked = True
             if parent is None:
                 return None
@@ -257,22 +263,20 @@ class SqlTraceRecorder:
         """BootUI ``isSlow(heldNanos / 1_000)`` for a connection held ``nanos``: at least the slow-query threshold."""
         return self._slow(nanos // 1_000_000)
 
-    def checkout_cursor(self) -> tuple[int, int]:
-        """Return the recorder totals at connection checkout."""
-        return self._total, self._evicted
+    def checkout_cursor(self) -> int:
+        """Return the rows recorded so far, at connection checkout."""
+        return self._total
 
-    def count_for_connection(
-        self,
-        connection_id: str | None,
-        start_total: int,
-        start_evicted: int,
-    ) -> int | None:
-        """Count retained statement rows for a connection, or return None when the ring lost them."""
+    def count_for_connection(self, connection_id: str | None, start_total: int) -> int | None:
+        """Count the rows recorded for a connection since ``start_total``, or None when the ring no longer holds them.
+
+        Rows are appended in order, so the last ``delta`` rows are exactly those recorded since the checkout while the
+        ring still holds ``delta`` rows; an eviction of older rows loses none of them, a clear leaves fewer."""
         with self._lock:
             delta = self._total - start_total
             if delta == 0:
                 return 0 if self.recording else None
-            if connection_id is None or self._evicted != start_evicted or delta < 0 or delta > len(self._entries):
+            if connection_id is None or delta < 0 or delta > len(self._entries):
                 return None
             return sum(
                 1

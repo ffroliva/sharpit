@@ -192,7 +192,36 @@ def test_pool_without_a_timeout_is_a_gap_not_a_finding() -> None:
     outcome = _check("DB-POOL-005", source)
 
     assert isinstance(outcome, str)
-    assert "could not be read" in outcome
+    assert outcome == "the pool (NullPool) has no acquisition timeout to check, so it is not evaluated."
+
+
+# review finding (0.9.0): pool_timeout=float("inf") raised OverflowError, an analysis error for every datasource
+def test_an_infinite_timeout_is_an_unbounded_wait_and_fires() -> None:
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_timeout=float("inf"))
+    _, _, pool, _, _ = engine_facts(engine)
+    source = _source("mysql", pool=pool, server={"wait_timeout": "600", "max_connections": "151"})
+
+    try:
+        outcome = _check("DB-POOL-005", source)
+    except OverflowError as exc:  # the defect: the runner turns it into an analysis error for the datasource
+        outcome = f"raised {exc}"
+
+    assert isinstance(outcome, list)
+    assert _identities(outcome) == ["ds=db|pool=connection-timeout"]
+    assert "callers wait indefinitely" in outcome[0][1]
+
+
+# review finding (0.9.0): a finite timeout too large for milliseconds overflowed as the infinite one did
+def test_a_timeout_too_large_for_milliseconds_is_an_unbounded_wait_and_fires() -> None:
+    server = {"wait_timeout": "600", "max_connections": "151"}
+    try:
+        outcome = _check("DB-POOL-005", _source("mysql", pool=_pool(timeout=1e308), server=server))
+    except OverflowError as exc:
+        outcome = f"raised {exc}"
+
+    assert isinstance(outcome, list)
+    assert _identities(outcome) == ["ds=db|pool=connection-timeout"]
 
 
 def test_zero_timeout_fails_fast_and_does_not_fire() -> None:

@@ -10,6 +10,8 @@ covers a connection the server closed.
 
 from __future__ import annotations
 
+import math
+
 from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Pool, Rule, Source
 
@@ -180,10 +182,13 @@ def _duration(millis: int) -> str:
 def _acquisition_timeout(source: Source) -> Outcome:
     if (reason := _applies(source)) is not None or source.pool is None:
         return reason or ""
+    if not source.pool.has_timeout:
+        return f"the pool ({source.pool.kind}) has no acquisition timeout to check, so it is not evaluated."
     if not source.pool.timeout_readable:
         return "the pool's `connectionTimeout` could not be read, so it is not evaluated."
     timeout = source.pool.timeout
-    if timeout is None:
+    # pool_timeout=None, float("inf") or a timeout too large for milliseconds: an unbounded wait
+    if timeout is None or math.isinf(timeout * 1000):
         text = (
             f"Datasource `{source.name}`: timeout is 0 (disabled), so callers wait "
             "indefinitely when the pool is exhausted. Evidence: effective."

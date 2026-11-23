@@ -159,7 +159,8 @@ def test_loop_closed_during_submit_answers_unavailable(monkeypatch: pytest.Monke
         raise RuntimeError("loop closed")
 
     monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", close_then_submit)
+    coro = pending()
     with pytest.raises(ToolCallError) as caught:
-        hostloop.wait_on_host_loop(loop, pending(), 0.01, "timed out", "loop unavailable")
+        hostloop.wait_on_host_loop(loop, coro, 0.01, "timed out", "loop unavailable")
     assert caught.value.status == 503
     assert str(caught.value) == "loop unavailable"

@@ -465,17 +465,32 @@ class McpServer:
         method = envelope.get("method")
         if not isinstance(method, str) or not method:
             return None if notification else _error(rid, INVALID_PARAMS, "Missing 'method'")
-        try:
-            response = _result(rid, self._dispatch(method, params, scope, host_loop_provider))
-        except RpcError as exc:
-            response = _error(rid, exc.code, exc.message)
-        except ToolCallError as exc:
-            response = _result(rid, {"content": [{"type": "text", "text": exc.message}], "isError": True})
-        except Exception:
-            logger.exception("sharpit MCP failure while dispatching a request")
-            response = _error(rid, INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE)
+        response = self._respond(rid, method, params, scope, host_loop_provider)
         if notification:
             return None
+        return self._bounded(rid, response)
+
+    def _respond(
+        self,
+        rid: object,
+        method: str,
+        params: dict[str, object],
+        scope: Mapping[str, object],
+        host_loop_provider: HostLoopProvider | None,
+    ) -> dict[str, Any]:
+        """The JSON-RPC response to one request: its result, or the error its dispatch raised."""
+        try:
+            return _result(rid, self._dispatch(method, params, scope, host_loop_provider))
+        except RpcError as exc:
+            return _error(rid, exc.code, exc.message)
+        except ToolCallError as exc:
+            return _result(rid, {"content": [{"type": "text", "text": exc.message}], "isError": True})
+        except Exception:
+            logger.exception("sharpit MCP failure while dispatching a request")
+            return _error(rid, INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE)
+
+    def _bounded(self, rid: object, response: dict[str, Any]) -> dict[str, Any]:
+        """``response``, or an error when it cannot be rendered or exceeds the configured byte limit."""
         try:
             size = len(_dumps(response).encode("utf-8"))
         except ValueError:

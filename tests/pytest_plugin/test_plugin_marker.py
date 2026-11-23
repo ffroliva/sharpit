@@ -56,8 +56,9 @@ def test_marker_accept_requires_reason_when_configured() -> None:
         def listchain(self) -> list[object]:
             return [self]
 
+    item = Item()
     with pytest.raises(pytest.UsageError) as exc_info:
-        budget_for(Item(), None, require_reason=True)
+        budget_for(item, None, require_reason=True)
 
     err = str(exc_info.value)
     assert "tests/test_x.py::test_case" in err

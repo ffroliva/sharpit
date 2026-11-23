@@ -9,13 +9,8 @@ import pytest
 from sharpit.engine.testsession.gates import Budget
 
 
-def budget_for(
-    item: Any,
-    default_max_queries: int | None,
-    *,
-    unbounded_read_factor: int = 2,
-    require_reason: bool = False,
-) -> Budget:
+def _marker_settings(item: Any, default_max_queries: int | None) -> dict[str, Any]:
+    """The defaults overlaid by every ``sharpit`` marker on the item's chain, outermost first."""
     settings: dict[str, Any] = {
         "max_queries": default_max_queries,
         "allow_n_plus_one": False,
@@ -33,6 +28,17 @@ def budget_for(
                 key = min(unknown)
                 raise pytest.UsageError(f"sharpit marker: unknown argument '{key}'")
             settings.update(mark.kwargs)
+    return settings
+
+
+def budget_for(
+    item: Any,
+    default_max_queries: int | None,
+    *,
+    unbounded_read_factor: int = 2,
+    require_reason: bool = False,
+) -> Budget:
+    settings = _marker_settings(item, default_max_queries)
     queries = settings["max_queries"]
     exceptions = settings["max_exceptions"]
     reason = settings["reason"]

@@ -302,7 +302,8 @@ def _empty_partitioned_tables(source: Source) -> Outcome:
 
 
 def _is_identifier_token(token: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_]+", token)) and not token[0].isdigit()
+    # re.ASCII keeps \w to [A-Za-z0-9_]: a non-ASCII letter is not an identifier token
+    return bool(re.fullmatch(r"\w+", token, re.ASCII)) and not token[0].isdigit()
 
 
 def _mysql_strict_sql_mode(source: Source) -> Outcome:
@@ -323,7 +324,11 @@ def _mysql_strict_sql_mode(source: Source) -> Outcome:
     if strict:
         return []
 
-    shown = "empty" if not raw else f"`{raw if len(raw) <= 64 else raw[:64] + '...'}`"
+    if not raw:
+        shown = "empty"
+    else:
+        clipped = raw if len(raw) <= 64 else raw[:64] + "..."
+        shown = f"`{clipped}`"
     text = (
         f"`sql_mode` is {shown} (neither `STRICT_TRANS_TABLES` nor `STRICT_ALL_TABLES` is enabled), "
         "so invalid or over-long values can be coerced instead of rejected."

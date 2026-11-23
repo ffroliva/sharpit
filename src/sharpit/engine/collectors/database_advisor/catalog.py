@@ -43,8 +43,11 @@ class Pool:
     unbounded: bool  # an overflow of -1: no maximum at all
     recycle: int | None  # seconds; -1 means connections are never retired for age
     pre_ping: bool | None
-    timeout: float | None = 30.0
+    timeout: float | None = 30.0  # seconds; None or infinity: callers wait for a connection without limit
     timeout_readable: bool = True
+    has_timeout: bool = (
+        True  # False for a pool class with no acquisition timeout at all (NullPool, StaticPool, SingletonThreadPool)
+    )
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,7 @@ def _pool(pool: Any) -> Pool | None:
         pre_ping if isinstance(pre_ping, bool) else None,
         timeout,
         timeout_readable,
+        raw_timeout is not _MISSING,
     )
 
 

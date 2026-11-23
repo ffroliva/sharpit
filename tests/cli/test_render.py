@@ -129,6 +129,7 @@ def test_utf8_output_without_a_byte_buffer_is_never_silently_replaced():
             written.append(text)
             return len(text)
 
+    stream = TextOnly()
     with pytest.raises(UnicodeEncodeError):
-        write_utf8(TextOnly(), '{"name": "→ ok"}\n')  # type: ignore[arg-type]
+        write_utf8(stream, '{"name": "→ ok"}\n')  # type: ignore[arg-type]
     assert written == []

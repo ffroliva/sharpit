@@ -278,18 +278,26 @@ def _foreign_key_set_null_on_not_null_column(source: Source) -> Outcome:
     hits: list[Hit] = []
     unknown: str | None = None
     for t in source.tables:
-        cols_by_name = {c["name"]: c for c in t["columns"]}
-        for position, fk in enumerate(t["foreignKeys"]):
-            delete_set_null, update_set_null = _fk_set_null_rules(fk)
-            fk_cols = fk["columns"]
-            if not fk_cols or (not delete_set_null and not update_set_null):
-                continue
-            state = _fk_nullability(cols_by_name, fk_cols)
-            if state == "unknown":
-                unknown = unknown or f"{t['name']}: referencing column nullability is unknown."
-            elif state == "not_null":
-                hits.append(_fk_set_null_hit(source, t, fk, position, delete_set_null, update_set_null))
+        table_unknown = _fk_set_null_table(source, t, hits)
+        unknown = unknown or table_unknown
     return hits if hits or unknown is None else unknown
+
+
+def _fk_set_null_table(source: Source, t: Table, hits: list[Hit]) -> str | None:
+    """Appends the table's SET NULL hits to ``hits``; the unknown-nullability reason when one of its keys has one."""
+    unknown: str | None = None
+    cols_by_name = {c["name"]: c for c in t["columns"]}
+    for position, fk in enumerate(t["foreignKeys"]):
+        delete_set_null, update_set_null = _fk_set_null_rules(fk)
+        fk_cols = fk["columns"]
+        if not fk_cols or (not delete_set_null and not update_set_null):
+            continue
+        state = _fk_nullability(cols_by_name, fk_cols)
+        if state == "unknown":
+            unknown = f"{t['name']}: referencing column nullability is unknown."
+        elif state == "not_null":
+            hits.append(_fk_set_null_hit(source, t, fk, position, delete_set_null, update_set_null))
+    return unknown
 
 
 RULES = (
