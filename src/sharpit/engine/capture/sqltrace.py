@@ -257,22 +257,20 @@ class SqlTraceRecorder:
         """BootUI ``isSlow(heldNanos / 1_000)`` for a connection held ``nanos``: at least the slow-query threshold."""
         return self._slow(nanos // 1_000_000)
 
-    def checkout_cursor(self) -> tuple[int, int]:
-        """Return the recorder totals at connection checkout."""
-        return self._total, self._evicted
+    def checkout_cursor(self) -> int:
+        """Return the rows recorded so far, at connection checkout."""
+        return self._total
 
-    def count_for_connection(
-        self,
-        connection_id: str | None,
-        start_total: int,
-        start_evicted: int,
-    ) -> int | None:
-        """Count retained statement rows for a connection, or return None when the ring lost them."""
+    def count_for_connection(self, connection_id: str | None, start_total: int) -> int | None:
+        """Count the rows recorded for a connection since ``start_total``, or None when the ring no longer holds them.
+
+        Rows are appended in order, so the last ``delta`` rows are exactly those recorded since the checkout while the
+        ring still holds ``delta`` rows; an eviction of older rows loses none of them, a clear leaves fewer."""
         with self._lock:
             delta = self._total - start_total
             if delta == 0:
                 return 0 if self.recording else None
-            if connection_id is None or self._evicted != start_evicted or delta < 0 or delta > len(self._entries):
+            if connection_id is None or delta < 0 or delta > len(self._entries):
                 return None
             return sum(
                 1
