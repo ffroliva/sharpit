@@ -77,7 +77,7 @@ def trace_id(request_headers: RawHeaders, request_id: str) -> str:
     return traceparent_id(request_headers) or request_id
 
 
-def exchange_row(
+def exchange_row(  # NOSONAR - keyword-only fields of one flat row, called once per request from the capture hot path
     masker: Masker,
     *,
     request_id: str,
