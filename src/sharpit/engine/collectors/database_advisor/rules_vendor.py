@@ -438,7 +438,7 @@ RULES = (
           "truncated or coerced to implicit defaults instead of raising an error. The value is the one the scan "
           "connection's own session sees.",
           "Restore STRICT_TRANS_TABLES (or STRICT_ALL_TABLES) in the server's sql_mode configuration and check that "
-          "neither sessionVariables in the JDBC URL nor connectionInitSql on the pool strips strict mode from "
-          "application connections.",
+          "neither an init_command in the engine's connect_args nor a SET sql_mode in a SQLAlchemy connect event "
+          "strips strict mode from application connections.",
           "https://dev.mysql.com/doc/refman/8.4/en/sql-mode.html#sql-mode-strict", _mysql_strict_sql_mode),
 )  # fmt: skip

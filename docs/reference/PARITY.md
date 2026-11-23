@@ -339,9 +339,9 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 | M1 | RAPI-PAGE-004 | n-a | Spring Data Page serialization is specific to Spring Data. |
 | M2 | DB-SCHEMA-011 | ported | Ported from BootUI 2.5.0 ForeignKeySetNullOnNotNullColumnRule. |
 | M2 | DB-PG-006 | adapted | Scans current_schema() only, like the other PostgreSQL vendor rules, whereas BootUI scans all non-system schemas. |
-| M2 | DB-SERVER-008 | ported | Ported from BootUI 2.5.0 MySqlStrictSqlModeRule. |
+| M2 | DB-SERVER-008 | adapted | Ported from BootUI 2.5.0 MySqlStrictSqlModeRule; the recommendation names SQLAlchemy's places for session SQL (an init_command connect argument, a connect event) in place of the JDBC URL's sessionVariables and the pool's connectionInitSql, which a Python application does not have. |
 | M2 | DB-MYSQL-004 | ported | Ported from BootUI 2.5.0 MySqlUnenforcedCheckConstraintRule. |
-| M2 | DB-POOL-005 | adapted | BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's QueuePool timeout, where None, an infinite timeout or one too large for milliseconds disables the timeout and 0 fails immediately rather than waiting indefinitely; a pool class with no acquisition timeout (NullPool, StaticPool, SingletonThreadPool) is not evaluated. |
+| M2 | DB-POOL-005 | adapted | BootUI reads the HikariCP and Agroal acquisition timeouts; sharpit reads SQLAlchemy's QueuePool timeout, where None, an infinite timeout or one too large for milliseconds disables the timeout and 0 fails immediately rather than waiting indefinitely; a pool class with no acquisition timeout (NullPool, StaticPool, SingletonThreadPool) is not evaluated. The texts name SQLAlchemy's pool_timeout in place of HikariCP's connectionTimeout. |
 | R0 | route:GET /activity/request/{id}/journal | missing | Route added in BootUI 2.5.0 route catalog; sharpit has no route at /sharpit/api/activity/request/{id}/journal (HTTP 404). |
 | R0 | route:GET /conditions | n-a | JVM-only: Spring/Quarkus conditional bean evaluation has no Python counterpart. |
 | R0 | route:GET /crac | n-a | JVM-only: CRaC (Coordinated Restore at Checkpoint) checkpoints have no Python counterpart. |
