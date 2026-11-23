@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import gc
 import json
+import threading
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -19,6 +21,7 @@ from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal  #
 from sharpit.engine.collectors.insights.service import insights_service  # noqa: E402
 from sharpit.engine.collectors.insights.snapshot import PRODUCED_SOURCES  # noqa: E402
 from sharpit.engine.collectors.pools import pools_report  # noqa: E402
+from sharpit.engine.sqla import connections  # noqa: E402
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -558,3 +561,51 @@ def test_connection_journal_a_checkout_during_the_release_count_is_seen(monkeypa
     monkeypatch.undo()
     neighbours[0].close()
     assert _records(handle)[0]["statements"] in {1, -1}
+
+
+class _CollectingDict(dict[Any, Any]):
+    """A dict whose first ``setdefault`` runs the garbage collector: a collection at an arbitrary allocation."""
+
+    collected = False
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        if not _CollectingDict.collected:
+            _CollectingDict.collected = True
+            gc.collect()
+        return super().setdefault(key, default)
+
+
+# review finding (0.9.0): the garbage collector freed a leaked connection while the checkout listener held a
+# non-reentrant lock; the leaked connection's checkin then ran on that thread, blocked on the lock, and every later
+# checkout blocked behind it
+def test_connection_journal_a_leaked_connection_collected_during_a_checkout_never_blocks_it(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=5)
+    _install(engine=engine)
+
+    def leak() -> None:
+        conn = engine.connect()
+        conn.execute(sa.text("select 1"))
+        cycle: list[object] = [conn]
+        cycle.append(cycle)  # only the collector frees it, on whichever thread it runs
+
+    finished = threading.Event()
+
+    def checkout() -> None:
+        with engine.connect() as conn:
+            conn.execute(sa.text("select 2"))
+        finished.set()
+
+    gc.disable()
+    try:
+        leak()
+        # the per-thread checkout counts were the state held under that lock: a collection fires inside their update
+        monkeypatch.setattr(connections, "_open", _CollectingDict(), raising=False)
+        _CollectingDict.collected = False
+        worker = threading.Thread(target=checkout, daemon=True)  # a daemon: a blocked checkout never holds the suite
+        worker.start()
+        worker.join(timeout=10)
+    finally:
+        gc.enable()
+    assert finished.is_set()  # the checkout finished: nothing waited on a lock its own thread held
