@@ -459,3 +459,66 @@ def test_connection_released_after_uninstall_is_not_journaled_with_a_second_inst
     conn.close()
     assert _records(handle) == ()
     assert len(_records(other)) == 1  # control: the install still capturing journals the release
+
+
+def _paused(handle: Any) -> Any:
+    handle.context.capture.sql_trace.recording = False  # the count then comes from the journal alone
+    return handle
+
+
+# review finding (0.9.0): a full SQL Trace ring evicts on every statement, which made every count unknown
+def test_connection_journal_counts_statements_once_the_trace_ring_is_full():
+    handle = _install(sources=("connection",), sql_trace_max_entries=5)  # no sql journal events: the ring counts
+    _use(handle.engine, 8)  # warm: the ring is full and every later statement evicts one row
+    _use(handle.engine, 2)
+    assert _records(handle)[-1]["statements"] == 2
+
+
+# review finding (0.9.0): a full journal evicts on every event, which made every journal count unknown
+def test_connection_journal_counts_statements_once_the_journal_is_full():
+    handle = _paused(_install(runtime_journal_max_events=6))
+    _use(handle.engine, 8)  # warm: the journal is full and every later event evicts one
+    _use(handle.engine, 2)
+    assert _records(handle)[-1]["statements"] == 2
+
+
+# review finding (0.9.0): two overlapping checkouts on one thread counted each other's statements from the journal
+def test_connection_journal_overlapping_checkouts_on_one_thread_never_count_each_other():
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
+    handle = _paused(_install(engine=engine))
+    with handle.engine.connect() as first, handle.engine.connect() as second:
+        first.execute(sa.text("SELECT 1")).fetchall()
+        second.execute(sa.text("SELECT 1")).fetchall()
+        first.execute(sa.text("SELECT 1")).fetchall()
+    released_second, released_first = _records(handle)  # ``second`` is released first
+    assert released_second["statements"] in {1, -1}  # exact or unknown, never the neighbour's statements
+    assert released_first["statements"] in {2, -1}
+
+
+# review finding (0.9.0): a journal walk that runs out before the statements since checkout counted only what was left
+def test_connection_journal_count_is_unknown_when_the_walk_runs_out():
+    handle = _paused(_install(("connection", "sql", "http")))
+    journal = handle.context.capture.journal
+    with handle.engine.connect() as conn:
+        conn.execute(sa.text("select 1"))
+        conn.execute(sa.text("select 2"))
+        journal.discard()  # the first two statements leave the ring
+        for _ in range(3):  # other events refill it, so the ring still holds as many events as statements ran
+            journal.offer({"source": "http"})
+        conn.execute(sa.text("select 3"))
+    assert _only(handle)["statements"] == -1
+
+
+# review finding (0.9.0): a raw sqlite3 statement on the same thread was counted as the held connection's
+def test_connection_journal_never_counts_a_raw_sqlite3_statement_as_the_connections():
+    import sqlite3  # noqa: PLC0415
+
+    handle = _paused(_install())
+    raw = sqlite3.connect(":memory:")
+    try:
+        with handle.engine.connect() as conn:
+            conn.execute(sa.text("select 1"))
+            raw.execute("select 2")  # the raw sqlite3 source: no pool checkout follows it
+    finally:
+        raw.close()
+    assert _only(handle)["statements"] in {1, -1}
