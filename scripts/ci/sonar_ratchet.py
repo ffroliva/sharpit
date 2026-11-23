@@ -1,10 +1,11 @@
-"""Sonar ratchet: a pull request may add no Sonar issue, and main must hold exactly the baseline count of open issues.
+"""Sonar ratchet: a pull request may add no Sonar issue, and the baseline tracks main's open issues, only downwards.
 
 Run after the SonarCloud scan (which waits for the quality gate, so the analysis is processed):
     python scripts/ci/sonar_ratchet.py --pull-request 12
     python scripts/ci/sonar_ratchet.py --branch main
-Lower `sonar-baseline.txt` in the same commit that fixes issues; it may only go down. main below the baseline fails
-too: a fix that left the baseline high would let a later change add an issue back unnoticed.
+Lower `sonar-baseline.txt` in the same commit that fixes issues; it may only go down. main above the baseline fails.
+main below it passes (the merge that fixed issues could not know main's new count), and every pull request then fails
+until it lowers the baseline to main's count, so the slack never outlives one merge and main never turns red.
 """
 
 from __future__ import annotations
@@ -21,18 +22,27 @@ PROJECT = "ffroliva_sharpit"
 BASELINE = Path(__file__).resolve().parents[2] / "sonar-baseline.txt"
 
 
-def verdict(open_issues: int, baseline: int | None) -> tuple[bool, str]:
-    """baseline None means a pull request: any issue it adds fails."""
-    if baseline is None:
-        if open_issues:
-            return False, f"this pull request adds {open_issues} Sonar issue(s); fix them before merging"
-        return True, "no new Sonar issues"
+def _lower(open_issues: int, baseline: int) -> str:
+    below = f"main has {open_issues} open Sonar issues, below the baseline of {baseline}"
+    return f"{below}: lower sonar-baseline.txt to {open_issues}"
+
+
+def verdict(open_issues: int, baseline: int) -> tuple[bool, str]:
+    """main: only an issue count above the baseline fails."""
     if open_issues > baseline:
         return False, f"{open_issues} open Sonar issues on main, above the baseline of {baseline}"
     if open_issues < baseline:
-        below = f"{open_issues} open Sonar issues, below the baseline of {baseline}"
-        return False, f"{below}: lower sonar-baseline.txt to {open_issues}"
+        return True, f"{_lower(open_issues, baseline)} (the next pull request must)"
     return True, f"{open_issues} open Sonar issues, at the baseline"
+
+
+def pull_request_verdict(new_issues: int, main_open: int, baseline: int) -> tuple[bool, str]:
+    """A pull request adds no issue and carries a baseline no higher than main's count (lower: it fixes some)."""
+    if new_issues:
+        return False, f"this pull request adds {new_issues} Sonar issue(s); fix them before merging"
+    if main_open < baseline:
+        return False, _lower(main_open, baseline)
+    return True, "no new Sonar issues; the baseline is current"
 
 
 def open_issue_count(scope: dict[str, str]) -> int:
@@ -44,6 +54,10 @@ def open_issue_count(scope: dict[str, str]) -> int:
         return int(json.load(response)["total"])
 
 
+def _baseline() -> int:
+    return int(BASELINE.read_text().strip())
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     target = parser.add_mutually_exclusive_group(required=True)
@@ -51,11 +65,12 @@ def main(argv: list[str] | None = None) -> int:
     target.add_argument("--branch")
     args = parser.parse_args(argv)
     if args.pull_request is not None:
-        ok, message = verdict(open_issue_count({"pullRequest": str(args.pull_request)}), None)
+        new_issues = open_issue_count({"pullRequest": str(args.pull_request)})
+        ok, message = pull_request_verdict(new_issues, open_issue_count({"branch": "main"}), _baseline())
     elif args.branch != "main":  # the baseline counts main's issues; a release/** push only refreshes its analysis
         ok, message = True, f"{args.branch}: no baseline (only main is ratcheted; its pull requests add no issue)"
     else:
-        ok, message = verdict(open_issue_count({"branch": args.branch}), int(BASELINE.read_text().strip()))
+        ok, message = verdict(open_issue_count({"branch": args.branch}), _baseline())
     print(message if ok else f"::error::{message}")
     return 0 if ok else 1
 
