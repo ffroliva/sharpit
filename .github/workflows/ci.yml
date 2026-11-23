@@ -562,13 +562,13 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: # zizmor: ignore[cache-poisoning]
           path: ~/.sonar/cache
-          key: sonar-${{ runner.os }}-v8.4.1 # the scan action's version: a new pin downloads a fresh scanner
+          key: sonar-${{ runner.os }}-v8.5.0 # the scan action's version: a new pin downloads a fresh scanner
       - name: SonarCloud scan
         if: >-
           needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
           github.actor != 'dependabot[bot]' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
+        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         with:
           args: -Dsonar.projectVersion=${{ steps.version.outputs.value }}
         env:
