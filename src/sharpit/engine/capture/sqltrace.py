@@ -103,6 +103,14 @@ def _starting_call_site_frame() -> FrameType | None:
             return None
 
 
+def _greenlet_parent() -> Any:
+    """The current greenlet's parent, or None when greenlet is not loaded or the current greenlet has none."""
+    greenlet_module = sys.modules.get("greenlet")
+    if greenlet_module is None:
+        return None
+    return getattr(greenlet_module.getcurrent(), "parent", None)
+
+
 def call_site(frame: FrameType | None) -> str | None:
     """The first application frame as ``module:function:line``, walking at most 64 frames; an ``AsyncSession``
     statement runs in a greenlet holding only SQLAlchemy frames, so the walk continues into its parent."""
@@ -112,9 +120,7 @@ def call_site(frame: FrameType | None) -> str | None:
     for _ in range(MAX_CALL_SITE_FRAMES):
         if current is None:
             if not greenlet_checked:
-                greenlet_module = sys.modules.get("greenlet")
-                if greenlet_module is not None:
-                    parent = getattr(greenlet_module.getcurrent(), "parent", None)
+                parent = _greenlet_parent()
                 greenlet_checked = True
             if parent is None:
                 return None
