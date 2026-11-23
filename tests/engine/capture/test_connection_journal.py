@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import gc
 import json
+import threading
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -19,6 +21,7 @@ from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal  #
 from sharpit.engine.collectors.insights.service import insights_service  # noqa: E402
 from sharpit.engine.collectors.insights.snapshot import PRODUCED_SOURCES  # noqa: E402
 from sharpit.engine.collectors.pools import pools_report  # noqa: E402
+from sharpit.engine.sqla import connections  # noqa: E402
 from sharpit.fastapi.capture import HOOK_SQLA_LISTENERS  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -235,7 +238,8 @@ def test_connection_journal_is_offered_while_the_panel_is_paused():
     handle.context.capture.sql_trace.recording = False
     _use(handle.engine)
     assert len(_records(handle)) == 1
-    assert _only(handle)["statements"] == 1
+    # deviation: BootUI keeps counting; the count comes only from SQL Trace rows, and a paused panel records none
+    assert _only(handle)["statements"] == -1
     assert handle.context.capture.sql_trace.report([])["totalCaptured"] == 0
 
 
@@ -461,11 +465,6 @@ def test_connection_released_after_uninstall_is_not_journaled_with_a_second_inst
     assert len(_records(other)) == 1  # control: the install still capturing journals the release
 
 
-def _paused(handle: Any) -> Any:
-    handle.context.capture.sql_trace.recording = False  # the count then comes from the journal alone
-    return handle
-
-
 # review finding (0.9.0): a full SQL Trace ring evicts on every statement, which made every count unknown
 def test_connection_journal_counts_statements_once_the_trace_ring_is_full():
     handle = _install(sources=("connection",), sql_trace_max_entries=5)  # no sql journal events: the ring counts
@@ -474,37 +473,21 @@ def test_connection_journal_counts_statements_once_the_trace_ring_is_full():
     assert _records(handle)[-1]["statements"] == 2
 
 
-# review finding (0.9.0): a full journal evicts on every event, which made every journal count unknown
+# review finding (0.9.0): a full journal evicts on every event; the count reads the SQL Trace rows, so it stays exact
 def test_connection_journal_counts_statements_once_the_journal_is_full():
-    handle = _paused(_install(runtime_journal_max_events=6))
+    handle = _install(runtime_journal_max_events=6)
     _use(handle.engine, 8)  # warm: the journal is full and every later event evicts one
     _use(handle.engine, 2)
     assert _records(handle)[-1]["statements"] == 2
 
 
-# review finding (0.9.0): two overlapping checkouts on one thread counted each other's statements from the journal
-def test_connection_journal_overlapping_checkouts_on_one_thread_never_count_each_other():
-    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
-    handle = _paused(_install(engine=engine))
-    with handle.engine.connect() as first, handle.engine.connect() as second:
-        first.execute(sa.text("SELECT 1")).fetchall()
-        second.execute(sa.text("SELECT 1")).fetchall()
-        first.execute(sa.text("SELECT 1")).fetchall()
-    released_second, released_first = _records(handle)  # ``second`` is released first
-    assert released_second["statements"] in {1, -1}  # exact or unknown, never the neighbour's statements
-    assert released_first["statements"] in {2, -1}
-
-
-# review finding (0.9.0): a journal walk that runs out before the statements since checkout counted only what was left
-def test_connection_journal_count_is_unknown_when_the_walk_runs_out():
-    handle = _paused(_install(("connection", "sql", "http")))
-    journal = handle.context.capture.journal
+# review finding (0.9.0): a count taken after the statements since checkout left the ring counted only what was left
+def test_connection_journal_count_is_unknown_when_the_rows_left_the_trace_ring():
+    handle = _install(sources=("connection",))  # no sql journal events: the -1 is the ring's own answer
     with handle.engine.connect() as conn:
         conn.execute(sa.text("select 1"))
         conn.execute(sa.text("select 2"))
-        journal.discard()  # the first two statements leave the ring
-        for _ in range(3):  # other events refill it, so the ring still holds as many events as statements ran
-            journal.offer({"source": "http"})
+        handle.context.capture.sql_trace.clear()  # the first two statements leave the ring
         conn.execute(sa.text("select 3"))
     assert _only(handle)["statements"] == -1
 
@@ -513,7 +496,7 @@ def test_connection_journal_count_is_unknown_when_the_walk_runs_out():
 def test_connection_journal_never_counts_a_raw_sqlite3_statement_as_the_connections():
     import sqlite3  # noqa: PLC0415
 
-    handle = _paused(_install())
+    handle = _install()
     raw = sqlite3.connect(":memory:")
     try:
         with handle.engine.connect() as conn:
@@ -521,12 +504,12 @@ def test_connection_journal_never_counts_a_raw_sqlite3_statement_as_the_connecti
             raw.execute("select 2")  # the raw sqlite3 source: no pool checkout follows it
     finally:
         raw.close()
-    assert _only(handle)["statements"] in {1, -1}
+    assert _only(handle)["statements"] == 1
 
 
-# review finding (0.9.0): a statement the connection ran after its request ended was left out of the journal count
-def test_connection_journal_count_is_unknown_when_a_statement_left_the_checkouts_request():
-    handle = _paused(_install())
+# review finding (0.9.0): a statement the connection ran after its request ended was left out of the count
+def test_connection_journal_counts_a_statement_run_after_the_checkouts_request():
+    handle = _install()
     token = _request(handle, "0123456789abcdef")
     conn = handle.engine.connect()
     try:
@@ -535,26 +518,52 @@ def test_connection_journal_count_is_unknown_when_a_statement_left_the_checkouts
         REQUEST.reset(token)
     conn.execute(sa.text("select 2"))  # the same connection, outside the request it was checked out in
     conn.close()
-    assert _only(handle)["statements"] in {2, -1}
+    assert _only(handle)["statements"] == 2
 
 
-# review finding (0.9.0): a checkout made on the same thread while a release was being counted was not seen
-def test_connection_journal_a_checkout_during_the_release_count_is_seen(monkeypatch: pytest.MonkeyPatch):
-    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
-    handle = _paused(_install(engine=engine))
-    journal = handle.context.capture.journal
-    original = journal.count_sql_since
-    neighbours: list[Any] = []
+class _CollectingDict(dict[Any, Any]):
+    """A dict whose first ``setdefault`` runs the garbage collector: a collection at an arbitrary allocation."""
 
-    def neighbour_first(*args: Any) -> int | None:
-        if not neighbours:  # once: a neighbour on this thread checks out and runs a statement before the count
-            neighbours.append(engine.connect())
-            neighbours[0].execute(sa.text("select 2"))
-        return original(*args)
+    collected = False
 
-    monkeypatch.setattr(journal, "count_sql_since", neighbour_first)
-    with engine.connect() as conn:
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        if not _CollectingDict.collected:
+            _CollectingDict.collected = True
+            gc.collect()
+        return super().setdefault(key, default)
+
+
+# review finding (0.9.0): the garbage collector freed a leaked connection while the checkout listener held a
+# non-reentrant lock; the leaked connection's checkin then ran on that thread, blocked on the lock, and every later
+# checkout blocked behind it
+def test_connection_journal_a_leaked_connection_collected_during_a_checkout_never_blocks_it(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=5)
+    _install(engine=engine)
+
+    def leak() -> None:
+        conn = engine.connect()
         conn.execute(sa.text("select 1"))
-    monkeypatch.undo()
-    neighbours[0].close()
-    assert _records(handle)[0]["statements"] in {1, -1}
+        cycle: list[object] = [conn]
+        cycle.append(cycle)  # only the collector frees it, on whichever thread it runs
+
+    finished = threading.Event()
+
+    def checkout() -> None:
+        with engine.connect() as conn:
+            conn.execute(sa.text("select 2"))
+        finished.set()
+
+    gc.disable()
+    try:
+        leak()
+        # the per-thread checkout counts were the state held under that lock: a collection fires inside their update
+        monkeypatch.setattr(connections, "_open", _CollectingDict(), raising=False)
+        _CollectingDict.collected = False
+        worker = threading.Thread(target=checkout, daemon=True)  # a daemon: a blocked checkout never holds the suite
+        worker.start()
+        worker.join(timeout=10)
+    finally:
+        gc.enable()
+    assert finished.is_set()  # the checkout finished: nothing waited on a lock its own thread held

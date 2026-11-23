@@ -365,38 +365,6 @@ class RuntimeJournal:
         """Return the SQL events accepted so far, at connection checkout."""
         return self._accepted.get("sql", 0)
 
-    def count_sql_since(self, obtained_ns: int, request_id: str | None, thread: str, start_accepted: int) -> int | None:
-        """Count the SQL events accepted since ``start_accepted`` when every one of them is a checkout's: its request,
-        its thread, completed after ``obtained_ns``. None when one is not, or when the ring no longer holds them all.
-
-        Events are appended in order, so the newest ``delta`` SQL events are exactly those since the checkout while the
-        ring still holds that many; an eviction or a discard that took one of them took every older one too. The events
-        carry no connection: the caller rules out another checkout and another SQL source on the same thread."""
-        with self._lock:
-            if self.sources is not None and "sql" not in self.sources:
-                return None
-            delta = self._accepted.get("sql", 0) - start_accepted
-            if delta == 0:
-                return 0
-            if delta < 0 or delta > len(self._events):
-                return None
-            seen = 0
-            for stored, _, _, _ in reversed(self._events):
-                if stored["source"] != "sql":
-                    continue
-                completed_ns = stored["completedNanos"]
-                if not (
-                    isinstance(completed_ns, int)
-                    and completed_ns >= obtained_ns
-                    and stored["requestId"] == request_id
-                    and stored["thread"] == thread
-                ):
-                    return None  # a statement that may be another connection's: the count would be a guess
-                seen += 1
-                if seen == delta:
-                    return delta
-            return None  # the walk ran out: some of the statements left the ring
-
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an
         event). Under the lock the other writers hold. A call from a thread that already holds it (a finalizer inside a

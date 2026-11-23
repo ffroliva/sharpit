@@ -29,7 +29,8 @@ in `docs/reports/2026-11-23-0.9.0-decisions.md`.
   dialect resolution, OpenTelemetry span lookup and recorder bookkeeping do less work per statement.
 - SQL Trace reports itself available only once a SQL source is wrapped, as BootUI does.
 - The connection journal derives each connection's statement count when the connection is checked in; executed
-  statements pay nothing for it, and each check-in costs about 3.6 µs more.
+  statements pay nothing for it. The count comes from the SQL Trace rows, which carry the connection, and is -1
+  (unknown) when they cannot answer: no SQL Trace recorder, a paused panel, or rows that left the ring.
 - Five BootUI 2.5.0 REST API rules that depend on Spring or Spring Data (`RAPI-MAP-012`, `RAPI-MAP-013`,
   `RAPI-VER-008`, `RAPI-VALID-007`, `RAPI-PAGE-004`) are recorded as not applicable, with their reasons.
 
