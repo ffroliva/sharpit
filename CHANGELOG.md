@@ -7,9 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [0.9.0] - 2026-11-23
 
-sharpit 0.9.0 stays on BootUI 2.5.0 and closes part of the gaps recorded against it. The Flask console, the remaining
-journal sources, route parity and two masking follow-ups move to 0.10.0 (#260, #299, #300, #301, #302); the reasons are
-in `docs/reports/2026-11-23-0.9.0-decisions.md`.
+sharpit 0.9.0 stays on BootUI 2.5.0 and closes part of the gaps recorded against it. These move to 0.10.0: the Flask
+console (#260), the remaining journal sources (#299), route parity (#300), the `paged-without-order` insight (#301),
+the masked exception message in swallowed-exception findings (#253, item 1) and trace and journal masking on the
+matrix path (#302). The reasons are in `docs/reports/2026-11-23-0.9.0-decisions.md`.
 
 ### Added
 
@@ -43,6 +44,7 @@ in `docs/reports/2026-11-23-0.9.0-decisions.md`.
 - Concurrent class-level SQLAlchemy listener attach and detach register each listener once.
 - A failed SQLAlchemy listener attach is rolled back and reported as unrecorded SQL instead of looking recorded.
 - An invalid `SHARPIT_EMAIL_MASK_CONTENT` value keeps email content masked and adds a warning.
+- The reason on an accepted finding is masked in the JSON report and the terminal summary, as in SARIF.
 
 ### Internal
 

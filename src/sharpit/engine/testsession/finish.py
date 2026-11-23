@@ -71,6 +71,10 @@ def finish(
     """Merge run facts and render the report without depending on pytest or adapter state."""
     merged = outcome.merge(parts, missing, fail_on=options.fail_on)
     _add_http_security(merged, parts, missing, options)
+    masker = report_masker()  # an accepted finding's reason is text the test author wrote, masked like target/message
+    for finding in merged.findings:
+        if finding.get("reason"):
+            finding["reason"] = masker.mask_text(finding["reason"]) or ""
     for warning in warnings:
         if warning not in merged.warnings:
             merged.warnings.append(warning)

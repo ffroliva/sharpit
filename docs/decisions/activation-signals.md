@@ -10,12 +10,12 @@
 Activation evaluates the following signals in order.
 
 1. An invalid `SHARPIT_ENABLED` value disables the console and produces a warning.
-1. A disabled profile disables the console unless `SHARPIT_ENABLED=ON` forces it on and produces a warning.
-2. `SHARPIT_ENABLED=OFF` disables the console.
-3. `SHARPIT_ENABLED=ON` enables the console.
-4. An enabled profile enables the console.
-5. A recognized reloading development server enables the console.
-6. Otherwise, the console stays disabled. All paths under its mount return HTTP 404 while it is inactive.
+2. A disabled profile disables the console unless `SHARPIT_ENABLED=ON` forces it on and produces a warning.
+3. `SHARPIT_ENABLED=OFF` disables the console.
+4. `SHARPIT_ENABLED=ON` enables the console.
+5. An enabled profile enables the console.
+6. A recognized reloading development server enables the console.
+7. Otherwise, the console stays disabled. All paths under its mount return HTTP 404 while it is inactive.
 
 The FastAPI adapter recognizes `--reload` in the process arguments as `uvicorn --reload`. It recognizes `fastapi dev`
 when `dev` is the first argument and the executable is `fastapi`, `fastapi.exe`, or the module entry point for
@@ -48,4 +48,4 @@ watcher parent, programmatic `app.run(debug=True)`, and Gunicorn need explicit a
 
 - `src/sharpit/engine/activation.py` implements the activation order and `tests/engine/test_activation.py` verifies it.
 - `src/sharpit/fastapi/signals.py` implements FastAPI signals and `tests/fastapi/test_signals.py` verifies them.
-- Section 4 of `docs/superpowers/plans/2026-11-22-sharpit-0.9.0/f0-console-contract.md` specifies the Flask signal.
+- The Flask console issue, [#260](https://github.com/ffroliva/sharpit/issues/260), tracks the Flask signal specification.

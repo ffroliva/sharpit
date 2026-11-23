@@ -185,7 +185,7 @@ def _acquisition_timeout(source: Source) -> Outcome:
     if not source.pool.has_timeout:
         return f"the pool ({source.pool.kind}) has no acquisition timeout to check, so it is not evaluated."
     if not source.pool.timeout_readable:
-        return "the pool's `connectionTimeout` could not be read, so it is not evaluated."
+        return "the pool's `pool_timeout` could not be read, so it is not evaluated."
     timeout = source.pool.timeout
     # pool_timeout=None, float("inf") or a timeout too large for milliseconds: an unbounded wait
     if timeout is None or math.isinf(timeout * 1000):
