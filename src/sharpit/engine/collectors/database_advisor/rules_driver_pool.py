@@ -187,7 +187,8 @@ def _acquisition_timeout(source: Source) -> Outcome:
     if not source.pool.timeout_readable:
         return "the pool's `connectionTimeout` could not be read, so it is not evaluated."
     timeout = source.pool.timeout
-    if timeout is None or math.isinf(timeout):  # pool_timeout=None or float("inf"): an unbounded wait
+    # pool_timeout=None, float("inf") or a timeout too large for milliseconds: an unbounded wait
+    if timeout is None or math.isinf(timeout * 1000):
         text = (
             f"Datasource `{source.name}`: timeout is 0 (disabled), so callers wait "
             "indefinitely when the pool is exhausted. Evidence: effective."

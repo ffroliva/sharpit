@@ -45,7 +45,9 @@ class Pool:
     pre_ping: bool | None
     timeout: float | None = 30.0  # seconds; None or infinity: callers wait for a connection without limit
     timeout_readable: bool = True
-    has_timeout: bool = True  # False for a pool class with no acquisition timeout at all (NullPool, StaticPool)
+    has_timeout: bool = (
+        True  # False for a pool class with no acquisition timeout at all (NullPool, StaticPool, SingletonThreadPool)
+    )
 
 
 @dataclass(frozen=True)
