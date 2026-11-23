@@ -30,3 +30,4 @@ All four gates must pass before requesting review:
 - [ ] Every non-merge commit carries `Signed-off-by: Name <email>` matching the commit author (`git commit -s`).
 - [ ] No AI attribution: no model attribution trailers, co-author trailers, or machine generation lines in commits or the PR description.
 - [ ] Changes adhere to the repository working rules in `AGENTS.md`.
+- [ ] Each new `NOSONAR` is listed below with the refactor that was tried and why it was rejected (`AGENTS.md`, architecture rule 7), or there is none.
