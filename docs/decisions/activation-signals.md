@@ -3,7 +3,7 @@
 ## Status
 
 - Activation precedence and FastAPI development signals are implemented.
-- Flask CLI reloader recognition is specified, not implemented (planned for 0.9.0).
+- Flask CLI reloader recognition is specified, not implemented (planned with the Flask console, [#260](https://github.com/ffroliva/sharpit/issues/260)).
 
 ## Decision
 

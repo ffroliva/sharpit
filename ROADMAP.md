@@ -1,22 +1,22 @@
 # Roadmap: how close sharpit is to BootUI
 
 sharpit is a Python/FastAPI port of [BootUI](https://github.com/jdubois/boot-ui), the Spring Boot developer console.
-Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0.
+Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0. 0.9.0 stays on BootUI 2.5.0 and closes recorded gaps.
 
 ## Where it stands
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
-|---|---|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 73 | 116 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | - | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of the 56 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 56 | not captured | not captured |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | sharpit 0.9.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
+| BootUI API routes served, of the 56 that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 56 | not captured | not captured |
 
-`tests/docs/test_parity_matrix.py` recomputes the sharpit 0.8.0 column from the code and the BootUI 2.5.0 fixtures
+`tests/docs/test_parity_matrix.py` recomputes the sharpit 0.9.0 column from the code and the BootUI 2.5.0 fixtures
 on every run. Routes remain measured against the 2.3.0 live goldens; the 2.5.0 static fixtures pin tools, properties,
 and rule identifiers, while 2.5.0 live goldens await the reference app and databases. The sharpit 0.5.0, 0.6.0,
-and 0.7.0 columns are frozen literals; BootUI columns use their respective tags.
+0.7.0 and 0.8.0 columns are frozen literals; BootUI columns use their respective tags.
 
 How each row is counted:
 
@@ -95,17 +95,26 @@ sharpit 0.8.0 targets BootUI 2.5.0 behaviour, pentesting diagnostics and framewo
 - **Application detection and advisor fixes:** uninspectable `--sharpit-app` objects degrade to `UNKNOWN`, routers are supported directly, and rule accuracy is improved ([#207](https://github.com/ffroliva/sharpit/issues/207), [#268](https://github.com/ffroliva/sharpit/issues/268), [#276](https://github.com/ffroliva/sharpit/issues/276)).
 - **Security and masking guardrails:** forwarding headers require tokens even from loopback, and matrix parameters, SQL text, and exception messages are masked.
 
-## What is next (0.9.0)
+## What 0.9.0 delivered (BootUI 2.5.0 gaps)
 
-sharpit 0.9.0 closes the gaps recorded against BootUI 2.5.0 across seven tracks:
+sharpit 0.9.0 stays on BootUI 2.5.0 and closes part of the gaps recorded against it:
 
-- **Wave H (housekeeping):** closes the 0.8.1 issues ([#284](https://github.com/ffroliva/sharpit/issues/284)–[#288](https://github.com/ffroliva/sharpit/issues/288)), fixes the Windows session-stream flake, adds pre-release CodeQL scans, and splits exception capture out of `fastapi/capture.py`.
-- **Track S (SQL capture hot path):** profiles per-statement overhead, ensures race-free listener registration under concurrency, and ports BootUI 2.5.0 event-sink capture within the 50 µs budget.
-- **Track J (journal sources and insight kinds):** ports transaction boundaries, transaction and ORM journal sources, authorization dependencies, and remaining insight kinds within the 30 µs transaction budget.
-- **Track R (API route parity):** rebuilds the route inventory against BootUI 2.5.0, implements missing routes, adds same-route baselines, and closes partial route differences.
-- **Track M (2.5.0 missing rules):** reclassifies Spring-specific REST API rules as not applicable, ports database schema and pool rules, and adds `paged-without-order` with SQL shape analysis.
-- **Track F (Flask console):** adds the embedded console for Flask ([#260](https://github.com/ffroliva/sharpit/issues/260)) by moving the request pipeline into the framework-free engine and implementing a WSGI adapter.
-- **Track X (masking follow-ups):** scrubs user input in swallowed-exception messages and ports trace and journal masking follow-ups ([#253](https://github.com/ffroliva/sharpit/issues/253)).
+- **Housekeeping:** the 0.8.1 issues ([#284](https://github.com/ffroliva/sharpit/issues/284)–[#288](https://github.com/ffroliva/sharpit/issues/288)): database tool reads cancel on a caller timeout, host tools run on the requesting event loop, dead code removed, and two tests now exercise the production code. Exception capture moves out of `fastapi/capture.py`.
+- **SQL capture hot path:** the SQL listener costs about 7 µs less per statement (paired sandbox runs), class-level listener attach is safe under concurrency, SQL Trace reports availability only when a source is wrapped, a failed listener attach is reported as unrecorded SQL, and the connection journal counts statements at check-in.
+- **Route inventory:** `tests/parity/routes_status.json` is rebuilt against BootUI 2.5.0 and classifies every route.
+- **2.5.0 rules:** five database rules are ported (`DB-SCHEMA-011`, `DB-PG-006`, `DB-SERVER-008`, `DB-MYSQL-004`, `DB-POOL-005`); five Spring-only REST API rules are recorded as not applicable.
+- **Accepted findings:** the pytest accept marker takes a `reason=`, and `--sharpit-require-reason` makes it mandatory ([#253](https://github.com/ffroliva/sharpit/issues/253) item 2). An invalid `SHARPIT_EMAIL_MASK_CONTENT` keeps email content masked.
+- **Offline documentation:** `sharpit docs` lists, reads and searches the documentation bundled with the package; the site publishes `llms.txt`.
+
+## What is next (0.10.0)
+
+Deferred from 0.9.0, each with a follow-up issue:
+
+- **Flask console** ([#260](https://github.com/ffroliva/sharpit/issues/260)): the console contract is in `engine/console` (0.9.0, not wired); next come the response corpus that guards the handler move, the handler extraction one panel group at a time, `sharpit.install(app)` for Flask, request correlation and an example app.
+- **Journal sources and insight kinds** ([#299](https://github.com/ffroliva/sharpit/issues/299)): transaction boundaries, transaction and ORM journal sources, authorization dependencies and the remaining kinds, within the 30 µs transaction budget.
+- **API route parity** ([#300](https://github.com/ffroliva/sharpit/issues/300)): missing routes, same-route baselines and partial route differences from the 2.5.0 inventory.
+- **`paged-without-order`** ([#301](https://github.com/ffroliva/sharpit/issues/301)): needs SQL row-limit and shape analysis that holds under masking.
+- **Masking follow-ups:** the masked exception message in swallowed-exception findings ([#253](https://github.com/ffroliva/sharpit/issues/253) item 1) and trace and journal masking on the matrix path ([#302](https://github.com/ffroliva/sharpit/issues/302)).
 
 ## After 0.7.0: Flask
 
@@ -116,6 +125,6 @@ were delivered in 0.8.0 ([#75](https://github.com/ffroliva/sharpit/issues/75), [
 the pytest plugin discovers Flask applications through adapter lookup, inspects routes over `url_map` for the REST API
 advisor, and enables N+1 and query-budget checks on Flask-SQLAlchemy.
 
-The console moves to 0.9.0 Track F ([#260](https://github.com/ffroliva/sharpit/issues/260)): moving the console request
+The console moves to 0.10.0 ([#260](https://github.com/ffroliva/sharpit/issues/260)): moving the console request
 pipeline into the framework-free engine, providing `sharpit.install(app)` for Flask, request building and response translation in `sharpit.flask`,
 and a `flask` extra.

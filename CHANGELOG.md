@@ -5,11 +5,52 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-23
+
+sharpit 0.9.0 stays on BootUI 2.5.0 and closes part of the gaps recorded against it. The Flask console, the remaining
+journal sources, route parity and two masking follow-ups move to 0.10.0 (#260, #299, #300, #301, #302); the reasons are
+in `docs/reports/2026-11-23-0.9.0-decisions.md`.
+
 ### Added
 
 - `sharpit docs` lists, reads, and searches documentation bundled with the installed package, with optional JSON output.
 - Design decision records cover activation signals and WSGI request target validation.
 - The documentation site publishes `llms.txt` with page links and offline lookup commands.
+- The pytest accept marker takes a `reason=` that the terminal summary, the JSON report and SARIF carry with the
+  accepted finding; `--sharpit-require-reason` (ini `sharpit_require_reason`) rejects an accepted finding without one
+  (#253 item 2).
+- Five BootUI 2.5.0 database rules: `DB-SCHEMA-011` (a `SET NULL` foreign key on a `NOT NULL` column), `DB-PG-006`
+  (an empty partitioned table, adapted to `current_schema()`), `DB-SERVER-008` (MySQL strict SQL mode),
+  `DB-MYSQL-004` (an unenforced MySQL check constraint) and `DB-POOL-005` (adapted to SQLAlchemy's `QueuePool` timeout).
+
+### Changed
+
+- The SQL listener costs about 7 µs less per statement (paired sandbox runs): context routing, call-site lookup,
+  dialect resolution, OpenTelemetry span lookup and recorder bookkeeping do less work per statement.
+- SQL Trace reports itself available only once a SQL source is wrapped, as BootUI does.
+- The connection journal derives each connection's statement count when the connection is checked in; executed
+  statements pay nothing for it, and each check-in costs about 3.6 µs more.
+- Five BootUI 2.5.0 REST API rules that depend on Spring or Spring Data (`RAPI-MAP-012`, `RAPI-MAP-013`,
+  `RAPI-VER-008`, `RAPI-VALID-007`, `RAPI-PAGE-004`) are recorded as not applicable, with their reasons.
+
+### Fixed
+
+- The MySQL, PostgreSQL and Database advisor tools cancel their read and release its lock when the caller times out,
+  like the pentest tool (#285).
+- On a host with several event loops, tool calls run on the requesting request's loop instead of the last recorded
+  one (#287).
+- Concurrent class-level SQLAlchemy listener attach and detach register each listener once.
+- A failed SQLAlchemy listener attach is rolled back and reported as unrecorded SQL instead of looking recorded.
+- An invalid `SHARPIT_EMAIL_MASK_CONTENT` value keeps email content masked and adds a warning.
+
+### Internal
+
+- The unused `is_validation_error` helper and a dead test clause are removed (#284, #286); two 0.8.0 tests now exercise
+  the production code instead of a stand-in (#288).
+- Exception capture moves out of `fastapi/capture.py` into its own modules, unchanged in behaviour.
+- The API route inventory (`tests/parity/routes_status.json`) is rebuilt against BootUI 2.5.0.
+- The console contract for the coming Flask console is in `engine/console`; nothing uses it yet.
+- The session-stream test waits on events instead of fixed sleeps.
 
 ## [0.8.0] - 2026-11-22
 
@@ -494,7 +535,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.9.0
 [0.8.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.6.0

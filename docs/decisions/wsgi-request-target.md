@@ -2,7 +2,7 @@
 
 ## Status
 
-WSGI request target validation is specified, not implemented (planned for 0.9.0).
+WSGI request target validation is specified, not implemented (planned with the Flask console, [#260](https://github.com/ffroliva/sharpit/issues/260)).
 
 ## Decision
 
