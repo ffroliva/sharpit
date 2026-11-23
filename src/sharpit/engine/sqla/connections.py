@@ -13,12 +13,10 @@ checkouts (StaticPool, SingletonThreadPool: sqlite in memory) therefore journals
 checkouts, the last one's; upgrade to a state keyed per fairy if such a pool needs one event per checkout.
 Deviation: BootUI's ``ConnectionCheckout.statementExecuted`` counts ``statements`` per execute; counting per statement
 here would cost the SQL listener a fairy ``__dict__`` read and write (+1.5 us paired), so the count is derived at
-checkin instead, exact or -1 (unknown; BootUI defines -1 as unknown only for ``checkoutNanos``). It comes from the SQL
-Trace rows recorded since the checkout, which carry the connection, while the ring still holds them all; else from the
-journal's ``sql`` events since the checkout, which carry no connection, so only when every one is this checkout's
-request and thread, no other followed checkout on that request and thread overlapped it, and no raw sqlite3 statement
-reaches the install. A count is -1 when the panel was paused and the journal records no ``sql``, when the rows or
-events left their ring, or when the journal cannot tell this connection's statements from another's.
+checkin instead, exact or -1 (unknown; BootUI defines -1 as unknown only for ``checkoutNanos``). It comes only from the
+SQL Trace rows recorded since the checkout, which carry the connection, while the ring still holds them all. A count is
+-1 when there is no SQL Trace recorder, when the rows left the ring, or when the panel was paused (BootUI keeps
+counting then): the journal's ``sql`` events carry no connection, so they never stand in for the rows.
 shortcut: with no ``sql`` journal source the SQL Trace count is not cross-checked, so a panel paused for part of
 a checkout undercounts it; upgrade with a pause generation on the recorder if that case needs to be exact.
 shortcut: a connection that is invalidated before its release (``checkin`` then gets no DBAPI connection) offers no
@@ -49,20 +47,12 @@ if TYPE_CHECKING:
 CHECKOUT_KEY = "sharpit_connection"
 SOURCE = "connection"
 UNKNOWN_STATEMENTS = -1  # an unknown count; BootUI defines -1 only for ``checkoutNanos``: see the module note
-RAW_SQLITE3 = "sqlite3"  # the raw sqlite3 SQL source, as ``dispatch`` names it: no pool checkout follows it
-# per (request id, thread): [followed checkouts not yet released, checkouts started while one was]; how the journal
-# count learns of a neighbour. shortcut: a detached connection (never checked in) keeps its key open, so that key's
-# journal counts stay unknown; upgrade if a detaching application needs them
-_open: dict[tuple[str | None, str], list[int]] = {}
-_open_lock = threading.Lock()
 
 
 class Checkout:
     """One connection from checkout to release."""
 
-    __slots__ = (
-        "contexts", "cursors", "epoch_ms", "followed", "obtained_ns", "pool", "request_id", "thread", "trace_id",
-    )  # fmt: skip
+    __slots__ = ("contexts", "cursors", "epoch_ms", "obtained_ns", "pool", "request_id", "thread", "trace_id")
 
     def __init__(self, contexts: list[SharpitContext], pool: object, request: RequestInfo | None) -> None:
         self.contexts = [weakref.ref(c) for c in contexts]  # a leaked connection must not keep an install alive
@@ -72,7 +62,6 @@ class Checkout:
         self.epoch_ms = time.time_ns() // 1_000_000
         self.thread = threading.current_thread().name
         self.trace_id = otel.current_trace_id()
-        self.followed: tuple[int, int] = (0, 0)  # its key's open and started counts at this checkout, before it joined
         self.obtained_ns = time.perf_counter_ns()  # last, so the clock starts after the bookkeeping above
 
 
@@ -86,71 +75,31 @@ def _cursors(targets: list[SharpitContext]) -> dict[str, tuple[int, int]]:
     return out
 
 
-def _follow(state: Checkout) -> None:
-    with _open_lock:
-        counts = _open.setdefault((state.request_id, state.thread), [0, 0])
-        state.followed = (counts[0], counts[1])
-        counts[0] += 1
-        counts[1] += 1
-
-
-def _shared(state: Checkout) -> bool:
-    """Whether another checkout on ``state``'s request and thread was open at its checkout or started since; read
-    while ``state`` is still followed, so its key is present."""
-    with _open_lock:
-        counts = _open.get((state.request_id, state.thread))
-        open_before, started_before = state.followed
-        return counts is None or open_before > 0 or counts[1] != started_before + 1
-
-
-def _unfollow(state: Checkout) -> None:
-    key = (state.request_id, state.thread)
-    with _open_lock:
-        counts = _open.get(key)
-        if counts is not None:
-            counts[0] -= 1
-            if counts[0] <= 0:  # nothing open on this key: the next checkout starts a new count
-                del _open[key]
-
-
 def _count_statements(ctx: SharpitContext, state: Checkout, connection_id: str | None) -> int:
     cursor = state.cursors.get(ctx.context_id)
-    if cursor is None:
-        return UNKNOWN_STATEMENTS
-    start_total, start_sql_accepted = cursor
     recorder = ctx.capture.sql_trace
     journal = ctx.capture.journal
-    if recorder is None or journal is None:
+    if cursor is None or recorder is None or journal is None:
         return UNKNOWN_STATEMENTS
-    sql_delta = journal.sql_cursor() - start_sql_accepted
-    recorder_delta = recorder.checkout_cursor() - start_total
-    if not journal.accepts("sql") or sql_delta == recorder_delta:
-        count = recorder.count_for_connection(connection_id, start_total)
-        if count is not None:
-            return count
-    count = journal.count_sql_since(state.obtained_ns, state.request_id, state.thread, start_sql_accepted)
-    # journal events carry no connection, so another's statements look like ours; checked after the count, so a
-    # neighbour that checked out before the walk is seen
-    if count is None or (count > 0 and (_shared(state) or RAW_SQLITE3 in ctx.capture.sql_delivered)):
+    start_total, start_sql_accepted = cursor
+    # fewer rows than journal ``sql`` events since the checkout: the panel was paused, so the rows would undercount
+    if journal.accepts("sql") and journal.sql_cursor() - start_sql_accepted != recorder.checkout_cursor() - start_total:
         return UNKNOWN_STATEMENTS
-    return count
+    count = recorder.count_for_connection(connection_id, start_total)
+    return UNKNOWN_STATEMENTS if count is None else count
 
 
 def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
     """Start following the connection just obtained, when a journal that records the source will take it."""
     del dbapi_connection
     try:
-        stale = record.info.pop(CHECKOUT_KEY, None)  # left by a checkout whose checkin listener was gone: not ours
-        if stale is not None:
-            _unfollow(stale)
+        record.info.pop(CHECKOUT_KEY, None)  # left by a checkout whose checkin listener was gone: not ours
         if INTERNAL.get():
             return
         pool = getattr(proxy, "_pool", None)
         targets = dispatch.connection_targets(pool, SOURCE)
         if targets:  # a source the journal does not record follows nothing and counts nothing, as BootUI's
-            state = Checkout(targets, pool, REQUEST.get())
-            _follow(state)
-            record.info[CHECKOUT_KEY] = state
+            record.info[CHECKOUT_KEY] = Checkout(targets, pool, REQUEST.get())
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's checkout
         dispatch.routing_failed(exc)
 
@@ -161,17 +110,14 @@ def checkin(dbapi_connection: Any, record: Any) -> None:
         state: Checkout | None = record.info.pop(CHECKOUT_KEY, None)
         if state is None:
             return
-        try:
-            if dbapi_connection is None:
-                return  # an invalidated record: includes a checkout that failed after our listener, never the app's
-            held = max(0, time.perf_counter_ns() - state.obtained_ns)
-            connection_id = hex(id(dbapi_connection))
-            for ref in state.contexts:
-                ctx = ref()
-                if ctx is not None:
-                    _offer(ctx, state, held, connection_id)
-        finally:
-            _unfollow(state)  # after the counts: a checkout made while they ran is a neighbour
+        if dbapi_connection is None:
+            return  # an invalidated record: includes a checkout that failed after our listener, never the app's
+        held = max(0, time.perf_counter_ns() - state.obtained_ns)
+        connection_id = hex(id(dbapi_connection))
+        for ref in state.contexts:
+            ctx = ref()
+            if ctx is not None:
+                _offer(ctx, state, held, connection_id)
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's release
         dispatch.routing_failed(exc)
 
