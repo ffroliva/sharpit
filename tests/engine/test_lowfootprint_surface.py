@@ -40,7 +40,7 @@ def test_low_footprint_actions_are_cli_only() -> None:
 
     settings = load_settings({"enabled": "ON", "show_banner": False, "config_scan": False}, {})
     ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
-    listed = McpServer(ctx)._dispatch("tools/list", {}, {})["tools"]  # pyright: ignore[reportPrivateUsage]
+    listed = McpServer(ctx)._dispatch("tools/list", {}, {}, None)["tools"]  # pyright: ignore[reportPrivateUsage]
     assert "get_low_footprint" in {tool["name"] for tool in listed}
     assert "enable_low_footprint" not in {tool["name"] for tool in listed}
     assert "disable_low_footprint" not in {tool["name"] for tool in listed}

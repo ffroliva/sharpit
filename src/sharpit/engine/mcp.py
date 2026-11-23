@@ -448,7 +448,7 @@ class McpServer:
         }
 
     def _handle(
-        self, request: object, scope: Mapping[str, object], host_loop_provider: HostLoopProvider | None = None
+        self, request: object, scope: Mapping[str, object], host_loop_provider: HostLoopProvider | None
     ) -> dict[str, Any] | None:
         envelope = _as_object(request)
         if envelope is None:
@@ -506,7 +506,7 @@ class McpServer:
         method: str,
         params: dict[str, object],
         scope: Mapping[str, object],
-        host_loop_provider: HostLoopProvider | None = None,
+        host_loop_provider: HostLoopProvider | None,
     ) -> dict[str, Any]:
         handlers: dict[str, Callable[[dict[str, object], Mapping[str, object]], dict[str, Any]]] = {
             "initialize": self._initialize,
@@ -555,7 +555,7 @@ class McpServer:
         self,
         params: dict[str, object],
         scope: Mapping[str, object],
-        host_loop_provider: HostLoopProvider | None = None,
+        host_loop_provider: HostLoopProvider | None,
     ) -> dict[str, Any]:
         payload = call_tool(
             CallContext(self.ctx, scope, host_loop_provider),
