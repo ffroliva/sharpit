@@ -5,6 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `sharpit docs` lists, reads, and searches documentation bundled with the installed package, with optional JSON output.
+- Design decision records cover activation signals and WSGI request target validation.
+- The documentation site publishes `llms.txt` with page links and offline lookup commands.
+
 ## [0.8.0] - 2026-11-22
 
 ### Added

@@ -17,6 +17,8 @@ sharpit is a Python port of [BootUI](https://github.com/jdubois/boot-ui), the Sp
 a console at `/sharpit` and a BootUI-compatible JSON API at `/sharpit/api` inside your own app. It is for **local
 development only**: it switches itself off unless it has a reason to be on, and it refuses non-loopback callers.
 
+Run `sharpit docs --search <term>` to look up sharpit behavior offline before making assumptions.
+
 ## Playbooks
 
 For a guided investigation, load the [shared playbook contract](references/playbooks/README.md) and **one** guide:

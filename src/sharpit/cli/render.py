@@ -147,10 +147,10 @@ def write(stream: TextIO, text: str) -> None:
         stream.write(replacement)
 
 
-def write_json(stream: TextIO, text: str) -> None:
-    """Keep machine-readable output UTF-8 even when an injected stream has another encoding."""
+def write_utf8(stream: TextIO, text: str) -> None:
+    """Write UTF-8 when a binary buffer is available."""
     buffer = getattr(stream, "buffer", None)
     if buffer is not None:
         buffer.write(text.encode("utf-8"))
     else:
-        stream.write(text)
+        write(stream, text)
