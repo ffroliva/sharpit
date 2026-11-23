@@ -562,7 +562,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: # zizmor: ignore[cache-poisoning]
           path: ~/.sonar/cache
-          key: sonar-${{ runner.os }}-v8.4.1 # the scan action's version: a new pin downloads a fresh scanner
+          key: sonar-${{ runner.os }}-v8.5.0 # the scan action's version: a new pin downloads a fresh scanner
       - name: SonarCloud scan
         if: >-
           needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
