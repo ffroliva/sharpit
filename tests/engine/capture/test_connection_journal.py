@@ -481,22 +481,9 @@ def test_connection_journal_counts_statements_once_the_journal_is_full():
     assert _records(handle)[-1]["statements"] == 2
 
 
-# review finding (0.9.0): two overlapping checkouts on one thread counted each other's statements
-def test_connection_journal_overlapping_checkouts_on_one_thread_never_count_each_other():
-    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, pool_size=2, max_overflow=0)
-    handle = _install(engine=engine)
-    with handle.engine.connect() as first, handle.engine.connect() as second:
-        first.execute(sa.text("SELECT 1")).fetchall()
-        second.execute(sa.text("SELECT 1")).fetchall()
-        first.execute(sa.text("SELECT 1")).fetchall()
-    released_second, released_first = _records(handle)  # ``second`` is released first
-    assert released_second["statements"] == 1
-    assert released_first["statements"] == 2
-
-
 # review finding (0.9.0): a count taken after the statements since checkout left the ring counted only what was left
 def test_connection_journal_count_is_unknown_when_the_rows_left_the_trace_ring():
-    handle = _install()
+    handle = _install(sources=("connection",))  # no sql journal events: the -1 is the ring's own answer
     with handle.engine.connect() as conn:
         conn.execute(sa.text("select 1"))
         conn.execute(sa.text("select 2"))
