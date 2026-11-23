@@ -13,7 +13,7 @@ from sharpit.engine.paging import paged
 
 DEFAULT_PAGE_LIMIT = 100
 MAX_PAGE_LIMIT = 1000
-_INTEGER = re.compile(r"-?[0-9]+")
+_INTEGER = re.compile(r"-?[0-9]+")  # NOSONAR - \d also matches non-ASCII digits; the paging values are ASCII
 
 
 class AdvisorViolationError(Exception):

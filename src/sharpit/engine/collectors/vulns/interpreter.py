@@ -201,34 +201,41 @@ class _Timeline:
         self.valid = False
         if rng is None or rng[0] != "ECOSYSTEM" or not rng[1]:
             return
+        kinds = self._read(rng[1])
+        if kinds is None or "introduced" not in kinds or {"fixed", "last_affected"} <= kinds:
+            return
+        self.events.sort(key=functools.cmp_to_key(_compare_events))
+        self.valid = not self._contradictory()
+
+    def _read(self, raw_events: list[tuple[str, str] | None]) -> set[str] | None:
+        """Fill ``events`` and ``limits``; the kinds seen, or None when an event cannot be read."""
         kinds: set[str] = set()
-        for event in rng[1]:
+        for event in raw_events:
             if event is None:
-                return
+                return None
             kind, raw = event
             if kind == "limit" and raw == "*":
                 self.limits.append(None)
                 continue
             version = _version(raw)
             if version is None:
-                return
+                return None
             kinds.add(kind)
             if kind == "limit":
                 self.limits.append(version)
             else:
                 self.events.append(_Event(kind, raw, version, kind == "introduced" and raw == "0"))
-        if "introduced" not in kinds or {"fixed", "last_affected"} <= kinds:
-            return
-        self.events.sort(key=functools.cmp_to_key(_compare_events))
-        for previous, current in zip(self.events, self.events[1:], strict=False):
-            if (
-                previous.kind != current.kind
-                and not (previous.kind == "introduced" and current.kind == "last_affected")
-                and previous.beginning == current.beginning
-                and previous.version == current.version
-            ):
-                return  # contradictory status changes at one equivalent boundary have no unique order
-        self.valid = True
+        return kinds
+
+    def _contradictory(self) -> bool:
+        """Status changes at one equivalent boundary have no unique order."""
+        return any(
+            previous.kind != current.kind
+            and not (previous.kind == "introduced" and current.kind == "last_affected")
+            and previous.beginning == current.beginning
+            and previous.version == current.version
+            for previous, current in zip(self.events, self.events[1:], strict=False)
+        )
 
     def evaluate(self, raw: str) -> _Applicability:
         version = _version(raw)
@@ -236,6 +243,9 @@ class _Timeline:
             return _Applicability.UNRESOLVED
         if self.limits and not any(limit is None or version < limit for limit in self.limits):
             return _Applicability.NOT_MATCHED
+        return _Applicability.MATCHED if self._affected_at(version) else _Applicability.NOT_MATCHED
+
+    def _affected_at(self, version: Version) -> bool:
         affected = False
         for event in self.events:
             compared = 1 if event.beginning else _cmp(version, event.version)
@@ -243,7 +253,7 @@ class _Timeline:
                 affected = True
             elif (event.kind == "fixed" and compared >= 0) or (event.kind == "last_affected" and compared > 0):
                 affected = False
-        return _Applicability.MATCHED if affected else _Applicability.NOT_MATCHED
+        return affected
 
     def closing_fixes(self, raw: str) -> list[str]:
         if self.evaluate(raw) is not _Applicability.MATCHED:
@@ -320,28 +330,38 @@ def _evaluate(doc: dict[str, Any], pkg: Package) -> tuple[str, float | None, lis
             applicable = True
             package_severity_supplied |= bool(entry.affected.severity)
             score = _maximum(score, _highest_score(entry.affected.severity))
-            for timeline in entry.timelines:
-                fixes = timeline.closing_fixes(pkg.version)
-                if fixes:
-                    candidate_streams.append(fixes)
-                if entry.exact_package and timeline.is_bounded(pkg.version):
-                    bounded_branch = True
+            bounded_branch |= _collect_closing_fixes(entry, pkg.version, candidate_streams)
     unresolved |= not applicable
     if not package_severity_supplied:
         score = _highest_score(_severities(doc))
 
     verified = _verify_candidates(pkg.version, matching, unknown_identity, candidate_streams)
     if not verified and bounded_branch:
-        cross_branch_streams = [
-            fixes
-            for entry in matching
-            if entry.exact_package
-            for timeline in entry.timelines
-            if (fixes := timeline.fixes_after(pkg.version))
-        ]
-        verified = _verify_candidates(pkg.version, matching, unknown_identity, cross_branch_streams)
+        verified = _verify_candidates(pkg.version, matching, unknown_identity, _cross_branch_streams(matching, pkg))
     severity = severity_from_text(_database_severity(doc)) if score is None else severity_for(score)
     return severity, score, _order_fixed_versions(verified), unresolved
+
+
+def _collect_closing_fixes(entry: _Entry, version: str, streams: list[list[str]]) -> bool:
+    """Append each timeline's closing fixes to ``streams``; True when an exact-package timeline is bounded."""
+    bounded = False
+    for timeline in entry.timelines:
+        fixes = timeline.closing_fixes(version)
+        if fixes:
+            streams.append(fixes)
+        if entry.exact_package and timeline.is_bounded(version):
+            bounded = True
+    return bounded
+
+
+def _cross_branch_streams(matching: list[_Entry], pkg: Package) -> list[list[str]]:
+    return [
+        fixes
+        for entry in matching
+        if entry.exact_package
+        for timeline in entry.timelines
+        if (fixes := timeline.fixes_after(pkg.version))
+    ]
 
 
 def _matching_entries(doc: dict[str, Any], pkg: Package) -> tuple[list[_Entry], bool]:
@@ -397,7 +417,7 @@ def _maximum(left: float | None, right: float | None) -> float | None:
 
 def _order_fixed_versions(versions: list[str]) -> list[str]:
     """Distinct, trimmed, ordered by PEP 440 then case-insensitive text (BootUI ``orderFixedVersions``), max 10."""
-    distinct = list(dict.fromkeys(v.strip() for v in versions if v.strip()))
+    distinct = dict.fromkeys(v.strip() for v in versions if v.strip())
     return sorted(distinct, key=functools.cmp_to_key(compare_versions))[:_MAX_FIXED_VERSIONS]
 
 
