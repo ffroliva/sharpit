@@ -19,6 +19,8 @@ journal's ``sql`` events since the checkout, which carry no connection, so only 
 request and thread, no other followed checkout on that request and thread overlapped it, and no raw sqlite3 statement
 reaches the install. A count is -1 when the panel was paused and the journal records no ``sql``, when the rows or
 events left their ring, or when the journal cannot tell this connection's statements from another's.
+shortcut: with no ``sql`` journal source the SQL Trace count is not cross-checked, so a panel paused for part of
+a checkout undercounts it; upgrade with a pause generation on the recorder if that case needs to be exact.
 shortcut: a connection that is invalidated before its release (``checkin`` then gets no DBAPI connection) offers no
 event, since a checkout that failed after our listener looks the same; upgrade with a per-checkout flag.
 shortcut: a connection detached from the pool (``Connection.detach()``) never fires ``checkin``, so it offers no
@@ -48,9 +50,10 @@ CHECKOUT_KEY = "sharpit_connection"
 SOURCE = "connection"
 UNKNOWN_STATEMENTS = -1  # an unknown count; BootUI defines -1 only for ``checkoutNanos``: see the module note
 RAW_SQLITE3 = "sqlite3"  # the raw sqlite3 SQL source, as ``dispatch`` names it: no pool checkout follows it
-# the followed checkouts not yet released, per (request id, thread): how the journal count learns of a neighbour
-# shortcut: a key whose only checkout was detached (never checked in) keeps an empty set; prune it if one ever matters
-_open: dict[tuple[str | None, str], weakref.WeakSet[Checkout]] = {}
+# per (request id, thread): [followed checkouts not yet released, checkouts started while one was]; how the journal
+# count learns of a neighbour. shortcut: a detached connection (never checked in) keeps its key open, so that key's
+# journal counts stay unknown; upgrade if a detaching application needs them
+_open: dict[tuple[str | None, str], list[int]] = {}
 _open_lock = threading.Lock()
 
 
@@ -58,8 +61,7 @@ class Checkout:
     """One connection from checkout to release."""
 
     __slots__ = (
-        "__weakref__", "contexts", "cursors", "epoch_ms", "obtained_ns", "pool", "request_id", "shared", "thread",
-        "trace_id",
+        "contexts", "cursors", "epoch_ms", "followed", "obtained_ns", "pool", "request_id", "thread", "trace_id",
     )  # fmt: skip
 
     def __init__(self, contexts: list[SharpitContext], pool: object, request: RequestInfo | None) -> None:
@@ -70,7 +72,7 @@ class Checkout:
         self.epoch_ms = time.time_ns() // 1_000_000
         self.thread = threading.current_thread().name
         self.trace_id = otel.current_trace_id()
-        self.shared = False  # another followed checkout on this request and thread overlapped this one
+        self.followed: tuple[int, int] = (0, 0)  # its key's open and started counts at this checkout, before it joined
         self.obtained_ns = time.perf_counter_ns()  # last, so the clock starts after the bookkeeping above
 
 
@@ -85,22 +87,29 @@ def _cursors(targets: list[SharpitContext]) -> dict[str, tuple[int, int]]:
 
 
 def _follow(state: Checkout) -> None:
-    """Mark ``state`` and every open checkout on its request and thread as shared when there is one."""
     with _open_lock:
-        peers = _open.setdefault((state.request_id, state.thread), weakref.WeakSet())
-        for peer in peers:
-            peer.shared = True
-        state.shared = len(peers) > 0
-        peers.add(state)
+        counts = _open.setdefault((state.request_id, state.thread), [0, 0])
+        state.followed = (counts[0], counts[1])
+        counts[0] += 1
+        counts[1] += 1
+
+
+def _shared(state: Checkout) -> bool:
+    """Whether another checkout on ``state``'s request and thread was open at its checkout or started since; read
+    while ``state`` is still followed, so its key is present."""
+    with _open_lock:
+        counts = _open.get((state.request_id, state.thread))
+        open_before, started_before = state.followed
+        return counts is None or open_before > 0 or counts[1] != started_before + 1
 
 
 def _unfollow(state: Checkout) -> None:
     key = (state.request_id, state.thread)
     with _open_lock:
-        peers = _open.get(key)
-        if peers is not None:
-            peers.discard(state)
-            if not peers:
+        counts = _open.get(key)
+        if counts is not None:
+            counts[0] -= 1
+            if counts[0] <= 0:  # nothing open on this key: the next checkout starts a new count
                 del _open[key]
 
 
@@ -119,17 +128,21 @@ def _count_statements(ctx: SharpitContext, state: Checkout, connection_id: str |
         count = recorder.count_for_connection(connection_id, start_total)
         if count is not None:
             return count
-    if state.shared or RAW_SQLITE3 in ctx.capture.sql_delivered:
-        return UNKNOWN_STATEMENTS  # journal events carry no connection: another one's statements look like ours
     count = journal.count_sql_since(state.obtained_ns, state.request_id, state.thread, start_sql_accepted)
-    return count if count is not None else UNKNOWN_STATEMENTS
+    # journal events carry no connection, so another's statements look like ours; checked after the count, so a
+    # neighbour that checked out before the walk is seen
+    if count is None or (count > 0 and (_shared(state) or RAW_SQLITE3 in ctx.capture.sql_delivered)):
+        return UNKNOWN_STATEMENTS
+    return count
 
 
 def checkout(dbapi_connection: Any, record: Any, proxy: Any) -> None:
     """Start following the connection just obtained, when a journal that records the source will take it."""
     del dbapi_connection
     try:
-        record.info.pop(CHECKOUT_KEY, None)  # a state left by a checkout whose checkin listener was gone is not ours
+        stale = record.info.pop(CHECKOUT_KEY, None)  # left by a checkout whose checkin listener was gone: not ours
+        if stale is not None:
+            _unfollow(stale)
         if INTERNAL.get():
             return
         pool = getattr(proxy, "_pool", None)
@@ -146,16 +159,19 @@ def checkin(dbapi_connection: Any, record: Any) -> None:
     """The application released the connection: offer its event once (a second checkin finds no state)."""
     try:
         state: Checkout | None = record.info.pop(CHECKOUT_KEY, None)
-        if state is not None:
-            _unfollow(state)
-        if state is None or dbapi_connection is None:
-            return  # an invalidated record: includes a checkout that failed after our listener, never the app's
-        held = max(0, time.perf_counter_ns() - state.obtained_ns)
-        connection_id = hex(id(dbapi_connection))
-        for ref in state.contexts:
-            ctx = ref()
-            if ctx is not None:
-                _offer(ctx, state, held, connection_id)
+        if state is None:
+            return
+        try:
+            if dbapi_connection is None:
+                return  # an invalidated record: includes a checkout that failed after our listener, never the app's
+            held = max(0, time.perf_counter_ns() - state.obtained_ns)
+            connection_id = hex(id(dbapi_connection))
+            for ref in state.contexts:
+                ctx = ref()
+                if ctx is not None:
+                    _offer(ctx, state, held, connection_id)
+        finally:
+            _unfollow(state)  # after the counts: a checkout made while they ran is a neighbour
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's release
         dispatch.routing_failed(exc)
 
