@@ -147,7 +147,9 @@ def task_info(ctx: SharpitContext, task: Any, max_frames: int, *, names_only: bo
 
 
 def _task_state(task: Any) -> str:
-    return "CANCELLED" if task.cancelled() else "DONE" if task.done() else "PENDING"  # cancelled() first: also done
+    if task.cancelled():  # first: a cancelled task is also done
+        return "CANCELLED"
+    return "DONE" if task.done() else "PENDING"
 
 
 def _collect(ctx: SharpitContext, max_frames: int, cap: int, names_only: bool) -> tuple[list[dict[str, Any]], int]:
@@ -185,7 +187,9 @@ def _tasks(
 def _thread_name(ctx: SharpitContext, name: str) -> str:
     """BootUI ``maskName``: a secret-looking name is masked; under ``METADATA_ONLY`` too (a name is metadata)."""
     shown = ctx.masker.mask_text(name)
-    return shown if shown is not None else MASK if ctx.settings.mask_secrets and is_secret_value(name) else name
+    if shown is not None:
+        return shown
+    return MASK if ctx.settings.mask_secrets and is_secret_value(name) else name
 
 
 def _thread_rows(

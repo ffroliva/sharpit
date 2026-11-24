@@ -294,12 +294,11 @@ def _enrich(
             doc = docs.get(vuln_id)
             finding = interpret(doc, pkg, vuln_id) if doc is not None else None
             if doc is not None and finding is not None:
-                if finding.unresolved:
-                    unresolved += 1
+                unresolved += bool(finding.unresolved)
                 detail_complete &= not finding.unresolved and _valid_withdrawal(doc)
                 findings.append(finding)
-            elif vuln_id not in withdrawn:
-                detail_complete = False
+            else:
+                detail_complete &= vuln_id in withdrawn
         findings.sort(key=_vulnerability_order)
         dependencies.append(_Dependency(pkg, findings, query_complete, detail_complete))
     return dependencies, unresolved
