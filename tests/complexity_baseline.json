@@ -5,7 +5,7 @@
   "src/sharpit/engine/collectors/alembic.py": 0,
   "src/sharpit/engine/collectors/config/settings_source.py": 1,
   "src/sharpit/engine/mcp.py": 0,
-  "src/sharpit/engine/probe.py": 1,
+  "src/sharpit/engine/probe.py": 0,
   "src/sharpit/engine/tools.py": 0,
   "src/sharpit/fastapi/adapter.py": 0,
   "src/sharpit/fastapi/capture.py": 1,

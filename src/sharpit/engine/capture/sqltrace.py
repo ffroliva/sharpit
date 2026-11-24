@@ -369,6 +369,13 @@ class SqlTraceRecorder:
             "shape": shape,
             "phase": self.lifespan_phase if request_id is None else None,
         }
+        self._store(row, dialect, shape, category, millis, site)
+        self.changes.signal()
+        return text
+
+    def _store(
+        self, row: dict[str, Any], dialect: Dialect, shape: Shape, category: str, millis: int, site: str | None
+    ) -> None:
         with self._lock:
             row["id"] = next(self._ids)
             self._sqlite_seen |= dialect is Dialect.SQLITE
@@ -380,8 +387,6 @@ class SqlTraceRecorder:
             if category == "SELECT" and millis > self._slowest[0]:  # rare: only a new slowest SELECT pays to mask
                 self._new_max(millis, shape.text)
             self._update_aggregate(shape.fingerprint, shape.text, category, millis, site)
-        self.changes.signal()
-        return text
 
     def _update_aggregate(self, key: str | None, sql: str, category: str, millis: int, site: str | None) -> None:
         if key is None:
