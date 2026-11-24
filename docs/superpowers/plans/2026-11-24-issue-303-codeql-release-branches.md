@@ -32,7 +32,9 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
 - [ ] Step 8 in `skills/release/SKILL.md` first brings the ship head up to date with `main`: merge `origin/main`
   (after a fetch) into `chore/release-<version>` and push it or, on the version-branch path, into a branch that
   reaches `release/<version>` through a staging PR. Staging PRs use a merge commit: a squash loses
-  the ancestry of `main` and fails the gate. It then opens or reuses a draft PR into `main`, waits for its checks and runs
+  the ancestry of `main` and fails the gate. For initial staging, fixes and retries, the same merge block checks
+  the expected version base and pins the recorded PR URL to its pushed SHA. Open or reuse a draft into `main`,
+  wait for checks and run
   `uv run python scripts/ci/ship_scan.py <PR_NUMBER>`. The classic rule is not a gate input: it does not affect
   the scan of a PR into `main`.
 - [ ] Write out both release paths in the skill:
@@ -41,8 +43,8 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
   - With one, step 3 cuts it from `origin/release/<version>`, step 7 also merges it into `release/<version>`
     through a staging PR, and step 8 opens the draft with `--head release/<version>`. A later fix goes through a
     new staging PR, never only to the merged chore branch.
-- [ ] Step 9 runs the council on the draft head, then the gate, and requires both for the same head SHA. The
-  gate prints the head and base SHA. With all checks green, `gh pr ready <N>` follows. Immediately before the
+- [ ] Step 9 records the council-approved head. One guarded block waits for green checks, reads the verified
+  head and base from the gate, compares the head to the council SHA and marks the draft ready. Before the
   merge, the skill confirms that the checks are still green, the base is still `main` and
   `gh api repos/ffroliva/sharpit/git/ref/heads/main --jq .object.sha` still prints the recorded base SHA. A changed head or base runs `gh pr ready <N> --undo` and returns to
   step 8 and repeats council, gate and checks.
@@ -75,14 +77,16 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
 - [ ] Require the newest `CodeQL` check run of app `github-advanced-security` on the head SHA to be `completed`
   (read with `filter=all`) with conclusion `success`. `neutral` and `skipped` fail.
 - [ ] Match runs by path `.github/workflows/ci.yml`, event `pull_request`, exact `head_sha`, and PR number
-  in `run.pull_requests`. The list is empty on the closed #298 and names the PR on the open #321. An empty list cannot establish a match
-  on an open PR, so the gate fails closed if no run matches.
+  in the same `run.pull_requests` entry as `base.ref == "main"`. The closed #298 had no association. The open
+  #321 listed its PR. Missing association evidence fails the gate.
   Select the match with the greatest `run_number` and inspect jobs from its latest attempt only.
   Require the `sonar` job to have status `completed` and conclusion `success`, and its
   code-scan ratchet step, matched by its exact name in `ci.yml`, to have conclusion `success`.
+- [ ] Reject any `base_ref_changed` event in paginated `issues/<N>/events` (exit 1). Close the PR and open
+  a new draft against main. Unreadable history exits 2.
 - [ ] Read paginated calls with `gh api --paginate --slurp` and parse the one array of pages, combining the
-  `check_runs`, `workflow_runs` or `jobs` lists from object pages and the entries from array pages for analyses
-  and alerts.
+  `check_runs`, `workflow_runs` or `jobs` lists from object pages and the entries from array pages for analyses,
+  alerts and issue events.
 - [ ] Re-read the PR and `refs/heads/main` after the checks and reject a changed head SHA, base branch, base SHA,
   state or draft flag.
 - [ ] Add fixtures under `tests/scripts/` for a pass and each failure. Cover API error, parse error,
@@ -90,7 +94,7 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
   analysis with an error, missing, unfinished, neutral or failed `CodeQL` check run, check run of another app,
   same-SHA push run, wrong workflow path, wrong or empty PR association, success only on an older run or attempt,
   incomplete or unsuccessful job, missing or skipped ratchet step, other unsuccessful step conclusion,
-  open alert, head behind `main`, and a head, base branch or base SHA changed during the checks. Use several pages for all five endpoints in the pass fixture and a later-page alert
+  open alert, head behind `main`, and a head, base branch or base SHA changed during the checks. Use several pages for all six endpoints in the pass fixture and a later-page alert
   in its failure case. See each failure assertion red before implementing its guard, then delete each guard
   in turn to show the test fails.
 

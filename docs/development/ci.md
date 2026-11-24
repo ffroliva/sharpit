@@ -80,6 +80,17 @@ full matrix runs on every merge before anything ships.
   of that branch, which refreshes the base analysis the PR scans compare against (a stale one made each PR's Python sensor
   re-parse ~848 files). Every push is its own concurrency group (`run_id`), so none cancels another.
 
+## CodeQL on release pull requests
+
+The classic branch protection rule for `release/*` enables CodeQL default setup on pull requests into version
+branches alongside ruleset `27883117`. The classic rule adds no required checks or reviews and permits
+fast-forward pushes. Default setup records PR analyses on `refs/pull/<N>/head`. For the draft release PR into
+`main`, `scripts/ci/ship_scan.py` verifies the exact head's CodeQL evidence and code-scan ratchet before the PR
+becomes ready. The gate on this draft is independent of the classic rule.
+
+The [classic protection rule procedure](../superpowers/plans/2026-11-24-issue-303-codeql-release-branches.md#classic-protection-rule)
+includes verification and undo commands.
+
 ## Wall clock
 
 Target (owner, top priority): a PR's run, first job queued to last check green, averages 3-5 minutes, and so does an
