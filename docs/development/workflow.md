@@ -140,10 +140,8 @@ it with a merge commit, not a squash, so the evidence stays reachable in history
 `scripts/ci/no_superpowers.py` fails any pull request into `main` that still tracks `.superpowers/`.
 Example: `docs/reports/2026-11-02-0.4.0-decisions.md`.
 
-Only when the owner asks. A version bump in `src/sharpit/__init__.py` and the changelog go through a
-`chore/release-<version>` PR; after the merge, a signed tag `v<version>` on `main` is the release. Pushing that tag
-runs `.github/workflows/release.yml`, which publishes to PyPI with Trusted Publishing and creates the GitHub Release.
-Nobody uploads by hand, and the tag is only pushed after the owner says go.
+The [release procedure](../../skills/release/SKILL.md) covers both paths through the draft PR, code-scan ratchet,
+council review and pinned merge. After owner approval, pushing the signed release tag starts publication.
 
 ## Issues
 
