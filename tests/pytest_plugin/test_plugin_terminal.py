@@ -39,8 +39,10 @@ def test_summary_names_every_runtime_gate_when_a_swallow_is_found(pytester: pyte
     assert _checked_line(result) == CHECKED_GATES
 
 
-@pytest.mark.parametrize(("workers", "unattached"), [(0, 1), (2, 0), (2, 1), (2, 2)])
-def test_summary_reports_unattached_swallowed_capture(pytester: pytest.Pytester, workers: int, unattached: int) -> None:
+@pytest.mark.parametrize(("workers", "unattached", "missing"), [(0, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0), (2, 1, 1)])
+def test_summary_reports_unattached_swallowed_capture(
+    pytester: pytest.Pytester, workers: int, unattached: int, missing: int
+) -> None:
     pytester.makeconftest(
         f"""
         import pytest
@@ -52,6 +54,11 @@ def test_summary_reports_unattached_swallowed_capture(pytester: pytest.Pytester,
                 patch = pytest.MonkeyPatch()
                 patch.setattr(allocator, 'claim', lambda: None)
                 config.add_cleanup(patch.undo)
+
+        @pytest.hookimpl(tryfirst=True, optionalhook=True)
+        def pytest_testnodedown(node, error):
+            if {missing} and node.gateway.id == 'gw1':
+                node.workeroutput.pop('sharpit')
         """
     )
     pytester.makepyfile("def test_first(): pass\ndef test_second(): pass")

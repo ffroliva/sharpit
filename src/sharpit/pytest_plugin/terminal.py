@@ -72,7 +72,9 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
     if would_fail is not None:
         terminalreporter.write_line(f"sharpit report-only: {would_fail} tests would fail, status {data['status']}")
     parts = state.parts if plugin._xdist_controller(config, state) else [state.sink.facts]
-    _write_coverage(terminalreporter, state, data, capture_note=_swallowed_capture_note(parts))
+    _write_coverage(
+        terminalreporter, state, data, capture_note=_swallowed_capture_note(parts, len(state.missing_workers))
+    )
 
 
 def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
@@ -120,7 +122,7 @@ def _count(number: int, noun: str) -> str:
 _ASSESSED = frozenset({"PASSED", "FAILED", "PARTIAL"})
 
 
-def _swallowed_capture_note(parts: list[SessionFacts]) -> str:
+def _swallowed_capture_note(parts: list[SessionFacts], missing_workers: int) -> str:
     unavailable = [
         source
         for part in parts
@@ -130,7 +132,7 @@ def _swallowed_capture_note(parts: list[SessionFacts]) -> str:
     if not unavailable:
         return ""
     reasons = ", ".join(sorted({source["reason"] or "capture unavailable" for source in unavailable}))
-    return f". {SWALLOWED} not attached on {len(unavailable)} of {len(parts)} processes: {reasons}"
+    return f". {SWALLOWED} not attached on {len(unavailable)} of {len(parts) + missing_workers} processes: {reasons}"
 
 
 def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any], *, capture_note: str = "") -> None:
