@@ -122,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
     except Refused as exc:
         print(exc, file=sys.stderr)
         return 1
-    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError) as exc:
+    except subprocess.CalledProcessError as exc:
+        print(f"Unable to verify release: {exc.stderr or exc}", file=sys.stderr)
+        return 2
+    except (OSError, subprocess.SubprocessError, RecursionError, ValueError, TypeError, KeyError) as exc:
         print(f"Unable to verify release: {exc}", file=sys.stderr)
         return 2
     print(f"Verified head {head} and base {base}")

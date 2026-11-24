@@ -1,8 +1,10 @@
 """Release gate responses derived from the public evidence on pull request 298."""
 
 import json
+import subprocess
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from _load import load_script
@@ -12,7 +14,7 @@ scan = load_script("scripts/ci/ship_scan.py")
 
 @pytest.fixture
 def evidence(monkeypatch):
-    data = json.loads(Path(__file__).with_name("ship_scan_298.json").read_text(encoding="utf-8-sig"))
+    data = json.loads(Path(__file__).with_name("ship_scan_298.json").read_text(encoding="utf-8"))
     pr = data["pr"]
     pr.update(state="open", draft=True)
     head = pr["head"]["sha"]
@@ -117,11 +119,38 @@ def test_refuses(evidence, path, value, capsys):
     assert capsys.readouterr().err.strip()
 
 
-@pytest.mark.parametrize("reply", [OSError("gh unavailable"), "{", {}])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        OSError("gh unavailable"),
+        subprocess.CalledProcessError(1, ["gh"], stderr="rate limited"),
+        subprocess.TimeoutExpired(["gh"], 120),
+        "{",
+        {},
+    ],
+)
 def test_unreadable(evidence, reply, capsys):
     evidence["pr"] = reply
     assert scan.main(["298"]) == 2
-    assert capsys.readouterr().err.strip()
+    message = capsys.readouterr().err.strip()
+    assert message
+    if isinstance(reply, subprocess.CalledProcessError):
+        assert reply.stderr in message
+
+
+@pytest.mark.parametrize("paginate", [False, True])
+def test_gh_transport(monkeypatch, paginate):
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, stdout="payload"))
+    monkeypatch.setattr(scan.subprocess, "run", run)
+    assert scan.gh("pulls/298", paginate=paginate) == "payload"
+    flags = ["--paginate", "--slurp"] if paginate else []
+    run.assert_called_once_with(
+        ["gh", "api", "--method", "GET", *flags, "repos/ffroliva/sharpit/pulls/298"],
+        capture_output=True,
+        check=True,
+        encoding="utf-8",
+        timeout=120,
+    )
 
 
 @pytest.mark.parametrize("argv", [[], ["0"], ["-1"], ["x"], ["1", "2"]])
@@ -180,3 +209,12 @@ def test_ambiguous_sonar_evidence(evidence, kind):
     entries = jobs if kind == "job" else jobs[0]["steps"]
     entries.append(deepcopy(entries[0]))
     assert scan.main(["298"]) == 1
+
+
+def test_deep_json_exits_two(evidence):
+    evidence["pr"] = RecursionError("response nested too deeply")
+    try:
+        status = scan.main(["298"])
+    except RecursionError:
+        status = "uncaught RecursionError"
+    assert status == 2
