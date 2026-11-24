@@ -33,6 +33,7 @@ def evidence(monkeypatch):
         "runs": [{"workflow_runs": []}, {"workflow_runs": [run]}],
         "jobs": [{"jobs": []}, {"jobs": [data["job"]]}],
     }
+    replies["older_jobs"] = deepcopy(replies["jobs"])
     routes = {
         "pulls/298": ["pr", "final_pr"],
         "git/ref/heads/main": ["main", "final_main"],
@@ -41,13 +42,15 @@ def evidence(monkeypatch):
         f"code-scanning/alerts?{ref}&state=open": ["alerts"],
         f"commits/{head}/check-runs?filter=all": ["checks"],
         f"actions/workflows/ci.yml/runs?event=pull_request&head_sha={head}": ["runs"],
+        "actions/runs/1/attempts/2/jobs": ["older_jobs"],
+        f"actions/runs/{run['id']}/attempts/1/jobs": ["older_jobs"],
         f"actions/runs/{run['id']}/attempts/2/jobs": ["jobs"],
     }
 
     def respond(path, *, paginate=False):
         key = routes[path].pop(0)
         value = replies[key]
-        assert paginate == (key in {"analyses", "alerts", "checks", "runs", "jobs"})
+        assert paginate == (key in {"analyses", "alerts", "checks", "runs", "jobs", "older_jobs"})
         if isinstance(value, Exception):
             raise value
         return value if isinstance(value, str) else json.dumps(value)
@@ -89,6 +92,8 @@ def test_verified(evidence, capsys):
         ("runs.1.workflow_runs.0.pull_requests", [{"number": 9}]),
         ("runs.1.workflow_runs.0.head_sha", "old"),
         ("jobs.1.jobs", []),
+        ("jobs.1.jobs.0.name", "other"),
+        ("jobs.1.jobs.0.steps.0.name", "other"),
         ("jobs.1.jobs.0.status", "queued"),
         ("jobs.1.jobs.0.conclusion", "failure"),
         ("jobs.1.jobs.0.steps", []),
@@ -127,13 +132,13 @@ def test_invalid(argv, capsys):
 
 def test_newest_check(evidence):
     checks = evidence["checks"][1]["check_runs"]
-    checks.insert(0, dict(checks[0], id=checks[0]["id"] + 1, conclusion="failure"))
+    checks.append(dict(checks[0], id=checks[0]["id"] + 1, conclusion="failure"))
     assert scan.main(["298"]) == 1
 
 
 def test_newest_run(evidence):
     runs = evidence["runs"][1]["workflow_runs"]
-    runs.append(dict(runs[0], run_number=995, id=1))
+    runs.insert(0, dict(runs[0], run_number=995, id=1))
     evidence["jobs"][1]["jobs"].clear()
     assert scan.main(["298"]) == 1
 
@@ -148,3 +153,30 @@ def test_newest_analysis(evidence):
     analyses = evidence["analyses"][0]
     analyses.append(dict(analyses[0], id=1, created_at="2020-01-01T00:00:00Z", error="old failure"))
     assert scan.main(["298"]) == 0
+
+
+def test_older_attempt_success(evidence):
+    evidence["jobs"][1]["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+    assert scan.main(["298"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "reply"), [("analyses", []), ("alerts", [{}]), ("main", {"object": {"sha": "invalid"}})]
+)
+def test_invalid_response(evidence, field, reply):
+    evidence[field] = reply
+    assert scan.main(["298"]) == 2
+
+
+def test_invalid_final_sha(evidence, capsys):
+    evidence["final_main"]["object"]["sha"] = "invalid"
+    assert scan.main(["298"]) == 2
+    assert "invalid commit SHA" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", ["job", "step"])
+def test_ambiguous_sonar_evidence(evidence, kind):
+    jobs = evidence["jobs"][1]["jobs"]
+    entries = jobs if kind == "job" else jobs[0]["steps"]
+    entries.append(deepcopy(entries[0]))
+    assert scan.main(["298"]) == 1
