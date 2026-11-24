@@ -5,6 +5,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Pentest reports describe Python host evidence and link to framework guidance where applicable.
+- The pytest terminal summary lists all five runtime gates.
+- The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.
+
+### Fixed
+
+- Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
+
 ## [0.9.0] - 2026-11-23
 
 sharpit 0.9.0 stays on BootUI 2.5.0 and closes part of the gaps recorded against it. These move to 0.10.0: the Flask

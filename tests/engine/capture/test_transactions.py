@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from sharpit.engine.capture.transactions import TransactionRecorder
@@ -560,6 +562,30 @@ def test_nested_unnamed_savepoint_rollback_is_rolled_back(monkeypatch) -> None:
     rows = {row["id"]: row for row in recorder.report([])["entries"]}
     assert rows[first_id]["status"] == "ROLLED_BACK", "a rolled-back outer savepoint must never be reported committed"
     assert rows[second_id]["status"] == "COMMITTED", "the released inner savepoint must be reported committed"
+
+
+def test_transaction_and_savepoint_method_name_is_the_application_call_site(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder = _recorder()
+    engine, remove, targets = _attached_sqlite(monkeypatch, recorder)
+    targets[0].settings.sql_trace_capture_call_site = True
+    try:
+        with engine.connect() as connection:
+            frame = inspect.currentframe()
+            assert frame is not None
+            root_line = frame.f_lineno + 1
+            with connection.begin():
+                root_id = connection.info["sharpit_tx"][-1][1]
+                savepoint_line = frame.f_lineno + 1
+                with connection.begin_nested():
+                    savepoint_id = connection.info["sharpit_tx"][-1][1]
+    finally:
+        remove()
+        engine.dispose()
+
+    rows = {row["id"]: row for row in recorder.report([])["entries"]}
+    method = f"{__name__}:{test_transaction_and_savepoint_method_name_is_the_application_call_site.__name__}"
+    assert rows[root_id]["methodName"] == f"{method}:{root_line}"
+    assert rows[savepoint_id]["methodName"] == f"{method}:{savepoint_line}"
 
 
 def test_untracked_inner_savepoint_does_not_close_tracked_outer(monkeypatch) -> None:

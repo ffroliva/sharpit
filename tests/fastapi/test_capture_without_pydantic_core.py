@@ -40,7 +40,7 @@ def test_host_exception_is_recorded_when_pydantic_core_is_unavailable(
 ) -> None:
     exc = RuntimeError("host failure")
 
-    raised = _raised(lambda: capture_exceptions._record_exception(store, exc, "handler", None, None, None, None))  # pyright: ignore[reportPrivateUsage]
+    raised = _raised(lambda: capture_exceptions.record_exception(store, exc, "handler", None, None, None, None))
 
     assert raised is None
 
@@ -57,7 +57,7 @@ def test_validation_error_is_recorded_without_diagnostics_when_pydantic_core_is_
 ) -> None:
     exc = RequestValidationError([])
 
-    raised = _raised(lambda: capture_exceptions._record_exception(store, exc, "handler", None, None, None, None))  # pyright: ignore[reportPrivateUsage]
+    raised = _raised(lambda: capture_exceptions.record_exception(store, exc, "handler", None, None, None, None))
 
     assert raised is None
 
@@ -75,7 +75,7 @@ def test_logged_exception_is_recorded_when_pydantic_core_is_unavailable(
     exc = RuntimeError("logged failure")
     record = logging.LogRecord("host", logging.ERROR, __file__, 1, "boom", None, (RuntimeError, exc, None))
 
-    raised = _raised(lambda: capture_exceptions._record_logged(store, record))  # pyright: ignore[reportPrivateUsage]
+    raised = _raised(lambda: capture_exceptions.record_logged(store, record))
 
     assert raised is None
 

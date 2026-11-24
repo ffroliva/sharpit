@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any, cast
 
 from sharpit.engine.advisors.registry import ADVISORS
+from sharpit.engine.testsession.facts import SessionFacts
 from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME_GATES
-from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE, SWALLOWED, TEST_DOUBLE_NOTE
+from sharpit.engine.testsession.gates import GATE_IDS, SWALLOWED, TEST_DOUBLE_NOTE
 from sharpit.engine.testsession.report import TEST_RUNTIME, finding_fails
 from sharpit.pytest_plugin.apps import AUTODETECT, DETECTED_BY, advisor_assessors, skip_reason
+from sharpit.pytest_plugin.swallowed import SOURCE as SWALLOWED_SOURCE
 
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
@@ -69,7 +71,10 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
         terminalreporter.write_line(f"warning: {warning}")
     if would_fail is not None:
         terminalreporter.write_line(f"sharpit report-only: {would_fail} tests would fail, status {data['status']}")
-    _write_coverage(terminalreporter, state, data)
+    parts = state.parts if plugin._xdist_controller(config, state) else [state.sink.facts]
+    _write_coverage(
+        terminalreporter, state, data, capture_note=_swallowed_capture_note(parts, len(state.missing_workers))
+    )
 
 
 def _write_swallowed(terminalreporter: Any, findings: list[dict[str, Any]]) -> None:
@@ -117,7 +122,20 @@ def _count(number: int, noun: str) -> str:
 _ASSESSED = frozenset({"PASSED", "FAILED", "PARTIAL"})
 
 
-def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any]) -> None:
+def _swallowed_capture_note(parts: list[SessionFacts], missing_workers: int) -> str:
+    unavailable = [
+        source
+        for part in parts
+        for source in part.sources
+        if source["name"] == SWALLOWED_SOURCE and source["attached"] is False
+    ]
+    if not unavailable:
+        return ""
+    reasons = ", ".join(sorted({source["reason"] or "capture unavailable" for source in unavailable}))
+    return f". {SWALLOWED} not attached on {len(unavailable)} of {len(parts) + missing_workers} processes: {reasons}"
+
+
+def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any], *, capture_note: str = "") -> None:
     try:
         assessors: set[str] = (
             {advisor for advisor, _ in advisor_assessors()} | {"http-security"} if state.options.advisors else set()
@@ -127,10 +145,10 @@ def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any]) -> 
             for advisor in data["advisors"]
             if advisor["advisor"] in assessors and any(app.get("status") in _ASSESSED for app in advisor["apps"])
         }
-        checked = [f"{TEST_RUNTIME_GATES} gates ({MAX_QUERIES}, {N_PLUS_ONE}, {EXCEPTION})"]
+        checked = [f"{TEST_RUNTIME_GATES} gates ({', '.join(GATE_IDS)})"]
         checked.extend(f"{_advisor_name(advisor)} advisor" for advisor in sorted(ran))
         unchecked = [_advisor_name(spec.id) for spec in ADVISORS if spec.id not in ran | {TEST_RUNTIME_GATES}]
-        terminalreporter.write_line(f"sharpit checked: {', '.join(checked)}")
+        terminalreporter.write_line(f"sharpit checked: {', '.join(checked)}{capture_note}")
     except Exception:  # noqa: BLE001
         terminalreporter.write_line("sharpit could not list what it checked")
         unchecked = [_advisor_name(spec.id) for spec in ADVISORS if spec.id != TEST_RUNTIME_GATES]

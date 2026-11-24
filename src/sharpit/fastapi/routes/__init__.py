@@ -39,20 +39,11 @@ from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import PANELS, panels_report
 from sharpit.engine.panels04 import MODULE_PANEL_IDS
 from sharpit.engine.singleflight import ActionBusy
-from sharpit.engine.spi import HostLoopProvider
 from sharpit.fastapi.sse import sse_response
 
 _adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
 _PAYLOAD_TOO_LARGE = "Request payload exceeds limit"
 _ALEMBIC_BODY_CAP = 4096  # {beanName, confirm}
-
-
-class _RequestHostLoopProvider:
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
-        self.loop = loop
-
-    def current_loop(self) -> asyncio.AbstractEventLoop:
-        return self.loop
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -618,7 +609,7 @@ def _mcp_routes(ctx: SharpitContext) -> list[BaseRoute]:
             return json_response(payload_too_large(), 413)
         # mcp_server() may build the server: off the event loop, like every other ctx.lazy() call in an async handler
         server = await run_in_threadpool(mcp_server)
-        provider: HostLoopProvider = _RequestHostLoopProvider(asyncio.get_running_loop())
+        provider = tools.BoundHostLoopProvider(asyncio.get_running_loop())
         status, body, extra = await run_in_threadpool(server.handle, raw, request.headers, request.scope, provider)
         response = (
             Response(status_code=202, headers=dict(security_headers("api")))
@@ -667,7 +658,7 @@ def _cli_routes(ctx: SharpitContext) -> list[BaseRoute]:
         if raw is None:
             return error(413, _PAYLOAD_TOO_LARGE)
         args: object = _json_or_none(raw) if raw.strip() else {}  # invalid JSON -> "Tool arguments must be an object"
-        call = tools.CallContext(ctx, request.scope, _RequestHostLoopProvider(asyncio.get_running_loop()))
+        call = tools.CallContext(ctx, request.scope, tools.BoundHostLoopProvider(asyncio.get_running_loop()))
         status, body = await run_in_threadpool(tools.cli_invoke, call, request.path_params["tool"], args)
         return json_response(body, status)
 

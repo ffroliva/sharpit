@@ -95,6 +95,8 @@ def category_of(sql: str) -> str:
 
 def _starting_call_site_frame() -> FrameType | None:
     try:
+        # The transaction path skips this helper, call_site, _begin, tx_begin/tx_savepoint,
+        # SQLAlchemy's event dispatcher (__call__), and _begin_impl/_savepoint_impl.
         return sys._getframe(6)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     except ValueError:
         try:
