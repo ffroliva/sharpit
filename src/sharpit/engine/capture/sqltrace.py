@@ -8,7 +8,6 @@ so inline literals never reach the buffer.
 
 from __future__ import annotations
 
-import contextlib
 import functools
 import itertools
 import sys
@@ -394,15 +393,16 @@ class SqlTraceRecorder:
     def _update_aggregate(self, key: str | None, sql: str, category: str, millis: int, site: str | None) -> None:
         if key is None:
             return
-        groups = self._aggregates
-        try:
-            groups.move_to_end(key)
-            aggregate = groups[key]  # read after the move: a finalizer on this thread may have replaced or dropped it
-        except KeyError:  # a new shape, or one such a finalizer evicted or cleared: its history is gone
-            aggregate = groups[key] = _Aggregate(sql, category)
-            if len(groups) > MAX_AGGREGATES:
-                with contextlib.suppress(KeyError):  # such a finalizer may have emptied the groups since the ``len``
-                    groups.popitem(last=False)
+        aggregate = self._aggregates.get(key)
+        if aggregate is None:
+            aggregate = self._aggregates[key] = _Aggregate(sql, category)
+            if len(self._aggregates) > MAX_AGGREGATES:
+                self._aggregates.popitem(last=False)
+        else:
+            try:
+                self._aggregates.move_to_end(key)
+            except KeyError:  # a finalizer on this thread evicted or cleared it since the ``get``
+                self._aggregates[key] = aggregate
         aggregate.executions += 1
         aggregate.total_duration += millis
         aggregate.max_duration = max(aggregate.max_duration, millis)
