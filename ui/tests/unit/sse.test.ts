@@ -90,7 +90,7 @@ it('a CLOSED error (503, 403) reopens by itself: 1 s, 2 s, 4 s ... capped at 30 
   FakeEventSource.last.fail(true);
   const before = FakeEventSource.instances.length;
   vi.advanceTimersByTime(1000);
-  expect(FakeEventSource.instances.length).toBe(before + 1);
+  expect(FakeEventSource.instances).toHaveLength(before + 1);
 });
 
 it('close() stops everything, including a pending reopen', () => {
@@ -120,5 +120,5 @@ it('an accepted stream resets the backoff even when it stays quiet', () => {
   FakeEventSource.last.fail(true);
   const before = FakeEventSource.instances.length;
   vi.advanceTimersByTime(1000);
-  expect(FakeEventSource.instances.length).toBe(before + 1);
+  expect(FakeEventSource.instances).toHaveLength(before + 1);
 });

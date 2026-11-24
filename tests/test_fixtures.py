@@ -23,8 +23,8 @@ def test_golden_shapes_load() -> None:
 
 
 def test_no_side_effects_blocks_socket(no_side_effects: SideEffectGuard) -> None:
-    with pytest.raises(AssertionError, match="socket.connect"):
-        socket.socket().connect(("127.0.0.1", 9))
+    with socket.socket() as sock, pytest.raises(AssertionError, match="socket.connect"):
+        sock.connect(("127.0.0.1", 9))
     with pytest.raises(AssertionError, match="create_connection"):
         socket.create_connection(("127.0.0.1", 9))
     no_side_effects.rebaseline()

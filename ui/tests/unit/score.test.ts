@@ -2,7 +2,7 @@
 // Not ported: the githubSecurityScore cases (sharpit has no GitHub panel). scoreBandTone maps BootUI's 'secondary'
 // to sharpit's 'muted' class.
 import { describe, expect, it } from 'vitest';
-import { advisorAssessment, overallScore, scoreBandTone, scoreFromSeverityCounts } from '../../src/lib/score';
+import { advisorAssessment, overallScore, scanStatusLabel, scoreBandTone, scoreFromSeverityCounts } from '../../src/lib/score';
 
 const report = (overrides: Record<string, unknown> = {}): Record<string, any> => ({
   scan: { status: 'SCANNED' },
@@ -179,5 +179,18 @@ describe('scannerScore', () => {
     expect(scoreFromSeverityCounts([{ severity: 'CRITICAL', count: 10 }])).toBe(0);
     expect(scoreFromSeverityCounts([{ severity: 'high', count: 1 }])).toBe(90);
     expect(scoreFromSeverityCounts([{ severity: 'UNKNOWN', count: 5 }])).toBe(100);
+  });
+});
+
+describe('non-string JSON values', () => {
+  it('labels only string or number statuses', () => {
+    expect(scanStatusLabel('NOT_SCANNED')).toBe('Not scanned yet');
+    expect(scanStatusLabel('NEW_STATE')).toBe('New State');
+    expect(scanStatusLabel({ toString: () => 'SCANNED' })).toBe('Unknown');
+    expect(scanStatusLabel(true)).toBe('Unknown');
+  });
+
+  it('gives a non-string severity no weight', () => {
+    expect(scoreFromSeverityCounts([{ severity: { toString: () => 'CRITICAL' }, count: 1 }])).toBe(100);
   });
 });

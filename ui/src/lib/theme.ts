@@ -15,7 +15,7 @@ export function loadTheme(): Theme {
 }
 
 export function applyTheme(theme: Theme): void {
-  if (theme === 'system') document.documentElement.removeAttribute('data-theme');
+  if (theme === 'system') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
   try {
     localStorage.setItem(KEY, theme);
