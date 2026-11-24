@@ -94,6 +94,6 @@ it('reloads on a stream tick, and sends the route filter as q', async () => {
   expect(h.calls('GET')[0]).toContain('q=abc');
   const before = h.calls('GET').length;
   FakeEventSource.last.emit('update');
-  await until(() => expect(h.calls('GET').length).toBe(before + 1));
+  await until(() => expect(h.calls('GET')).toHaveLength(before + 1));
   expect(FakeEventSource.last.url).toBe('api/activity/stream');
 });

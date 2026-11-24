@@ -25,7 +25,7 @@ SECRET = "hunter2"
 
 
 def _revs(files: AlembicFiles) -> list[tuple[str, tuple[str, ...]]]:
-    return [(r.revision, r.down_revisions) for r in files.revisions]
+    return [(r.id, r.down_revisions) for r in files.revisions]
 
 
 def test_linear_history():
@@ -41,7 +41,7 @@ def test_linear_history():
 
 def test_branch_and_merge_heads():
     files = read_alembic_files(FIXTURES / "branch_merge" / "alembic.ini", MASKER)
-    order = [r.revision for r in files.revisions]
+    order = [r.id for r in files.revisions]
     assert order == ["base", "left", "right", "merge", "side", "tip"]
     assert files.heads == ["side", "tip"]
     assert dict(_revs(files))["merge"] == ("left", "right")
@@ -57,7 +57,7 @@ def test_modern_template_annassign():
 def test_revision_raising_at_import_still_parses():
     # c3_add_visits.py raises at module level: ast reads it, nothing executes it (env.py raises too)
     files = read_alembic_files(FIXTURES / "linear" / "alembic.ini", MASKER)
-    assert "c3" in [r.revision for r in files.revisions]
+    assert "c3" in [r.id for r in files.revisions]
     assert files.skipped == []
 
 
@@ -75,7 +75,7 @@ def test_package_dir_resolved_through_an_imported_package(monkeypatch: pytest.Mo
     monkeypatch.setitem(sys.modules, "sharpit_alembic_fixture_pkg", package)
     files = read_alembic_files(FIXTURES / "package_dir" / "alembic.ini", MASKER)
     assert files.reason is None
-    assert [r.revision for r in files.revisions] == ["p1"]
+    assert [r.id for r in files.revisions] == ["p1"]
 
 
 def test_pyproject_tool_alembic(tmp_path: Path):
@@ -95,7 +95,7 @@ def test_version_locations_with_separator(tmp_path: Path):
         "utf-8",
     )
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)
-    assert sorted(r.revision for r in files.revisions) == ["a1", "b2", "c3", "ok1"]
+    assert sorted(r.id for r in files.revisions) == ["a1", "b2", "c3", "ok1"]
 
 
 def test_alembic_never_imported():
@@ -145,7 +145,7 @@ def test_large_and_unparsable_revision_skipped_with_reason(tmp_path: Path):
     (versions / "huge.py").write_text('revision = "huge"\n' + "#" * (1024 * 1024), "utf-8")
     (versions / "computed.py").write_text('revision = "x" + "y"\n', "utf-8")
     files = read_alembic_files(tmp_path / "broken" / "alembic.ini", MASKER)
-    assert [r.revision for r in files.revisions] == ["ok1"]  # not_a_revision.py has no revision: not listed
+    assert [r.id for r in files.revisions] == ["ok1"]  # not_a_revision.py has no revision: not listed
     reasons = dict(files.skipped)
     assert reasons["migrations/versions/huge.py"] == "larger than 1 MB"
     assert reasons["migrations/versions/bad_syntax.py"].startswith("cannot be parsed: SyntaxError")

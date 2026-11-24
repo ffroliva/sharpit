@@ -29,7 +29,9 @@ def loggers_report(q: str | None, offset: int | None, limit: int | None) -> dict
     # Read the registry directly: getLogger() on a name would create it, and PlaceHolders are not loggers.
     registry = logging.root.manager.loggerDict
     entries = [
-        _dto(name, lg) for name, lg in list(registry.items()) if isinstance(lg, logging.Logger) and not _is_own(name)
+        _dto(name, lg)
+        for name, lg in list(registry.items())  # NOSONAR - another thread can register a logger mid-iteration
+        if isinstance(lg, logging.Logger) and not _is_own(name)
     ]
     entries.append(_dto(_ROOT, logging.root))
     entries.sort(key=lambda e: e["name"])
@@ -48,6 +50,7 @@ def set_level(name: str, level: str | None) -> dict[str, Any]:
         raise BadRequest(f"Unknown level '{level}'")
     is_root = name in (_ROOT, "root")
     logger = logging.root if is_root else logging.getLogger(name)
-    number = logging.getLevelNamesMapping()[wanted] if wanted else logging.WARNING if is_root else logging.NOTSET
+    unset = logging.WARNING if is_root else logging.NOTSET
+    number = logging.getLevelNamesMapping()[wanted] if wanted else unset
     logger.setLevel(number)
     return _dto(_ROOT if is_root else name, logger)

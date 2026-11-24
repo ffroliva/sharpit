@@ -265,18 +265,21 @@ def _validate_results(root: Any, expected: int) -> list[dict[str, Any]]:
     for item in items:
         if not isinstance(item, dict):
             raise OsvError("OSV querybatch returned a non-object result")
-        result = cast(dict[str, Any], item)
-        if "vulns" in result:
-            vulns = result["vulns"]
-            if not isinstance(vulns, list):
-                raise OsvError("OSV querybatch returned a non-array vulns field")
-            for vuln in cast(list[Any], vulns):
-                if not isinstance(vuln, dict) or text_field(cast(dict[str, Any], vuln), "id") is None:
-                    raise OsvError("OSV querybatch returned a vulnerability without a non-blank id")
-        token = result.get("next_page_token")
-        if token is not None and not isinstance(token, str):
-            raise OsvError("OSV querybatch returned a non-string next_page_token")
+        _validate_result(cast(dict[str, Any], item))
     return cast(list[dict[str, Any]], items)
+
+
+def _validate_result(result: dict[str, Any]) -> None:
+    if "vulns" in result:
+        vulns = result["vulns"]
+        if not isinstance(vulns, list):
+            raise OsvError("OSV querybatch returned a non-array vulns field")
+        for vuln in cast(list[Any], vulns):
+            if not isinstance(vuln, dict) or text_field(cast(dict[str, Any], vuln), "id") is None:
+                raise OsvError("OSV querybatch returned a vulnerability without a non-blank id")
+    token = result.get("next_page_token")
+    if token is not None and not isinstance(token, str):
+        raise OsvError("OSV querybatch returned a non-string next_page_token")
 
 
 def text_field(node: dict[str, Any], key: str) -> str | None:

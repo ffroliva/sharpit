@@ -559,12 +559,13 @@ def test_sql_listener_failure_query_unchanged(monkeypatch: pytest.MonkeyPatch, c
         raise RuntimeError("recorder broke")
 
     monkeypatch.setattr(_recorder(handle), "record", boom)
+    duplicate = sa.text("insert into t (id) values (1)")
     with caplog.at_level(logging.WARNING, logger="sharpit"), engine.begin() as conn:
         conn.execute(sa.text("create table t (id integer primary key)"))
         conn.execute(sa.text("insert into t (id) values (1)"))
         assert conn.execute(sa.text("select id from t")).scalars().all() == [1]
         with pytest.raises(sa.exc.IntegrityError):
-            conn.execute(sa.text("insert into t (id) values (1)"))
+            conn.execute(duplicate)
     warnings = [r.getMessage() for r in caplog.records if r.name == "sharpit"]
     assert len(warnings) == 1, warnings
     assert "sql statement" in warnings[0], warnings
@@ -574,8 +575,9 @@ def test_sql_listener_failure_query_unchanged(monkeypatch: pytest.MonkeyPatch, c
 def test_failed_statement_recorded_with_error():
     engine = sa.create_engine("sqlite://")
     handle = _install(engines=[engine])
+    missing = sa.text("select * from missing_table")
     with engine.connect() as conn, pytest.raises(sa.exc.OperationalError):
-        conn.execute(sa.text("select * from missing_table"))
+        conn.execute(missing)
     entry = _entries(handle)[0]
     assert (entry["success"], entry["affectedRows"]) == (False, None)
     # owner ruling 2026-11-07, structured driver codes: the class and its code, never the driver's text
@@ -625,8 +627,9 @@ def test_run_db_read_times_out(tmp_path: Path):
     async def main() -> None:
         await sqla.run_db_read(engine, slow, 0.05)
 
+    running = main()
     with pytest.raises(TimeoutError):
-        asyncio.run(main())
+        asyncio.run(running)
 
 
 def test_run_db_read_done_once_the_worker_thread_really_returns(tmp_path: Path):

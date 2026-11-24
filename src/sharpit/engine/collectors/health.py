@@ -182,7 +182,7 @@ class HealthService:
             status, details["error"] = "DOWN", self._timed_out()
         except sqla.ReadOnlyUnavailable as exc:  # skipped: nothing is known about the database, so never DOWN
             status, details["error"] = "UNKNOWN", exc.reason
-        except Exception as exc:  # noqa: BLE001 - a failed ping is this engine's DOWN, never the request's 500
+        except Exception as exc:  # noqa: BLE001  # a failed ping is this engine's DOWN, never the request's 500
             status, details["error"] = "DOWN", self._failure(exc)
         return node(name, status, {**details, "checkedAt": _now_ms()})
 

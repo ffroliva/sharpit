@@ -182,35 +182,40 @@ def test_empty_input_sends_nothing(no_side_effects):
 # ported: OsvVulnerabilityScanner.queryBatch (transport failure on the first page is an error)
 @pytest.mark.parametrize("error", [TimeoutError("timed out"), urllib.error.URLError("refused"), OSError("reset")])
 def test_timeout_raises_osv_error(no_side_effects, error: BaseException):
+    scanner = client(replies(error))
     with pytest.raises(OsvError):
-        client(replies(error)).querybatch([WIDGET])
+        scanner.querybatch([WIDGET])
 
 
 # ported: OsvVulnerabilityScannerTests.initialPaginationFailureIsErrorWithoutCompletedQueries
 @pytest.mark.parametrize("kind", FAILURES)
 def test_initial_failure_raises(no_side_effects, kind: str):
+    scanner = client(replies(failure(kind)))
     with pytest.raises(OsvError) as raised:
-        client(replies(failure(kind))).querybatch([WIDGET])
+        scanner.querybatch([WIDGET])
     if kind == "body-cap":
         assert "Response body exceeds 5242880 bytes" in str(raised.value)
 
 
 # ported: OsvVulnerabilityScannerTests.reportsErrorWithoutDroppingDependencyInventory
 def test_http_500_raises(no_side_effects):
+    scanner = client(replies((500, "{}")))
     with pytest.raises(OsvError, match="OSV query returned HTTP 500"):
-        client(replies((500, "{}"))).querybatch([WIDGET])
+        scanner.querybatch([WIDGET])
 
 
 # ported: OsvVulnerabilityScannerTests.reportsErrorWhenQuerybatchResultsDoNotMatchTheQueries
 def test_result_cardinality_mismatch_raises(no_side_effects):
+    scanner = client(replies((200, '{"results":[{}]}')))
     with pytest.raises(OsvError, match="1 results for 2 queries"):
-        client(replies((200, '{"results":[{}]}'))).querybatch([COMPLETE, WIDGET])
+        scanner.querybatch([COMPLETE, WIDGET])
 
 
 # ported: OsvVulnerabilityScannerTests.reportsErrorWhenQuerybatchContainsAVulnerabilityWithoutAnId
 def test_vulnerability_without_id_raises(no_side_effects):
+    scanner = client(replies((200, '{"results":[{"vulns":[{}]}]}')))
     with pytest.raises(OsvError, match="vulnerability without a non-blank id"):
-        client(replies((200, '{"results":[{"vulns":[{}]}]}'))).querybatch([WIDGET])
+        scanner.querybatch([WIDGET])
 
 
 # ported: OsvVulnerabilityScanner.queryBatchRequest (each response validation branch)
@@ -227,8 +232,9 @@ def test_vulnerability_without_id_raises(no_side_effects):
     ],
 )
 def test_invalid_response_shapes_raise(no_side_effects, body: str, message: str):
+    scanner = client(replies((200, body)))
     with pytest.raises(OsvError, match=message):
-        client(replies((200, body))).querybatch([WIDGET])
+        scanner.querybatch([WIDGET])
 
 
 # ported: OsvVulnerabilityScanner.queryBatchRequest (blank next_page_token is absent)
@@ -399,8 +405,9 @@ def test_vuln_id_is_url_encoded(no_side_effects):
     ],
 )
 def test_vuln_failures_raise_osv_error(no_side_effects, reply: Any):
+    scanner = client(replies(reply))
     with pytest.raises(OsvError):
-        client(replies(reply)).vuln("V-FAIL")
+        scanner.vuln("V-FAIL")
 
 
 # new: opener=None builds urllib's opener on first use, not at definition time

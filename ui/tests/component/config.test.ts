@@ -80,7 +80,7 @@ it('a source filter hides unset keys, which have no source', async () => {
   flushSync();
   await until(() => expect(names()).toContain('JWT_SECRET'));
   const select = target.querySelector<HTMLSelectElement>('#config-source')!;
-  await until(() => expect(select.options.length).toBe(3));
+  await until(() => expect(select.options).toHaveLength(3));
   select.value = 'systemEnvironment';
   select.dispatchEvent(new Event('change', { bubbles: true }));
   flushSync();

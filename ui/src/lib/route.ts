@@ -21,7 +21,8 @@ function decode(text: string): string {
 }
 
 export function href(panel: string, q = ''): string {
-  return `#/${encodeURIComponent(panel)}${q ? `?${new URLSearchParams({ q })}` : ''}`;
+  const search = q ? `?${new URLSearchParams({ q })}` : '';
+  return `#/${encodeURIComponent(panel)}${search}`;
 }
 
 export const route = readable(parse(location.hash), (set) => {

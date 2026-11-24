@@ -68,7 +68,7 @@ def _normal_path(path: str) -> str:
     return ("/" + normalized.lstrip("/")) if leading else normalized
 
 
-def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str = "") -> ProbeRequest:
+def _validated_method(body: dict[str, Any]) -> str:
     method = body.get("method")
     if method is None or not str(method).strip():
         method = "GET"
@@ -79,7 +79,10 @@ def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str
     method = method.strip().upper()
     if method not in _METHODS.split(", "):
         raise BadRequest(f"HTTP Probe request method must be one of {_METHODS}")
+    return method
 
+
+def _validated_path(body: dict[str, Any], settings_path: str, host_root_path: str) -> str:
     path = body.get("path")
     if path is None or not str(path).strip():
         path = "/"
@@ -100,7 +103,10 @@ def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str
     host_mount = host_root_path.rstrip("/") + settings_path
     if under(normalized, settings_path) or under(normalized, host_mount):
         raise BadRequest("HTTP Probe cannot target sharpit itself")
+    return path
 
+
+def _validated_payload(body: dict[str, Any]) -> str:
     payload = body.get("body")
     if payload is None:
         payload = ""
@@ -108,7 +114,31 @@ def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str
         raise BadRequest("HTTP Probe request body must be a string")
     if _utf8_size(payload) > MAX_REQUEST_BODY_BYTES:
         raise BadRequest(f"HTTP Probe request body exceeds the maximum of {MAX_REQUEST_BODY_BYTES} bytes")
+    return payload
 
+
+def _validated_header(name: object, value: object, total: int) -> tuple[str, str, int] | None:
+    """``(lowercase name, value, new running total)``, or ``None`` for a null value."""
+    if not isinstance(name, str) or _utf8_size(name) > MAX_HEADER_NAME_BYTES:
+        raise BadRequest(f"HTTP Probe request header name exceeds the maximum of {MAX_HEADER_NAME_BYTES} bytes")
+    if not _HEADER_TOKEN.fullmatch(name):
+        raise BadRequest("HTTP Probe request header name is invalid")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise BadRequest("HTTP Probe request header value is invalid")
+    value_size = _utf8_size(value)
+    if value_size > MAX_HEADER_VALUE_BYTES:
+        raise BadRequest(f"HTTP Probe request header value exceeds the maximum of {MAX_HEADER_VALUE_BYTES} bytes")
+    if any(char in value for char in "\r\n\x00"):
+        raise BadRequest("HTTP Probe request header value contains a forbidden character")
+    total += _utf8_size(name) + value_size
+    if total > MAX_TOTAL_HEADER_BYTES:
+        raise BadRequest(f"HTTP Probe request headers exceed the maximum total of {MAX_TOTAL_HEADER_BYTES} bytes")
+    return name.lower(), value, total
+
+
+def _validated_headers(body: dict[str, Any]) -> dict[str, str]:
     raw_headers = body.get("headers")
     if raw_headers is None:
         raw_headers = {}
@@ -120,26 +150,20 @@ def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str
     headers: dict[str, str] = {}
     total = 0
     for name, value in raw_headers.items():
-        if not isinstance(name, str) or _utf8_size(name) > MAX_HEADER_NAME_BYTES:
-            raise BadRequest(f"HTTP Probe request header name exceeds the maximum of {MAX_HEADER_NAME_BYTES} bytes")
-        if not _HEADER_TOKEN.fullmatch(name):
-            raise BadRequest("HTTP Probe request header name is invalid")
-        if value is None:
+        checked = _validated_header(name, value, total)
+        if checked is None:
             continue
-        if not isinstance(value, str):
-            raise BadRequest("HTTP Probe request header value is invalid")
-        value_size = _utf8_size(value)
-        if value_size > MAX_HEADER_VALUE_BYTES:
-            raise BadRequest(f"HTTP Probe request header value exceeds the maximum of {MAX_HEADER_VALUE_BYTES} bytes")
-        if any(char in value for char in "\r\n\x00"):
-            raise BadRequest("HTTP Probe request header value contains a forbidden character")
-        total += _utf8_size(name) + value_size
-        if total > MAX_TOTAL_HEADER_BYTES:
-            raise BadRequest(f"HTTP Probe request headers exceed the maximum total of {MAX_TOTAL_HEADER_BYTES} bytes")
-        lowered = name.lower()
+        lowered, value, total = checked
         if lowered not in RESTRICTED_HEADERS:
             headers[lowered] = value
-    return ProbeRequest(method, path, payload, headers)
+    return headers
+
+
+def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str = "") -> ProbeRequest:
+    method = _validated_method(body)
+    path = _validated_path(body, settings_path, host_root_path)
+    payload = _validated_payload(body)
+    return ProbeRequest(method, path, payload, _validated_headers(body))
 
 
 class ProbeSlots:
@@ -218,23 +242,10 @@ def _task_done(task: asyncio.Task[Any], on_complete: Callable[[], None]) -> None
 _PENDING_TASKS: set[asyncio.Task[Any]] = set()
 
 
-async def run_probe(
-    host_app: Any,
-    request: ProbeRequest,
-    caller_scope: Mapping[str, Any],
-    host_root_path: str,
-    masker: Masker,
-    *,
-    application: Callable[[], Dialect | None],
-    timeout: float = PROBE_TIMEOUT,
-    max_body: int = MAX_RESPONSE_BODY_BYTES,
-    on_complete: Callable[[], None] | None = None,
-    host_runner: Callable[..., Awaitable[None]] | None = None,
-) -> dict[str, Any]:
+def _probe_scope(request: ProbeRequest, caller_scope: Mapping[str, Any], host_root_path: str) -> dict[str, Any]:
     parsed = urlsplit(request.path)
     path_prefix = host_root_path.rstrip("/")
     raw_path = quote(path_prefix + parsed.path, safe="/%:@!$&'()*+,;=-._~").encode("ascii")
-    request_body = request.body.encode("utf-8") if request.method in {"POST", "PUT", "PATCH"} else b""
     incoming = [
         (name.encode("latin-1"), value.encode("latin-1", errors="replace")) for name, value in request.headers.items()
     ]
@@ -243,7 +254,7 @@ async def run_probe(
             incoming.append((b"host", value))
             break
     incoming.append((b"x-sharpit-probe", b"1"))
-    scope: dict[str, Any] = {
+    return {
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.4"},
         "http_version": "1.1",
@@ -259,112 +270,152 @@ async def run_probe(
         "state": dict(caller_scope.get("state", {})),
         "extensions": {"sharpit.probe": True},
     }
-    sent_body = bytearray()
-    response_headers: list[tuple[bytes, bytes]] = []
-    status = 0
-    truncated = False
-    finished = asyncio.Event()
-    first_receive = True
 
-    async def receive() -> dict[str, Any]:
-        nonlocal first_receive
-        if first_receive:
-            first_receive = False
-            return {"type": "http.request", "body": request_body, "more_body": False}
-        await finished.wait()
-        return {"type": "http.disconnect"}
 
-    async def send(message: dict[str, Any]) -> None:  # NOSONAR - ASGI send protocol requires a coroutine
-        nonlocal status, response_headers, truncated
-        if message["type"] == "http.response.start":
-            status = message["status"]
-            response_headers = list(message.get("headers", []))
-        elif message["type"] == "http.response.body":
-            chunk = message.get("body", b"")
-            room = max(0, max_body - len(sent_body))
-            sent_body.extend(chunk[:room])
-            if len(chunk) > room:
-                truncated = True
-                raise asyncio.CancelledError
-
-    started = time.monotonic()
-    cancel_host: list[Callable[[], None]] = []
-
-    async def invoke_host() -> None:
-        if host_runner is None:
-            await host_app(scope, receive, send)
-        else:
-            await host_runner(host_app, scope, receive, send, cancel_host.append)
-
-    task = asyncio.create_task(invoke_host())
-    transferred_slot = False
-    try:
-        done, _ = await asyncio.wait({task}, timeout=timeout)
-        if not done:
-            finished.set()
-            if cancel_host:
-                cancel_host[0]()
-            else:
-                task.cancel()
-            _PENDING_TASKS.add(task)
-            if on_complete is not None:
-
-                def finish(completed: asyncio.Task[Any]) -> None:
-                    _PENDING_TASKS.discard(completed)
-                    _task_done(completed, on_complete)
-
-                task.add_done_callback(finish)
-                transferred_slot = True
-            else:
-                task.add_done_callback(lambda completed: _PENDING_TASKS.discard(completed))
-            return {
-                "status": status,
-                "statusText": _status_text(status) if status else "Error",
-                "headers": {},
-                "body": _body(bytes(sent_body), None, masker),
-                "durationMs": round((time.monotonic() - started) * 1000),
-                "error": f"HTTP Probe timed out after {timeout:g}s",
-                "truncated": False,
-            }
-        await task
-    except asyncio.CancelledError:
-        if not truncated:
-            if cancel_host:
-                cancel_host[0]()
-            else:
-                task.cancel()
-            if on_complete is not None and not transferred_slot:
-                task.add_done_callback(lambda completed: _task_done(completed, on_complete))
-                transferred_slot = True
-            raise
-    except Exception as exc:  # noqa: BLE001 - app exceptions become a stable masked probe response
-        dialect = exception_dialect(exc, application)
-        if is_database_exception(exc):
-            message = error_text(masker, exc, dialect) or type(exc).__name__
-        else:  # as a7a6ff2f: an unclassified error keeps its "Name: " diagnostics, masked
-            message = error_text(masker, f"{type(exc).__name__}: {exc}", dialect) or type(exc).__name__
-        status = 500
-        return {
-            "status": status,
-            "statusText": _status_text(status),
-            "headers": {},
-            "body": _body(bytes(sent_body), None, masker),
-            "durationMs": round((time.monotonic() - started) * 1000),
-            "error": message,
-            "truncated": False,
-        }
-    finally:
-        finished.set()
-        if on_complete is not None and not transferred_slot:
-            on_complete()
-    headers = _headers(response_headers, masker)
-    body = _body(bytes(sent_body), headers.get("content-type"), masker)
+def _probe_result(
+    status: int,
+    headers: dict[str, str],
+    body: str | None,
+    started: float,
+    error: str | None,
+    truncated: bool,
+) -> dict[str, Any]:
     return {
         "status": status,
         "statusText": _status_text(status) if status else "Error",
         "headers": headers,
         "body": body,
         "durationMs": round((time.monotonic() - started) * 1000),
-        "error": "HTTP Probe target returned no response" if status == 0 else None,
+        "error": error,
         "truncated": truncated,
     }
+
+
+def _exception_message(masker: Masker, exc: Exception, application: Callable[[], Dialect | None]) -> str:
+    dialect = exception_dialect(exc, application)
+    if is_database_exception(exc):
+        return error_text(masker, exc, dialect) or type(exc).__name__
+    # as a7a6ff2f: an unclassified error keeps its "Name: " diagnostics, masked
+    return error_text(masker, f"{type(exc).__name__}: {exc}", dialect) or type(exc).__name__
+
+
+def _cancel_host(cancel_host: list[Callable[[], None]], task: asyncio.Task[Any]) -> None:
+    if cancel_host:
+        cancel_host[0]()
+    else:
+        task.cancel()
+
+
+def _detach_timed_out(
+    task: asyncio.Task[Any], cancel_host: list[Callable[[], None]], on_complete: Callable[[], None] | None
+) -> bool:
+    """Cancel a timed-out host task and keep it referenced until it ends; True when it now owns the slot release."""
+    _cancel_host(cancel_host, task)
+    _PENDING_TASKS.add(task)
+    if on_complete is None:
+        task.add_done_callback(lambda completed: _PENDING_TASKS.discard(completed))
+        return False
+
+    def finish(completed: asyncio.Task[Any]) -> None:
+        _PENDING_TASKS.discard(completed)
+        _task_done(completed, on_complete)
+
+    task.add_done_callback(finish)
+    return True
+
+
+class _Channel:
+    """The probe's ASGI ``receive``/``send`` pair: one request body, then a response capped at ``max_body`` bytes."""
+
+    def __init__(self, request_body: bytes, max_body: int) -> None:
+        self.request_body = request_body
+        self.max_body = max_body
+        self.sent_body = bytearray()
+        self.headers: list[tuple[bytes, bytes]] = []
+        self.status = 0
+        self.truncated = False
+        self.finished = asyncio.Event()
+        self._first_receive = True
+
+    async def receive(self) -> dict[str, Any]:
+        if self._first_receive:
+            self._first_receive = False
+            return {"type": "http.request", "body": self.request_body, "more_body": False}
+        await self.finished.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(self, message: dict[str, Any]) -> None:  # NOSONAR - ASGI send protocol requires a coroutine
+        if message["type"] == "http.response.start":
+            self.status = message["status"]
+            self.headers = list(message.get("headers", []))
+        elif message["type"] == "http.response.body":
+            chunk = message.get("body", b"")
+            room = max(0, self.max_body - len(self.sent_body))
+            self.sent_body.extend(chunk[:room])
+            if len(chunk) > room:
+                self.truncated = True
+                raise asyncio.CancelledError
+
+
+async def _invoke_host(
+    host_app: Any,
+    host_runner: Callable[..., Awaitable[None]] | None,
+    scope: dict[str, Any],
+    channel: _Channel,
+    cancel_host: list[Callable[[], None]],
+) -> None:
+    if host_runner is None:
+        await host_app(scope, channel.receive, channel.send)
+    else:
+        await host_runner(host_app, scope, channel.receive, channel.send, cancel_host.append)
+
+
+async def run_probe(
+    host_app: Any,
+    request: ProbeRequest,
+    caller_scope: Mapping[str, Any],
+    host_root_path: str,
+    masker: Masker,
+    *,
+    application: Callable[[], Dialect | None],
+    timeout: float = PROBE_TIMEOUT,  # NOSONAR - asyncio.timeout() would cancel the task
+    max_body: int = MAX_RESPONSE_BODY_BYTES,
+    on_complete: Callable[[], None] | None = None,
+    host_runner: Callable[..., Awaitable[None]] | None = None,
+) -> dict[str, Any]:
+    request_body = request.body.encode("utf-8") if request.method in {"POST", "PUT", "PATCH"} else b""
+    scope = _probe_scope(request, caller_scope, host_root_path)
+    channel = _Channel(request_body, max_body)
+    finished = channel.finished
+    started = time.monotonic()
+    cancel_host: list[Callable[[], None]] = []
+    task = asyncio.create_task(_invoke_host(host_app, host_runner, scope, channel, cancel_host))
+    transferred_slot = False
+    try:
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        if not done:
+            finished.set()
+            transferred_slot = _detach_timed_out(task, cancel_host, on_complete)
+            return _probe_result(
+                channel.status, {}, _body(bytes(channel.sent_body), None, masker), started,
+                f"HTTP Probe timed out after {timeout:g}s", False,
+            )  # fmt: skip
+        await task
+    except asyncio.CancelledError:
+        if not channel.truncated:
+            _cancel_host(cancel_host, task)
+            if on_complete is not None and not transferred_slot:
+                task.add_done_callback(lambda completed: _task_done(completed, on_complete))
+                transferred_slot = True
+            raise
+    except Exception as exc:  # noqa: BLE001 - app exceptions become a stable masked probe response
+        message = _exception_message(masker, exc, application)
+        return _probe_result(500, {}, _body(bytes(channel.sent_body), None, masker), started, message, False)
+    finally:
+        finished.set()
+        if on_complete is not None and not transferred_slot:
+            on_complete()
+    headers = _headers(channel.headers, masker)
+    body = _body(bytes(channel.sent_body), headers.get("content-type"), masker)
+    error = "HTTP Probe target returned no response" if channel.status == 0 else None
+    return _probe_result(channel.status, headers, body, started, error, channel.truncated)

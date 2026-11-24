@@ -28,7 +28,7 @@ from sharpit.engine.collectors.vulns.osv import text_field as _text
 
 CVE_PARAMETER_MAX_LENGTH = 2000  # FIRST.org's documented limit on the comma-joined cve parameter
 EPSS_MAX_BYTES = 1024 * 1024
-_CVE_ID = re.compile(r"CVE-[0-9]{4}-[0-9]{4,}")
+_CVE_ID = re.compile(r"CVE-\d{4}-\d{4,}", re.ASCII)
 
 
 class _EpssError(Exception):
