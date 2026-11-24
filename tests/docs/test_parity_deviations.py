@@ -13,7 +13,9 @@ from scripts.dev.generate_parity_deviations import (
     SECTION_HEADING_0_7_0,
     SECTION_HEADING_0_8_0,
     SECTION_HEADING_0_9_0,
+    SECTION_HEADING_0_10_0,
     collect_deviations,
+    generate_section,
     generate_section_0_7_0,
     generate_section_0_8_0,
     generate_section_0_9_0,
@@ -32,11 +34,15 @@ def test_parity_md_contains_current_deviations_sections():
     current_0_7_0 = (SECTION_HEADING_0_7_0 + parts_0_7[0]).strip()
     parts_0_8 = parts_0_7[1].split(SECTION_HEADING_0_9_0, 1)
     current_0_8_0 = (SECTION_HEADING_0_8_0 + parts_0_8[0]).strip()
-    current_0_9_0 = (SECTION_HEADING_0_9_0 + parts_0_8[1]).strip()
+    parts_0_9 = parts_0_8[1].split(SECTION_HEADING_0_10_0, 1)
+    current_0_9_0 = (SECTION_HEADING_0_9_0 + parts_0_9[0]).strip()
+    assert SECTION_HEADING_0_10_0 in content
+    current_0_10_0 = (SECTION_HEADING_0_10_0 + parts_0_9[1]).strip()
 
     expected_0_7_0 = generate_section_0_7_0().strip()
     expected_0_8_0 = generate_section_0_8_0().strip()
     expected_0_9_0 = generate_section_0_9_0().strip()
+    expected_0_10_0 = generate_section(heading=SECTION_HEADING_0_10_0, release="0.10.0").strip()
 
     assert current_0_7_0 == expected_0_7_0, (
         f"{PARITY_MD.name} 0.7.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
@@ -48,6 +54,10 @@ def test_parity_md_contains_current_deviations_sections():
     )
     assert current_0_9_0 == expected_0_9_0, (
         f"{PARITY_MD.name} 0.9.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
+        "Run: uv run python scripts/dev/generate_parity_deviations.py --write"
+    )
+    assert current_0_10_0 == expected_0_10_0, (
+        f"{PARITY_MD.name} 0.10.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
         "Run: uv run python scripts/dev/generate_parity_deviations.py --write"
     )
 
