@@ -1,0 +1,32 @@
+# sharpit
+
+> sharpit is a local developer console and pytest gate for FastAPI applications. It is a Python port of BootUI.
+
+`sharpit.install(app)` mounts the console at `/sharpit` and its JSON API at `/sharpit/api` by default. The console
+fails closed, defaults to local access, and masks secrets in diagnostics. The CLI can inspect a running console,
+and the optional MCP server exposes diagnostic tools. The pytest plugin produces application checks and reports.
+
+For offline reference, run `sharpit docs` to list the installed topics, `sharpit docs cli` to read a page, or
+`sharpit docs --search <term>` to find a literal phrase and its source line. `sharpit docs decisions` opens the
+design decision index. These commands work without a running application or network access.
+
+## Getting started
+
+- [Project overview](https://ffroliva.github.io/sharpit/): Console purpose and getting-started links.
+- [Installation](https://ffroliva.github.io/sharpit/installation/): Installation options and optional dependencies.
+- [Quickstart](https://ffroliva.github.io/sharpit/quickstart/): Mount and open the console.
+- [Activation](https://ffroliva.github.io/sharpit/activation/): Activation modes, profiles, and development signals.
+- [Safety model](https://ffroliva.github.io/sharpit/safety/): Local access, masking, and action controls.
+
+## Reference
+
+- [Panels](https://ffroliva.github.io/sharpit/panels/): Available panels and their capabilities.
+- [Settings](https://ffroliva.github.io/sharpit/settings/): Configuration and defaults.
+- [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): Register and inspect database sources.
+- [CLI](https://ffroliva.github.io/sharpit/cli/): Commands, output, and exit codes.
+- [MCP](https://ffroliva.github.io/sharpit/mcp/): MCP setup and tools.
+- [AI agents](https://ffroliva.github.io/sharpit/ai-agents/): Agent setup and diagnostic workflows.
+- [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/): Run application checks with pytest.
+- [Test report](https://ffroliva.github.io/sharpit/report/): Report structure and findings.
+- [How sharpit works](https://ffroliva.github.io/sharpit/how-it-works/): Architecture and runtime behavior.
+- [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/): Intentional differences from BootUI.

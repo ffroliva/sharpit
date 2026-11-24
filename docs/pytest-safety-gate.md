@@ -47,3 +47,15 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json
 Existing findings are recorded as `existing`; newly detected findings are `new` and can fail the gate. A missing,
 malformed or unreadable baseline is unknown and fails closed. Baseline writing is refused for partial or unknown runs.
 Protect the baseline in code review so a change cannot silently accept its own findings.
+
+## Accepted findings and required reasons
+
+Individual tests can accept findings using `@pytest.mark.sharpit(...)`:
+
+- Swallowed exceptions: `@pytest.mark.sharpit(allow_swallowed=True, reason="intentional fallback in mock")`
+- N+1 queries: `@pytest.mark.sharpit(allow_n_plus_one=True, reason="batching covered by integration test")`
+- Unbounded reads: `@pytest.mark.sharpit(allow_unbounded_read=True, reason="reference table with bounded size")`
+
+The `reason=` keyword argument records the justification with the accepted finding across all outputs: the terminal summary, the JSON report (`sharpit-report/1`), and SARIF 2.1.0 output (under `suppressions` and `properties.reason`).
+
+To enforce in CI that every accepted finding carries a non-empty explanation, use `--sharpit-require-reason` (or the ini option `sharpit_require_reason = true`). When enabled, any accept marker without a reason fails the session with a message naming the test and the marker. When disabled (the default), existing markers without reasons continue to behave as before.

@@ -23,6 +23,7 @@ from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
 import sharpit.fastapi.capture as capture_mod
+import sharpit.fastapi.capture_exceptions as capture_exceptions
 from fastapi import FastAPI, Request, WebSocket
 from sharpit import install
 from sharpit.engine import sqla
@@ -149,8 +150,9 @@ def test_exception_after_start_keeps_status():
         await send(_start(201))
         raise ValueError("boom")
 
+    running = _run(handle.context, app)
     with pytest.raises(ValueError, match="boom"):
-        asyncio.run(_run(handle.context, app))
+        asyncio.run(running)
     row = _rows(handle)[0]
     assert row["status"] == 201
     assert _buffer(handle).get(row["id"])["error"] is True  # pyright: ignore[reportOptionalSubscript]
@@ -162,8 +164,9 @@ def test_unhandled_exception_500_and_reraised():
     async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
         raise ValueError("boom")
 
+    running = _run(handle.context, app)
     with pytest.raises(ValueError, match="boom"):
-        asyncio.run(_run(handle.context, app))
+        asyncio.run(running)
     assert _rows(handle)[0]["status"] == 500
     # through a real app: Starlette's ServerErrorMiddleware sends the 500 after us
     app = FastAPI()
@@ -674,7 +677,7 @@ def test_route_template_internal_error_still_records_exchange_and_journal(
         return {"item_id": item_id}
 
     handle = install(app, enabled="ON", show_banner=False)
-    monkeypatch.setattr(capture_mod, "_mount_prefix", _explode("route template lookup failed"))
+    monkeypatch.setattr(capture_exceptions, "_mount_prefix", _explode("route template lookup failed"))
 
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="sharpit"):

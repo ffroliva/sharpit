@@ -8,6 +8,7 @@ coordinator runs them on leased servers; a skip is ``unverified``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from typing import Any
 
@@ -17,12 +18,13 @@ from sharpit.engine import sqla
 from sharpit.engine.collectors.database_advisor import rules_vendor
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqla import inspect as sqla_inspect
 from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
 MYSQL_URL = os.environ.get("SHARPIT_TEST_MYSQL_URL", "")
-PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001")
-MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
+PG_IDS = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-PG-006", "DB-SERVER-001")
+MYSQL_IDS = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003", "DB-MYSQL-004", "DB-SERVER-008")
 
 
 def _fact(*rows: dict[str, Any]) -> dict[str, Any]:
@@ -245,3 +247,189 @@ def test_mysql_vendor_rules_on_a_leased_server() -> None:
         assert "db/sharpit_dbadv2_logs" in _targets(_check("DB-MYSQL-002", source))
     finally:
         _ddl(url, "DROP TABLE IF EXISTS sharpit_dbadv2_logs")
+
+
+def test_postgres_empty_partitioned_table_is_reported() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests.postgresEmptyPartitionedTableRuleFlagsPartitionedParentWithNoAttachedPartitions  # noqa: E501
+    source = _source("postgresql", emptyPartitioned=_fact({"tbl": "empty_metrics"}))
+
+    outcome = _check("DB-PG-006", source)
+    assert _targets(outcome) == ["db/empty_metrics"]
+    assert "empty_metrics" in outcome[0][1]
+    assert "no attached partitions in pg_inherits" in outcome[0][1]
+    assert "every INSERT into it will fail" in outcome[0][1]
+
+    healthy = _source("postgresql", emptyPartitioned=_fact())
+    assert _targets(_check("DB-PG-006", healthy)) == []
+
+
+def test_postgres_empty_partitioned_table_skips_before_postgres_10() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests.postgresEmptyPartitionedTableRuleSkipsBeforePostgres10WithoutCoverageWarning  # noqa: E501
+    pg96 = Source(
+        "pg",
+        "postgresql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"vendor": {"emptyPartitioned": _fact({"tbl": "empty_metrics"})}, "server_version_info": (9, 6)},
+    )
+    outcome = _check("DB-PG-006", pg96)
+    assert isinstance(outcome, str)
+    assert "PostgreSQL 10 or later" in outcome
+
+
+def test_mysql_strict_sql_mode_fires_when_not_strict() -> None:
+    # ported: DatabaseAdvisorServerRulesTests.strictSqlModeFiresWhenNeitherStrictTransTablesNorStrictAllTablesIsPresent
+    for dialect in ("mysql", "mariadb"):
+        empty = Source("ordersDb", dialect, "driver", "AVAILABLE", None, {"server": {"sql_mode": ""}})
+        empty_outcome = _check("DB-SERVER-008", empty)
+        assert _targets(empty_outcome) == ["ordersDb/sql_mode"]
+        assert "ordersDb" in empty_outcome[0][1]
+        assert "`sql_mode` is empty" in empty_outcome[0][1]
+        assert "STRICT_TRANS_TABLES" in empty_outcome[0][1]
+
+        non_strict = Source(
+            "ordersDb",
+            dialect,
+            "driver",
+            "AVAILABLE",
+            None,
+            {"server": {"sql_mode": "ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION"}},
+        )
+        non_strict_outcome = _check("DB-SERVER-008", non_strict)
+        assert _targets(non_strict_outcome) == ["ordersDb/sql_mode"]
+        assert "`ONLY_FULL_GROUP_BY,NO_ENGINE_SUBSTITUTION`" in non_strict_outcome[0][1]
+
+        strict_trans = Source(
+            "ordersDb",
+            dialect,
+            "driver",
+            "AVAILABLE",
+            None,
+            {"server": {"sql_mode": "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES"}},
+        )
+        assert _targets(_check("DB-SERVER-008", strict_trans)) == []
+
+        strict_all = Source(
+            "ordersDb",
+            dialect,
+            "driver",
+            "AVAILABLE",
+            None,
+            {"server": {"sql_mode": "STRICT_ALL_TABLES"}},
+        )
+        assert _targets(_check("DB-SERVER-008", strict_all)) == []
+
+    bad_token = Source(
+        "ordersDb",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"server": {"sql_mode": "bad token"}},
+    )
+    outcome_bad = _check("DB-SERVER-008", bad_token)
+    assert isinstance(outcome_bad, str)
+
+
+def test_mysql_strict_sql_mode_rejects_non_ascii_token() -> None:
+    source = Source(
+        "ordersDb",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"server": {"sql_mode": "STRÍCT_TRANS_TABLES"}},
+    )
+    outcome = _check("DB-SERVER-008", source)
+    assert isinstance(outcome, str)
+    assert outcome == "sql_mode contains an invalid token."
+
+
+def test_mysql_unenforced_check_constraints_is_reported() -> None:
+    # ported: DatabaseAdvisorVendorRulesTests.mysqlUnenforcedCheckConstraintRuleReportsNotEnforcedBaseTableChecksAndSkipsMariaDbAndOldMySql  # noqa: E501
+    source = Source(
+        "ds",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {
+            "server_version_info": (8, 4, 0),
+            "vendor": {
+                "unenforcedChecks": _fact({"tbl": "orders", "name": "chk_orders_total"}),
+            },
+        },
+    )
+    violation = _check("DB-MYSQL-004", source)
+    assert _targets(violation) == ["ds/orders.chk_orders_total"]
+    assert "chk_orders_total" in violation[0][1]
+    assert "orders" in violation[0][1]
+    assert "NOT ENFORCED" in violation[0][1]
+
+    clean = Source(
+        "ds",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {
+            "server_version_info": (8, 4, 0),
+            "vendor": {"unenforcedChecks": _fact()},
+        },
+    )
+    assert _targets(_check("DB-MYSQL-004", clean)) == []
+
+    mariadb = Source("maria", "mariadb", "driver", "AVAILABLE", None, {})
+    maria_outcome = _check("DB-MYSQL-004", mariadb)
+    assert isinstance(maria_outcome, str)
+    assert "MariaDB does not support NOT ENFORCED" in maria_outcome
+
+    old_mysql = Source(
+        "old",
+        "mysql",
+        "driver",
+        "AVAILABLE",
+        None,
+        {"server_version_info": (5, 7, 44), "vendor": {}},
+    )
+    old_outcome = _check("DB-MYSQL-004", old_mysql)
+    assert isinstance(old_outcome, str)
+    assert "MySQL 8.0.16 or later" in old_outcome
+
+
+def test_vendor_version_gates_read_dialect_server_version_info_from_inspect_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeInspector:
+        @staticmethod
+        def get_table_names() -> list[str]:
+            return []
+
+    monkeypatch.setattr(
+        sqla,
+        "sqlalchemy_module",
+        lambda: type("SA", (), {"inspect": staticmethod(lambda _c: FakeInspector())})(),
+    )
+
+    def inspected_source(dialect_name: str, version: tuple[int, ...], **vendor: dict[str, Any]) -> Source:
+        dialect = type("FakeDialect", (), {"name": dialect_name, "driver": "drv", "server_version_info": version})()
+        engine = type("FakeEngine", (), {"url": "db://localhost/app"})()
+        conn = type(
+            "FakeConn",
+            (),
+            {
+                "dialect": dialect,
+                "engine": engine,
+                "begin_nested": lambda self: contextlib.nullcontext(),
+                "exec_driver_sql": lambda self, _sql: type("Res", (), {"fetchmany": lambda self, _n: []})(),
+            },
+        )()
+        found = {**sqla_inspect.catalog(conn, CatalogBounds(), Masker("MASKED", True, None)), "vendor": vendor}
+        return Source("db", dialect_name, "drv", "AVAILABLE", None, found)
+
+    pg96 = inspected_source("postgresql", (9, 6), emptyPartitioned=_fact({"tbl": "empty_metrics"}))
+    old_server = inspected_source("mysql", (8, 0, 15), unenforcedChecks=_fact({"tbl": "orders", "name": "chk"}))
+
+    assert _check("DB-PG-006", pg96) == "Not applicable: declarative partitioning requires PostgreSQL 10 or later."
+    assert _check("DB-MYSQL-004", old_server) == "Not applicable: check constraints require MySQL 8.0.16 or later."

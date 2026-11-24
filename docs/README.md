@@ -6,6 +6,8 @@
 | [../website/docs/installation.md](../website/docs/installation.md) | The extras and the panel to library to extra table: which panel needs which library |
 | [../website/docs/settings.md](../website/docs/settings.md) | Every `SHARPIT_*` setting, its `install()` keyword, default and meaning |
 | [../website/docs/mcp.md](../website/docs/mcp.md) | Every MCP read tool and every action tool (actions are CLI-only); checked against sharpit's registry by `tests/test_tracker_docs.py` |
+| [decisions/README.md](decisions/README.md) | Design decisions, status, rationale, and enforcement |
+| [../website/docs/llms.txt](../website/docs/llms.txt) | Published documentation index and offline CLI lookup |
 | [../design/DESIGN.md](../design/DESIGN.md) | Shared design tokens and rules for the console, docs site and launch slides |
 | [screenshots.md](screenshots.md) | Every panel in the light and the dark theme, and how to regenerate the images |
 | [development/workflow.md](development/workflow.md) | How a change goes from idea to release with the `/sharpit:*` skills |

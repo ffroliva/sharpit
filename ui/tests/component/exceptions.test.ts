@@ -49,7 +49,7 @@ it('lists groups with count, status and the application badge, and reloads on a 
   expect(h.text()).toContain('OPEN');
   expect(h.text()).toContain('application');
   FakeEventSource.last.emit('update');
-  await until(() => expect(h.calls('GET').length).toBe(2));
+  await until(() => expect(h.calls('GET')).toHaveLength(2));
   expect(FakeEventSource.last.url).toBe('api/exceptions/stream');
 });
 
@@ -80,7 +80,7 @@ it('a read-only panel disables the actions and says why', async () => {
   h.mount(Exceptions, { panel: readOnly('exceptions') });
   await until(() => expect(h.text()).toContain('app.errors.Boom'));
   const buttons = [...h.target.querySelectorAll('button')].filter((b) => ['Acknowledge', 'Resolve', 'Clear all'].includes(b.textContent ?? ''));
-  expect(buttons.length).toBe(3);
+  expect(buttons).toHaveLength(3);
   for (const b of buttons) {
     expect(b.disabled).toBe(true);
     expect(b.title).toContain('Read-only');

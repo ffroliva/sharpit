@@ -50,6 +50,7 @@ class Budget:
     allow_swallowed: bool = False
     allow_unbounded_read: bool = False
     unbounded_read_factor: int = 2
+    reason: str | None = None
 
 
 def _finding(
@@ -63,10 +64,13 @@ def _finding(
     observed: int | None = None,
     *,
     severity: Severity = "HIGH",
+    reason: str | None = None,
 ) -> Finding:
     fingerprint = Finding(rule_id, ADVISOR, severity, target, message, node_id, identity=identity).fingerprint
     is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
-    return Finding(rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed)
+    return Finding(
+        rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed, reason=reason
+    )
 
 
 def _legacy_identities(fact: SwallowedFact) -> list[str]:
@@ -97,6 +101,7 @@ def _swallowed_findings(
     for fact in call.swallowed:
         gating = fact.programming_error or fact.type_name in DATABASE_ERRORS
         severity: Severity = "HIGH" if gating and not budget.allow_swallowed else "INFO"
+        reason = budget.reason if budget.allow_swallowed else None
         identity = fact.identity or _legacy_identities(fact)[0]
         if is_dismissable_identity(identity):
             tail = f"identity {identity}"
@@ -109,7 +114,16 @@ def _swallowed_findings(
         )
         found.append(
             _finding(
-                SWALLOWED, fact.location, message, node, dismissed, identity, dismissed_pairs, 1, severity=severity
+                SWALLOWED,
+                fact.location,
+                message,
+                node,
+                dismissed,
+                identity,
+                dismissed_pairs,
+                1,
+                severity=severity,
+                reason=reason,
             )
         )
     return found

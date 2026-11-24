@@ -80,12 +80,14 @@ def _targets(engine: object | None) -> list[SharpitContext]:
     info = REQUEST.get()
     if info is not None:
         return [c for c in contexts if c.context_id == info.context_id]
+    if len(contexts) <= 1:
+        return contexts
     held = (
         [c for c in contexts if c.capture.engine_registry is not None and c.capture.engine_registry.holds(engine)]
         if engine is not None
         else []
     )
-    return held or (contexts if len(contexts) == 1 else [])
+    return held
 
 
 def _raw_sqlite_seen() -> None:
@@ -145,11 +147,15 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
     (``sql_delivered``), before the pause and suspend filters: a paused or suspended capture still has its database."""
     if source == "sqlite3":
         _raw_sqlite_seen()
-    routed = [c for c in _targets(engine) if source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled]
-    for c in routed:
+    recording_contexts: list[SharpitContext] = []
+    for c in _targets(engine):
+        if source == "sqlite3" and not c.settings.sql_trace_sqlite3_enabled:
+            continue
         if source not in c.capture.sql_delivered:
             c.capture.sql_delivered.add(source)
-    return [c for c in routed if _records(c) and source not in c.capture.suspended_sources]
+        if _records(c) and source not in c.capture.suspended_sources:
+            recording_contexts.append(c)
+    return recording_contexts
 
 
 _SQL_KEYS = (
@@ -244,11 +250,17 @@ def _trace_text(
     )
 
 
+def _captures_call_site(targets: list[SharpitContext]) -> bool:
+    for ctx in targets:
+        recorder = ctx.capture.sql_trace
+        if recorder is not None and recorder.capture_call_site:
+            return True
+    return False
+
+
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
     info = REQUEST.get()
-    site = (
-        call_site(None) if any(c.capture.sql_trace and c.capture.sql_trace.capture_call_site for c in targets) else None
-    )
+    site = call_site(None) if _captures_call_site(targets) else None
     thread = threading.current_thread().name
     for ctx in targets:
         recorder = ctx.capture.sql_trace
@@ -321,6 +333,12 @@ def remove_context(ctx: SharpitContext) -> None:
     with _lock:
         _contexts.pop(ctx.context_id, None)
         _refresh()
+
+
+def routes_context(ctx: SharpitContext) -> bool:
+    """Whether ``ctx`` is currently receiving SQL statements routed by dispatch."""
+    with _lock:
+        return ctx.context_id in _contexts
 
 
 def clear_contexts() -> None:

@@ -50,6 +50,11 @@ _PG_SQL = {
     "WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relpersistence = 'u' AND NOT EXISTS "
     "(SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e') "
     "ORDER BY 1",
+    "emptyPartitioned": "SELECT c.relname AS tbl FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE n.nspname = current_schema() AND c.relkind = 'p' "
+    "AND NOT EXISTS (SELECT 1 FROM pg_inherits inh WHERE inh.inhparent = c.oid) "
+    "AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid "
+    "AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e') ORDER BY 1",
     # Read the server value, not the transaction-local timeout on the advisor's read.
     "settings": "SELECT name, reset_val AS setting FROM pg_settings WHERE name = 'idle_in_transaction_session_timeout'",
 }
@@ -67,6 +72,12 @@ _MYSQL_SQL = {
 }
 _INVISIBLE_SQL = "SELECT DISTINCT TABLE_NAME AS tbl, INDEX_NAME AS idx FROM information_schema.STATISTICS " \
     "WHERE TABLE_SCHEMA = DATABASE() AND {} ORDER BY 1, 2"  # fmt: skip
+_UNENFORCED_CHECKS_SQL = (
+    "SELECT tc.TABLE_NAME AS tbl, tc.CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS tc "
+    "JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = tc.TABLE_SCHEMA AND t.TABLE_NAME = tc.TABLE_NAME "
+    "WHERE tc.TABLE_SCHEMA = DATABASE() AND t.TABLE_TYPE = 'BASE TABLE' AND tc.CONSTRAINT_TYPE = 'CHECK' "
+    "AND tc.ENFORCED = 'NO' ORDER BY 1, 2"
+)
 
 
 def _statements(dialect: Any) -> dict[str, str]:
@@ -76,7 +87,13 @@ def _statements(dialect: Any) -> dict[str, str]:
     if name not in MYSQL:
         return {}
     mariadb = name == "mariadb" or getattr(dialect, "is_mariadb", False) is True
-    return {**_MYSQL_SQL, "invisible": _INVISIBLE_SQL.format("IGNORED = 'YES'" if mariadb else "IS_VISIBLE = 'NO'")}
+    statements = {
+        **_MYSQL_SQL,
+        "invisible": _INVISIBLE_SQL.format("IGNORED = 'YES'" if mariadb else "IS_VISIBLE = 'NO'"),
+    }
+    if not mariadb:
+        statements["unenforcedChecks"] = _UNENFORCED_CHECKS_SQL
+    return statements
 
 
 def _fetch(conn: Any, sql: str, limit: int) -> tuple[list[str], list[Any]]:
@@ -261,6 +278,87 @@ def _setting(name: str, text: str) -> Callable[[Source], Outcome]:
     return check
 
 
+def _at_least(source: Source, *minimum: int) -> bool:
+    ver = source.server_version_info
+    if ver is None:
+        return True
+    padded = (*ver, *(0,) * len(minimum))[: len(minimum)]
+    return padded >= minimum
+
+
+def _empty_partitioned_tables(source: Source) -> Outcome:
+    if source.dialect not in PG:
+        return f"This check reads the {' or '.join(PG)} catalog; datasource {source.name} is {source.dialect}."
+    if not _at_least(source, 10, 0):
+        return "Not applicable: declarative partitioning requires PostgreSQL 10 or later."
+    rows = _rows(source, PG, "emptyPartitioned")
+    if isinstance(rows, str):
+        return rows
+    text = (
+        "partitioned table `{tbl}` has no attached partitions in pg_inherits; every INSERT into it will fail "
+        "until a partition is attached."
+    )
+    return [_hit(source, row["tbl"], text.format(**row), f"table={row['tbl']}", f"object={row['tbl']}") for row in rows]
+
+
+def _is_identifier_token(token: str) -> bool:
+    # re.ASCII keeps \w to [A-Za-z0-9_]: a non-ASCII letter is not an identifier token
+    return bool(re.fullmatch(r"\w+", token, re.ASCII)) and not token[0].isdigit()
+
+
+def _mysql_strict_sql_mode(source: Source) -> Outcome:
+    if source.dialect not in MYSQL:
+        return f"This check reads the {' or '.join(MYSQL)} catalog; datasource {source.name} is {source.dialect}."
+    if "sql_mode" not in source.server:
+        return "The server did not report sql_mode."
+    raw = str(source.server["sql_mode"]).strip()
+    if not raw:
+        strict = False
+    else:
+        tokens = [t.strip() for t in raw.split(",")]
+        for token in tokens:
+            if not _is_identifier_token(token):
+                return "sql_mode contains an invalid token."
+        strict = any(t.upper() in ("STRICT_TRANS_TABLES", "STRICT_ALL_TABLES") for t in tokens)
+
+    if strict:
+        return []
+
+    if not raw:
+        shown = "empty"
+    else:
+        clipped = raw if len(raw) <= 64 else raw[:64] + "..."
+        shown = f"`{clipped}`"
+    text = (
+        f"`sql_mode` is {shown} (neither `STRICT_TRANS_TABLES` nor `STRICT_ALL_TABLES` is enabled), "
+        "so invalid or over-long values can be coerced instead of rejected."
+    )
+    return [_hit(source, "sql_mode", text, "setting=sql_mode")]
+
+
+def _unenforced_check_constraints(source: Source) -> Outcome:
+    if source.dialect not in MYSQL:
+        return f"This check reads the {' or '.join(MYSQL)} catalog; datasource {source.name} is {source.dialect}."
+    if source.dialect == "mariadb":
+        return "MariaDB does not support NOT ENFORCED check constraints; only MySQL 8.0.16 or later is evaluated."
+    if not _at_least(source, 8, 0, 16):
+        return "Not applicable: check constraints require MySQL 8.0.16 or later."
+    rows = _rows(source, ("mysql",), "unenforcedChecks")
+    if isinstance(rows, str):
+        if "ENFORCED" in rows or "doesn't exist" in rows:
+            return "Not applicable: check constraints require MySQL 8.0.16 or later."
+        return rows
+    hits: list[Hit] = []
+    for row in rows:
+        text = (
+            f"check constraint `{row['name']}` on `{row['tbl']}` is NOT ENFORCED "
+            "(information_schema.table_constraints.ENFORCED = 'NO'); writes and existing rows are not checked."
+        )
+        where = f"{row['tbl']}.{row['name']}"
+        hits.append(_hit(source, where, text, f"table={row['tbl']}", f"constraint={row['name']}"))
+    return hits
+
+
 def _rule(rule_id: str, title: str, category: str, severity: Severity, description: str, recommendation: str,
           url: str, check: Callable[[Source], Outcome]) -> Rule:  # fmt: skip
     return Rule(RuleDefinition(rule_id, title, category, severity, description, recommendation, url), check)
@@ -302,6 +400,12 @@ RULES = (
           "If the data must be durable, ALTER TABLE ... SET LOGGED. " + _REVIEW,
           "https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-UNLOGGED",
           _listed(PG, "unlogged", "table `{tbl}` is UNLOGGED.")),
+    _rule("DB-PG-006", "PostgreSQL partitioned table has no attached partitions", "PostgreSQL", "HIGH",
+          "Detects declaratively partitioned parent tables (pg_class.relkind = 'p') with no child partitions in "
+          "pg_inherits, excluding system and extension-owned tables.",
+          "Create or attach at least one partition (or a DEFAULT partition) for the partitioned table before "
+          "inserting rows, or drop the unused partitioned parent table. " + _REVIEW,
+          "https://www.postgresql.org/docs/current/ddl-partitioning.html", _empty_partitioned_tables),
     _rule("DB-MYSQL-001", "Tables on a non-transactional storage engine", "MySQL", "MEDIUM",
           "Reviews a table on a known non-transactional engine (MyISAM, MEMORY, ARCHIVE, CSV, MERGE, Aria).",
           "Review the application's transaction requirements and the migration cost. " + _REVIEW,
@@ -315,10 +419,26 @@ RULES = (
           "capacity. The counter can be cached or stale; it is not a row count.",
           "Review the column bounds and the referencing columns; never reset a counter blindly. " + _REVIEW,
           "https://dev.mysql.com/doc/refman/8.4/en/innodb-auto-increment-handling.html", _auto_increment),
+    _rule("DB-MYSQL-004", "Unenforced MySQL check constraints", "MySQL", "LOW",
+          "Detects MySQL 8.0.16+ check constraints on base tables with information_schema.table_constraints.ENFORCED "
+          "= 'NO'. MariaDB does not expose ENFORCED check constraints and is not evaluated.",
+          "Review whether NOT ENFORCED is intentional. Enforce the check constraint with ALTER TABLE ... ALTER CHECK "
+          "... ENFORCED after verifying that existing rows satisfy it, or drop an obsolete constraint. " + _REVIEW,
+          "https://dev.mysql.com/doc/refman/8.4/en/create-table-check-constraints.html", _unenforced_check_constraints),
     _rule("DB-SERVER-001", "PostgreSQL does not end sessions that are idle in a transaction", "Server", "LOW",
           "Fires when idle_in_transaction_session_timeout is 0 for the role (pg_settings.reset_val): a session left "
           "idle in a transaction keeps its locks and holds back vacuum.",
           "Set a limit on the role the application uses, unless it only runs short, trusted transactions.",
           "https://www.postgresql.org/docs/current/runtime-config-client.html",
           _setting("idle_in_transaction_session_timeout", "idle_in_transaction_session_timeout is 0.")),
+    _rule("DB-SERVER-008", "MySQL/MariaDB strict transactional SQL mode is disabled", "Server", "MEDIUM",
+          "Detects a MySQL or MariaDB server whose session sql_mode includes neither STRICT_TRANS_TABLES nor "
+          "STRICT_ALL_TABLES. Both MySQL 8.0+ and MariaDB 10.2.4+ enable STRICT_TRANS_TABLES by default; without a "
+          "strict mode, invalid, missing, out-of-range or over-long values in DML statements can be silently "
+          "truncated or coerced to implicit defaults instead of raising an error. The value is the one the scan "
+          "connection's own session sees.",
+          "Restore STRICT_TRANS_TABLES (or STRICT_ALL_TABLES) in the server's sql_mode configuration and check that "
+          "neither an init_command in the engine's connect_args nor a SET sql_mode in a SQLAlchemy connect event "
+          "strips strict mode from application connections.",
+          "https://dev.mysql.com/doc/refman/8.4/en/sql-mode.html#sql-mode-strict", _mysql_strict_sql_mode),
 )  # fmt: skip

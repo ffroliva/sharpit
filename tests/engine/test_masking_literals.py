@@ -196,7 +196,7 @@ def _reference(text: str) -> str:
     ],
 )
 def test_found_at_scan_matches_what_the_lazy_pattern_matched(text: str) -> None:
-    assert scrub_binding_literals(text) == _reference(text) or text == ""
+    assert scrub_binding_literals(text) == _reference(text)
     assert masking._UUID_CHAR.sub(lambda m: f"{m[1]}{MASK}{m[2]}", text) == _reference(text)
 
 

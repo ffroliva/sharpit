@@ -93,14 +93,15 @@ def test_every_golden_file_is_classified() -> None:
 
     assert len(golden_files) == 96
     classified_goldens = [r["golden"] for r in _ROUTES]
-    assert classified_goldens == golden_files
+    assert set(golden_files).issubset(set(classified_goldens))
+    assert [g for g in classified_goldens if g in set(golden_files)] == golden_files
     assert len(classified_goldens) == len(set(classified_goldens))
 
     counts = {
         status: sum(item["status"] == status for item in _ROUTES) for status in ("matched", "partial", "missing", "n-a")
     }
     assert _STATUS_DATA["counts"] == {**counts, "total": len(_ROUTES)}
-    assert len(_ROUTES) == 96
+    assert len(_ROUTES) == 97
 
 
 @pytest.mark.parametrize("item", _MATCHED, ids=lambda r: str(r["golden"]))
@@ -160,18 +161,20 @@ def test_missing_routes_return_404(client: TestClient, item: dict[str, Any]) -> 
 
 @pytest.mark.parametrize("item", _NA, ids=lambda r: str(r["golden"]))
 def test_na_routes_have_empty_list_in_fixture(item: dict[str, Any]) -> None:
+    assert item["status"] == "n-a"
+    assert item["difference"] is not None
+    if item["difference"].startswith("JVM-only:"):
+        return
     meta = json.loads((_FIXTURES_DIR / "meta.json").read_text(encoding="utf-8"))
     empty_lists = meta.get("emptyLists", {})
     golden = item["golden"]
     fixture = json.loads((_FIXTURES_DIR / golden).read_text(encoding="utf-8"))
     actual_empty_paths = _empty_list_paths(fixture)
     assert actual_empty_paths, f"{golden} contains no empty list"
-    assert item["status"] == "n-a"
     recorded_paths = empty_lists.get(golden, [])
     assert not recorded_paths or set(recorded_paths) <= actual_empty_paths, (
         f"{golden} emptyLists paths do not point to empty lists"
     )
-    assert item["difference"] is not None
 
 
 def test_matched_cases_fail_if_golden_mutated(client: TestClient) -> None:

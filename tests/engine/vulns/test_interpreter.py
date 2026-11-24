@@ -469,7 +469,7 @@ def test_explicit_versions_and_ranges_union(matches_explicit: bool):
     f = interpret(doc, pkg(), ID)
     assert f is not None
     assert f.score == 5.4
-    assert (f.fixed_versions, f.fix_available) == (([], False) if matches_explicit else (["1.1"], True))
+    assert (([], False) if matches_explicit else (["1.1"], True)) == (f.fixed_versions, f.fix_available)
 
 
 # ported: OsvVulnerabilityScannerTests.unsupportedRangesRetainQueryFindingWithoutBorrowingPackageClaims
@@ -486,7 +486,7 @@ def test_unsupported_ranges_retain_finding(global_severity: bool):
     f = interpret(doc, pkg(), ID)
     assert f is not None
     assert f.id == ID
-    assert (f.severity, f.score) == (("MEDIUM", 5.4) if global_severity else ("UNKNOWN", None))
+    assert (("MEDIUM", 5.4) if global_severity else ("UNKNOWN", None)) == (f.severity, f.score)
     assert (f.fixed_versions, f.fix_available, f.unresolved) == ([], False, True)
 
 

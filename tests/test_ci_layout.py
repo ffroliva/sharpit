@@ -420,8 +420,7 @@ def test_the_live_legs_partition_the_live_tests(tmp_path: Path) -> None:
 def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None:
     assert "changes" in JOBS
     assert "paths-ignore: [ '**.md', 'website/**']" not in CI.split("permissions:", 1)[0]
-    assert "grep -Ev '(^website/|\\.md$)'" in CI
-    for job in ("test", "coverage", "sonar", "lowest", "no-sqlalchemy", "ui", "vitest", "wheel"):
+    for job in ("test", "coverage", "sonar", "lowest", "no-sqlalchemy", "ui", "vitest"):
         assert "needs.changes.outputs.code" in JOBS[job], job
     for job in (
         "lint",
@@ -436,18 +435,20 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
         assert "if: needs.changes.outputs.code == 'true'" in JOBS[job], job
 
 
-def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path: Path) -> None:
+def _run_change_detector(output: Path, base: str, changed: str = "") -> subprocess.CompletedProcess[str]:
     lines = CI.splitlines()
     start = lines.index("        run: |", lines.index("      - id: filter")) + 1
     end = next(index for index in range(start, len(lines)) if re.fullmatch(r"  [a-z-]+:", lines[index]))
     run = textwrap.dedent("\n".join(lines[start:end]))
-    output = tmp_path / "change-output"  # absolute: the step runs in the repo root, shared by every xdist worker
-    result = subprocess.run(
+    if changed:
+        run = 'git() { printf "%s\\n" "$CHANGED"; }\n' + run
+    return subprocess.run(
         [shutil.which("bash") or "bash", "-e", "-c", run],
         cwd=CI_PATH.parents[2],
         env={
             **os.environ,
-            "BASE": "not-a-commit",
+            "BASE": base,
+            "CHANGED": changed,
             "HEAD": "HEAD",
             "GITHUB_EVENT_NAME": "push",
             "GITHUB_OUTPUT": output.as_posix(),
@@ -456,12 +457,40 @@ def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path
         text=True,
         check=False,
     )
-    try:
-        assert not (CI_PATH.parents[2] / output.name).exists(), "the step wrote its output into the repository root"
-        assert result.returncode == 0
-        assert "code=true" in output.read_text(encoding="utf-8")
-    finally:
-        output.unlink(missing_ok=True)
+
+
+def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path: Path) -> None:
+    output = tmp_path / "change-output"
+    result = _run_change_detector(output, "not-a-commit")
+    assert not (CI_PATH.parents[2] / output.name).exists()
+    assert result.returncode == 0, result.stderr
+    assert set(output.read_text(encoding="utf-8").splitlines()) == {"code=true", "wheel=true"}
+
+
+@pytest.mark.parametrize(
+    ("changed", "code", "wheel"),
+    [
+        ("website/docs/cli.md", "false", "true"),
+        ("docs/decisions/README.md", "false", "true"),
+        ("hatch_build.py", "true", "true"),
+        ("website/docs/llms.txt", "false", "true"),
+        ("llms.txt", "false", "true"),
+        ("docs/README.md\nwebsite/mkdocs.yml", "false", "false"),
+        ("website/docs/cli.md\nsrc/sharpit/__init__.py", "true", "true"),
+    ],
+)
+def test_change_detector_runs_only_the_wheel_for_bundled_doc_changes(tmp_path, changed, code, wheel) -> None:
+    output = tmp_path / "change-output"
+    result = _run_change_detector(output, "HEAD", changed)
+    assert result.returncode == 0, result.stderr
+    assert set(output.read_text(encoding="utf-8").splitlines()) == {f"code={code}", f"wheel={wheel}"}
+
+
+def test_wheel_uses_its_own_change_output() -> None:
+    assert "wheel: ${{ steps.filter.outputs.wheel }}" in JOBS["changes"]
+    assert "needs.changes.outputs.code" not in JOBS["wheel"]
+    assert "needs.changes.outputs.wheel != 'false'" in JOBS["wheel"]
+    assert all("needs.changes.outputs.wheel" not in job for name, job in JOBS.items() if name != "wheel")
 
 
 @pytest.mark.parametrize("job", ["test", "lowest", "no-sqlalchemy", "masking-gates-check"])
@@ -898,3 +927,10 @@ def test_push_only_aggregators_pass_on_pr_and_require_shards_on_push() -> None:
     assert _run_test_aggregator("workflow_dispatch", {**GREEN, "test-shard-locked": "failure"}).returncode != 0
     docs_only = _run_test_aggregator("push", {**skipped, "test-shard": "skipped"}, code_changed="false")
     assert docs_only.returncode == 0
+
+
+def test_the_wheel_job_runs_the_docs_tests_against_the_built_wheel() -> None:
+    body = JOBS["wheel"]
+    assert "SHARPIT_TEST_WHEEL" in body
+    assert "tests/docs/test_bundled_docs.py" in body
+    assert "tests/cli/test_docs.py" in body

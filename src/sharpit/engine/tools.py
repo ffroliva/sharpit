@@ -11,6 +11,7 @@ once, by whichever comes first of the worker finishing or the caller giving up; 
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -45,7 +46,7 @@ from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
-from sharpit.engine.spi import ApiModel
+from sharpit.engine.spi import ApiModel, HostLoopProvider
 from sharpit.engine.sqla import sql_trace_unavailable_reason
 
 Via = Literal["mcp", "cli"]
@@ -101,6 +102,20 @@ def low_footprint_resume_error(tool_name: str) -> ToolCallError:
 class CallContext:
     ctx: SharpitContext
     scope: Mapping[str, object]  # the HTTP request scope: get_overview reads serverPort/contextPath from it
+    host_loop_provider: HostLoopProvider | None = None
+
+    def __post_init__(self) -> None:
+        if self.host_loop_provider is None:
+            # Preserve direct engine callers by binding their loop once, at invocation construction.
+            object.__setattr__(self, "host_loop_provider", _BoundHostLoopProvider(self.ctx.capture.loop))
+
+
+@dataclass(frozen=True)
+class _BoundHostLoopProvider:
+    loop: asyncio.AbstractEventLoop | None
+
+    def current_loop(self) -> asyncio.AbstractEventLoop | None:
+        return self.loop
 
 
 @dataclass(frozen=True)

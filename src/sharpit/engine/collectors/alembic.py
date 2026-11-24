@@ -18,7 +18,7 @@ import re
 import sys
 import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -48,7 +48,7 @@ NO_ENGINE = "No database engine is registered yet: pass engines=[...] to install
 MAX_REVISION_BYTES = 1024 * 1024
 MAX_ERROR_BYTES = 4096
 DEFAULT_VERSION_TABLE = "alembic_version"
-_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}")
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w{0,62}", re.ASCII)
 _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _SEPARATORS = {"os": os.pathsep, ":": ":", ";": ";", "space": " ", "newline": "\n"}
 _VARIABLES = ("revision", "down_revision", "branch_labels", "depends_on")
@@ -64,7 +64,7 @@ _OPTIONS = (
 
 @dataclass(frozen=True)
 class Revision:
-    revision: str
+    id: str  # the Alembic revision id
     down_revisions: tuple[str, ...]
     description: str | None
     script: str  # relative to the config file's directory, with forward slashes
@@ -157,7 +157,7 @@ def _split(raw: object, separator: object) -> list[str]:
     text = str(raw)
     if isinstance(separator, str) and separator in _SEPARATORS:
         return [part.strip() for part in text.split(_SEPARATORS[separator]) if part.strip()]
-    return [part for part in re.split(r", *|(?: +)", text.strip()) if part]  # Alembic's legacy split
+    return [part for part in re.split(r", *| +", text.strip()) if part]  # Alembic's legacy split
 
 
 def _relative(path: Path, base: Path) -> str:
@@ -171,6 +171,37 @@ def _literal(value: ast.expr) -> object:
     return ast.literal_eval(value)
 
 
+def _assignments(tree: ast.Module) -> Iterator[tuple[list[ast.expr], ast.expr]]:
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            yield node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:  # revision: str = "abc" (Alembic >= 1.12)
+            yield [node.target], node.value
+
+
+def _variables(tree: ast.Module) -> dict[str, object] | str:
+    """The literal values of the revision variables, or why one of them is not a literal."""
+    values: dict[str, object] = {}
+    for targets, value in _assignments(tree):
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in _VARIABLES:
+                try:
+                    values[target.id] = _literal(value)
+                except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                    return f"{target.id} is not a literal value"
+    return values
+
+
+def _down_revisions(down: object) -> tuple[str, ...]:
+    if isinstance(down, str):
+        items: tuple[object, ...] = (down,)
+    elif isinstance(down, tuple | list):
+        items = cast("tuple[object, ...]", tuple(cast("Any", down)))
+    else:
+        items = ()
+    return tuple(d for d in items if isinstance(d, str))
+
+
 def _parse_revision(path: Path, base: Path, masker: Masker) -> Revision | str | None:
     """The revision in ``path``, a reason it was skipped, or None when the file declares no ``revision``."""
     try:
@@ -179,32 +210,15 @@ def _parse_revision(path: Path, base: Path, masker: Masker) -> Revision | str | 
         tree = ast.parse(path.read_bytes(), filename=path.name)
     except (OSError, SyntaxError, ValueError, MemoryError, RecursionError) as exc:
         return masker.mask_text(f"cannot be parsed: {type(exc).__name__}: {exc}") or "cannot be parsed"
-    values: dict[str, object] = {}
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:  # revision: str = "abc" (Alembic >= 1.12)
-            targets, value = [node.target], node.value
-        else:
-            continue
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id in _VARIABLES:
-                try:
-                    values[target.id] = _literal(value)
-                except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-                    return f"{target.id} is not a literal value"
+    values = _variables(tree)
+    if isinstance(values, str):
+        return values
     if "revision" not in values:
         return None
     revision = values["revision"]
     if not isinstance(revision, str) or not revision:
         return "revision is not a non-empty string"
-    down = values.get("down_revision")
-    if isinstance(down, str):
-        downs: tuple[str, ...] = (down,)
-    elif isinstance(down, tuple | list):
-        downs = tuple(d for d in cast("tuple[object, ...]", tuple(cast("Any", down))) if isinstance(d, str))
-    else:
-        downs = ()
+    downs = _down_revisions(values.get("down_revision"))
     doc = ast.get_docstring(tree)
     first = doc.strip().splitlines()[0] if doc and doc.strip() else None
     return Revision(revision, downs, masker.mask_text(first), _relative(path, base))
@@ -217,8 +231,8 @@ def _order(revisions: dict[str, Revision]) -> list[Revision]:
     for rev in revisions.values():
         for parent in rev.down_revisions:
             if parent in revisions:
-                children[parent].append(rev.revision)
-                waiting[rev.revision] += 1
+                children[parent].append(rev.id)
+                waiting[rev.id] += 1
     ready = [(revisions[r].script, r) for r, n in waiting.items() if n == 0]
     heapq.heapify(ready)
     ordered: list[Revision] = []
@@ -229,30 +243,21 @@ def _order(revisions: dict[str, Revision]) -> list[Revision]:
             waiting[child] -= 1
             if waiting[child] == 0:
                 heapq.heappush(ready, (revisions[child].script, child))
-    seen = {r.revision for r in ordered}
-    return ordered + sorted((r for r in revisions.values() if r.revision not in seen), key=lambda r: r.script)
+    seen = {r.id for r in ordered}
+    return ordered + sorted((r for r in revisions.values() if r.id not in seen), key=lambda r: r.script)
 
 
-def read_alembic_files(ini_path: Path, masker: Masker) -> AlembicFiles:
-    """The history in the files next to ``ini_path``; never imports Alembic or the revision modules."""
-    files, options, here = _config(ini_path, masker)
-    if files.reason is not None:
-        return files
-    files.version_table = str(options.get("version_table") or DEFAULT_VERSION_TABLE)
-    schema = options.get("version_table_schema")
-    files.version_table_schema = str(schema) if schema else None
+def _table_error(files: AlembicFiles, masker: Masker) -> str | None:
+    """The refusal for the last hostile ``version_table`` / ``version_table_schema`` (the later one wins)."""
+    error = None
     for label, value in (("version_table", files.version_table), ("version_table_schema", files.version_table_schema)):
         if value is not None and not _IDENTIFIER.fullmatch(value):
             shown = masker.mask_text(value) or ""
-            files.table_error = f"Refused to read the database: {label} {shown!r} is not a plain identifier"
-    script_location = options.get("script_location")
-    if not script_location:
-        files.reason = f"{files.config_path} sets no script_location"
-        return files
-    script_dir = _location(str(script_location))
-    if isinstance(script_dir, str):
-        files.reason = script_dir
-        return files
+            error = f"Refused to read the database: {label} {shown!r} is not a plain identifier"
+    return error
+
+
+def _collect_version_dirs(files: AlembicFiles, options: dict[str, Any], script_dir: Path) -> None:
     raw = options.get("version_locations")
     separator = options.get("path_separator") or options.get("version_path_separator")
     for item in _split(raw, separator) if raw else []:
@@ -263,16 +268,41 @@ def read_alembic_files(ini_path: Path, masker: Masker) -> AlembicFiles:
             files.version_dirs.append(location)
     if not raw:
         files.version_dirs.append(script_dir / "versions")
+
+
+def _collect_revisions(files: AlembicFiles, here: Path, masker: Masker) -> dict[str, Revision]:
     found: dict[str, Revision] = {}
     for directory in files.version_dirs:
         for path in sorted(directory.glob("*.py")) if directory.is_dir() else []:
             parsed = _parse_revision(path, here, masker)
             if isinstance(parsed, str):
                 files.skipped.append((_relative(path, here), parsed))
-            elif parsed is not None and parsed.revision in found:
-                files.skipped.append((parsed.script, f"duplicate revision {parsed.revision!r}"))
+            elif parsed is not None and parsed.id in found:
+                files.skipped.append((parsed.script, f"duplicate revision {parsed.id!r}"))
             elif parsed is not None:
-                found[parsed.revision] = parsed
+                found[parsed.id] = parsed
+    return found
+
+
+def read_alembic_files(ini_path: Path, masker: Masker) -> AlembicFiles:
+    """The history in the files next to ``ini_path``; never imports Alembic or the revision modules."""
+    files, options, here = _config(ini_path, masker)
+    if files.reason is not None:
+        return files
+    files.version_table = str(options.get("version_table") or DEFAULT_VERSION_TABLE)
+    schema = options.get("version_table_schema")
+    files.version_table_schema = str(schema) if schema else None
+    files.table_error = _table_error(files, masker)
+    script_location = options.get("script_location")
+    if not script_location:
+        files.reason = f"{files.config_path} sets no script_location"
+        return files
+    script_dir = _location(str(script_location))
+    if isinstance(script_dir, str):
+        files.reason = script_dir
+        return files
+    _collect_version_dirs(files, options, script_dir)
+    found = _collect_revisions(files, here, masker)
     files.revisions = _order(found)
     parents = {p for r in found.values() for p in r.down_revisions}
     files.heads = sorted(r for r in found if r not in parents)
@@ -320,7 +350,7 @@ def _row(rev: Revision | None, version: str, state: str) -> dict[str, Any]:
 
 
 def _applied(files: AlembicFiles, heads: tuple[str, ...]) -> set[str]:
-    by_id = {r.revision: r for r in files.revisions}
+    by_id = {r.id: r for r in files.revisions}
     applied: set[str] = set()
     todo = [h for h in heads if h in by_id]
     while todo:
@@ -341,11 +371,11 @@ def _database(
     migrate_reason, clean_reason = gates
     heads = read.heads if read else None
     if heads is None:
-        rows = [_row(r, r.revision, "Unknown") for r in files.revisions]
+        rows = [_row(r, r.id, "Unknown") for r in files.revisions]
     else:
         applied = _applied(files, heads)
-        known = {r.revision for r in files.revisions}
-        rows = [_row(r, r.revision, "Success" if r.revision in applied else "Pending") for r in files.revisions]
+        known = {r.id for r in files.revisions}
+        rows = [_row(r, r.id, "Success" if r.id in applied else "Pending") for r in files.revisions]
         rows += [_row(None, h, "Missing") for h in heads if h not in known]
     return {
         "name": name,
@@ -421,7 +451,7 @@ async def _read(
         return DatabaseRead(name, None, f"Reading the database version timed out after {timeout:g}s", checked)
     except sqla.ReadOnlyUnavailable as exc:
         return DatabaseRead(name, None, exc.reason, checked)
-    except Exception as exc:  # noqa: BLE001 - a failed read is reported for that database, never raised
+    except Exception as exc:  # noqa: BLE001  # a failed read is reported for that database, never raised
         dialect = dialect_of_name(getattr(getattr(engine, "dialect", None), "name", None)) or Dialect.UNSUPPORTED
         reason = error_text(ctx.masker, exc, dialect) or type(exc).__name__
         return DatabaseRead(name, None, reason, checked)

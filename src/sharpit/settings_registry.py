@@ -358,7 +358,7 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "cache_clear_enabled": (parse_bool, False),
     "email_max_entries": (_int, None),
     "email_dev_trap": (parse_bool, False),
-    "email_mask_content": (parse_bool, None),
+    "email_mask_content": (parse_bool, True),
     "email_max_body_length": (_int, None),
 }
 

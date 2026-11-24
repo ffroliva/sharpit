@@ -105,7 +105,7 @@ def test_handler_level_notset_changes_no_level(isolated: logging.Logger):
     assert levels[2] == logging.WARNING
     isolated.info("not enabled")  # the app's levels decide, sharpit lowers nothing
     isolated.warning("seen")
-    assert (root.level, isolated.level, isolated.getEffectiveLevel()) == levels
+    assert levels == (root.level, isolated.level, isolated.getEffectiveLevel())
     assert _messages(buffer) == ["seen"]
 
 

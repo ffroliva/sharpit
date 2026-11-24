@@ -87,6 +87,8 @@ path = "src/sharpit/__init__.py"
 packages = ["src/sharpit"]
 include = ["src/sharpit/**"]  # covers src/sharpit/ui/static/**
 
+[tool.hatch.build.targets.wheel.hooks.custom]
+
 [tool.hatch.build.targets.sdist]
 # the sdist carries the package, tests and the example; agent workflows, research and UI sources stay in git
 exclude = [

@@ -1,0 +1,5 @@
+RAPI-MAP-012	n-a	An unannotated Spring parameter binds as a query parameter; FastAPI binds a parameter named like a path token to the path.
+RAPI-MAP-013	n-a	Spring's RequestMethodsRequestCondition.combine() unions the class-level and method-level HTTP methods; neither FastAPI nor Flask has a class-level method mapping to combine with a route's own methods.
+RAPI-VER-008	n-a	FastAPI has no restrictive consumes condition counterpart.
+RAPI-VALID-007	n-a	Bean Validation skips nested objects without @Valid; pydantic validates nested models.
+RAPI-PAGE-004	n-a	Spring Data Page serialization is specific to Spring Data.

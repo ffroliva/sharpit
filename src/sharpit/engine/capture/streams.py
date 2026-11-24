@@ -193,9 +193,11 @@ class ChangeStream(_Hub):
         self._forwards = (*self._forwards, target)
 
     def signal(self) -> None:
-        for target in self._forwards:  # before the no-subscriber shortcut: nobody may watch this source
-            target.signal()
-        super().signal()
+        for target in self._forwards:
+            if target._subscribers or target._forwards or "signal" in target.__dict__:
+                target.signal()
+        if self._subscribers:
+            super().signal()
 
     def subscribe(self, loop: asyncio.AbstractEventLoop) -> Subscription:
         subscriber = Subscription(loop, self._remove)

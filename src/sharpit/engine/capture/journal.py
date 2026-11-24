@@ -283,7 +283,23 @@ class RuntimeJournal:
         """
         if size is None or size < 1:
             return self._offer(event, lambda stored: (*_flat(stored), started))
-        return self._offer(event, lambda stored: (stored, size, started))
+        if self._owned() or getattr(self._copying, "active", False):
+            self.count_dropped(REENTRANT)
+            return False
+        try:
+            source = event.get("source")
+        except Exception:  # noqa: BLE001 - publishing never raises into the host
+            self.count_dropped(FAILED)
+            return False
+        if not isinstance(source, str):
+            self.count_dropped(FAILED)
+            return False
+        with self._lock:
+            try:
+                return self._append((event, size, started), source)
+            except Exception:  # noqa: BLE001 - publishing never raises into the host
+                self._dropped[FAILED] += 1
+                return False
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int, int]]) -> bool:
         if self._owned() or getattr(self._copying, "active", False):  # in an append, read or copy: never recurse
@@ -344,6 +360,10 @@ class RuntimeJournal:
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
         return self._accepting and (self.sources is None or source in self.sources)
+
+    def sql_cursor(self) -> int:
+        """Return the SQL events accepted so far, at connection checkout."""
+        return self._accepted.get("sql", 0)
 
     def count_dropped(self, key: str) -> None:
         """Count one offer a producer refused itself (a source not accepted, a record raised while it was building an

@@ -218,7 +218,7 @@
     "finding": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed", "observed", "baselineState"],
+      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed", "observed", "baselineState", "reason"],
       "properties": {
         "ruleId": {"type": "string"},
         "advisor": {"type": "string"},
@@ -229,7 +229,8 @@
         "testNodeId": {"type": ["string", "null"]},
         "dismissed": {"type": "boolean"},
         "observed": {"type": ["integer", "null"]},
-        "baselineState": {"enum": ["existing", "new", null]}
+        "baselineState": {"enum": ["existing", "new", null]},
+        "reason": {"type": ["string", "null"]}
       }
     }
   }

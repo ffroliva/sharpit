@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      wheel: ${{ steps.filter.outputs.wheel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,14 +36,22 @@ jobs:
         shell: bash
         run: |
           if [[ "$GITHUB_EVENT_NAME" != pull_request && "$GITHUB_EVENT_NAME" != push ]] || [[ -z "$BASE" || -z "$HEAD" || "$BASE" =~ ^0+$ ]]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
+            printf 'code=true\nwheel=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
           elif ! changed=$(git diff --name-only "$BASE" "$HEAD"); then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          elif grep -Ev '(^website/|\.md$)' <<< "$changed" >/dev/null; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
+            printf 'code=true\nwheel=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          code=false
+          wheel=false
+          while IFS= read -r path; do
+            case "$path" in
+              website/docs/*|docs/decisions/*|llms.txt|*/llms.txt) wheel=true ;;
+              website/*|*.md|"") ;;
+              *) code=true; wheel=true; break ;;
+            esac
+          done <<< "$changed"
+          printf 'code=%s\nwheel=%s\n' "$code" "$wheel" >> "$GITHUB_OUTPUT"
 
   # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards an Ubuntu leg, 6 on Windows (its
   # tests run ~1.45x slower), because the costliest shard sets the leg's wall (ceiling: tests/test_ci_layout.py).
@@ -69,7 +78,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
@@ -167,7 +176,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
@@ -265,7 +274,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
@@ -358,7 +367,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
@@ -483,7 +492,7 @@ jobs:
         if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         if: needs.changes.outputs.code != 'false'
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
@@ -525,7 +534,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0 # blame and new-code detection need full history
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         if: needs.changes.outputs.code != 'false'
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
@@ -603,7 +612,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
@@ -708,7 +717,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: >-
@@ -826,7 +835,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
@@ -929,26 +938,31 @@ jobs:
     steps:
       - if: always()
         run: test "${{ needs.changes.result }}" = success
-      - if: needs.changes.outputs.code == 'false'
-        run: echo "Docs-only change; wheel check is a no-op."
+      - if: needs.changes.outputs.wheel == 'false'
+        run: echo "No changes to the package or bundled documentation."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.code != 'false'
+        if: needs.changes.outputs.wheel != 'false'
         with:
           persist-credentials: false
       - name: main never tracks .superpowers/ (harvest into docs/reports/ first)
-        if: needs.changes.outputs.code != 'false' && github.base_ref == 'main'
+        if: needs.changes.outputs.wheel != 'false' && github.base_ref == 'main'
         run: python3 scripts/ci/no_superpowers.py
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        if: needs.changes.outputs.code != 'false'
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        if: needs.changes.outputs.wheel != 'false'
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - if: needs.changes.outputs.code != 'false'
+      - if: needs.changes.outputs.wheel != 'false'
         run: uv build --out-dir "$RUNNER_TEMP/dist"
-      - if: needs.changes.outputs.code != 'false'
+      - if: needs.changes.outputs.wheel != 'false'
         run: |
           uv venv "$RUNNER_TEMP/smoke" --python 3.12
           uv pip install --python "$RUNNER_TEMP/smoke/bin/python" "$RUNNER_TEMP"/dist/sharpit-*.whl fastapi pydantic-settings uvicorn httpx
           PYTHONPATH=. "$RUNNER_TEMP/smoke/bin/python" scripts/ci/wheel_smoke.py
+      - name: docs catalog and bundled-file tests against the built wheel
+        if: needs.changes.outputs.wheel != 'false'
+        run: |
+          uv sync --locked --extra test
+          SHARPIT_TEST_WHEEL="$(ls "$RUNNER_TEMP"/dist/sharpit-*.whl)" uv run --no-sync pytest -q -n auto tests/docs/test_bundled_docs.py tests/cli/test_docs.py
 
   live:
     name: live (${{ matrix.server }})
@@ -984,7 +998,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true
       - run: uv python install 3.14

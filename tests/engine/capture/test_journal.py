@@ -41,7 +41,7 @@ def test_journal_off_allocates_nothing() -> None:
             names = {hook.name for hook in handle.context.capture.hooks.hooks()}
             assert handle.context.capture.journal is None
             assert "runtime-journal" not in names
-        assert {thread.ident for thread in threading.enumerate()} == before
+        assert {thread.ident for thread in threading.enumerate()} - before == set()  # no new thread; one may end
     finally:
         handle.uninstall_capture()
 
