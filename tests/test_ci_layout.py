@@ -934,3 +934,53 @@ def test_the_wheel_job_runs_the_docs_tests_against_the_built_wheel() -> None:
     assert "SHARPIT_TEST_WHEEL" in body
     assert "tests/docs/test_bundled_docs.py" in body
     assert "tests/cli/test_docs.py" in body
+
+
+NIGHTLY_LIVE = (CI_PATH.parent / "nightly-live.yml").read_text(encoding="utf-8")
+NIGHTLY_IMAGES = [
+    ("mysql80", "mysql:8.0"),
+    ("mysql84", "mysql:8.4"),
+    ("mariadb", "mariadb:10.11"),
+    ("mariadb", "mariadb:11.4"),
+    ("mariadb", "mariadb:11.8"),
+    *[("postgresql", f"postgres:{major}") for major in range(14, 19)],
+]
+
+
+def _live_rows(text: str) -> list[tuple[str, str, str]]:
+    """Each matrix row's server key, image and pinned oracle leg counts."""
+    return re.findall(r'- \{ (?:key|server): (\w+), image: "?([^",]+)"?,.*?\blegs: "([^"]+)"', text)
+
+
+def _nightly_check() -> str:
+    """The nightly's check command on one line."""
+    command = NIGHTLY_LIVE.split("scripts/ci/check_live_tests.py ", 1)[1].split("- name:", 1)[0]
+    return " ".join(command.replace("\\\n", " ").split())
+
+
+def test_the_nightly_requires_only_live_tests_that_exist() -> None:
+    required = set(re.findall(r"\btest_\w+", _nightly_check()))
+    defined = {
+        name
+        for path in (Path(__file__).parent / "live").glob("test_*.py")
+        for name in re.findall(r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.MULTILINE)
+    }
+    assert required - defined == set()
+
+
+def test_the_nightly_checks_every_leg_and_required_test() -> None:
+    assert _nightly_check() == (
+        'live.xml --legs "${legs[@]}" --require test_a_server_answers=1 test_oracle_row '
+        "test_a_refused_statement_keeps_its_value_hidden=1"
+    )
+
+
+def test_the_nightly_passes_its_matrix_legs_to_the_check() -> None:
+    step = NIGHTLY_LIVE.split("- name: Require executed oracle tests", 1)[1].split("- name:", 1)[0]
+    assert "LEGS: ${{ matrix.legs }}" in step
+    assert 'read -r -a legs <<< "$LEGS"' in step
+
+
+def test_the_nightly_pins_the_oracle_legs_ci_pins() -> None:
+    ci = {key: legs for key, _, legs in _live_rows(CI)}
+    assert _live_rows(NIGHTLY_LIVE) == [(key, image, ci[key]) for key, image in NIGHTLY_IMAGES]
