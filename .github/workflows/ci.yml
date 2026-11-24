@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
@@ -176,7 +176,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
@@ -274,7 +274,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
@@ -367,7 +367,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
@@ -492,7 +492,7 @@ jobs:
         if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         if: needs.changes.outputs.code != 'false'
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
@@ -534,7 +534,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0 # blame and new-code detection need full history
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         if: needs.changes.outputs.code != 'false'
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
@@ -612,7 +612,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
@@ -717,7 +717,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: >-
@@ -835,7 +835,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
@@ -947,7 +947,7 @@ jobs:
       - name: main never tracks .superpowers/ (harvest into docs/reports/ first)
         if: needs.changes.outputs.wheel != 'false' && github.base_ref == 'main'
         run: python3 scripts/ci/no_superpowers.py
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         if: needs.changes.outputs.wheel != 'false'
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
@@ -998,7 +998,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with: # zizmor: ignore[cache-poisoning]
           enable-cache: true
       - run: uv python install 3.14
