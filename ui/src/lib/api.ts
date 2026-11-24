@@ -57,7 +57,8 @@ function url(path: string, params: Params = {}): string {
     if (value !== null && value !== undefined && value !== '') query.set(key, String(value));
   }
   const qs = query.toString();
-  return `api/${path}${qs ? `?${qs}` : ''}`;
+  const suffix = qs ? `?${qs}` : '';
+  return `api/${path}${suffix}`;
 }
 
 async function request<T>(

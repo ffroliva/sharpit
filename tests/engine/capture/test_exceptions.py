@@ -199,8 +199,9 @@ def test_set_status_known_and_unknown():
 @pytest.mark.parametrize("value", [None, "", "  ", "CLOSED"])
 def test_invalid_status_checked_before_the_group(value: str | None):
     # ported: ExceptionsService.parseStatus / updateStatus (a bad status is a 400 even for an unknown id)
+    store = _store()
     with pytest.raises(ValueError, match=r"^Invalid status '.*'; expected one of OPEN, ACKNOWLEDGED, RESOLVED$"):
-        _store().set_status("does-not-exist", value)
+        store.set_status("does-not-exist", value)
 
 
 def test_acknowledged_does_not_auto_transition():

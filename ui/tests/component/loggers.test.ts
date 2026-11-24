@@ -43,7 +43,7 @@ it('a failed level change puts the select back to the level actually configured'
   component = mount(Loggers, { target, props: { panel } });
   flushSync();
   const select = () => target.querySelector<HTMLSelectElement>('#level-app')!;
-  await vi.waitFor(() => expect(select().options.length).toBe(4), { timeout: 1000, interval: 5 });
+  await vi.waitFor(() => expect(select().options).toHaveLength(4), { timeout: 1000, interval: 5 });
   select().value = 'DEBUG';
   select().dispatchEvent(new Event('change', { bubbles: true }));
   await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toBe('Logging is locked'), {
@@ -73,7 +73,7 @@ it('a level change reloads the visible rows, so descendants show their new effec
   flushSync();
   const select = () => target.querySelector<HTMLSelectElement>('#level-app')!;
   const effective = (name: string) => target.querySelector(`#level-${CSS.escape(name)}`)!.closest('tr')!.children[1]!.textContent;
-  await vi.waitFor(() => expect(select().options.length).toBe(5), { timeout: 1000, interval: 5 });
+  await vi.waitFor(() => expect(select().options).toHaveLength(5), { timeout: 1000, interval: 5 });
 
   // NOTSET is how Python spells inherit: one option, which names the level it inherits
   expect([...select().options].map((o) => o.textContent)).toEqual(['inherit (WARNING)', 'CRITICAL', 'ERROR', 'WARNING', 'DEBUG']);
