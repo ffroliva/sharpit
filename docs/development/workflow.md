@@ -140,18 +140,8 @@ it with a merge commit, not a squash, so the evidence stays reachable in history
 `scripts/ci/no_superpowers.py` fails any pull request into `main` that still tracks `.superpowers/`.
 Example: `docs/reports/2026-11-02-0.4.0-decisions.md`.
 
-When the owner requests a release, the bump and changelog go on `chore/release-<version>`. If a version branch
-exists, stage the changes through a merge-commit PR into `release/<version>` and use that branch as the ship head.
-Otherwise the chore branch is the ship head. Bring it up to date with main and open or reuse a draft PR into main.
-Wait for green checks and verify CodeQL and the code-scan ratchet with `uv run python scripts/ci/ship_scan.py <PR_NUMBER>`. Council reviews the draft head.
-Rerun the gate, confirm it verified the reviewed SHA, then mark the PR ready. Before merging, check all checks,
-the head, the base branch and the live main SHA again. A changed head or base returns the PR to draft for a fresh
-scan and review. Merge with `--merge --match-head-commit "$VERIFIED_SHA"` and delete only the chore branch.
-The [release procedure](../../skills/release/SKILL.md) gives the commands for both paths.
-
-After the merge, a signed tag `v<version>` on `main` is the release. Pushing that tag
-runs `.github/workflows/release.yml`, which publishes to PyPI with Trusted Publishing and creates the GitHub Release.
-Nobody uploads by hand, and the tag is only pushed after the owner says go.
+The [release procedure](../../skills/release/SKILL.md) covers both paths through the draft PR, code-scan ratchet,
+council review and pinned merge. After owner approval, pushing the signed release tag starts publication.
 
 ## Issues
 

@@ -88,19 +88,8 @@ fast-forward pushes. Default setup records PR analyses on `refs/pull/<N>/head`. 
 `main`, `scripts/ci/ship_scan.py` verifies the exact head's CodeQL evidence and code-scan ratchet before the PR
 becomes ready. The gate on this draft is independent of the classic rule.
 
-To undo the classic rule, look up the exact pattern and use its matching ID as `RULE_ID`. Ruleset `27883117`
-continues to protect `release/**`.
-
-```bash
-gh api graphql --paginate -f query='query($endCursor:String){
-  repository(owner:"ffroliva",name:"sharpit"){branchProtectionRules(first:100,after:$endCursor){
-    nodes{id pattern} pageInfo{hasNextPage endCursor}
-  }}
-}' --jq '.data.repository.branchProtectionRules.nodes[] | select(.pattern == "release/*")'
-gh api graphql -f r="$RULE_ID" -f query='mutation($r:ID!){
-  deleteBranchProtectionRule(input:{branchProtectionRuleId:$r}){clientMutationId}
-}'
-```
+The [classic protection rule procedure](../superpowers/plans/2026-11-24-issue-303-codeql-release-branches.md#classic-protection-rule)
+includes verification and undo commands.
 
 ## Wall clock
 

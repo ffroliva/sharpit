@@ -93,19 +93,21 @@ The file name must carry `<version>`; CI refuses the tag otherwise. Do not commi
 the path of a file containing the release PR description.
 
 ```bash
-git add src/sharpit/__init__.py CHANGELOG.md
+git add src/sharpit/__init__.py plugins/sharpit/plugin.json plugins/sharpit/.claude-plugin/plugin.json tests/test_packaging.py CHANGELOG.md
 git commit -s -m "chore: release $version"
 git push -u origin "chore/release-$version"
 ```
 
 For a release cut from `origin/main`, continue to step 8. For one cut from `origin/release/$version`, stage the
 changes on the version branch first. Capture the new PR URL as `STAGING_PR`.
-Once the staging checks pass, merge with a merge commit to preserve ancestry.
+Pin the staging merge to the local commit that was pushed. If no checks are reported yet, wait and rerun
+the checks and pinned merge for the existing staging PR.
 
 ```bash
-STAGING_PR=$(gh pr create --base "release/$version" --head "chore/release-$version" --title "Stage release $version" --body-file "$body_file")
-gh pr checks "$STAGING_PR" --watch
-gh pr merge "$STAGING_PR" --merge
+STAGING_SHA=$(git rev-parse "chore/release-$version") &&
+STAGING_PR=$(gh pr create --base "release/$version" --head "chore/release-$version" --title "Stage release $version" --body-file "$body_file") &&
+gh pr checks "$STAGING_PR" --watch &&
+gh pr merge "$STAGING_PR" --merge --match-head-commit "${STAGING_SHA:?}"
 ```
 
 **8. Scan the draft release PR into main.** Fetch before synchronizing the ship head.
@@ -114,39 +116,62 @@ gh pr merge "$STAGING_PR" --merge
 git fetch origin
 ```
 
-Find an existing PR with the command below, setting `ship` to `chore/release-$version` on the direct
-path or `release/$version` on the version-branch path. Reuse its number if it is draft. If it is ready,
-return it to draft with `gh pr ready "$N" --undo` before verification. Run the applicable create command
-only when the lookup returns no PR.
+For the direct path, update and push the chore branch.
+
+```bash
+git switch "chore/release-$version" &&
+git merge --no-edit origin/main &&
+git push origin "chore/release-$version"
+```
+
+For the version-branch path, check `git merge-base --is-ancestor origin/main "origin/release/$version"`.
+If the version branch lacks the current main commit or needs a fix, start a fresh staging branch from the
+current version branch. Set `stage` to an unused branch name. Create the branch before applying and committing
+any fix, then merge main and push it.
+
+```bash
+git switch -c "$stage" "origin/release/$version"
+```
+
+After committing any fix, stage the updated head.
+
+```bash
+git merge --no-edit origin/main &&
+git push -u origin "$stage" &&
+STAGING_SHA=$(git rev-parse "$stage") &&
+STAGING_PR=$(gh pr create --base "release/$version" --head "$stage" --title "Update release $version" --body-file "$body_file") &&
+gh pr checks "$STAGING_PR" --watch &&
+gh pr merge "$STAGING_PR" --merge --match-head-commit "${STAGING_SHA:?}"
+```
+
+If no staging checks are reported yet, wait and rerun the checks and pinned merge for the existing staging PR.
+After its successful merge, clean up the temporary staging branch from the merged version-branch commit.
+
+```bash
+git fetch origin &&
+git switch --detach "origin/release/$version" &&
+git merge-base --is-ancestor "$stage" HEAD &&
+git push origin --delete "$stage" &&
+git branch -d "$stage"
+```
+
+For either path, look up the PR after updating the ship head. Set `ship` to `chore/release-$version` or
+`release/$version` for the chosen path. A reusable PR must have been opened against main with that head.
 
 ```bash
 gh pr list --state open --base main --head "$ship" --json number,isDraft
 ```
 
-For the direct path, update and push the chore branch. Open the draft shown below, or reuse the existing
-draft with the same head and base.
+Reuse the matching draft. If the matching PR is ready, set `N` to its number and run `gh pr ready "$N" --undo`.
+If the lookup finds no PR, use the create command for the chosen path.
+
+Direct path:
 
 ```bash
-git switch "chore/release-$version"
-git merge --no-edit origin/main
-git push origin "chore/release-$version"
 gh pr create --draft --base main --head "chore/release-$version" --title "Release $version" --body-file "$body_file"
 ```
 
-For the version-branch path, check `git merge-base --is-ancestor origin/main "origin/release/$version"`.
-If the version branch lacks the current main commit or needs a fix, start a fresh staging branch from the
-current version branch. Set `stage` to an unused branch name. Apply and commit any fix on that branch.
-
-```bash
-git switch -c "$stage" "origin/release/$version"
-git merge --no-edit origin/main
-git push -u origin "$stage"
-STAGING_PR=$(gh pr create --base "release/$version" --head "$stage" --title "Update release $version" --body-file "$body_file")
-gh pr checks "$STAGING_PR" --watch
-gh pr merge "$STAGING_PR" --merge
-```
-
-After staging, open or reuse the draft from the version branch.
+Version-branch path:
 
 ```bash
 gh pr create --draft --base main --head "release/$version" --title "Release $version" --body-file "$body_file"
@@ -174,29 +199,27 @@ Record the successful gate's printed head and base as `VERIFIED_SHA` and `VERIFI
 gh pr ready "$N"
 ```
 
-Immediately before merging, confirm all checks are still green and each comparison succeeds. Stop at a failed check.
+Shell variables do not persist between separate shell calls. In the shell running the following block,
+set `N`, `version`, `main_checkout`, and the recorded `VERIFIED_SHA` and `VERIFIED_BASE`. The merge pins the
+head. Keep the step 3 hold on main through the interval following the live base check.
 
 ```bash
-gh pr checks "$N"
-test "$(gh pr view "$N" --json headRefOid --jq .headRefOid)" = "$VERIFIED_SHA"
-test "$(gh pr view "$N" --json baseRefName --jq .baseRefName)" = main
-test "$(gh api repos/ffroliva/sharpit/git/ref/heads/main --jq .object.sha)" = "$VERIFIED_BASE"
+gh pr checks "$N" &&
+test "$(gh pr view "$N" --json headRefOid --jq .headRefOid)" = "${VERIFIED_SHA:?}" &&
+test "$(gh pr view "$N" --json baseRefName --jq .baseRefName)" = main &&
+test "$(gh api repos/ffroliva/sharpit/git/ref/heads/main --jq .object.sha)" = "${VERIFIED_BASE:?}" &&
+gh pr merge "$N" --merge --match-head-commit "${VERIFIED_SHA:?}" && {
+  git push origin --delete "chore/release-$version"
+  cd "$main_checkout" && git worktree remove "../sharpit-release-$version"
+}
 ```
 
-If the head, base branch or base SHA changes, return the PR to draft and repeat step 8, council, gate and checks.
+On Windows a held `.venv` can block worktree removal. Record the directory for manual deletion.
+If the head, base branch or base SHA changes before merge, return the PR to draft and repeat step 8, council,
+gate and checks.
 
 ```bash
 gh pr ready "$N" --undo
-```
-
-When every check passes, merge at the verified head. The merge command pins only the head, so the hold on
-merges to main from step 3 covers the interval after the live base check. After a successful merge, delete
-only the chore branch by name. Set `main_checkout` to the main checkout path and remove the worktree there.
-
-```bash
-gh pr merge "$N" --merge --match-head-commit "$VERIFIED_SHA"
-git push origin --delete "chore/release-$version"
-cd "$main_checkout" && git worktree remove "../sharpit-release-$version"
 ```
 
 **10. Sign the tag on the merged `main`.**
