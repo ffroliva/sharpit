@@ -29,7 +29,9 @@ outside `main`.
 PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged `release/<version>` into
 `main`. The gate runs on the draft PR into `main`.
 
-- [ ] Step 8 in `skills/release/SKILL.md` opens or reuses a draft PR into `main`, waits for its checks and runs
+- [ ] Step 8 in `skills/release/SKILL.md` first brings the ship head up to date with `main`: merge `origin/main`
+  (after a fetch) into `chore/release-<version>` and push it or, on the version-branch path, into a branch that
+  reaches `release/<version>` through a staging PR. It then opens or reuses a draft PR into `main`, waits for its checks and runs
   `uv run python scripts/ci/ship_scan.py <PR_NUMBER>`. The classic rule is not a gate input: it does not affect
   the scan of a PR into `main`.
 - [ ] Write out both release paths in the skill:
@@ -40,9 +42,9 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
     new staging PR, never only to the merged chore branch.
 - [ ] Step 9 runs the council on the draft head, then the gate, and requires both for the same head SHA. The
   gate prints the head and base SHA. With all checks green, `gh pr ready <N>` follows. Immediately before the
-  merge, the skill confirms that the checks are still green, the base is still `main` and `origin/main` still
-  has the recorded base SHA. A changed head or base runs `gh pr ready <N> --undo` and repeats council, gate and
-  checks; a moved `main` is first merged into the ship head.
+  merge, the skill confirms that the checks are still green, the base is still `main` and
+  `gh api repos/ffroliva/sharpit/git/ref/heads/main --jq .object.sha` still prints the recorded base SHA. A changed head or base runs `gh pr ready <N> --undo` and returns to
+  step 8 and repeats council, gate and checks.
 - [ ] Merge with `gh pr merge <N> --merge --match-head-commit "$VERIFIED_SHA"`, which refuses a different head.
   GitHub has no matching flag for the base, so a push to `main` between the check and the merge remains
   possible; step 3's hold on merges to `main` covers it. After the merge only `chore/release-<version>` is
