@@ -180,6 +180,10 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _batch_size(parameters: object, batch_size: int | None) -> int:
+    return batch_size if batch_size is not None else len(cast_sequence(parameters))
+
+
 def _statement_output(masker: Masker, max_sql_length: int, sql: str, dialect: Dialect) -> tuple[Shape, str, str]:
     shape = sqltext.statement_shape(masker, sql, dialect)
     return shape, _truncate(shape.text, max_sql_length), category_of(sql)
@@ -303,6 +307,13 @@ class SqlTraceRecorder:
         shown, masked = self._masker.mask(name, value)
         return _truncate(MASK if masked else repr(shown), self._max_parameter_length)
 
+    def _error_message(self, error: BaseException | None, dialect: Dialect) -> str | None:
+        if error is None:
+            return None
+        masker = self._masker
+        masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")
+        return _truncate(masked, self._max_sql_length) if masked is not None else None
+
     def record(
         self,
         sql: str,
@@ -331,10 +342,7 @@ class SqlTraceRecorder:
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
         stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
-        error_message: str | None = None
-        if error is not None:
-            masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")
-            error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
+        error_message = self._error_message(error, dialect)
         has_parameters = bool(parameters)
         millis = duration_ns // 1_000_000
         site = call_site if self.capture_call_site else None
@@ -349,9 +357,7 @@ class SqlTraceRecorder:
             "success": success and error is None,
             "errorMessage": error_message,
             "affectedRows": rowcount if rowcount >= 0 and error is None else None,
-            "batchSize": (batch_size if batch_size is not None else len(cast_sequence(parameters)))
-            if executemany and has_parameters
-            else 0,
+            "batchSize": _batch_size(parameters, batch_size) if executemany and has_parameters else 0,
             "connectionId": connection_id,
             "thread": thread,
             "slow": self._slow(millis),

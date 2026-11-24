@@ -156,7 +156,7 @@ def _resource(obj: object) -> str | None:
             return None
         line = _first_line(target)
         return f"{source}:{line}" if line is not None else source
-    except Exception:  # noqa: BLE001 - no source (built-in, C extension, exec'd): the bean stays, without a resource
+    except Exception:  # noqa: BLE001  # no source (built-in, C extension, exec'd): the bean stays, without a resource
         return None
 
 
@@ -229,7 +229,9 @@ def _return_annotation(endpoint: object) -> object | None:
             raw = inspect.signature(endpoint).return_annotation  # pyright: ignore[reportArgumentType]
         except (TypeError, ValueError):
             return None
-        return None if raw is inspect.Signature.empty else type(None) if raw is None else raw
+        if raw is inspect.Signature.empty:
+            return None
+        return type(None) if raw is None else raw
 
 
 def _query_params(dependant: object, depth: int = 0) -> tuple[str, ...]:
@@ -426,6 +428,34 @@ def _secured_route(
     return SecuredRoute(
         info.methods, info.path, info.handler, tuple(dict.fromkeys(schemes)), unknown, False, regex, chain, unchecked
     )
+
+
+class _ProviderGraph:
+    """The dependency providers found so far (identity -> object, discovery order) and their direct sub-providers."""
+
+    def __init__(self) -> None:
+        self.found: dict[int, tuple[object, Literal["request", "singleton"]]] = {}
+        self.edges: dict[int, dict[int, None]] = {}  # identity -> ordered direct sub-provider identities
+
+    def add(self, obj: object, scope: Literal["request", "singleton"]) -> tuple[int, bool]:
+        key = id(obj)
+        new = key not in self.found
+        if new:
+            self.found[key] = (obj, scope)
+            self.edges[key] = {}
+        return key, new
+
+    def visit(self, dependant: object, owner: int | None, depth: int) -> None:
+        subs: Any = getattr(dependant, "dependencies", None) or ()
+        for sub in list(subs):  # NOSONAR - snapshot: a host thread may add routes while the panel reads
+            call = getattr(sub, "call", None)
+            if call is None:
+                continue
+            key, new = self.add(call, "request")  # registered before the edge, so an edge never dangles
+            if owner is not None:
+                self.edges[owner][key] = None
+            if new and depth < MAX_DEPTH:
+                self.visit(sub, key, depth + 1)
 
 
 class FastApiIntrospector:
@@ -773,65 +803,52 @@ class FastApiIntrospector:
             (), info.path, info.handler, opaque=True, path_regex=_path_regex(info.path, True), chain=chain
         )
 
-    def providers(self) -> list[ProviderInfo]:
-        # Read attributes only: no dependency is called, the middleware stack is never built, no OpenAPI schema.
-        # Beans are dependency providers; route endpoints are mappings, not beans.
-        found: dict[int, tuple[object, Literal["request", "singleton"]]] = {}  # identity -> object, discovery order
-        edges: dict[int, dict[int, None]] = {}  # identity -> ordered direct sub-provider identities
-
-        def add(obj: object, scope: Literal["request", "singleton"]) -> tuple[int, bool]:
-            key = id(obj)
-            new = key not in found
-            if new:
-                found[key] = (obj, scope)
-                edges[key] = {}
-            return key, new
-
-        def visit(dependant: object, owner: int | None, depth: int) -> None:
-            subs: Any = getattr(dependant, "dependencies", None) or ()
-            for sub in list(subs):
-                call = getattr(sub, "call", None)
-                if call is None:
-                    continue
-                key, new = add(call, "request")  # registered before the edge, so an edge never dangles
-                if owner is not None:
-                    edges[owner][key] = None
-                if new and depth < MAX_DEPTH:
-                    visit(sub, key, depth + 1)
-
+    def _collect_route_providers(self, graph: _ProviderGraph) -> None:
         for _, route in self._entries():
             try:
-                visit(_attrs(route).get("dependant") if route is not None else None, None, 0)
+                graph.visit(_attrs(route).get("dependant") if route is not None else None, None, 0)
                 for dependency in self._included_dependencies_by_route.get(id(route), ()):
                     call = getattr(dependency, "dependency", None)
                     if call is not None:
-                        key, new = add(call, "request")
+                        key, new = graph.add(call, "request")
                         if new:
-                            visit(_dependant_of(call), key, 1)
+                            graph.visit(_dependant_of(call), key, 1)
             except Exception:  # noqa: BLE001,S112 - one odd route must not empty the panel
                 continue
 
+    def _collect_override_providers(self, graph: _ProviderGraph) -> dict[int, int]:
         overridden_by: dict[int, int] = {}
         overrides: Any = _attrs(self.app).get("dependency_overrides") or {}
-        for original, override in list(overrides.items()):
+        for original, override in list(overrides.items()):  # NOSONAR - snapshot: a host thread may edit the overrides
             try:
-                add(original, "request")
-                key, new = add(override, "request")
+                graph.add(original, "request")
+                key, new = graph.add(override, "request")
                 overridden_by[id(original)] = key
                 if new:
-                    visit(_dependant_of(override), key, 1)
+                    graph.visit(_dependant_of(override), key, 1)
             except Exception:  # noqa: BLE001,S112
                 continue
+        return overridden_by
 
+    def _collect_singletons(self, graph: _ProviderGraph) -> None:
         middleware: Any = _attrs(self.app).get("user_middleware") or ()
-        for entry in list(middleware):
+        for entry in list(middleware):  # NOSONAR - snapshot: the middleware list can change while the panel reads
             cls = getattr(entry, "cls", None)  # only the class: args/kwargs (secret keys) are never read
             if cls is not None and not getattr(cls, "__module__", "").startswith(
                 _OWN_MODULE_PREFIX
             ):  # not sharpit's own
-                add(cls, "singleton")
+                graph.add(cls, "singleton")
         if self.lifespan is not None:
-            add(self.lifespan, "singleton")
+            graph.add(self.lifespan, "singleton")
+
+    def providers(self) -> list[ProviderInfo]:
+        # Read attributes only: no dependency is called, the middleware stack is never built, no OpenAPI schema.
+        # Beans are dependency providers; route endpoints are mappings, not beans.
+        graph = _ProviderGraph()
+        self._collect_route_providers(graph)
+        overridden_by = self._collect_override_providers(graph)
+        self._collect_singletons(graph)
+        found, edges = graph.found, graph.edges
 
         names: dict[int, str] = {}
         seen: dict[str, int] = {}
