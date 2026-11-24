@@ -25,7 +25,7 @@ def test_severity_order():
 
 def test_rule_definition_is_frozen():
     with pytest.raises(dataclasses.FrozenInstanceError):
-        RULE.severity = "LOW"  # type: ignore[misc]
+        RULE.severity = "LOW"  # type: ignore[misc]  # NOSONAR - the test asserts that this assignment raises
 
 
 def test_failed_result_keeps_first_ten_samples():

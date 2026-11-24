@@ -48,7 +48,7 @@ describe('ServerPage', () => {
     expect(p.hasMore).toBe(false);
     const calls = fetchMock.mock.calls.length;
     expect(await p.more()).toBe(p); // nothing more to fetch
-    expect(fetchMock.mock.calls.length).toBe(calls);
+    expect(fetchMock.mock.calls).toHaveLength(calls);
   });
 });
 
@@ -57,7 +57,7 @@ describe('ServerPage.more concurrency', () => {
     const p = await ServerPage.load<Logger>('loggers', 'loggers');
     const calls = fetchMock.mock.calls.length;
     const [a, b] = await Promise.all([p.more(), p.more()]);
-    expect(fetchMock.mock.calls.length).toBe(calls + 1);
+    expect(fetchMock.mock.calls).toHaveLength(calls + 1);
     expect(a).toBe(b);
     expect(a.items).toHaveLength(400);
   });
@@ -66,12 +66,12 @@ describe('ServerPage.more concurrency', () => {
 describe('ServerPage.loadAll', () => {
   it('loads every page', async () => {
     const all = await ServerPage.loadAll<Logger>('loggers', 'loggers', 5000);
-    expect(all.length).toBe(loggers.loggers.length);
+    expect(all).toHaveLength(loggers.loggers.length);
   });
 
   it('stops at the row cap', async () => {
     const all = await ServerPage.loadAll<Logger>('loggers', 'loggers', PAGE_SIZE);
-    expect(all.length).toBe(PAGE_SIZE);
+    expect(all).toHaveLength(PAGE_SIZE);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

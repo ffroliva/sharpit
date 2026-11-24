@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ from sharpit.engine.testsession.sink import TestSessionSink
 
 def test_worker_and_controller_collect_the_same_facts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(pytest_plugin.sys.modules, "asyncpg", object())
+    gc.collect()  # engines are found through gc.get_objects(): drop dead ones so both calls see the same set
     worker = SimpleNamespace(sink=TestSessionSink("gw0"), sqlite_attached=False)
     controller = SimpleNamespace(sink=TestSessionSink("master"), sqlite_attached=False)
 
