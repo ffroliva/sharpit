@@ -113,6 +113,12 @@ the `UsageError` at `src/sharpit/pytest_plugin/marker.py:58`), the summary write
 
 ## Task 7 (second pull request): split `_update_aggregate`
 
+**Outcome: dropped.** Four versions were reviewed in #319, which is closed without merging. Each was worse than `main`
+in at least one case: groups returned with counts from before a clear, a statement was lost in the group constructor, or
+a group was reported for a statement whose row a clear had removed. The complexity of the function fell from 8 to 6 and
+the paired timing of the first version did not regress, so this is not the drop condition below; the split is dropped
+for behaviour. `_update_aggregate` is unchanged on `main`. The reentry findings and their measurements are in #320.
+
 File: `src/sharpit/engine/capture/sqltrace.py:391`. Hot path: the SQL listener's per-statement overhead budget applies,
 and it is never raised.
 
