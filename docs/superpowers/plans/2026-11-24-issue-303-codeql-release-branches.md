@@ -26,15 +26,16 @@ the pull request is draft. This uses the actual diff into `main` even when a ver
 The old branch scan checks a ref that CodeQL does not scan, and the Sonar ratchet's branch mode is a no-op
 outside `main`.
 
+PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged `release/<version>` into
+`main`. The gate runs on the draft PR into `main`.
+
 - [ ] Step 8 in `skills/release/SKILL.md` verifies that exactly one classic rule matches the pattern `release/*`.
   It opens or reuses the release pull request as a draft into `main`, waits for checks, and runs
   `uv run python scripts/ci/ship_scan.py <PR_NUMBER>`. After exit 0, the skill compares the verified SHA with
   the current head before `gh pr ready <N>`. If the head changes, it waits for the new checks and runs the
   script again. Step 9 reviews and merges the existing pull request.
-- [ ] Update `docs/development/ci.md` with the rule, default setup, and the PR scan ref. Update
-  `docs/development/workflow.md` with the draft procedure. Add the decision record
-  `docs/decisions/codeql-release-branches.md`, index it in `docs/decisions/README.md`, and add it to
-  `src/sharpit/cli/docs_catalog.py`. Record the rule and draft procedure as proposed until approved.
+- [ ] Document the proposed rule in `docs/development/ci.md` with default setup and the PR scan ref, and in
+  `docs/development/workflow.md` and `skills/release/SKILL.md` with the draft procedure.
 - [ ] Add a `tests/docs/` check that step 8 opens a draft into `main` and invokes `ship_scan.py` before
   marking it ready. Prove the check by removing each required element in turn.
 
@@ -43,25 +44,28 @@ outside `main`.
 - [ ] Add `scripts/ci/ship_scan.py` with `main(argv: list[str] | None = None) -> int`, following
   `scripts/ci/sonar_ratchet.py`. Use the standard library and isolate all `gh` subprocess calls behind
   one function that tests replace with fixtures. The only CLI argument is a positive pull request number
-  in `ffroliva/sharpit`. Either release head naming convention works, as in #281/#282
-  (`chore/release-<version>`) and #298 (`release/<version>`).
+  in `ffroliva/sharpit`.
 - [ ] Exit `0` and print the verified head SHA on success. Exit `1` when a release check fails or its
   evidence is absent. Exit `2` on invalid input, API failure, or malformed or incomplete response data.
   Report the reason to stderr on nonzero exit. The script makes only read requests.
-- [ ] Read the PR and capture its head SHA. Require draft status and base `main`. On `refs/pull/<N>/head`,
-  require the exact CodeQL category set `/language:actions`, `/language:javascript-typescript`, and
-  `/language:python` for that SHA, and zero open code scanning alerts on the ref.
-- [ ] Require the PR's own `pull_request` run of `.github/workflows/ci.yml` for that SHA. Match the run to the
-  PR number using explicit PR evidence. In the latest attempt of the latest matching run, the `sonar` job must
-  contain `Sonar ratchet (no new issues; main never above sonar-baseline.txt)` with conclusion `success`.
-  A missing or skipped step fails the gate, even when the job is green. A `push` run for the same SHA
-  can report success after a no-op ratchet. Paginate the run, job, analysis, and alert lists. CI runs can have
-  45 jobs.
+- [ ] Require PR state `open`, draft `true`, and base `main`, then capture its head SHA.
+  On `refs/pull/<N>/head`, select analyses with `tool.name == "CodeQL"` and `commit_sha` equal to that SHA.
+  Their category set must equal `{/language:actions, /language:javascript-typescript, /language:python}`,
+  and the ref must have zero open code scanning alerts.
+- [ ] Match runs by path `.github/workflows/ci.yml`, event `pull_request`, exact `head_sha`, and PR number
+  in `run.pull_requests`. GitHub empties this list for closed PRs. An empty list cannot establish a match
+  on an open PR, so the gate fails closed if no run matches.
+  Select the match with the greatest `run_number` and inspect jobs from its latest attempt only.
+  Require the `sonar` job to have status `completed` and conclusion `success`, and its step
+  `Sonar ratchet (no new issues; main never above sonar-baseline.txt)` to have conclusion `success`.
+- [ ] Parse every concatenated JSON page from paginated calls, combining the `workflow_runs` or `jobs` lists
+  from object pages and the entries from array pages for analyses and alerts.
 - [ ] Re-read the PR after the checks and reject a changed head SHA.
 - [ ] Add fixtures under `tests/scripts/` for a pass and each failure. Cover API error, parse error,
-  non-draft PR, wrong base, missing or extra category, stale CodeQL SHA, missing PR CI run with same-SHA push CI,
-  wrong or unproven PR association, missing ratchet step, skipped step, other unsuccessful conclusion,
-  open alert, and changed head. Include pagination in the pass case and place an open alert on a later page
+  non-draft PR, closed draft (#319), wrong base, missing or extra category, stale SHA, wrong analysis tool,
+  same-SHA push run, wrong workflow path, wrong or empty PR association, success only on an older run or attempt,
+  incomplete or unsuccessful job, missing or skipped ratchet step, other unsuccessful step conclusion,
+  open alert, and changed head. Use several pages for all four endpoints in the pass fixture and a later-page alert
   in its failure case. See each failure assertion red before implementing its guard, then delete each guard
   in turn to show the test fails.
 
@@ -104,8 +108,9 @@ gh api graphql -f r="$RULE_ID" -f query='mutation($r:ID!){
 - [ ] On [#298](https://github.com/ffroliva/sharpit/pull/298), use read-only API calls to confirm the PR
   metadata and stable head SHA, compare PR run `45199386677` with same-SHA push run `45199371013`, inspect
   the PR run's paginated jobs for the ratchet step conclusion, and check exact-head CodeQL categories and
-  open alerts on `refs/pull/298/head`. The historical PR run has an empty `pull_requests` list. Its `sonar`
-  job log identifies `PR: 298` for the ratchet step. The merged PR's non-draft status fails the live gate.
+  open alerts on `refs/pull/298/head`. The historical run's empty `pull_requests` list cannot verify association.
+- [ ] On the first open draft release PR into `main`, verify that the matching CI run lists its PR number
+  in `run.pull_requests` and that the gate returns the current head SHA.
 - [ ] If the rule is approved and enabled, record the CodeQL analysis categories and SHA for the first
   measured push to `refs/heads/release/<version>`. Expect all three categories on the pushed head.
 - [ ] Close #303 only after the maintainer resolves the rule decision and step 8 runs successfully once
