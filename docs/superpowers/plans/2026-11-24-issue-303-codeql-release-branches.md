@@ -67,8 +67,8 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
   A well-formed answer that lacks the required run, job, step, check run or category is absent evidence, exit `1`.
   Report the reason to stderr on nonzero exit. The script makes only read requests.
 - [ ] Require PR state `open`, draft `true`, and base `main`, then capture its head SHA
-  and the SHA of `refs/heads/main`. Require the head to contain that SHA (compare API, `behind_by` is `0`).
-  On `refs/pull/<N>/head`, select analyses with `tool.name == "CodeQL"` and `commit_sha` equal to that SHA.
+  and the SHA of `refs/heads/main`. Require the head to contain that `main` SHA (compare API, `behind_by` is `0`).
+  On `refs/pull/<N>/head`, select analyses with `tool.name == "CodeQL"` and `commit_sha` equal to the head SHA.
   Their category set must equal `{/language:actions, /language:javascript-typescript, /language:python}`,
   and every selected analysis must have an empty `error`. Use the newest analysis per category. The ref must have
   zero open code scanning alerts; dismissed alerts pass, so a dismissal stays a review matter.
