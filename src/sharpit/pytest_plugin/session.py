@@ -215,6 +215,8 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
             session.exitstatus = pytest.ExitCode.USAGE_ERROR
             sys.stderr.write(f"ERROR: {marker_error}\n")
         return
+    if exitstatus == pytest.ExitCode.USAGE_ERROR:  # pytest's own usage errors (-m, -k, paths): no run, no report
+        return
     state.test_files = _test_files(session.config)
     local_partial = _partial_facts(state, session)
     if worker:

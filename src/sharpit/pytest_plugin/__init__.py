@@ -180,6 +180,7 @@ def pytest_configure(config: Any) -> None:
             _record_config_hook_failure(config, exc)
 
 
+@pytest.hookimpl(trylast=True)  # after -k, -m and --deselect: only the selected items are validated
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     options = resolve(config)
     if not options.enabled:
@@ -191,8 +192,9 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
         if (state := _state(config)) is not None:
             state.marker_usage_error = str(exc)
         if hasattr(config, "workerinput"):
-            # xdist announces the collection in a finally block. Do not offer items this worker cannot run.
+            # Let xdist complete its scheduling handshake with an empty collection.
             items.clear()
+            return
         raise
 
 
