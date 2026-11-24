@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+from sharpit.engine.capture.sqltrace import MAX_AGGREGATES, SqlTraceRecorder
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
@@ -27,7 +27,7 @@ def _record(recorder: SqlTraceRecorder, sql: str = "select 1") -> None:
     recorder.record(sql, duration_ns=1_000_000, thread="main", connection_id=None, dialect=Dialect.SQLITE)
 
 
-def _collect(action: Callable[[], None]) -> None:
+def _collect(action: Callable[[], object]) -> None:
     """A real collection whose finalizer runs ``action``, as one between two bytecodes does."""
 
     class Finalized:
@@ -86,67 +86,130 @@ def test_both_statements_of_a_reentered_record_are_counted():
     assert recorder.totals().statements == 2
 
 
-def test_a_finalizer_that_clears_mid_record_loses_no_aggregate():
-    """``move_to_end`` after a ``clear`` from the same thread: the key has gone, and that must not fail the record."""
-    recorder = _recorder()
-    _record(recorder)
-
-    class Collected(OrderedDict[str, Any]):
-        collecting = True
-
-        def get(self, key: str, default: Any = None) -> Any:
-            found = super().get(key, default)
-            if self.collecting:
-                self.collecting = False
-                _collect(self.clear)
-            return found
-
-    recorder._aggregates = Collected(recorder._aggregates)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-
-    assert _finishes(lambda: _record(recorder))
-    assert recorder.aggregate_count == 1
+Groups = OrderedDict[str, Any]
 
 
-def _evict_during_lookup(recorder: SqlTraceRecorder, evict: Callable[[OrderedDict[str, Any], str], None]) -> None:
-    """A finalizer that runs ``evict`` inside the recorder's group lookup, between the ``get`` and the promotion."""
+def _during_lookup(recorder: SqlTraceRecorder, action: Callable[[Groups, str], object]) -> list[str]:
+    """A finalizer runs ``action`` right after the first lookup of a known group (``get`` or ``move_to_end``).
 
-    class Collected(OrderedDict[str, Any]):
-        collecting = True
+    Returns the keys it ran for, so a test can assert the window was actually reached.
+    """
+    fired: list[str] = []
+
+    class Collected(Groups):
+        def _fire(self, key: str) -> None:
+            if not fired and key in self:
+                fired.append(key)
+                _collect(lambda: action(self, key))
 
         def get(self, key: str, default: Any = None) -> Any:
             found = super().get(key, default)
-            if self.collecting and found is not None:
-                self.collecting = False
-                _collect(lambda: evict(self, key))
+            self._fire(key)
             return found
 
+        def move_to_end(self, key: str, last: bool = True) -> None:
+            super().move_to_end(key, last)
+            self._fire(key)
+
     recorder._aggregates = Collected(recorder._aggregates)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    return fired
 
 
-def test_a_finalizer_that_evicts_the_group_among_others_loses_no_aggregate():
-    """The ``KeyError`` from ``move_to_end``: the group was evicted while two others remain."""
+def _executions(recorder: SqlTraceRecorder) -> dict[str, int]:
+    """Executions per group, keyed by the statement's table (``select id from <table>``)."""
+    return {group["sql"].rsplit(" ", 1)[-1]: group["executions"] for group in recorder.report([])["topStatements"]}
+
+
+def _select(table: str) -> str:
+    return f"select id from {table}"
+
+
+def test_a_finalizer_that_clears_mid_record_counts_the_statement_afresh():
+    """A ``clear`` inside the lookup: the group returns with this statement only, not the history the clear dropped."""
     recorder = _recorder()
-    for sql in ("select 1 from a", "select 1 from b", "select 1 from c"):
-        _record(recorder, sql)
-    _evict_during_lookup(recorder, lambda groups, key: groups.pop(key, None))
+    _record(recorder, _select("a"))
+    fired = _during_lookup(recorder, lambda groups, _key: groups.clear())
 
-    assert _finishes(lambda: _record(recorder, "select 1 from a"))
-    assert recorder.aggregate_count == 3
+    assert _finishes(lambda: _record(recorder, _select("a")))
+    assert fired
+    assert _executions(recorder) == {"a": 1}
+
+
+def test_a_finalizer_that_evicts_the_group_among_others_counts_it_afresh():
+    """An evicted group's history is gone: the statement that was being counted starts a new group."""
+    recorder = _recorder()
+    for table in "abc":
+        _record(recorder, _select(table))
+    fired = _during_lookup(recorder, lambda groups, key: groups.pop(key, None))
+
+    assert _finishes(lambda: _record(recorder, _select("a")))
+    assert fired
+    assert _executions(recorder) == {"a": 1, "b": 1, "c": 1}
 
 
 def test_a_finalizer_that_clears_and_records_mid_record_loses_no_aggregate():
     """After a clear the finalizer's own statement is the only group: the interrupted statement's group must return."""
     recorder = _recorder()
-    _record(recorder, "select 1 from a")
+    _record(recorder, _select("a"))
 
-    def clear_and_record(groups: OrderedDict[str, Any], _key: str) -> None:
+    def clear_and_record(groups: Groups, _key: str) -> None:
         groups.clear()
-        _record(recorder, "select 1 from b")
+        _record(recorder, _select("b"))
 
-    _evict_during_lookup(recorder, clear_and_record)
+    fired = _during_lookup(recorder, clear_and_record)
 
-    assert _finishes(lambda: _record(recorder, "select 1 from a"))
-    assert recorder.aggregate_count == 2
+    assert _finishes(lambda: _record(recorder, _select("a")))
+    assert fired
+    assert _executions(recorder) == {"a": 1, "b": 1}
+
+
+def test_a_finalizer_that_records_the_same_shape_mid_record_counts_both():
+    """The finalizer recreates the group: the interrupted statement must count on the group the recorder holds."""
+    recorder = _recorder()
+    _record(recorder, _select("a"))
+
+    def clear_and_record(groups: Groups, _key: str) -> None:
+        groups.clear()
+        _record(recorder, _select("a"))
+
+    fired = _during_lookup(recorder, clear_and_record)
+
+    assert _finishes(lambda: _record(recorder, _select("a")))
+    assert fired
+    assert _executions(recorder) == {"a": 2}
+
+
+def test_a_finalizer_that_evicts_the_group_at_the_cap_keeps_the_cap():
+    """A new shape from the finalizer evicts the hit group at the cap: the groups never exceed ``MAX_AGGREGATES``."""
+    recorder = _recorder()
+    for i in range(MAX_AGGREGATES):
+        _record(recorder, _select(f"t{i}"))
+    fired = _during_lookup(recorder, lambda _groups, _key: _record(recorder, _select("x")))
+
+    assert _finishes(lambda: _record(recorder, _select("t0")))
+    assert fired
+    assert recorder.aggregate_count == MAX_AGGREGATES
+
+
+def test_a_finalizer_that_clears_before_the_eviction_does_not_fail_the_record():
+    """A new shape at the cap evicts the oldest group: a ``clear`` just before that must not raise out of ``record``."""
+    recorder = _recorder()
+    for i in range(MAX_AGGREGATES):
+        _record(recorder, _select(f"t{i}"))
+
+    fired: list[bool] = []
+
+    class Collected(Groups):
+        def popitem(self, last: bool = True) -> tuple[str, Any]:
+            if not fired:
+                fired.append(True)
+                _collect(self.clear)
+            return super().popitem(last)
+
+    recorder._aggregates = Collected(recorder._aggregates)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+    assert _finishes(lambda: _record(recorder, _select("x")))
+    assert fired
 
 
 @pytest.mark.parametrize("read", [SqlTraceRecorder.totals, SqlTraceRecorder.rows], ids=["totals", "rows"])
