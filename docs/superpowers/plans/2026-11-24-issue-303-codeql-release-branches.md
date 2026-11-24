@@ -31,7 +31,8 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
 
 - [ ] Step 8 in `skills/release/SKILL.md` first brings the ship head up to date with `main`: merge `origin/main`
   (after a fetch) into `chore/release-<version>` and push it or, on the version-branch path, into a branch that
-  reaches `release/<version>` through a staging PR. It then opens or reuses a draft PR into `main`, waits for its checks and runs
+  reaches `release/<version>` through a staging PR. Staging PRs use a merge commit: a squash loses
+  the ancestry of `main` and fails the gate. It then opens or reuses a draft PR into `main`, waits for its checks and runs
   `uv run python scripts/ci/ship_scan.py <PR_NUMBER>`. The classic rule is not a gate input: it does not affect
   the scan of a PR into `main`.
 - [ ] Write out both release paths in the skill:
