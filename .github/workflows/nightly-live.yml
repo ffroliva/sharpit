@@ -21,19 +21,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # key: a live profile server (tests/live/conftest.py); legs: its oracle sessions (test_every_session_leg_ran);
+        # key: a live profile server (tests/live/conftest.py); legs: its oracle rows per session, as ci.yml pins them;
         # sessions: the fuzz's, each with its control in the same run
         include:
-          - { key: mysql80, image: "mysql:8.0", legs: 3, sessions: "'' NO_BACKSLASH_ESCAPES" }
-          - { key: mysql84, image: "mysql:8.4", legs: 3, sessions: "'' NO_BACKSLASH_ESCAPES" }
-          - { key: mariadb, image: "mariadb:10.11", legs: 5, sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
-          - { key: mariadb, image: "mariadb:11.4", legs: 5, sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
-          - { key: mariadb, image: "mariadb:11.8", legs: 5, sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
-          - { key: postgresql, image: "postgres:14", legs: 2, sessions: "on off" }
-          - { key: postgresql, image: "postgres:15", legs: 2, sessions: "on off" }
-          - { key: postgresql, image: "postgres:16", legs: 2, sessions: "on off" }
-          - { key: postgresql, image: "postgres:17", legs: 2, sessions: "on off" }
-          - { key: postgresql, image: "postgres:18", legs: 2, sessions: "on off" }
+          - { key: mysql80, image: "mysql:8.0", legs: "mysql80-default=1995 mysql80-NO_BACKSLASH_ESCAPES=1995 mysql80-ANSI_QUOTES=1233", sessions: "'' NO_BACKSLASH_ESCAPES" }
+          - { key: mysql84, image: "mysql:8.4", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", sessions: "'' NO_BACKSLASH_ESCAPES" }
+          - { key: mariadb, image: "mariadb:10.11", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
+          - { key: mariadb, image: "mariadb:11.4", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
+          - { key: mariadb, image: "mariadb:11.8", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
+          - { key: postgresql, image: "postgres:14", legs: "postgresql-on=138 postgresql-off=138", sessions: "on off" }
+          - { key: postgresql, image: "postgres:15", legs: "postgresql-on=138 postgresql-off=138", sessions: "on off" }
+          - { key: postgresql, image: "postgres:16", legs: "postgresql-on=138 postgresql-off=138", sessions: "on off" }
+          - { key: postgresql, image: "postgres:17", legs: "postgresql-on=138 postgresql-off=138", sessions: "on off" }
+          - { key: postgresql, image: "postgres:18", legs: "postgresql-on=138 postgresql-off=138", sessions: "on off" }
     name: ${{ matrix.image }}
     env:
       IMAGE_VAR: SHARPIT_LIVE_IMAGE_${{ matrix.key }}
@@ -53,12 +53,15 @@ jobs:
       - name: Server oracle
         run: >-
           uv run --no-sync pytest tests/live --live -n 0 --junitxml=live.xml -k "${{ matrix.key }} and
-          (test_a_server_answers or test_oracle_row or test_every_session_leg_ran or test_a_refused_statement)"
+          (test_a_server_answers or test_oracle_row or test_a_refused_statement)"
       - name: Require executed oracle tests, without skips
         if: always()
-        run: >-
-          uv run --no-sync python scripts/ci/check_live_tests.py live.xml --require test_a_server_answers=1
-          test_oracle_row test_every_session_leg_ran=${{ matrix.legs }} test_a_refused_statement_keeps_its_value_hidden=1
+        env:
+          LEGS: ${{ matrix.legs }}
+        run: |
+          read -r -a legs <<< "$LEGS"
+          uv run --no-sync python scripts/ci/check_live_tests.py live.xml --legs "${legs[@]}" \
+            --require test_a_server_answers=1 test_oracle_row test_a_refused_statement_keeps_its_value_hidden=1
       - name: Live fuzz, the build against its control
         if: always()
         shell: bash
