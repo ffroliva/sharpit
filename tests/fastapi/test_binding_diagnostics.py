@@ -487,7 +487,7 @@ def test_invalid_path_parameter_exception_path_follows_exposure(
     from sharpit.fastapi import capture_exceptions
 
     recorded_request_paths: list[str] = []
-    record_exception = capture_exceptions._record_exception
+    record_exception = capture_exceptions.record_exception
 
     def observe_record(*args: Any, **kwargs: Any) -> None:
         info = args[3]
@@ -495,7 +495,7 @@ def test_invalid_path_parameter_exception_path_follows_exposure(
         if info is not None:
             recorded_request_paths.append(info.path)
 
-    monkeypatch.setattr(capture_exceptions, "_record_exception", observe_record)
+    monkeypatch.setattr(capture_exceptions, "record_exception", observe_record)
     app = FastAPI()
 
     @app.get("/items/{item_id}")

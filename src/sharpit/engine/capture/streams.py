@@ -194,7 +194,7 @@ class ChangeStream(_Hub):
 
     def signal(self) -> None:
         for target in self._forwards:
-            if target._subscribers or target._forwards or "signal" in target.__dict__:
+            if target._subscribers or target._forwards:
                 target.signal()
         if self._subscribers:
             super().signal()

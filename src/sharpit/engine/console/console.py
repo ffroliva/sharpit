@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from functools import lru_cache
 from urllib.parse import parse_qs
 
 from sharpit.engine import guard
@@ -38,6 +39,7 @@ class _NoOpAuditHook:
 _DEFAULT_AUDIT_HOOK = _NoOpAuditHook()
 
 
+@lru_cache(maxsize=256)
 def _compile(template: str) -> re.Pattern[str]:
     parts = re.split(r"(\{[^}]+\})", template)
     pattern = ""
@@ -55,8 +57,10 @@ def _compile(template: str) -> re.Pattern[str]:
 
 def match_route(routes: tuple[RouteSpec, ...], method: str, path: str):
     for route in routes:
+        if route.method != method:
+            continue
         matched = _compile(route.template).fullmatch(path)
-        if route.method == method and matched:
+        if matched:
             return route, matched.groupdict()
     return None
 

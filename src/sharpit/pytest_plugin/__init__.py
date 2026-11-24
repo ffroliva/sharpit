@@ -47,6 +47,7 @@ from sharpit.pytest_plugin.options import PluginOptions
 from sharpit.pytest_plugin.options import pytest_addoption as pytest_addoption
 from sharpit.pytest_plugin.options import resolve as resolve
 from sharpit.pytest_plugin.report_io import write_report as _write_report  # noqa: F401 - compatibility re-export
+from sharpit.pytest_plugin.session import MARKER_USAGE_ERROR
 from sharpit.pytest_plugin.session import pytest_collection_finish as pytest_collection_finish
 from sharpit.pytest_plugin.session import pytest_deselected as pytest_deselected
 from sharpit.pytest_plugin.session import pytest_runtest_makereport as pytest_runtest_makereport
@@ -143,6 +144,7 @@ class _State:
     worker_partial_facts: list[dict[str, Any]] | None = None
     partial: bool = False
     baseline_carried: tuple[Any, ...] = ()
+    marker_usage_error: str | None = None
 
 
 def _state(config: Any) -> _State | None:
@@ -178,11 +180,22 @@ def pytest_configure(config: Any) -> None:
             _record_config_hook_failure(config, exc)
 
 
+@pytest.hookimpl(trylast=True)  # after -k, -m and --deselect: only the selected items are validated
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     options = resolve(config)
-    if options.enabled:
+    if not options.enabled:
+        return
+    try:
         for item in items:
             budget_for(item, options.max_queries, require_reason=options.require_reason)
+    except pytest.UsageError as exc:
+        if (state := _state(config)) is not None:
+            state.marker_usage_error = str(exc)
+        if hasattr(config, "workerinput"):
+            # Let xdist complete its scheduling handshake with an empty collection.
+            items.clear()
+            return
+        raise
 
 
 def _validate_activation() -> list[str]:
@@ -615,7 +628,12 @@ def pytest_testnodedown(node: Any, error: Any) -> None:
 
 
 def _collect_worker_data(state: _State, node: Any, error: Any) -> None:
-    data = getattr(node, "workeroutput", {}).get("sharpit")
+    output = getattr(node, "workeroutput", {})
+    marker_error = output.get(MARKER_USAGE_ERROR)
+    if isinstance(marker_error, str):
+        state.marker_usage_error = state.marker_usage_error or marker_error
+        return
+    data = output.get("sharpit")
     if error is not None or data is None:
         state.missing_workers.append(node.gateway.id)
     else:

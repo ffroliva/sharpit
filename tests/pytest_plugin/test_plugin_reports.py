@@ -65,6 +65,19 @@ def test_plugin_report_corpus_default(pytester: pytest.Pytester, monkeypatch: py
     _run_report_corpus(pytester, monkeypatch, None, None, None)
 
 
+def test_invalid_marker_expression_aborts_without_a_sharpit_report(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_ok(): pass")
+
+    result = pytester.runpytest_inprocess(
+        "-n", "0", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-m", "(", "-q"
+    )
+
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    assert "Wrong expression passed to '-m'" in result.stderr.str()
+    assert "status: pass" not in result.stdout.str()
+    assert not (pytester.path / "sharpit-report.json").exists()
+
+
 def test_failed_gate_findings_listed_on_the_test(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """

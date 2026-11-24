@@ -554,7 +554,7 @@ def test_exceptions_report_carries_caught_in_code():
 # derived: Task 27 Opus review r2 #3: the log source passes no override for a classified exception, so the store's own
 # guard is not the only one (with only the store's, removing this one fails nothing above)
 def test_the_log_source_passes_no_override_for_a_classified_exception() -> None:
-    from sharpit.fastapi.capture_exceptions import _record_logged  # pyright: ignore[reportPrivateUsage]
+    from sharpit.fastapi.capture_exceptions import record_logged
 
     psycopg_errors = pytest.importorskip("psycopg.errors")
     passed: list[object] = []
@@ -565,7 +565,7 @@ def test_the_log_source_passes_no_override_for_a_classified_exception() -> None:
 
     exc = psycopg_errors.Error('failed: "hunter2secret"')
     record = logging.LogRecord("app", logging.ERROR, "f", 1, "failed: %s", (exc,), (type(exc), exc, None))
-    _record_logged(SpyStore(), record)  # pyright: ignore[reportArgumentType]
+    record_logged(SpyStore(), record)  # pyright: ignore[reportArgumentType]
     assert passed == [None]
 
 
