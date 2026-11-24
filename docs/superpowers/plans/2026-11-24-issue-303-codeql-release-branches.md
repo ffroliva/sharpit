@@ -1,7 +1,7 @@
 # Issue #303: CodeQL on pull requests into release branches
 
 The proposed change enables CodeQL default setup for pull requests into `release/*` and verifies CodeQL and the
-Sonar ratchet on the ship branch before the release pull request into `main` is ready for review.
+code-scan ratchet on the ship branch before the release pull request into `main` is ready for review.
 
 ## Measurement
 
@@ -23,7 +23,7 @@ after the measurement.
 
 Issue #303 calls for a scan before opening the release pull request. The accepted deviation is to scan while
 the pull request is draft. This uses the actual diff into `main` even when a version branch does not yet exist.
-The old branch scan checks a ref that CodeQL does not scan, and the Sonar ratchet's branch mode is a no-op
+The old branch scan checks a ref that CodeQL does not scan, and the code-scan ratchet's branch mode is a no-op
 outside `main`.
 
 PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged `release/<version>` into
@@ -78,8 +78,8 @@ PR #281 merged `chore/release-0.8.0` into `release/0.8.0`; #282 and #298 merged 
   in `run.pull_requests`. The list is empty on the closed #298 and names the PR on the open #321. An empty list cannot establish a match
   on an open PR, so the gate fails closed if no run matches.
   Select the match with the greatest `run_number` and inspect jobs from its latest attempt only.
-  Require the `sonar` job to have status `completed` and conclusion `success`, and its step
-  `Sonar ratchet (no new issues; main never above sonar-baseline.txt)` to have conclusion `success`.
+  Require the `sonar` job to have status `completed` and conclusion `success`, and its
+  code-scan ratchet step, matched by its exact name in `ci.yml`, to have conclusion `success`.
 - [ ] Read paginated calls with `gh api --paginate --slurp` and parse the one array of pages, combining the
   `check_runs`, `workflow_runs` or `jobs` lists from object pages and the entries from array pages for analyses
   and alerts.
