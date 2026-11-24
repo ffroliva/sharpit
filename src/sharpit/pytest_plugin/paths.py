@@ -12,22 +12,29 @@ from sharpit.engine.testsession.gates import LAZY_LOAD_OUTSIDE_APP
 
 def relative_location(filename: str, root: Path | str) -> str:
     try:
-        path = os.path.relpath(filename, root)
+        path = Path(os.path.relpath(filename, root))
     except ValueError:  # another drive (Windows)
-        path = filename
-    if path.startswith(".."):  # outside the root: keep it absolute
-        path = filename
-    return Path(path).as_posix()
+        return Path(filename).as_posix()
+    if path.parts[:1] == ("..",):  # outside the root: keep it absolute
+        return Path(filename).as_posix()
+    return path.as_posix()
 
 
 def _relative_site(site: str | None, root: Path) -> str | None:
     if site is None:
         return None
-    prefix, separator = "", ""
+    prefix, location = "", site
     if site.startswith(LAZY_LOAD_OUTSIDE_APP):
-        prefix, separator, site = site.partition(" declared at ")
-    filename, line = site.rsplit(":", 1)
-    return f"{prefix}{separator}{relative_location(filename, root)}:{line}"
+        context, separator, location = site.partition(" declared at ")
+        if not separator or not location.endswith(")"):
+            return site
+        prefix = context + separator
+    drive, tail = os.path.splitdrive(location)
+    filename, _, line = tail.rpartition(":")
+    line_number = line.removesuffix(")") if prefix else line
+    if not filename or not line_number.isdecimal():
+        return site
+    return f"{prefix}{relative_location(drive + filename, root)}:{line}"
 
 
 def relativize_sql_locations(test: TestFacts, root: Path) -> None:

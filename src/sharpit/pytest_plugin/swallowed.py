@@ -38,14 +38,19 @@ class CaptureStatus:
     reason: str | None = None
 
 
+def _identity_path(filename: str, path: str) -> str:
+    # Older reports keyed files under names such as "..cache" by their absolute path.
+    return Path(filename).as_posix() if path.startswith("..") else path
+
+
 @functools.lru_cache(maxsize=4096)
 def _fact(code: CodeType, offset: int, exc_type: type[BaseException], root: str, cwd: str) -> SwallowedFact | None:
     site = swallowing_site(code, offset, exc_type)
     if site is None:
         return None
     path = relative_location(code.co_filename, root)
-    identity = site_identity(path, site, exc_type.__name__)
-    legacy = f"{relative_location(code.co_filename, cwd)}:{site.line}"
+    identity = site_identity(_identity_path(code.co_filename, path), site, exc_type.__name__)
+    legacy = f"{_identity_path(code.co_filename, relative_location(code.co_filename, cwd))}:{site.line}"
     return SwallowedFact(
         f"{path}:{site.line}", exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS), identity, legacy
     )

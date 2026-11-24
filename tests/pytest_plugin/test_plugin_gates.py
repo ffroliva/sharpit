@@ -123,6 +123,9 @@ def test_loads(monkeypatch):
                 list(player.performances)
 """,
     )
+    if kind == "statement":
+        nested = pytester.mkdir("..cache")
+        site = site.replace(nested / site.name)
     pytester.makeconftest(
         """
         import json
@@ -134,7 +137,15 @@ def test_loads(monkeypatch):
     )
 
     result = pytester.runpytest_inprocess(
-        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q", "-n", "1"
+        "--sharpit",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+        "-n",
+        "1",
+        f"--rootdir={pytester.path}",
+        str(site),
     )
     assert result.ret == 1
     data = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
@@ -142,24 +153,24 @@ def test_loads(monkeypatch):
     facts = json.loads((pytester.path / "worker-facts.json").read_text(encoding="utf-8"))
     call = facts["tests"][0]["phases"]["call"]
     if kind == "statement":
-        location = _line_at(site, "session.scalars(select(Player)).all()")
+        location = _line_at(pytester.path, site, "session.scalars(select(Player)).all()")
         assert f"first at {location};" in finding["message"]
         assert [where for where, _ in call["statementSites"].values()] == [location]
     else:
         if kind == "declaration":
-            location = _line_at(model, "performances: Mapped")
+            location = _line_at(pytester.path, model, "performances: Mapped")
             expected = f"outside application code (Player.performances declared at {location})"
             where = expected
         else:
-            expected = _line_at(site, "list(player.performances)")
+            expected = _line_at(pytester.path, site, "list(player.performances)")
             where = f"at {expected}"
         assert f"first lazy load {where};" in finding["message"]
         assert call["relationshipSites"] == {"Player.performances": expected}
 
 
-def _line_at(path: Path, snippet: str) -> str:
+def _line_at(root: Path, path: Path, snippet: str) -> str:
     line = next(i for i, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if snippet in text)
-    return f"{path.name}:{line}"
+    return f"{path.relative_to(root).as_posix()}:{line}"
 
 
 def test_spike_f5_full_count_1018(pytester: pytest.Pytester) -> None:
