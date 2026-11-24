@@ -23,6 +23,10 @@ def test_pytest_guide_acknowledges_silent_exception_capture() -> None:
     text = (SITE / "pytest-plugin.md").read_text(encoding="utf-8")
     stale = "Silent `try...except` blocks that neither log nor re-raise leave no trace and cannot be detected."
     assert stale not in text
+    assert (
+        "When capture is attached, `sharpit.swallowed-exception` tracks broad handlers "
+        "that swallow an exception without logging or re-raising it during the test's `call` phase."
+    ) in " ".join(text.split())
 
 
 def test_catalog_covers_the_user_guides_and_all_decisions():

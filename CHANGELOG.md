@@ -5,6 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Pentest reports describe Python host evidence and link to framework guidance where applicable.
+- The pytest terminal summary lists all five runtime gates.
+- The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.
+
 ### Fixed
 
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
