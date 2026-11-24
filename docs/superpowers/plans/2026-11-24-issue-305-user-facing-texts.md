@@ -9,8 +9,8 @@ finding fingerprint changes.
 (`scripts/dev/red_check.py`), then the smallest change that makes it pass.
 
 **Revision 2** folds in the plan review: Task 1 covers every Java-stack text a FastAPI scan
-shows and the golden fixture that pins one; Task 2 covers every `path:line` source; Task 3 defines when a gate counts
-as checked; Task 4 fixes the two other lines on the page that blur the gates.
+shows and the golden fixture that pins one; Task 2 covers every `path:line` source; Task 3 lists all five gates and notes
+unattached capture; Task 4 fixes the two other lines on the page that blur the gates.
 
 ## Seams under test
 
@@ -18,7 +18,7 @@ as checked; Task 4 fixes the two other lines on the page that blur the gates.
 |---|---|---|
 | Pentest report DTO, before a scan (`initial_report()`) and after a scan with findings and without | Java-stack wording in a recommendation, coverage note, limitation or `learnMoreUrl` | Strings in the UI bundle |
 | `pytester` run of the plugin: the N+1, repeated-statement and unbounded-read finding messages | An absolute path for a site under the rootdir | Sites outside the rootdir, which stay absolute by design (as for swallowed exceptions) |
-| `pytester` run of the plugin: the "sharpit checked:" terminal line | A gate that ran but is missing, or a gate listed although it could not run | Wording of the rest of the summary |
+| `pytester` run of the plugin: the "sharpit checked:" terminal line | A gate missing from the list, or a missing note when swallowed-exception capture did not attach | Whether a gate found evidence, which the line does not claim |
 | The docs page text | The stale limitation sentence and the gate names on the page | Other pages |
 
 ## Tasks
@@ -45,12 +45,13 @@ Green: each text adapted (`BootUI` to `sharpit`, Spring Security headers to secu
 servlet mappings to the app's routes, the A07 note naming the FastAPI/Starlette security dependencies sharpit
 inspects). A note describes only the evidence sharpit collects.
 
-Golden fixture: `tests/fixtures/bootui/2.5.0/pentesting/asgi-captured.json:10` is BootUI's captured response and stays
-unchanged as evidence. The parity test that reads it (`tests/engine/collectors/pentesting/test_pentesting_report.py:84-91`)
-compares through one explicit `ADAPTED_TEXTS` mapping (BootUI text to sharpit text). That mapping is the deviation
-row's content in the 0.10.0 matrix fragment; the fragment is wired into `scripts/dev/generate_parity_deviations.py`
-and the generated `PARITY.md` if 0.10.0 has no fragment there yet. Verbatim pins in `test_pentesting_report.py:20` and
-`test_pentesting_cors.py:675-680` move to the new texts.
+Golden fixture: `tests/fixtures/bootui/2.5.0/pentesting/asgi-captured.json:10` is derived by hand for the ASGI
+report, not a BootUI capture, so it is updated to the new texts; the separate BootUI contract projection the same test
+checks (`tests/engine/collectors/pentesting/test_pentesting_report.py:84-96`) is preserved. Each adapted text, with
+its BootUI original, is a deviation row in the 0.10.0 matrix fragment; the fragment is wired into
+`scripts/dev/generate_parity_deviations.py` and the generated `PARITY.md` if 0.10.0 has none there yet. Verbatim pins
+in `test_pentesting_report.py:20`, `test_pentesting_cors.py:675-680` and
+`tests/fastapi/test_pentesting_exposure_incomplete.py:174` move to the new texts.
 
 Out of scope: `engine/collectors/security/rules_config.py` (Spring Security rule titles). Those are rule texts of
 another panel; they are a separate finding if they show on a Python host.
@@ -78,35 +79,34 @@ Green:
   pytest adapter.
 
 Checked: finding fingerprints hash the identity or target, never the message or location
-(`engine/advisors/findings.py:35`), so existing baselines stay valid. The report JSON's `relationshipSites` and
-`statementSites` values change form; the changelog says so.
+(`engine/advisors/findings.py:35`), so existing baselines stay valid. `relationshipSites` and `statementSites` are serialized
+worker facts (`engine/testsession/facts.py:221,224`), not part of the public report, which carries only the derived
+messages (`engine/testsession/report.py:51`); the serialization assertion stays at that worker boundary, and the
+changelog names only the changed messages.
 
 ### Task 3: the "sharpit checked" line lists the gates that ran
 
 File: `src/sharpit/pytest_plugin/terminal.py:131`.
 
-A gate counts as checked when it could reach a verdict in this run:
+The line names the gates the plugin evaluated, which are all five test-runtime gates: `sharpit.max-queries`,
+`sharpit.n-plus-one`, `sharpit.exception`, `sharpit.swallowed-exception`, `sharpit.unbounded-read`. The names come
+from one tuple in `engine/testsession/gates.py`, not a second hand-written list. Whether a gate found evidence is not
+claimed by this line, and no new coverage tracking is added; a gate's verdict is unchanged.
 
-- `sharpit.max-queries`, `sharpit.n-plus-one`, `sharpit.exception`: as today, whenever the gates ran.
-- `sharpit.swallowed-exception`: only when swallowed-exception capture attached (`CaptureStatus.attached`,
-  `pytest_plugin/swallowed.py:75`), on the controller and on every worker. When capture did not attach, the line says
-  so (`sharpit.swallowed-exception not checked: <reason>`).
-- `sharpit.unbounded-read`: only when its evidence was available (the SQLAlchemy instrumentation attached). If the run
-  data does not carry that fact today, the task adds it to the session facts first, from the place the instrumentation
-  attaches.
+One exception: when swallowed-exception capture attached on no process of the run (`CaptureStatus.attached`,
+`pytest_plugin/swallowed.py:75`; under xdist the workers' status counts, because the controller collects nothing,
+`pytest_plugin/session.py:113`), the line appends `sharpit.swallowed-exception not attached: <reason>`.
 
-The gate names come from one tuple in `engine/testsession/gates.py`, not a second hand-written list.
-
-Red: `pytester` runs asserting the line (a) names `sharpit.swallowed-exception` when that gate fired, (b) does not name
-it, and names the reason, when capture is unavailable (forced through the existing capture-failure test seam), and
-(c) the same under `-n 2`, where coverage is merged from worker facts.
+Red: `pytester` runs asserting the line (a) names all five gates, including `sharpit.swallowed-exception` when that
+gate fired; (b) carries the not-attached note when capture is forced unavailable through the existing capture-failure
+test seam; (c) under `-n 2`, names all five gates without the note when the workers attached.
 
 ### Task 4: the docs page states what each gate detects
 
 File: `website/docs/pytest-plugin.md:17,65,251`.
 
 - Line 251: the sentence that silent `try...except` blocks cannot be detected is replaced. `sharpit.exception` tracks
-  exceptions logged at `ERROR` with `exc_info` or handled by registered exception handlers; `sharpit.swallowed-exception`
+  emitted log records that carry `exc_info` and exceptions handled by registered exception handlers; `sharpit.swallowed-exception`
   tracks broad handlers that swallow an exception during a test's call phase, when capture is attached. The remaining
   limits are named: narrow handlers, the setup and teardown phases, and `except*`.
 - Lines 17 and 65 call `sharpit.exception` "Swallowed exceptions"; they name each gate by what it checks. The gates

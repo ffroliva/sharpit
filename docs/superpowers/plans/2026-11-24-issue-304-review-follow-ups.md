@@ -11,7 +11,7 @@ a wrong summary.
 **Method:** test-driven where behaviour changes or coverage is missing (Tasks 1, 8); a pure refactor (Tasks 2-5, 7)
 keeps the named tests green, and each is checked by breaking the code it protects and seeing a named test fail.
 
-**Revision 2** folds in the plan review: Task 1 asserts the transaction entry's `method`, not
+**Revision 2** folds in the plan review: Task 1 asserts the transaction entry's `methodName`, not
 an SQL Trace row; Task 2 rewrites one test, not five; Task 3 lists the test callers; Task 4 drops a test that could not
 fail; Task 6 is closed without a helper; Task 7's proof is the branch tests and paired timings, not a corpus dump;
 Task 8 targets the collection-time usage error.
@@ -20,7 +20,7 @@ Task 8 targets the collection-time usage error.
 
 | Seam | What it catches | What it misses |
 |---|---|---|
-| Transaction entry `method` from a real SQLAlchemy `begin` and savepoint | A frame-depth change that points the method at a sharpit or SQLAlchemy frame | SQL Trace `callSite` (already covered by its own tests) |
+| Transaction entry `methodName` from a real SQLAlchemy `begin` and savepoint | A frame-depth change that points the method at a sharpit or SQLAlchemy frame | SQL Trace `callSite` (already covered by its own tests) |
 | `ChangeStream.subscribe` awaited on a forward target | A forward that drops a signal once the `__dict__` clause goes | Nothing: the other four tests patch the stream they call and do not depend on the clause |
 | Console route tests (`tests/engine/test_console_contract.py`) | A cached pattern that matches differently, method selection, first-match order | Speed, which has no test |
 | `pytester` run with a collection-time `UsageError` from the marker | A sharpit summary printing `status: pass` after the run was aborted | Usage errors raised outside the marker |
@@ -35,8 +35,10 @@ Files: `src/sharpit/engine/capture/sqltrace.py:98` (`sys._getframe(6)`), used by
 
 - New coverage: every transaction test sets `sql_trace_capture_call_site=False` today, so this test will not start
   red. It is a characterization test: a real SQLAlchemy `begin` and a savepoint from a test function, each asserting
-  the entry's `method` is that test's `module:function:line`.
-- It must bite: changing the depth from 6 to 8 locally makes it fail; the red output goes in the PR.
+  the entry's `methodName` is that test's `module:function:line`.
+- It must bite: the frame walk skips sharpit and SQLAlchemy frames, so a probe at depths 6 and 8 gives the same site;
+  the bite check is a local mutation that starts the walk above the test's own frame (the method then no longer names
+  the test line), with the red output in the PR.
 - A comment at the call names the six frames the fixed depth skips. The depth itself does not change.
 
 ### Task 2: drop the `"signal" in target.__dict__` clause
@@ -67,10 +69,12 @@ test callers `tests/fastapi/test_binding_diagnostics.py:490,498`, `tests/fastapi
 
 File: `src/sharpit/engine/console/console.py:41` (`_compile`), `:56` (`match_route`).
 
-- `_compile` gets `functools.cache`. Its input is a route template from the console's own route table, never request
-  data, so the cache is bounded by the table's size. `match_route` checks `route.method` before matching the path.
-- No new test: `re.compile` already returns a cached object, so a pattern-identity test could not fail. The existing
-  route tests cover parameter extraction, method selection and first-match order. #260 needs no separate wiring.
+- `_compile` gets `functools.lru_cache(maxsize=256)`. Its input is a route template from a route table, never request
+  data; `match_route` accepts caller-supplied tables, so the cache is bounded explicitly. `match_route` checks
+  `route.method` before matching the path.
+- Tests at `match_route` directly: parameter extraction (including a `:path` parameter), method selection, and
+  first-match order across two templates that both match. No pattern-identity test: `re.compile` already caches, so it
+  could not fail. #260 needs no separate wiring.
 
 ### Task 5: one host-loop provider
 
@@ -99,8 +103,11 @@ the `UsageError` at `src/sharpit/pytest_plugin/marker.py:58`), the summary write
   The same test asserts that no `sharpit-report.json` with `"status": "pass"` is written and `config._sharpit_report`
   is not set: `pytest_sessionfinish` runs with exit status 4 and reaches `write_report`
   (`src/sharpit/pytest_plugin/session.py:177-212`, `src/sharpit/pytest_plugin/report_io.py:19-77`).
-- Green: on a collection-time usage error (`exitstatus == pytest.ExitCode.USAGE_ERROR` before any test ran), the
-  controller writes neither the report file nor the summary's gate status. The baseline-refusal `UsageError` raised
+  The test runs without xdist and with `-n 2`: under xdist the marker error is raised on a worker, and xdist does not
+  propagate a worker's exit status 4 to the controller (`xdist/dsession.py:192`).
+- Green: a collection-time marker usage error is recorded where it is raised (controller or worker) before report
+  generation (`pytest_plugin/session.py:209`), and on such a run neither the report file nor the summary's gate status
+  is written. The baseline-refusal `UsageError` raised
   inside `write_report` (`report_io.py:67`) keeps its current behaviour. The status vocabulary is unchanged.
 
 ## Task 7 (second pull request): split `_update_aggregate`
