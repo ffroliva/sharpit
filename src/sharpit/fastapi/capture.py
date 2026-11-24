@@ -81,7 +81,6 @@ def _is_probe_header_entry(h: object) -> bool:
 HOOK_CAPTURE_MIDDLEWARE = "capture-middleware"
 HOOK_SECURITY_LOG = "security-log"
 REQUEST_START = "request start"  # hook name in the one-time capture warning
-HOOK_EXCEPTION_HANDLERS = "exception-handlers"
 HOOK_LOG_HANDLER = "log-handler"
 HOOK_SQLA_LISTENERS = "sqla-listeners"
 HOOK_SQLITE_LISTENERS = "sqlite-listeners"
@@ -93,7 +92,7 @@ HOOK_NAMES = frozenset(
     {
         HOOK_CAPTURE_MIDDLEWARE,
         HOOK_SECURITY_LOG,
-        HOOK_EXCEPTION_HANDLERS,
+        capture_exceptions.HOOK_EXCEPTION_HANDLERS,
         HOOK_LOG_HANDLER,
         HOOK_SQLA_LISTENERS,
         HOOK_SQLITE_LISTENERS,
@@ -223,7 +222,7 @@ class CaptureWiring:
         installed = {
             HOOK_SECURITY_LOG: (self.on_security_event is not None, ctx.capture.security_logs),
             HOOK_LOG_HANDLER: (self.log_handler is not None, ctx.capture.log_tail),
-            HOOK_EXCEPTION_HANDLERS: (ctx.capture.exceptions is not None, ctx.capture.exceptions),
+            capture_exceptions.HOOK_EXCEPTION_HANDLERS: (ctx.capture.exceptions is not None, ctx.capture.exceptions),
             HOOK_SQLA_LISTENERS: (True, ctx.capture.sql_trace),
             HOOK_SQLITE_LISTENERS: (_sqlite_traced(ctx), None),
         }
@@ -257,7 +256,7 @@ class CaptureWiring:
             )
             self.log_handler.journal, self.log_handler.context_id = journal, ctx.context_id
             if store is not None:
-                self.log_handler.on_exc_info = lambda record: capture_exceptions._record_logged(store, record, ctx)  # pyright: ignore[reportPrivateUsage]
+                self.log_handler.on_exc_info = lambda record: capture_exceptions.record_logged(store, record, ctx)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         self._register_installed(ctx)
         self._add_actions(ctx)
@@ -291,7 +290,7 @@ class CaptureWiring:
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions
         handlers = getattr(self.app, "exception_handlers", None)
-        if HOOK_EXCEPTION_HANDLERS in self.suspended_hooks:
+        if capture_exceptions.HOOK_EXCEPTION_HANDLERS in self.suspended_hooks:
             return
         if (
             store is not None
@@ -358,7 +357,7 @@ class CaptureWiring:
         self._actions |= {
             HOOK_CAPTURE_MIDDLEWARE: (_nothing, _nothing),
             HOOK_SECURITY_LOG: (_nothing, _nothing),
-            HOOK_EXCEPTION_HANDLERS: (
+            capture_exceptions.HOOK_EXCEPTION_HANDLERS: (
                 lambda: capture_exceptions.unwrap_exception_handlers(self.app),
                 lambda: self._wrap_handlers(ctx),
             ),
@@ -629,7 +628,7 @@ class CaptureMiddleware:
                 raise
             except Exception as exc:
                 failed, raised = True, exc
-                if (sink := dispatch.session_sink()) is not None and not capture_exceptions._validation_error(exc):  # pyright: ignore[reportPrivateUsage]
+                if (sink := dispatch.session_sink()) is not None and not capture_exceptions.validation_error(exc):
                     sink.on_escaped(exc)
                 raise
             finally:
@@ -645,13 +644,13 @@ class CaptureMiddleware:
                     finished = end_ns or time.perf_counter_ns()
                     info.finished_ns = finished
                     with _request_end_guard(wiring):
-                        info.endpoint = capture_exceptions._endpoint_name(scope.get("endpoint"))  # pyright: ignore[reportPrivateUsage]
+                        info.endpoint = capture_exceptions.endpoint_name(scope.get("endpoint"))
                     store = self.ctx.capture.exceptions
                     if store is not None:
                         try:
                             if raised is not None:
                                 with _request_end_guard(wiring):
-                                    capture_exceptions._record_exception(  # pyright: ignore[reportPrivateUsage]
+                                    capture_exceptions.record_exception(
                                         store,
                                         raised,
                                         "request",
@@ -667,7 +666,7 @@ class CaptureMiddleware:
                     journal = self.ctx.capture.journal
                     template: str | None = None
                     if buffer is not None or journal is not None:
-                        template = capture_exceptions._route_template(scope, root_path, wiring.app)  # pyright: ignore[reportPrivateUsage]
+                        template = capture_exceptions.route_template(scope, root_path, wiring.app)
                     if buffer is not None:
                         with _request_end_guard(wiring):  # a failing row must not lose the journal event
                             buffer.add(

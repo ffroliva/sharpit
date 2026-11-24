@@ -31,19 +31,19 @@ HOOK_EXCEPTION_HANDLERS = "exception-handlers"
 MAX_MOUNT_DEPTH = 32  # a sub-app mounted inside itself must not loop the walk
 
 
-def _endpoint_name(endpoint: object) -> str | None:
+def endpoint_name(endpoint: object) -> str | None:
     if endpoint is None:
         return None
     qualname = getattr(endpoint, "__qualname__", type(endpoint).__name__)
     return f"{getattr(endpoint, '__module__', None) or '?'}:{qualname}"
 
 
-def _validation_error(exc: BaseException) -> bool:
+def validation_error(exc: BaseException) -> bool:
     cls = getattr(sys.modules.get("fastapi.exceptions"), "RequestValidationError", None)  # no import: Pydantic 1 safe
     return isinstance(cls, type) and isinstance(exc, cls)
 
 
-def _record_exception(
+def record_exception(
     store: ExceptionStore,
     exc: Exception,
     source: str,
@@ -52,7 +52,7 @@ def _record_exception(
     ctx: SharpitContext | None,
     host_app: object,
 ) -> None:
-    if not _validation_error(exc):
+    if not validation_error(exc):
         store.record(exc, source, info, thread)
         return
     _record_binding_exception(store, exc, source, info, thread, ctx, host_app)
@@ -75,7 +75,7 @@ def _record_binding_exception(
 
     full = ctx is not None and ctx.settings.expose_values.value == "FULL"
     template = (
-        _route_template(info.scope, str(info.scope.get("root_path", "")), host_app)
+        route_template(info.scope, str(info.scope.get("root_path", "")), host_app)
         if info is not None and info.scope is not None
         else None
     )
@@ -124,7 +124,7 @@ def _mount_prefix(routes: Iterable[object], path: str, below: str) -> str | None
     return None
 
 
-def _route_template(scope: Scope, root_path: str, app: object) -> str | None:
+def route_template(scope: Scope, root_path: str, app: object) -> str | None:
     """The matched route's template behind the templates of its mounts, only when it matches the real path; ``None``
     (the masked path) otherwise: FastAPI 0.16x's ``route.path`` has no ``include_router`` prefix."""
     template = getattr(scope.get("route"), "path", None)
@@ -157,13 +157,13 @@ def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: Ex
         if wiring.detached or HOOK_EXCEPTION_HANDLERS in wiring.suspended_hooks:  # the built stack keeps this wrapper
             return
         try:
-            validation = _validation_error(exc)
+            validation = validation_error(exc)
             if (sink := dispatch.session_sink()) is not None and not validation:
                 sink.on_exception(exc, "handler", TEST.get())
             info = REQUEST.get()
             if info is not None and info.endpoint is None:
-                info.endpoint = _endpoint_name(conn.scope.get("endpoint"))
-            _record_exception(
+                info.endpoint = endpoint_name(conn.scope.get("endpoint"))
+            record_exception(
                 store,
                 exc,
                 "handler",
@@ -216,15 +216,13 @@ def unwrap_exception_handlers(app: Any) -> None:
         app.exception_handlers = {k: getattr(v, "__sharpit_original__", v) for k, v in handlers.items()}
 
 
-def _record_logged(  # pyright: ignore[reportUnusedFunction]
-    store: ExceptionStore, record: logging.LogRecord, ctx: SharpitContext | None = None
-) -> None:
+def record_logged(store: ExceptionStore, record: logging.LogRecord, ctx: SharpitContext | None = None) -> None:
     """The log source: ``logger.exception(...)`` and any record with ``exc_info``."""
     exc = record.exc_info[1] if record.exc_info else None
     if not isinstance(exc, Exception):
         return
     sink = dispatch.session_sink()
-    validation = _validation_error(exc)
+    validation = validation_error(exc)
     if sink is not None and not validation:
         sink.on_exception(exc, "log", TEST.get())
     if validation:
@@ -238,4 +236,4 @@ def _record_logged_validation(
     store: ExceptionStore, record: logging.LogRecord, exc: Exception, ctx: SharpitContext | None
 ) -> None:
     wiring = cast("CaptureWiring | None", ctx.capture.wiring) if ctx is not None else None
-    _record_exception(store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None)
+    record_exception(store, exc, "log", REQUEST.get(), record.threadName, ctx, wiring.app if wiring else None)
