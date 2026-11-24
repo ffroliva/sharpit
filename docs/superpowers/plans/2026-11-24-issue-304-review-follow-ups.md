@@ -105,9 +105,10 @@ the `UsageError` at `src/sharpit/pytest_plugin/marker.py:58`), the summary write
   (`src/sharpit/pytest_plugin/session.py:177-212`, `src/sharpit/pytest_plugin/report_io.py:19-77`).
   The test runs without xdist and with `-n 2`: under xdist the marker error is raised on a worker, and xdist does not
   propagate a worker's exit status 4 to the controller (`xdist/dsession.py:192`).
-- Green: a collection-time marker usage error is recorded where it is raised (controller or worker) before report
-  generation (`pytest_plugin/session.py:209`), and on such a run neither the report file nor the summary's gate status
-  is written. The baseline-refusal `UsageError` raised
+- Green: a collection-time marker usage error is recorded where it is raised. A worker sends the marker diagnostic to
+  the controller through `workeroutput`; the controller collects it, sets the session exit status to
+  `USAGE_ERROR` (4) explicitly, and returns before report generation (`pytest_plugin/session.py:209`). On such a run
+  neither the report file nor the summary's gate status is written. The baseline-refusal `UsageError` raised
   inside `write_report` (`report_io.py:67`) keeps its current behaviour. The status vocabulary is unchanged.
 
 ## Task 7 (second pull request): split `_update_aggregate`

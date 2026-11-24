@@ -42,8 +42,9 @@ recommendation, coverage note, limitation or `learnMoreUrl` contains, case-insen
 `actuator` or `bootui`. Coverage statuses stay as they are.
 
 Green: each text adapted (`BootUI` to `sharpit`, Spring Security headers to security-header middleware, Spring MVC or
-servlet mappings to the app's routes, the A07 note naming the FastAPI/Starlette security dependencies sharpit
-inspects). A note describes only the evidence sharpit collects.
+servlet mappings to the app's routes, the A07 note describing its actual evidence, the Basic or Digest
+challenge headers of the synthetic responses (`report.py:298,427`), and stating that dependency-based authentication
+is outside A07 coverage). A note describes only the evidence sharpit collects.
 
 Golden fixture: `tests/fixtures/bootui/2.5.0/pentesting/asgi-captured.json:10` is derived by hand for the ASGI
 report, not a BootUI capture, so it is updated to the new texts; the separate BootUI contract projection the same test
@@ -93,13 +94,16 @@ The line names the gates the plugin evaluated, which are all five test-runtime g
 from one tuple in `engine/testsession/gates.py`, not a second hand-written list. Whether a gate found evidence is not
 claimed by this line, and no new coverage tracking is added; a gate's verdict is unchanged.
 
-One exception: when swallowed-exception capture attached on no process of the run (`CaptureStatus.attached`,
-`pytest_plugin/swallowed.py:75`; under xdist the workers' status counts, because the controller collects nothing,
-`pytest_plugin/session.py:113`), the line appends `sharpit.swallowed-exception not attached: <reason>`.
+One exception: when swallowed-exception capture did not attach on a process of the run (`CaptureStatus.attached`,
+`pytest_plugin/swallowed.py:75`; under xdist the workers' per-worker source facts count, because the controller
+collects nothing, `pytest_plugin/session.py:113`), the line appends `sharpit.swallowed-exception not attached on
+<n> of <m> processes: <reason>`. The merged `sources` entry (`engine/testsession/outcome.py:96`) cannot tell partial
+from total failure, so the note reads the per-worker facts.
 
 Red: `pytester` runs asserting the line (a) names all five gates, including `sharpit.swallowed-exception` when that
-gate fired; (b) carries the not-attached note when capture is forced unavailable through the existing capture-failure
-test seam; (c) under `-n 2`, names all five gates without the note when the workers attached.
+gate fired; (b) carries the note `1 of 1` when capture is forced unavailable through the existing capture-failure test
+seam; (c) under `-n 2`, names all five gates without the note when both workers attached, with `1 of 2` when one
+worker's capture is forced unavailable, and `2 of 2` when both are.
 
 ### Task 4: the docs page states what each gate detects
 
