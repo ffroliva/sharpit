@@ -48,7 +48,8 @@ inspects). A note describes only the evidence sharpit collects.
 Golden fixture: `tests/fixtures/bootui/2.5.0/pentesting/asgi-captured.json:10` is BootUI's captured response and stays
 unchanged as evidence. The parity test that reads it (`tests/engine/collectors/pentesting/test_pentesting_report.py:84-91`)
 compares through one explicit `ADAPTED_TEXTS` mapping (BootUI text to sharpit text). That mapping is the deviation
-row's content in the 0.10.0 matrix fragment. Verbatim pins in `test_pentesting_report.py:20` and
+row's content in the 0.10.0 matrix fragment; the fragment is wired into `scripts/dev/generate_parity_deviations.py`
+and the generated `PARITY.md` if 0.10.0 has no fragment there yet. Verbatim pins in `test_pentesting_report.py:20` and
 `test_pentesting_cors.py:675-680` move to the new texts.
 
 Out of scope: `engine/collectors/security/rules_config.py` (Spring Security rule titles). Those are rule texts of
@@ -69,8 +70,8 @@ Green:
 
 - `_relative` moves from `src/sharpit/pytest_plugin/swallowed.py:40` to a public helper in the pytest plugin
   (`pytest_plugin/paths.py`, `relative_location`), used by both captures.
-- After `sqla.apply_relationship_facts(test)` (`pytest_plugin/session.py:85`) and where unbounded-read facts are
-  applied, the plugin rewrites the filename part of each location. The line is split from the right
+- After `sqla.apply_relationship_facts(test)` (`pytest_plugin/session.py:85`) and the unbounded-read facts
+  (`session.py:86`), the plugin rewrites the filename part of each location. The line is split from the right
   (`rsplit(":", 1)`, since a Windows drive has its own colon), a fallback prefix ("outside application code",
   "declared at") is kept, and `None` stays `None`. Outside the rootdir or on another drive the path stays absolute.
 - The engine keeps recording the absolute `co_filename`: it has no rootdir, and the relative form belongs to the
@@ -108,7 +109,9 @@ File: `website/docs/pytest-plugin.md:17,65,251`.
   exceptions logged at `ERROR` with `exc_info` or handled by registered exception handlers; `sharpit.swallowed-exception`
   tracks broad handlers that swallow an exception during a test's call phase, when capture is attached. The remaining
   limits are named: narrow handlers, the setup and teardown phases, and `except*`.
-- Lines 17 and 65 call `sharpit.exception` "Swallowed exceptions"; they name each gate by what it checks.
+- Lines 17 and 65 call `sharpit.exception` "Swallowed exceptions"; they name each gate by what it checks. The gates
+  table (`pytest-plugin.md:59-65`) and the captured output in `website/docs/tutorial.md:387` list all five gates and
+  match the Task 3 line.
 - If `tests/docs` has a page-text check, it asserts the old sentence is absent; otherwise this task is docs-only.
 
 ## Verification

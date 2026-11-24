@@ -96,8 +96,12 @@ the `UsageError` at `src/sharpit/pytest_plugin/marker.py:58`), the summary write
 - Red: extend `tests/pytest_plugin/test_plugin_swallowed.py:487` and parametrize it over two marker usage errors (a
   missing reason under `--sharpit-require-reason`, and an invalid `max_queries`). Each asserts the exit status
   `USAGE_ERROR`, the marker diagnostic, and that the sharpit summary does not print `status: pass`.
-- Green: the summary writer sees the session's exit status; on a usage error it prints no gate status (the existing
-  status vocabulary is unchanged).
+  The same test asserts that no `sharpit-report.json` with `"status": "pass"` is written and `config._sharpit_report`
+  is not set: `pytest_sessionfinish` runs with exit status 4 and reaches `write_report`
+  (`src/sharpit/pytest_plugin/session.py:177-212`, `src/sharpit/pytest_plugin/report_io.py:19-77`).
+- Green: on a collection-time usage error (`exitstatus == pytest.ExitCode.USAGE_ERROR` before any test ran), the
+  controller writes neither the report file nor the summary's gate status. The baseline-refusal `UsageError` raised
+  inside `write_report` (`report_io.py:67`) keeps its current behaviour. The status vocabulary is unchanged.
 
 ## Task 7 (second pull request): split `_update_aggregate`
 
