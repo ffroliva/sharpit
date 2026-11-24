@@ -16,6 +16,7 @@ from sharpit.engine.console import (
     ConsoleRequest,
     ConsoleResponse,
     RouteSpec,
+    match_route,
 )
 from sharpit.engine.guard import MESSAGE_CROSS_SITE, MESSAGE_DISALLOWED_HOST
 from sharpit.engine.headers import security_headers
@@ -39,6 +40,28 @@ def _context(no_side_effects, **options):
 
 def _json(response: ConsoleResponse) -> object:
     return json.loads(response.body or b"")
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "route_id", "params"),
+    [
+        pytest.param("GET", "/api/files/42/a/b", "nested", {"file_id": "42", "name": "a/b"}, id="path-parameter"),
+        pytest.param("POST", "/api/files/42", "write", {"file_id": "42"}, id="method"),
+        pytest.param("GET", "/api/files/42", "read", {"file_id": "42"}, id="first-match"),
+    ],
+)
+def test_match_route(method: str, path: str, route_id: str, params: dict[str, str]) -> None:
+    def handler(_call: ConsoleCall) -> ConsoleResponse:
+        return ConsoleResponse(200)
+
+    read = RouteSpec("read", "GET", "/api/files/{file_id}", handler, None, "read")
+    write = RouteSpec("write", "POST", "/api/files/{file_id}", handler, None, "action")
+    nested = RouteSpec("nested", "GET", "/api/files/{file_id}/{name:path}", handler, None, "read")
+    fallback = RouteSpec("fallback", "GET", "/api/files/{name:path}", handler, None, "read")
+    routes = (read, write, nested, fallback)
+
+    expected = next(route for route in routes if route.id == route_id)
+    assert match_route(routes, method, path) == (expected, params)
 
 
 def test_unknown_path_under_disabled_panel_is_forbidden(no_side_effects) -> None:
