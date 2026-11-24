@@ -484,10 +484,55 @@ def test_allow_swallowed_reason_is_masked_in_report_and_terminal(pytester: pytes
     result.stdout.fnmatch_lines(["*appcode.py:4*reason: fallback password=*"])
 
 
-def test_accept_without_reason_fails_when_required_via_flag(pytester: pytest.Pytester) -> None:
-    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+@pytest.mark.parametrize(
+    ("distribution", "marker", "diagnostic"),
+    [
+        pytest.param(
+            ("-n", "0"),
+            "allow_swallowed=True",
+            "test_bare.py::test_lookup: @pytest.mark.sharpit requires a reason for accepted findings",
+            id="missing-reason-serial",
+        ),
+        pytest.param(
+            ("-n", "0"),
+            "max_queries=-1",
+            "sharpit marker: max_queries must be a non-negative integer",
+            id="invalid-max-queries-serial",
+        ),
+        pytest.param(
+            ("-n", "2", "--dist=each"),
+            "allow_swallowed=True",
+            "test_bare.py::test_lookup: @pytest.mark.sharpit requires a reason for accepted findings",
+            id="missing-reason-each",
+        ),
+    ],
+)
+def test_marker_usage_error_aborts_without_a_sharpit_report(
+    pytester: pytest.Pytester, distribution: tuple[str, ...], marker: str, diagnostic: str
+) -> None:
+    _bare_project(pytester, f"@pytest.mark.sharpit({marker})")
+    pytester.makeconftest(
+        """
+from pathlib import Path
 
-    result = pytester.runpytest(
+import pytest
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtestloop(session):
+    worker = getattr(session.config, "workerinput", None)
+    if worker is not None:
+        Path(f"runtestloop-{worker['workerid']}").touch()
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_sessionfinish(session):
+    yield
+    if not hasattr(session.config, "workerinput"):
+        Path("report-state.txt").write_text(str(hasattr(session.config, "_sharpit_report")), encoding="utf-8")
+"""
+    )
+
+    result = pytester.runpytest_inprocess(
+        *distribution,
         "--sharpit",
         "--sharpit-require-reason",
         "--sharpit-no-advisors",
@@ -495,11 +540,16 @@ def test_accept_without_reason_fails_when_required_via_flag(pytester: pytest.Pyt
         "-q",
     )
 
-    assert result.ret != 0
     output = result.stderr.str() + result.stdout.str()
-    assert "test_bare.py::test_lookup" in output
-    assert "@pytest.mark.sharpit" in output
-    assert "reason" in output
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    assert diagnostic in output
+    assert "INTERNALERROR" not in output
+    assert "status: pass" not in output
+    assert not (pytester.path / "sharpit-report.json").exists()
+    assert (pytester.path / "report-state.txt").read_text(encoding="utf-8") == "False"
+    if "--dist=each" in distribution:
+        worker_loops = sorted(path.name.removeprefix("runtestloop-") for path in pytester.path.glob("runtestloop-*"))
+        assert worker_loops == ["gw0", "gw1"]
 
 
 def test_accept_without_reason_fails_when_required_via_ini(pytester: pytest.Pytester) -> None:
@@ -522,6 +572,33 @@ def test_accept_without_reason_fails_when_required_via_ini(pytester: pytest.Pyte
     output = result.stderr.str() + result.stdout.str()
     assert "test_bare.py::test_lookup" in output
     assert "@pytest.mark.sharpit" in output
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        pytest.param(("-k", "test_selected"), id="keyword"),
+        pytest.param(("-m", "not sharpit"), id="marker"),
+        pytest.param(("--deselect", "test_bare.py::test_lookup"), id="node-id"),
+    ],
+)
+def test_marker_validation_ignores_deselected_items(pytester: pytest.Pytester, selection: tuple[str, ...]) -> None:
+    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+    pytester.makepyfile(test_selected="def test_selected(): pass")
+
+    result = pytester.runpytest_inprocess(
+        "-n",
+        "0",
+        "--sharpit",
+        "--sharpit-require-reason",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        *selection,
+        "-q",
+    )
+
+    assert result.ret == pytest.ExitCode.OK
+    result.assert_outcomes(passed=1, deselected=1)
 
 
 def test_accept_with_reason_passes_when_reason_required(pytester: pytest.Pytester) -> None:

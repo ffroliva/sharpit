@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, cast
 
 import pytest
@@ -17,6 +18,7 @@ from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
 
 WORKER_APPS = "sharpit-worker-apps"
 APPS_KEY = "sharpit_apps"  # workeroutput: {"names": candidates or None, "snapshot": an installed app was assessed}
+MARKER_USAGE_ERROR = "sharpit_marker_usage_error"
 UNBOUNDED_READ_LIMITATION = (
     "unbounded-read needs sharpit.install(app): the capture middleware supplies the route and its page size"
 )
@@ -204,9 +206,20 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         return
     _record_missing_unbounded_read_capture(state)
     swallowed.detach_session(state)
+    worker = hasattr(session.config, "workerinput")
+    if (marker_error := state.marker_usage_error) is not None:
+        if worker:
+            session.config.workeroutput[MARKER_USAGE_ERROR] = marker_error
+        elif exitstatus != pytest.ExitCode.USAGE_ERROR:
+            # xdist does not forward the worker's UsageError or its exit status.
+            session.exitstatus = pytest.ExitCode.USAGE_ERROR
+            sys.stderr.write(f"ERROR: {marker_error}\n")
+        return
+    if exitstatus == pytest.ExitCode.USAGE_ERROR:  # pytest's own usage errors (-m, -k, paths): no run, no report
+        return
     state.test_files = _test_files(session.config)
     local_partial = _partial_facts(state, session)
-    if hasattr(session.config, "workerinput"):
+    if worker:
         _finish_worker(plugin, state, session, local_partial)
         return
     _finish_controller(plugin, state, session, exitstatus, local_partial)

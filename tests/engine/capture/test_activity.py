@@ -8,6 +8,7 @@ sharpit's request id (spec §9) instead of BootUI's trace id.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -428,14 +429,22 @@ def test_shape_keys_match_bootui():
     assert all(tuple(e) == ENTRY_KEYS for e in _report(ctx)["entries"])
 
 
-def test_fan_in_forwards_source_ticks():
+@pytest.mark.asyncio
+async def test_fan_in_forwards_source_ticks() -> None:
     target = ChangeStream()
     source = ChangeStream()
     source.forward_to(target)
-    seen: list[int] = []
-    target.signal = lambda: seen.append(1)  # type: ignore[method-assign]
-    source.signal()  # nobody subscribes to the source: the tick still reaches the fan-in
-    assert seen == [1]
+    subscription = target.subscribe(asyncio.get_running_loop())
+    try:
+        source.signal()  # ticks reach the fan-in even when nobody subscribes to the source
+        await asyncio.wait_for(anext(subscription), timeout=1)
+    except TimeoutError:
+        forwarded = False
+    else:
+        forwarded = True
+    finally:
+        subscription.close()
+    assert forwarded, "a source tick must reach the target subscription"
 
 
 def test_request_profile_emits_2_2_0_keys_and_get_request_profile_tool():
