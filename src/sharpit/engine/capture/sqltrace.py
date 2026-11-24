@@ -402,7 +402,7 @@ class SqlTraceRecorder:
             try:
                 self._aggregates.move_to_end(key)
             except KeyError:  # a finalizer on this thread evicted or cleared it since the ``get``
-                self._aggregates[key] = aggregate
+                aggregate = self._aggregates[key] = _Aggregate(sql, category)
         aggregate.executions += 1
         aggregate.total_duration += millis
         aggregate.max_duration = max(aggregate.max_duration, millis)
