@@ -398,13 +398,11 @@ class SqlTraceRecorder:
             aggregate = self._aggregates[key] = _Aggregate(sql, category)
             if len(self._aggregates) > MAX_AGGREGATES:
                 self._aggregates.popitem(last=False)
-        elif len(self._aggregates) > 1:
+        else:
             try:
                 self._aggregates.move_to_end(key)
-            except KeyError:  # a finalizer on this thread evicted it since the ``get``
+            except KeyError:  # a finalizer on this thread evicted or cleared it since the ``get``
                 self._aggregates[key] = aggregate
-        elif not self._aggregates:
-            self._aggregates[key] = aggregate
         aggregate.executions += 1
         aggregate.total_duration += millis
         aggregate.max_duration = max(aggregate.max_duration, millis)
