@@ -324,6 +324,52 @@ def _detach_timed_out(
     return True
 
 
+class _Channel:
+    """The probe's ASGI ``receive``/``send`` pair: one request body, then a response capped at ``max_body`` bytes."""
+
+    def __init__(self, request_body: bytes, max_body: int) -> None:
+        self.request_body = request_body
+        self.max_body = max_body
+        self.sent_body = bytearray()
+        self.headers: list[tuple[bytes, bytes]] = []
+        self.status = 0
+        self.truncated = False
+        self.finished = asyncio.Event()
+        self._first_receive = True
+
+    async def receive(self) -> dict[str, Any]:
+        if self._first_receive:
+            self._first_receive = False
+            return {"type": "http.request", "body": self.request_body, "more_body": False}
+        await self.finished.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(self, message: dict[str, Any]) -> None:  # NOSONAR - ASGI send protocol requires a coroutine
+        if message["type"] == "http.response.start":
+            self.status = message["status"]
+            self.headers = list(message.get("headers", []))
+        elif message["type"] == "http.response.body":
+            chunk = message.get("body", b"")
+            room = max(0, self.max_body - len(self.sent_body))
+            self.sent_body.extend(chunk[:room])
+            if len(chunk) > room:
+                self.truncated = True
+                raise asyncio.CancelledError
+
+
+async def _invoke_host(
+    host_app: Any,
+    host_runner: Callable[..., Awaitable[None]] | None,
+    scope: dict[str, Any],
+    channel: _Channel,
+    cancel_host: list[Callable[[], None]],
+) -> None:
+    if host_runner is None:
+        await host_app(scope, channel.receive, channel.send)
+    else:
+        await host_runner(host_app, scope, channel.receive, channel.send, cancel_host.append)
+
+
 async def run_probe(
     host_app: Any,
     request: ProbeRequest,
@@ -339,44 +385,11 @@ async def run_probe(
 ) -> dict[str, Any]:
     request_body = request.body.encode("utf-8") if request.method in {"POST", "PUT", "PATCH"} else b""
     scope = _probe_scope(request, caller_scope, host_root_path)
-    sent_body = bytearray()
-    response_headers: list[tuple[bytes, bytes]] = []
-    status = 0
-    truncated = False
-    finished = asyncio.Event()
-    first_receive = True
-
-    async def receive() -> dict[str, Any]:
-        nonlocal first_receive
-        if first_receive:
-            first_receive = False
-            return {"type": "http.request", "body": request_body, "more_body": False}
-        await finished.wait()
-        return {"type": "http.disconnect"}
-
-    async def send(message: dict[str, Any]) -> None:  # NOSONAR - ASGI send protocol requires a coroutine
-        nonlocal status, response_headers, truncated
-        if message["type"] == "http.response.start":
-            status = message["status"]
-            response_headers = list(message.get("headers", []))
-        elif message["type"] == "http.response.body":
-            chunk = message.get("body", b"")
-            room = max(0, max_body - len(sent_body))
-            sent_body.extend(chunk[:room])
-            if len(chunk) > room:
-                truncated = True
-                raise asyncio.CancelledError
-
+    channel = _Channel(request_body, max_body)
+    finished = channel.finished
     started = time.monotonic()
     cancel_host: list[Callable[[], None]] = []
-
-    async def invoke_host() -> None:
-        if host_runner is None:
-            await host_app(scope, receive, send)
-        else:
-            await host_runner(host_app, scope, receive, send, cancel_host.append)
-
-    task = asyncio.create_task(invoke_host())
+    task = asyncio.create_task(_invoke_host(host_app, host_runner, scope, channel, cancel_host))
     transferred_slot = False
     try:
         done, _ = await asyncio.wait({task}, timeout=timeout)
@@ -384,12 +397,12 @@ async def run_probe(
             finished.set()
             transferred_slot = _detach_timed_out(task, cancel_host, on_complete)
             return _probe_result(
-                status, {}, _body(bytes(sent_body), None, masker), started,
+                channel.status, {}, _body(bytes(channel.sent_body), None, masker), started,
                 f"HTTP Probe timed out after {timeout:g}s", False,
             )  # fmt: skip
         await task
     except asyncio.CancelledError:
-        if not truncated:
+        if not channel.truncated:
             _cancel_host(cancel_host, task)
             if on_complete is not None and not transferred_slot:
                 task.add_done_callback(lambda completed: _task_done(completed, on_complete))
@@ -397,12 +410,12 @@ async def run_probe(
             raise
     except Exception as exc:  # noqa: BLE001 - app exceptions become a stable masked probe response
         message = _exception_message(masker, exc, application)
-        return _probe_result(500, {}, _body(bytes(sent_body), None, masker), started, message, False)
+        return _probe_result(500, {}, _body(bytes(channel.sent_body), None, masker), started, message, False)
     finally:
         finished.set()
         if on_complete is not None and not transferred_slot:
             on_complete()
-    headers = _headers(response_headers, masker)
-    body = _body(bytes(sent_body), headers.get("content-type"), masker)
-    error = "HTTP Probe target returned no response" if status == 0 else None
-    return _probe_result(status, headers, body, started, error, truncated)
+    headers = _headers(channel.headers, masker)
+    body = _body(bytes(channel.sent_body), headers.get("content-type"), masker)
+    error = "HTTP Probe target returned no response" if channel.status == 0 else None
+    return _probe_result(channel.status, headers, body, started, error, channel.truncated)
