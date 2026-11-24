@@ -99,8 +99,12 @@ def _during_lookup(recorder: SqlTraceRecorder, action: Callable[[Groups, str], o
     class Collected(Groups):
         def _fire(self, key: str) -> None:
             if not fired and key in self:
-                fired.append(key)
-                _collect(lambda: action(self, key))
+
+                def run_action() -> None:
+                    action(self, key)
+                    fired.append(key)
+
+                _collect(run_action)
 
         def get(self, key: str, default: Any = None) -> Any:
             found = super().get(key, default)
@@ -124,11 +128,11 @@ def test_a_finalizer_that_clears_mid_record_loses_no_aggregate():
     """Simulate a finalizer clearing the only group during its lookup."""
     recorder = _recorder()
     _record(recorder, _select("a"))
-    fired = _during_lookup(recorder, lambda groups, _key: groups.clear())
+    fired = _during_lookup(recorder, lambda _groups, _key: recorder.clear())
 
     assert _finishes(lambda: _record(recorder, _select("a")))
     assert fired
-    assert recorder.aggregate_count == 1
+    assert _executions(recorder) == {"a": 1}
 
 
 def test_a_finalizer_that_evicts_the_group_among_others_loses_no_aggregate():
@@ -140,7 +144,7 @@ def test_a_finalizer_that_evicts_the_group_among_others_loses_no_aggregate():
 
     assert _finishes(lambda: _record(recorder, _select("a")))
     assert fired
-    assert _executions(recorder).keys() == {"a", "b", "c"}
+    assert _executions(recorder) == {"a": 1, "b": 1, "c": 1}
 
 
 def test_a_finalizer_that_clears_and_records_mid_record_loses_no_aggregate():
@@ -148,15 +152,15 @@ def test_a_finalizer_that_clears_and_records_mid_record_loses_no_aggregate():
     recorder = _recorder()
     _record(recorder, _select("a"))
 
-    def clear_and_record(groups: Groups, _key: str) -> None:
-        groups.clear()
+    def clear_and_record(_groups: Groups, _key: str) -> None:
+        recorder.clear()
         _record(recorder, _select("b"))
 
     fired = _during_lookup(recorder, clear_and_record)
 
     assert _finishes(lambda: _record(recorder, _select("a")))
     assert fired
-    assert _executions(recorder).keys() == {"a", "b"}
+    assert _executions(recorder) == {"a": 1, "b": 1}
 
 
 @pytest.mark.parametrize("read", [SqlTraceRecorder.totals, SqlTraceRecorder.rows], ids=["totals", "rows"])
