@@ -37,6 +37,7 @@ LOCAL = ("127.0.0.1", 50000)
 API = "/sharpit/api/log-tail"
 STREAM = f"{API}/stream"
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+EMPTY_STREAMS = 3  # consecutive streams with no line before _ids treats the replay as complete
 
 
 def _client(app: Any) -> TestClient:
@@ -175,12 +176,19 @@ def test_stream_replays_then_ends_with_retry():
 
 def _ids(client: TestClient, **kw: Any) -> list[str]:
     """Log ids as EventSource reads them: a stream may end mid-replay (spec §10), so reconnect with the last id seen
-    as Last-Event-ID until a stream brings no line. Bounded: a resume that repeats lines shows up as duplicates."""
+    as Last-Event-ID until ``EMPTY_STREAMS`` streams in a row bring no line. One empty stream is not the end: on a
+    loaded runner a stream can time out before its first frame (CI run 45296913127). Bounded: a resume that repeats
+    lines shows up as duplicates."""
     ids: list[str] = []
+    empty = 0
     for _ in range(20):
         batch = [e["id"] for e in _events(client.get(f"{API}/stream", **kw).text) if e.get("event") == "log"]
         if not batch:
-            break
+            empty += 1
+            if empty == EMPTY_STREAMS:
+                break
+            continue
+        empty = 0
         ids += batch
         kw = {**kw, "headers": {**kw.get("headers", {}), "Last-Event-ID": batch[-1]}}
     return ids
