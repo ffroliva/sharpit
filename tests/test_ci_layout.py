@@ -934,3 +934,33 @@ def test_the_wheel_job_runs_the_docs_tests_against_the_built_wheel() -> None:
     assert "SHARPIT_TEST_WHEEL" in body
     assert "tests/docs/test_bundled_docs.py" in body
     assert "tests/cli/test_docs.py" in body
+
+
+NIGHTLY_LIVE = (CI_PATH.parent / "nightly-live.yml").read_text(encoding="utf-8")
+
+
+def _live_rows(text: str) -> dict[str, set[str]]:
+    """Each server key's oracle leg counts, as one workflow's matrix pins them."""
+    rows: dict[str, set[str]] = defaultdict(set)
+    for key, legs in re.findall(r"- \{ (?:key|server): (\w+),.*?\blegs: \"?([^\"},]+)", text):
+        rows[key].add(legs)
+    return rows
+
+
+def test_the_nightly_requires_only_live_tests_that_exist() -> None:
+    command = NIGHTLY_LIVE.split("check_live_tests.py", 1)[1].split("- name:", 1)[0]
+    required = set(re.findall(r"\btest_\w+", command))
+    defined = {
+        name
+        for path in (Path(__file__).parent / "live").glob("test_*.py")
+        for name in re.findall(r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.MULTILINE)
+    }
+    assert required
+    assert required - defined == set()
+
+
+@pytest.mark.parametrize("key", ["mysql80", "mysql84", "mariadb", "postgresql"])
+def test_the_nightly_pins_the_oracle_legs_ci_pins(key: str) -> None:
+    ci = _live_rows(CI)
+    assert len(ci[key]) == 1
+    assert _live_rows(NIGHTLY_LIVE)[key] == ci[key]
