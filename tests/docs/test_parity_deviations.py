@@ -2,103 +2,73 @@
 
 from __future__ import annotations
 
+import re
+import sys
 from pathlib import Path
 
-from scripts.dev.generate_parity_deviations import (
-    FRAGMENTS_0_7_0,
-    FRAGMENTS_0_8_0,
-    FRAGMENTS_0_9_0,
-    MATRIX_UPDATES,
-    PARITY_MD,
-    SECTION_HEADING_0_7_0,
-    SECTION_HEADING_0_8_0,
-    SECTION_HEADING_0_9_0,
-    SECTION_HEADING_0_10_0,
-    collect_deviations,
-    generate_section,
-    generate_section_0_7_0,
-    generate_section_0_8_0,
-    generate_section_0_9_0,
-)
-
-ROOT = Path(__file__).resolve().parents[2]
+import pytest
+from scripts.dev import generate_parity_deviations as parity
 
 
-def test_parity_md_contains_current_deviations_sections():
-    content = PARITY_MD.read_text(encoding="utf-8")
-    assert SECTION_HEADING_0_7_0 in content, f"{SECTION_HEADING_0_7_0} missing in {PARITY_MD.name}"
-    assert SECTION_HEADING_0_8_0 in content, f"{SECTION_HEADING_0_8_0} missing in {PARITY_MD.name}"
-    assert SECTION_HEADING_0_9_0 in content, f"{SECTION_HEADING_0_9_0} missing in {PARITY_MD.name}"
+def test_parity_md_contains_current_deviations_sections() -> None:
+    content = parity.PARITY_MD.read_text(encoding="utf-8")
+    headings = [heading for heading, _ in parity._RELEASES.values()]
+    for heading in headings:
+        assert heading in content, f"{heading} missing in {parity.PARITY_MD.name}"
 
-    parts_0_7 = content.split(SECTION_HEADING_0_7_0, 1)[1].split(SECTION_HEADING_0_8_0, 1)
-    current_0_7_0 = (SECTION_HEADING_0_7_0 + parts_0_7[0]).strip()
-    parts_0_8 = parts_0_7[1].split(SECTION_HEADING_0_9_0, 1)
-    current_0_8_0 = (SECTION_HEADING_0_8_0 + parts_0_8[0]).strip()
-    parts_0_9 = parts_0_8[1].split(SECTION_HEADING_0_10_0, 1)
-    current_0_9_0 = (SECTION_HEADING_0_9_0 + parts_0_9[0]).strip()
-    assert SECTION_HEADING_0_10_0 in content
-    current_0_10_0 = (SECTION_HEADING_0_10_0 + parts_0_9[1]).strip()
-
-    expected_0_7_0 = generate_section_0_7_0().strip()
-    expected_0_8_0 = generate_section_0_8_0().strip()
-    expected_0_9_0 = generate_section_0_9_0().strip()
-    expected_0_10_0 = generate_section(heading=SECTION_HEADING_0_10_0, release="0.10.0").strip()
-
-    assert current_0_7_0 == expected_0_7_0, (
-        f"{PARITY_MD.name} 0.7.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
-        "Run: uv run python scripts/dev/generate_parity_deviations.py --write"
-    )
-    assert current_0_8_0 == expected_0_8_0, (
-        f"{PARITY_MD.name} 0.8.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
-        "Run: uv run python scripts/dev/generate_parity_deviations.py --write"
-    )
-    assert current_0_9_0 == expected_0_9_0, (
-        f"{PARITY_MD.name} 0.9.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
-        "Run: uv run python scripts/dev/generate_parity_deviations.py --write"
-    )
-    assert current_0_10_0 == expected_0_10_0, (
-        f"{PARITY_MD.name} 0.10.0 deviations section has drifted from fragments in {MATRIX_UPDATES.name}.\n"
-        "Run: uv run python scripts/dev/generate_parity_deviations.py --write"
-    )
+    sections = re.split(r"(?m)(?=^## \d+\.\d+\.\d+ against BootUI )", content)[1:]
+    assert [section.splitlines()[0] for section in sections] == headings
+    for release, section in zip(parity._RELEASES, sections, strict=True):
+        assert section.strip() == parity.generate_section(release=release).strip(), release
 
 
-def test_every_fragment_row_is_categorized():
-    deviations_0_7_0 = collect_deviations(fragments=FRAGMENTS_0_7_0)
-    assert len(deviations_0_7_0) == 117
+@pytest.mark.parametrize("release", parity._RELEASES)
+def test_every_fragment_row_is_categorized(release: str) -> None:
+    _, fragments = parity._RELEASES[release]
+    deviations = parity.collect_deviations(fragments=fragments)
+    counts = {"0.7.0": 117, "0.8.0": 116}
+    if release in counts:
+        assert len(deviations) == counts[release]
 
-    for lane, filename in FRAGMENTS_0_7_0:
-        filepath = MATRIX_UPDATES / filename
+    expected = []
+    for lane, filename in fragments:
+        filepath = parity.MATRIX_UPDATES / filename
         assert filepath.is_file(), f"Missing fragment {filename}"
-        lines = [line.strip() for line in filepath.read_text(encoding="utf-8").splitlines() if line.strip()]
-        for line in lines:
-            parts = line.split("\t")
-            assert len(parts) >= 2, f"Malformed line in {filename}: {line}"
-            key, status = parts[0], parts[1]
-            if status != "matched":
-                assert any(d.key == key and d.lane == lane for d in deviations_0_7_0)
+        for line in filepath.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                fields = line.split("\t")
+                assert len(fields) >= 2, f"Malformed line in {filename}: {line}"
+                key, status, *reason = fields
+                if status != "matched":
+                    expected.append(parity.DeviationRow(lane, key, status, reason[0] if reason else ""))
+    assert deviations == expected
 
-    deviations_0_8_0 = collect_deviations(fragments=FRAGMENTS_0_8_0)
-    assert len(deviations_0_8_0) == 116
 
-    for lane, filename in FRAGMENTS_0_8_0:
-        filepath = MATRIX_UPDATES / filename
-        assert filepath.is_file(), f"Missing fragment {filename}"
-        lines = [line.strip() for line in filepath.read_text(encoding="utf-8").splitlines() if line.strip()]
-        for line in lines:
-            parts = line.split("\t")
-            assert len(parts) >= 2, f"Malformed line in {filename}: {line}"
-            key, status = parts[0], parts[1]
-            if status != "matched":
-                assert any(d.key == key and d.lane == lane for d in deviations_0_8_0)
+def test_default_heading_matches_the_release() -> None:
+    assert parity.generate_section(release="0.10.0").startswith(f"{parity.SECTION_HEADING_0_10_0}\n")
 
-    deviations_0_9_0 = collect_deviations(fragments=FRAGMENTS_0_9_0)
-    for lane, filename in FRAGMENTS_0_9_0:
-        filepath = MATRIX_UPDATES / filename
-        assert filepath.is_file(), f"Missing fragment {filename}"
-        lines = [line.strip() for line in filepath.read_text(encoding="utf-8").splitlines() if line.strip()]
-        for line in lines:
-            parts = line.split("\t")
-            assert len(parts) >= 2, f"Malformed line in {filename}: {line}"
-            key, status = parts[0], parts[1]
-            if status != "matched":
-                assert any(d.key == key and d.lane == lane for d in deviations_0_9_0)
+
+def test_update_parity_accepts_explicit_0_10_0_rows(tmp_path: Path) -> None:
+    document = tmp_path / "PARITY.md"
+    document.write_text("# Parity\n", encoding="utf-8")
+    row = parity.DeviationRow("example", "parity-key", "adapted", "Explicit release row")
+    try:
+        content = parity.update_parity_md(document, rows_0_10_0=[row])
+    except TypeError:
+        content = ""
+    assert "| example | parity-key | adapted | Explicit release row |" in content
+
+
+@pytest.mark.parametrize("release", parity._RELEASES)
+def test_check_names_the_release_with_drift(
+    release: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    content = parity.PARITY_MD.read_text(encoding="utf-8")
+    heading, _ = parity._RELEASES[release]
+    document = tmp_path / "PARITY.md"
+    document.write_text(content.replace(f"{heading}\n", f"{heading}\n\nUnexpected text\n", 1), encoding="utf-8")
+    monkeypatch.setattr(parity, "PARITY_MD", document)
+    monkeypatch.setattr(sys, "argv", ["generate_parity_deviations.py", "--check"])
+
+    assert parity.main() == 1
+    assert f"{release} deviation section" in capsys.readouterr().out

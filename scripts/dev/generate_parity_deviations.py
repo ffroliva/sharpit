@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 from typing import NamedTuple
 
@@ -117,9 +118,11 @@ def generate_table(rows: list[DeviationRow]) -> str:
 
 def generate_section(
     rows: list[DeviationRow] | None = None,
-    heading: str = SECTION_HEADING_0_7_0,
+    heading: str | None = None,
     release: str = "0.7.0",
 ) -> str:
+    if heading is None:
+        heading = _RELEASES[release][0]
     if rows is None:
         rows = collect_deviations(fragments=_RELEASES[release][1])
     table = generate_table(rows)
@@ -131,36 +134,20 @@ def generate_section(
     )
 
 
-def generate_section_0_7_0(rows: list[DeviationRow] | None = None) -> str:
-    return generate_section(rows=rows, heading=SECTION_HEADING_0_7_0, release="0.7.0")
-
-
-def generate_section_0_8_0(rows: list[DeviationRow] | None = None) -> str:
-    return generate_section(rows=rows, heading=SECTION_HEADING_0_8_0, release="0.8.0")
-
-
-def generate_section_0_9_0(rows: list[DeviationRow] | None = None) -> str:
-    return generate_section(rows=rows, heading=SECTION_HEADING_0_9_0, release="0.9.0")
-
-
 def update_parity_md(
     parity_path: Path = PARITY_MD,
     rows_0_7_0: list[DeviationRow] | None = None,
     rows_0_8_0: list[DeviationRow] | None = None,
     rows_0_9_0: list[DeviationRow] | None = None,
+    rows_0_10_0: list[DeviationRow] | None = None,
 ) -> str:
-    sections = _sections({"0.7.0": rows_0_7_0, "0.8.0": rows_0_8_0, "0.9.0": rows_0_9_0})
+    rows = {"0.7.0": rows_0_7_0, "0.8.0": rows_0_8_0, "0.9.0": rows_0_9_0, "0.10.0": rows_0_10_0}
+    sections = "\n".join(generate_section(rows.get(release), release=release) for release in _RELEASES)
     content = parity_path.read_text(encoding="utf-8")
     prefix = content.partition(SECTION_HEADING_0_7_0)[0].rstrip()
     new_content = f"{prefix}\n\n{sections}"
     parity_path.write_text(new_content, encoding="utf-8", newline="\n")
     return new_content
-
-
-def _sections(rows: dict[str, list[DeviationRow] | None]) -> str:
-    return "\n".join(
-        generate_section(rows.get(release), heading, release) for release, (heading, _) in _RELEASES.items()
-    )
 
 
 def main() -> int:
@@ -174,18 +161,23 @@ def main() -> int:
         print(f"Updated {PARITY_MD.relative_to(ROOT)} with the generated deviation sections.")
         return 0
 
-    expected = _sections({})
+    expected = {release: generate_section(release=release) for release in _RELEASES}
     if args.check:
         content = PARITY_MD.read_text(encoding="utf-8")
-        _, heading, body = content.partition(SECTION_HEADING_0_7_0)
-        if (heading + body).strip() != expected.strip():
-            print(f"FAIL: {PARITY_MD.name} does not match the generated deviation sections")
+        sections = re.split(r"(?m)(?=^## \d+\.\d+\.\d+ against BootUI )", content)[1:]
+        for index, (release, section) in enumerate(expected.items()):
+            if index >= len(sections) or sections[index].strip() != section.strip():
+                print(f"FAIL: {PARITY_MD.name} {release} deviation section does not match the generated section")
+                return 1
+        if len(sections) > len(expected):
+            heading = sections[len(expected)].splitlines()[0]
+            print(f"FAIL: {PARITY_MD.name} has an unexpected deviation section ({heading})")
             return 1
 
         print(f"PASS: {PARITY_MD.name} matches the generated deviation sections")
         return 0
 
-    print(expected, end="")
+    print("\n".join(expected.values()), end="")
     return 0
 
 
