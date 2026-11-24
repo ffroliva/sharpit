@@ -82,12 +82,20 @@ def check_codeql(head):
     successful(max(matches, key=lambda c: c["id"]), "CodeQL check")
 
 
+def check_base_history(number):
+    for entry in rows(f"issues/{number}/events"):
+        event = entry["event"]
+        if not isinstance(event, str) or not event:
+            raise ValueError("missing issue event name")
+        require(event != "base_ref_changed", "PR base changed: close the PR and open a new draft against main")
+
+
 def matches_run(run, head, number):
     return (
         run["path"] == ".github/workflows/ci.yml"
         and run["event"] == "pull_request"
         and run["head_sha"] == head
-        and any(p["number"] == number for p in array(run["pull_requests"]))
+        and any(p["number"] == number and p["base"]["ref"] == "main" for p in array(run["pull_requests"]))
     )
 
 
@@ -113,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("expected a positive pull request number")
         number = int(args[0])
         head, base = snapshot(number)
+        check_base_history(number)
         comparison = json.loads(gh(f"compare/{base}...{head}"))
         require(type(comparison["behind_by"]) is int and comparison["behind_by"] == 0, "head is behind main")
         codeql(number, head)

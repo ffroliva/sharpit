@@ -20,7 +20,7 @@ def evidence(monkeypatch):
     head = pr["head"]["sha"]
     base = pr["base"]["sha"]
     run = data["run"]
-    run.update(pull_requests=[{"number": 298}], run_attempt=2)
+    run.update(pull_requests=[{"number": 298, "base": {"ref": "main"}}], run_attempt=2)
     ref = "ref=refs/pull/298/head"
     main_ref = {"object": {"sha": base}}
     replies = {
@@ -31,12 +31,14 @@ def evidence(monkeypatch):
         "compare": {"behind_by": 0},
         "analyses": [data["analyses"][:1], data["analyses"][1:]],
         "alerts": [[], []],
+        "events": [[{"event": "labeled"}], []],
         "checks": [{"check_runs": []}, {"check_runs": [data["check"]]}],
         "runs": [{"workflow_runs": []}, {"workflow_runs": [run]}],
         "jobs": [{"jobs": []}, {"jobs": [data["job"]]}],
     }
     replies["older_jobs"] = deepcopy(replies["jobs"])
     routes = {
+        "issues/298/events": ["events"],
         "pulls/298": ["pr", "final_pr"],
         "git/ref/heads/main": ["main", "final_main"],
         f"compare/{base}...{head}": ["compare"],
@@ -52,7 +54,7 @@ def evidence(monkeypatch):
     def respond(path, *, paginate=False):
         key = routes[path].pop(0)
         value = replies[key]
-        assert paginate == (key in {"analyses", "alerts", "checks", "runs", "jobs", "older_jobs"})
+        assert paginate == (key in {"events", "analyses", "alerts", "checks", "runs", "jobs", "older_jobs"})
         if isinstance(value, Exception):
             raise value
         return value if isinstance(value, str) else json.dumps(value)
@@ -218,3 +220,21 @@ def test_deep_json_exits_two(evidence):
     except RecursionError:
         status = "uncaught RecursionError"
     assert status == 2
+
+
+@pytest.mark.parametrize(("association", "expected"), [({"ref": "release/1"}, 1), ({}, 2)])
+def test_run_base(evidence, association, expected):
+    evidence["runs"][1]["workflow_runs"][0]["pull_requests"][0]["base"] = association
+    assert scan.main(["298"]) == expected
+
+
+def test_changed_base_history(evidence, capsys):
+    evidence["events"][1].append({"event": "base_ref_changed"})
+    assert scan.main(["298"]) == 1
+    assert "close the PR and open a new draft against main" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("events", [OSError("unavailable"), [[{}]], [[{"event": None}]], "broken"])
+def test_unreadable_events(evidence, events):
+    evidence["events"] = events
+    assert scan.main(["298"]) == 2
