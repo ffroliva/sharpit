@@ -384,7 +384,7 @@ gate counts:
 worst tests:
   test_sample.py::test_orders_route: 1 finding(s)
 report: sharpit-report.json
-sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception)
+sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception, sharpit.swallowed-exception, sharpit.unbounded-read)
 sharpit did not check: REST API, vulnerabilities, database-advisor, security, architecture, fastapi; routes and SQL your tests did not exercise; security testing (sharpit does no attack or penetration testing)</code>
         </div>
       </div>

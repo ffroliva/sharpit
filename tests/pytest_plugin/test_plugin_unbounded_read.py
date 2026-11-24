@@ -104,7 +104,7 @@ def test_f2_report_names_materialized_rows_and_page_size(pytester: pytest.Pytest
     # spike: F2
     _spike_project(pytester)
     pytester.runpytest_subprocess(
-        "--sharpit", "--sharpit-app=fixture:app", "--sharpit-report=report.json", "-q"
+        "--sharpit", "--sharpit-app=fixture:app", "--sharpit-report=report.json", "-q", "-n", "0"
     )
     findings = [finding for finding in _report(pytester)["findings"] if finding["ruleId"] == RULE]
     assert findings, "F2 spike did not report an unbounded read"
@@ -112,6 +112,7 @@ def test_f2_report_names_materialized_rows_and_page_size(pytester: pytest.Pytest
     assert "Team" in message
     assert "52" in message
     assert "5" in message
+    assert "at fixture.py:30;" in message
 # fmt: on
 
 

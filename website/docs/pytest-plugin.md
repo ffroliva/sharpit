@@ -14,7 +14,8 @@ When invoked with `--sharpit`, the plugin:
 
 - Attaches capture hooks for SQLAlchemy and raw `sqlite3` before any tests run.
 - Correlates queries and observable exceptions to the active test using context variables.
-- Evaluates per-test query budgets, N+1 query patterns, and swallowed exceptions during the `call` phase.
+- Evaluates query budgets, N+1 query patterns, logged or framework-handled exceptions, silently swallowed exceptions,
+  and unbounded ORM reads during the test's `call` phase.
 - Runs the REST API advisor across all discovered ASGI applications (the security, database, architecture and
   FastAPI advisors need a running app and are not part of the pytest run).
 - Writes a consolidated `sharpit-report/1` JSON report and optional JUnit XML.
@@ -56,13 +57,15 @@ Pass `--sharpit-http-security` and build each test client from `sharpit_http_obs
 
 ## Count gates and the marker
 
-During the test `call` phase, the plugin evaluates three count gates defined by the `test-runtime` advisor:
+The `test-runtime` advisor evaluates five gates during the test's `call` phase.
 
 | Rule ID | Fails when | Severity |
 |---|---|---|
 | `sharpit.max-queries` | Total executed queries exceed budget (via marker or `--sharpit-max-queries`) | `HIGH` |
 | `sharpit.n-plus-one` | A single normalized `SELECT` group executes at or above threshold (default 5) | `HIGH` |
-| `sharpit.exception` | Swallowed exceptions exceed `max_exceptions` (default 0) | `HIGH` |
+| `sharpit.exception` | Exceptions observed through log records with `exc_info` or registered framework exception handlers exceed `max_exceptions` (default 0) | `HIGH` |
+| `sharpit.swallowed-exception` | With capture attached, a broad handler silently swallows a programming or database error | `HIGH` for those errors, `INFO` for other swallowed exceptions |
+| `sharpit.unbounded-read` | An ORM query without a limit materializes at least the configured multiple of the requested page size (default 2) | `HIGH` |
 
 A query is counted as one `execute`, one `executemany` batch, or one `executescript`.
 N+1 detection groups queries by normalized fingerprint (folding literals, collapsing `IN` lists, and ignoring case).
@@ -248,7 +251,10 @@ The pytest plugin enforces strict safety rules:
 - **aiosqlite worker thread**: `aiosqlite` runs queries on an internal worker thread that does not inherit Python context variables. Statements appear in the `unattributed` bucket and count toward the `--sharpit-max-unattributed` limit.
 - **Connections opened before attach**: SQLite connections established before the plugin hook runs (or early `from sqlite3 import connect` imports) bypass tracing.
 - **Direct `sqlite3.dbapi2.connect` calls**: Code calling `sqlite3.dbapi2.connect` directly is untraced.
-- **Observable exceptions only**: The exception gate tracks swallowed exceptions logged at `ERROR` or above with `exc_info`, or handled by registered framework exception handlers. Silent `try...except` blocks that neither log nor re-raise leave no trace and cannot be detected.
+- **Exception capture**. `sharpit.exception` tracks emitted log records with `exc_info` and exceptions handled by
+  registered framework exception handlers. When capture is attached, `sharpit.swallowed-exception` tracks broad
+  handlers that swallow an exception without logging or re-raising it during the test's `call` phase. Narrow handlers,
+  `except*`, and exceptions swallowed in setup or teardown are outside that gate's coverage.
 
 ## CI example
 

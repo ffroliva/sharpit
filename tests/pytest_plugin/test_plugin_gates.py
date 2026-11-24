@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from importlib import util
+from pathlib import Path
 
 import pytest
 
@@ -98,6 +99,78 @@ def test_lazy_performances():
     finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
     assert "Player.performances lazy-loaded 6 times" in finding["message"]
     assert "selectinload(Player.performances)" in finding["message"]
+
+
+@pytest.mark.parametrize("kind", ["lazy", "declaration", "statement"])
+def test_sql_finding_locations_are_root_relative(pytester: pytest.Pytester, kind: str) -> None:
+    model = pytester.makepyfile(test_model=_f5_app_source(6))
+    site = pytester.makepyfile(
+        test_loads=f"""
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sharpit.engine.sqla import orm
+from test_model import Player, engine
+
+def test_loads(monkeypatch):
+    with Session(engine) as session:
+        if {kind!r} == 'statement':
+            for _ in range(6):
+                session.scalars(select(Player)).all()
+        else:
+            if {kind!r} == 'declaration':
+                monkeypatch.setattr(orm, '_first_application_location', lambda: None)
+            for player in session.scalars(select(Player)):
+                list(player.performances)
+""",
+    )
+    if kind == "statement":
+        nested = pytester.mkdir("..cache")
+        site = site.replace(nested / site.name)
+    pytester.makeconftest(
+        """
+        import json
+        from pathlib import Path
+
+        def pytest_testnodedown(node, error):
+            Path('worker-facts.json').write_text(json.dumps(node.workeroutput['sharpit']), encoding='utf-8')
+        """
+    )
+
+    result = pytester.runpytest_inprocess(
+        "--sharpit",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+        "-n",
+        "1",
+        f"--rootdir={pytester.path}",
+        str(site),
+    )
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    facts = json.loads((pytester.path / "worker-facts.json").read_text(encoding="utf-8"))
+    call = facts["tests"][0]["phases"]["call"]
+    if kind == "statement":
+        location = _line_at(pytester.path, site, "session.scalars(select(Player)).all()")
+        assert f"first at {location};" in finding["message"]
+        assert [where for where, _ in call["statementSites"].values()] == [location]
+    else:
+        if kind == "declaration":
+            location = _line_at(pytester.path, model, "performances: Mapped")
+            expected = f"outside application code (Player.performances declared at {location})"
+            where = expected
+        else:
+            expected = _line_at(pytester.path, site, "list(player.performances)")
+            where = f"at {expected}"
+        assert f"first lazy load {where};" in finding["message"]
+        assert call["relationshipSites"] == {"Player.performances": expected}
+
+
+def _line_at(root: Path, path: Path, snippet: str) -> str:
+    line = next(i for i, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if snippet in text)
+    return f"{path.relative_to(root).as_posix()}:{line}"
 
 
 def test_spike_f5_full_count_1018(pytester: pytest.Pytester) -> None:
@@ -743,6 +816,7 @@ _SQLALCHEMY_REQUIRED_TESTS = (
     "test_eager_selectinload_batches_are_not_n_plus_one_compatible",
     "test_spike_f5_full_count_1018",
     "test_spike_f5_message_names_relationship",
+    "test_sql_finding_locations_are_root_relative",
 )
 for _test_name in _SQLALCHEMY_REQUIRED_TESTS:
     _test_function = pytest.mark.needs_sqlalchemy(globals()[_test_name])
