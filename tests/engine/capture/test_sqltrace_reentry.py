@@ -107,6 +107,48 @@ def test_a_finalizer_that_clears_mid_record_loses_no_aggregate():
     assert recorder.aggregate_count == 1
 
 
+def _evict_during_lookup(recorder: SqlTraceRecorder, evict: Callable[[OrderedDict[str, Any], str], None]) -> None:
+    """A finalizer that runs ``evict`` inside the recorder's group lookup, between the ``get`` and the promotion."""
+
+    class Collected(OrderedDict[str, Any]):
+        collecting = True
+
+        def get(self, key: str, default: Any = None) -> Any:
+            found = super().get(key, default)
+            if self.collecting and found is not None:
+                self.collecting = False
+                _collect(lambda: evict(self, key))
+            return found
+
+    recorder._aggregates = Collected(recorder._aggregates)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_finalizer_that_evicts_the_group_among_others_loses_no_aggregate():
+    """The ``KeyError`` from ``move_to_end``: the group was evicted while two others remain."""
+    recorder = _recorder()
+    for sql in ("select 1 from a", "select 1 from b", "select 1 from c"):
+        _record(recorder, sql)
+    _evict_during_lookup(recorder, lambda groups, key: groups.pop(key, None))
+
+    assert _finishes(lambda: _record(recorder, "select 1 from a"))
+    assert recorder.aggregate_count == 3
+
+
+def test_a_finalizer_that_clears_and_records_mid_record_loses_no_aggregate():
+    """After a clear the finalizer's own statement is the only group: the interrupted statement's group must return."""
+    recorder = _recorder()
+    _record(recorder, "select 1 from a")
+
+    def clear_and_record(groups: OrderedDict[str, Any], _key: str) -> None:
+        groups.clear()
+        _record(recorder, "select 1 from b")
+
+    _evict_during_lookup(recorder, clear_and_record)
+
+    assert _finishes(lambda: _record(recorder, "select 1 from a"))
+    assert recorder.aggregate_count == 2
+
+
 @pytest.mark.parametrize("read", [SqlTraceRecorder.totals, SqlTraceRecorder.rows], ids=["totals", "rows"])
 def test_a_read_waits_for_no_writer(read: Callable[[SqlTraceRecorder], object]):
     recorder = _recorder()
