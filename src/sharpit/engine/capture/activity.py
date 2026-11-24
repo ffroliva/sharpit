@@ -159,6 +159,159 @@ def _slowest_route(row: dict[str, Any] | None) -> dict[str, Any]:
     return dict(zip(ROUTE_KPI_KEYS, values, strict=True))
 
 
+def _request_level(status: int, duration: int, slow_ms: int) -> str:
+    if status >= 500:
+        return "ERROR"
+    if status >= 400:
+        return "WARN"
+    return "SLOW" if duration >= slow_ms else "OK"
+
+
+def _sql_level(row: dict[str, Any]) -> str:
+    if not row["success"]:
+        return "ERROR"
+    return "SLOW" if row["slow"] else "OK"
+
+
+def _request_entries(
+    exchanges: list[dict[str, Any]], sql_by_request: dict[str, list[dict[str, Any]]], settings: Any
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    slow_ms = settings.activity_request_slow_threshold_ms
+    for r in exchanges:
+        status, duration = r["status"], r["durationMs"]
+        n_plus_one = any(
+            g["potentialNPlusOne"]
+            for g in _groups(sql_by_request.get(r["id"], ()), settings.activity_n_plus_one_threshold)
+        )
+        entries.append(
+            _entry(
+                id=r["id"],
+                type="REQUEST",
+                timestamp=r["startNs"] // 1_000_000,
+                severity=_request_level(status, duration, slow_ms),
+                summary=f"{r['method']} {r['path']}",
+                detail=f"{status} · {duration}ms",
+                durationMs=duration,
+                correlationId=r["id"],
+                method=r["method"],
+                path=r["path"],
+                status=status,
+                profileable=True,
+                securedPrincipal=r["principal"],
+                sqlNPlusOneSuspected=n_plus_one,
+            )
+        )
+    return entries
+
+
+def _sql_entries(statements: list[dict[str, Any]], request_ids: set[str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for s in statements:
+        rid = s["traceId"]
+        entries.append(
+            _entry(
+                id=f"sql-{s['id']}",
+                type="SQL",
+                timestamp=s["timestamp"] // 1_000_000,
+                severity=_sql_level(s),
+                summary=_summarize_sql(s["category"], s["sql"]),
+                detail=None if s["success"] else s["errorMessage"],
+                durationMs=s["durationMillis"],
+                correlationId=rid,
+                thread=s["thread"],
+                parentId=rid if rid in request_ids else None,
+            )
+        )
+    return entries
+
+
+def _exception_entries(groups: list[dict[str, Any]], request_ids: set[str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for g in groups:
+        rid = g["lastTraceId"]
+        detail = g["location"]
+        if g["count"] > 1:
+            detail = f"{detail or ''} ×{g['count']}".strip()
+        entries.append(
+            _entry(
+                id=f"exc-{g['id']}",
+                type="EXCEPTION",
+                exceptionGroupId=g["id"],
+                timestamp=g["lastSeen"],
+                severity="ERROR",
+                summary=g["exceptionClassName"] + (f": {g['message']}" if g["message"] is not None else ""),
+                detail=detail,
+                correlationId=rid,
+                method=g["lastRequestMethod"],
+                path=g["lastRequestPath"],
+                thread=g["lastThread"],
+                parentId=rid if rid in request_ids else None,
+            )
+        )
+    return entries
+
+
+def _visible(
+    entries: list[dict[str, Any]],
+    cap: int,
+    type: str | None,
+    severity: str | None,
+    since: int | None,
+    q: str | None,
+) -> list[dict[str, Any]]:
+    wanted_type = (type or "").strip().upper()
+    wanted_severity = (severity or "").strip().upper()
+    needle = (q or "").strip().lower()
+    visible: list[dict[str, Any]] = []
+    for entry in entries:
+        if len(visible) >= cap:
+            break
+        if (
+            entry["timestamp"] <= (since or 0)
+            or (wanted_type and entry["type"] != wanted_type)
+            or (wanted_severity and entry["severity"] != wanted_severity)
+        ):
+            continue
+        if needle and not any(
+            needle in str(entry[k]).lower() for k in ("summary", "detail", "path", "correlationId") if entry[k]
+        ):
+            continue
+        visible.append(entry)
+    return visible
+
+
+def _kpis(
+    ctx: SharpitContext,
+    exchanges: list[dict[str, Any]],
+    groups: list[dict[str, Any]],
+    statements: list[dict[str, Any]],
+) -> dict[str, Any]:
+    durations = sorted(r["durationMs"] for r in exchanges)
+    slowest = max(exchanges, key=lambda r: r["durationMs"], default=None)
+    errors = sum(r["status"] >= 400 for r in exchanges)
+    return {
+        "requestsPerMinute": round(_per_minute([r["startNs"] // 1_000_000 for r in exchanges]), 2),
+        "errorRatePercent": round(100 * errors / len(exchanges), 2) if exchanges else 0.0,
+        "p50LatencyMs": _percentile(durations, 50),
+        "p95LatencyMs": _percentile(durations, 95),
+        "slowestEndpoint": slowest["path"] if slowest else None,
+        "slowestEndpointMs": slowest["durationMs"] if slowest else None,
+        "activeExceptionCount": sum(g["status"] == "OPEN" for g in groups),
+        "sqlPerMinute": round(_per_minute([s["timestamp"] // 1_000_000 for s in statements]), 2),
+        "slowestQueryMs": max((s["durationMillis"] for s in statements), default=None),
+        "healthStatus": getattr(ctx.peek("health"), "last_status", None),  # cached only: never runs a check
+        "heapUsedBytes": None,
+        "heapMaxBytes": None,
+        "cacheHitRatioPercent": None,
+        "scheduledTaskFailureCount": 0,
+        "restCallErrorRatePercent": None,
+        "restCallP95LatencyMs": None,
+        "latencySampleCount": len(durations),
+        **_slowest_route(slowest),
+    }
+
+
 def activity_report(
     ctx: SharpitContext,
     type: str | None,
@@ -181,123 +334,22 @@ def activity_report(
         if row["traceId"] is not None:
             sql_by_request.setdefault(row["traceId"], []).append(row)
 
-    entries: list[dict[str, Any]] = []
-    slow_ms = settings.activity_request_slow_threshold_ms
-    for r in exchanges:
-        status, duration = r["status"], r["durationMs"]
-        level = "ERROR" if status >= 500 else "WARN" if status >= 400 else "SLOW" if duration >= slow_ms else "OK"
-        n_plus_one = any(
-            g["potentialNPlusOne"]
-            for g in _groups(sql_by_request.get(r["id"], ()), settings.activity_n_plus_one_threshold)
-        )
-        entries.append(
-            _entry(
-                id=r["id"],
-                type="REQUEST",
-                timestamp=r["startNs"] // 1_000_000,
-                severity=level,
-                summary=f"{r['method']} {r['path']}",
-                detail=f"{status} · {duration}ms",
-                durationMs=duration,
-                correlationId=r["id"],
-                method=r["method"],
-                path=r["path"],
-                status=status,
-                profileable=True,
-                securedPrincipal=r["principal"],
-                sqlNPlusOneSuspected=n_plus_one,
-            )
-        )
-    for s in statements:
-        rid = s["traceId"]
-        entries.append(
-            _entry(
-                id=f"sql-{s['id']}",
-                type="SQL",
-                timestamp=s["timestamp"] // 1_000_000,
-                severity="ERROR" if not s["success"] else "SLOW" if s["slow"] else "OK",
-                summary=_summarize_sql(s["category"], s["sql"]),
-                detail=None if s["success"] else s["errorMessage"],
-                durationMs=s["durationMillis"],
-                correlationId=rid,
-                thread=s["thread"],
-                parentId=rid if rid in request_ids else None,
-            )
-        )
-    for g in groups:
-        rid = g["lastTraceId"]
-        detail = g["location"]
-        if g["count"] > 1:
-            detail = f"{detail or ''} ×{g['count']}".strip()
-        entries.append(
-            _entry(
-                id=f"exc-{g['id']}",
-                type="EXCEPTION",
-                exceptionGroupId=g["id"],
-                timestamp=g["lastSeen"],
-                severity="ERROR",
-                summary=g["exceptionClassName"] + (f": {g['message']}" if g["message"] is not None else ""),
-                detail=detail,
-                correlationId=rid,
-                method=g["lastRequestMethod"],
-                path=g["lastRequestPath"],
-                thread=g["lastThread"],
-                parentId=rid if rid in request_ids else None,
-            )
-        )
+    entries = [
+        *_request_entries(exchanges, sql_by_request, settings),
+        *_sql_entries(statements, request_ids),
+        *_exception_entries(groups, request_ids),
+    ]
     entries.sort(key=lambda e: e["timestamp"], reverse=True)
     type_counts: dict[str, int] = {}
     for entry in entries:
         type_counts[entry["type"]] = type_counts.get(entry["type"], 0) + 1
 
     cap = settings.activity_max_entries if not limit or limit <= 0 else min(limit, settings.activity_max_entries)
-    wanted_type = (type or "").strip().upper()
-    wanted_severity = (severity or "").strip().upper()
-    needle = (q or "").strip().lower()
-    visible: list[dict[str, Any]] = []
-    for entry in entries:
-        if len(visible) >= cap:
-            break
-        if (
-            entry["timestamp"] <= (since or 0)
-            or (wanted_type and entry["type"] != wanted_type)
-            or (wanted_severity and entry["severity"] != wanted_severity)
-        ):
-            continue
-        if needle and not any(
-            needle in str(entry[k]).lower() for k in ("summary", "detail", "path", "correlationId") if entry[k]
-        ):
-            continue
-        visible.append(entry)
-
-    durations = sorted(r["durationMs"] for r in exchanges)
-    slowest = max(exchanges, key=lambda r: r["durationMs"], default=None)
-    errors = sum(r["status"] >= 400 for r in exchanges)
-    kpis = {
-        "requestsPerMinute": round(_per_minute([r["startNs"] // 1_000_000 for r in exchanges]), 2),
-        "errorRatePercent": round(100 * errors / len(exchanges), 2) if exchanges else 0.0,
-        "p50LatencyMs": _percentile(durations, 50),
-        "p95LatencyMs": _percentile(durations, 95),
-        "slowestEndpoint": slowest["path"] if slowest else None,
-        "slowestEndpointMs": slowest["durationMs"] if slowest else None,
-        "activeExceptionCount": sum(g["status"] == "OPEN" for g in groups),
-        "sqlPerMinute": round(_per_minute([s["timestamp"] // 1_000_000 for s in statements]), 2),
-        "slowestQueryMs": max((s["durationMillis"] for s in statements), default=None),
-        "healthStatus": getattr(ctx.peek("health"), "last_status", None),  # cached only: never runs a check
-        "heapUsedBytes": None,
-        "heapMaxBytes": None,
-        "cacheHitRatioPercent": None,
-        "scheduledTaskFailureCount": 0,
-        "restCallErrorRatePercent": None,
-        "restCallP95LatencyMs": None,
-        "latencySampleCount": len(durations),
-        **_slowest_route(slowest),
-    }
     return {
         "available": bool(found),
-        "entries": visible,
+        "entries": _visible(entries, cap, type, severity, since, q),
         "typeCounts": type_counts,
-        "kpis": kpis,
+        "kpis": _kpis(ctx, exchanges, groups, statements),
         "sources": list(found),
         "warnings": [*warnings, BUFFER_SOURCE_FILTERS] if journal_filters else warnings,
         "pageInfo": None,

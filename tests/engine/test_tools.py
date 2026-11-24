@@ -285,8 +285,9 @@ def test_every_action_tool_references_an_action_capable_panel():
 
 def test_mcp_call_action_tool_unknown_32602():
     # new: BootUI actions other than pentest_scan remain CLI-only
+    request = _call(_ctx())
     with pytest.raises(RpcError) as exc:
-        call_tool(_call(_ctx()), "vulnerabilities_scan", {}, via="mcp")
+        call_tool(request, "vulnerabilities_scan", {}, via="mcp")
     assert (exc.value.code, exc.value.message) == (INVALID_PARAMS, "Unknown tool: vulnerabilities_scan")
 
 
@@ -336,32 +337,36 @@ def test_bootui_pentest_scan_is_the_mcp_action_tool():
     ],
 )
 def test_invalid_params(name: Any, args: Any, message: str):
+    request = _call(_ctx())
     with pytest.raises(RpcError) as exc:
-        call_tool(_call(_ctx()), name, args, via="mcp")
+        call_tool(request, name, args, via="mcp")
     assert (exc.value.code, exc.value.message) == (INVALID_PARAMS, message)
 
 
 def test_disabled_panel_is_an_in_band_refusal():
     # ported: BootUiMcpServiceTests.toolsCallOnDisabledPanelReturnsInBandError
     ctx = _ctx(panels={"overview": PanelSettings(enabled=False)})
+    request = _call(ctx)
     with pytest.raises(ToolCallError) as exc:
-        call_tool(_call(ctx), "get_overview", {}, via="mcp")
+        call_tool(request, "get_overview", {}, via="mcp")
     assert (exc.value.message, exc.value.status) == ("Panel is disabled via SHARPIT_PANELS_OVERVIEW_ENABLED=false", 403)
 
 
 def test_action_tool_on_read_only_panel_is_refused():
     # ported: BootUiMcpServiceTests.actionToolOnReadOnlyPanelIsRefused
     ctx = _ctx(panels={"vulnerabilities": PanelSettings(read_only=True)})
+    request = _call(ctx)
     with pytest.raises(ToolCallError) as exc:
-        call_tool(_call(ctx), "vulnerabilities_scan", {}, via="cli")
+        call_tool(request, "vulnerabilities_scan", {}, via="cli")
     assert exc.value.message == "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true"
     assert exc.value.status == 403
 
 
 def test_action_tool_refused_under_global_read_only():
     # adapted: BootUiMcpServiceTests.actionToolOnReadOnlyPanelIsRefused (global SHARPIT_READ_ONLY)
+    request = _call(_ctx(read_only=True))
     with pytest.raises(ToolCallError) as exc:
-        call_tool(_call(_ctx(read_only=True)), "vulnerabilities_scan", {}, via="cli")
+        call_tool(request, "vulnerabilities_scan", {}, via="cli")
     assert exc.value.message == "sharpit is read-only via SHARPIT_READ_ONLY=true"
 
 
@@ -411,8 +416,9 @@ def test_action_busy_is_an_in_band_conflict():
         raise ActionBusy("vulnerabilities-scan", "vulnerabilities-scan")
 
     tool = _tool("scan_x", busy, panel="vulnerabilities", action=True)
+    request = _call(_ctx())
     with pytest.raises(ToolCallError) as exc:
-        call_tool(_call(_ctx()), "scan_x", {}, via="cli", tools=(tool,))
+        call_tool(request, "scan_x", {}, via="cli", tools=(tool,))
     assert exc.value.status == 409
     assert exc.value.message == str(ActionBusy("vulnerabilities-scan", "vulnerabilities-scan"))
 
@@ -423,8 +429,10 @@ def test_tool_client_error_is_in_band():
     def bad(_c: CallContext, _a: dict[str, Any]) -> dict[str, Any]:
         raise BadRequest("exception does-not-exist not found")
 
+    request = _call(_ctx())
+    handler_tool = _tool("get_x", bad)
     with pytest.raises(ToolCallError) as exc:
-        call_tool(_call(_ctx()), "get_x", {}, via="mcp", tools=(_tool("get_x", bad),))
+        call_tool(request, "get_x", {}, via="mcp", tools=(handler_tool,))
     assert (exc.value.message, exc.value.status) == ("exception does-not-exist not found", 400)
 
 
@@ -435,8 +443,10 @@ def test_unexpected_failure_is_internal_error_without_details(caplog: pytest.Log
     def boom(_c: CallContext, _a: dict[str, Any]) -> dict[str, Any]:
         raise failure
 
+    request = _call(_ctx())
+    handler_tool = _tool("get_x", boom)
     with pytest.raises(RpcError) as exc:
-        call_tool(_call(_ctx()), "get_x", {}, via="mcp", tools=(_tool("get_x", boom),))
+        call_tool(request, "get_x", {}, via="mcp", tools=(handler_tool,))
     assert (exc.value.code, exc.value.message) == (INTERNAL_ERROR, "Internal error")
     reported = [r for r in caplog.records if r.exc_info and r.exc_info[1] is failure]
     assert len(reported) == 1
@@ -461,8 +471,9 @@ def test_capacity_refusal_32001():
     try:
         while not workers:
             threading.Event().wait(0.01)
+        request = _call(ctx)
         with pytest.raises(RpcError) as exc:
-            call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools)
+            call_tool(request, "get_fast", {}, via="mcp", tools=tools)
         assert (exc.value.code, exc.value.message) == (
             SERVER_AT_CAPACITY,
             "MCP server is at capacity; try again shortly.",
@@ -484,8 +495,9 @@ def test_timeout_releases_semaphore():
     tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
     ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="50ms")
     try:
+        request = _call(ctx)
         with pytest.raises(RpcError) as exc:
-            call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)
+            call_tool(request, "get_slow", {}, via="mcp", tools=tools)
         assert (exc.value.code, exc.value.message) == (TOOL_TIMEOUT, "MCP tool execution timed out")
         assert workers[0].is_alive()  # the abandoned worker still runs and holds one of the two slots
         assert call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools) == {"fast": True}
@@ -505,11 +517,13 @@ def test_abandoned_workers_bound_capacity():
     ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="50ms")
     try:
         for _ in range(2):
+            request = _call(ctx)
             with pytest.raises(RpcError) as timed_out:
-                call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)
+                call_tool(request, "get_slow", {}, via="mcp", tools=tools)
             assert timed_out.value.code == TOOL_TIMEOUT
+        request = _call(ctx)
         with pytest.raises(RpcError) as refused:
-            call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools)
+            call_tool(request, "get_fast", {}, via="mcp", tools=tools)
         assert (refused.value.code, refused.value.message) == (
             SERVER_AT_CAPACITY,
             "MCP server is at capacity; try again shortly.",
@@ -530,13 +544,15 @@ def test_cap_counts_running_and_abandoned_together():
     ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="300ms")
     running = threading.Thread(target=lambda: call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools))
     try:
+        request = _call(ctx)
         with pytest.raises(RpcError):
-            call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)  # times out: abandoned
+            call_tool(request, "get_slow", {}, via="mcp", tools=tools)  # times out: abandoned
         running.start()
         while len(workers) < 2:
             threading.Event().wait(0.01)
+        request = _call(ctx)
         with pytest.raises(RpcError) as refused:
-            call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools)
+            call_tool(request, "get_fast", {}, via="mcp", tools=tools)
         assert refused.value.code == SERVER_AT_CAPACITY
     finally:
         release.set()

@@ -40,7 +40,7 @@ describe('neighbourhood', () => {
     const expected = new Set([focus.name, ...focus.dependencies, ...g.edges.filter((e) => e.to === focus.name).map((e) => e.from)]);
     expect(ids).toEqual(expected);
     for (const e of n.edges) expect(ids.has(e.from) && ids.has(e.to)).toBe(true);
-    expect(n.edges.length).toBe(g.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).length);
+    expect(n.edges).toHaveLength(g.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).length);
   });
 
   it('depth 2 is a strict superset of depth 1', () => {

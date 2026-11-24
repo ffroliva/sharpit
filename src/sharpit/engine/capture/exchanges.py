@@ -78,7 +78,7 @@ def trace_id(request_headers: RawHeaders, request_id: str) -> str:
 
 
 def exchange_row(
-    masker: Masker,
+    masker: Masker,  # NOSONAR - keyword-only fields of one flat row, built once a request on the capture hot path
     *,
     request_id: str,
     started_epoch_ns: int,

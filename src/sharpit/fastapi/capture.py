@@ -462,7 +462,7 @@ class CaptureWiring:
 
     def _attach_non_propagating(self) -> None:
         """Loggers that never reach root but print somewhere (uvicorn's ``uvicorn`` and ``uvicorn.access``)."""
-        for name, candidate in list(logging.root.manager.loggerDict.items()):
+        for name, candidate in list(logging.root.manager.loggerDict.items()):  # NOSONAR - snapshot copy
             own = name == "sharpit" or name.startswith("sharpit.")
             if isinstance(candidate, logging.Logger) and not candidate.propagate and candidate.handlers and not own:
                 self._attach(candidate)
