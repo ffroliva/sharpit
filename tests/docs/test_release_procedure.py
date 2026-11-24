@@ -17,10 +17,11 @@ def step(number):
     [
         (3, r"origin/main"),
         (3, r"origin/release/\$version"),
-        (7, r"gh pr merge .*--merge"),
+        (7, r'gh pr merge "\$STAGING_PR" --merge'),
+        (8, r'gh pr merge "\$STAGING_PR" --merge'),
         (8, r"git merge .*origin/main"),
-        (8, r"gh pr create .*--draft .*--base main .*--head [\"\$]*chore"),
-        (8, r"gh pr create .*--draft .*--base main .*--head [\"\$]*release/"),
+        (8, r"gh pr create .*--draft .*--base main .*--head \"chore/release-\$version\""),
+        (8, r"gh pr create .*--draft .*--base main .*--head \"release/\$version\""),
         (8, r"uv run python scripts/ci/ship_scan.py "),
         (9, r"/sharpit:llm-council --tier high"),
         (9, r"gh api repos/ffroliva/sharpit/git/ref/heads/main --jq .object.sha"),
@@ -33,7 +34,10 @@ def test_release_step(number, pattern):
 
 
 def test_ready_after_review_and_scan():
-    actions = re.findall(r'/sharpit:llm-council --tier high|scripts/ci/ship_scan.py|^gh pr ready "\$N"$', step(9), re.M)
+    assert not re.search(r"^gh pr ready .*?(?<! --undo)$", step(8), re.MULTILINE)
+    actions = re.findall(
+        r'/sharpit:llm-council --tier high|scripts/ci/ship_scan.py|^gh pr ready "\$N"$', step(9), re.MULTILINE
+    )
     assert actions == ["/sharpit:llm-council --tier high", "scripts/ci/ship_scan.py", 'gh pr ready "$N"']
 
 

@@ -51,16 +51,20 @@ stops the release until the owner decides where it goes.
   `docs/reports/<date>-<version>-decisions.md` and no tracked `.superpowers/` files
   (`python scripts/ci/no_superpowers.py` exits 0; `docs/development/workflow.md` step 7).
 
-**3. Announce, then cut the branch in its own worktree.**
+**3. Hold merges to main and cut the release worktree.** Set `version` to the release version. Announce the
+release and hold merges to `main` until the tag is pushed. After fetching, choose the existing version branch
+as the starting point when present.
 
 ```bash
-python ~/.agents/skills/multi-agent-dev/scripts/agentctl.py status      # who else works on sharpit
-git worktree add -b chore/release-<version> ../sharpit-release-<version> origin/main
-cd ../sharpit-release-<version>
+python ~/.agents/skills/multi-agent-dev/scripts/agentctl.py status
+git fetch --prune origin
+start=origin/main
+if git show-ref --verify --quiet "refs/remotes/origin/release/$version"; then
+  start="origin/release/$version"
+fi
+git worktree add -b "chore/release-$version" "../sharpit-release-$version" "$start"
+cd "../sharpit-release-$version"
 ```
-
-Tell every live sharpit agent: "Cutting v<version> from main@<sha>; hold merges to main until the tag is pushed."
-A worktree keeps another session's `git switch` from moving the branch under you.
 
 **4. Bump the version.** `tests/test_packaging.py::test_version_is_<x>` pins it by name and value: update both, or the suite
 fails. There is one source: `__version__` in `src/sharpit/__init__.py` (hatch reads it; the two manifests under `plugins/sharpit/` carry a copy the Agent Plugins schema requires, and `tests/test_agent_plugin.py::test_manifest_version_matches_the_package` fails until you update it;
@@ -85,42 +89,115 @@ python -m zipfile -l "$TEMP"/sharpit-dist/sharpit-<version>-py3-none-any.whl  # 
 
 The file name must carry `<version>`; CI refuses the tag otherwise. Do not commit `dist/`.
 
-**7. Commit and push.**
+**7. Commit and push the release changes.** Include each updated declaration from step 4. Set `body_file` to
+the path of a file containing the release PR description.
 
 ```bash
-git add src/sharpit/__init__.py CHANGELOG.md     # plus any declaration from step 4
-git commit -m "chore: release <version>"
-git push -u origin chore/release-<version>
+git add src/sharpit/__init__.py CHANGELOG.md
+git commit -s -m "chore: release $version"
+git push -u origin "chore/release-$version"
 ```
 
-**8. Scan the ship branch.**
+For a release cut from `origin/main`, continue to step 8. For one cut from `origin/release/$version`, stage the
+changes on the version branch first. Capture the new PR URL as `STAGING_PR`.
+Once the staging checks pass, merge with a merge commit to preserve ancestry.
 
 ```bash
-uv run python scripts/ci/sonar_ratchet.py --branch chore/release-<version>
-gh api "repos/ffroliva/sharpit/code-scanning/analyses?ref=refs/heads/chore/release-<version>" --jq 'length'
-gh api "repos/ffroliva/sharpit/code-scanning/alerts?ref=refs/heads/chore/release-<version>&state=open"
+STAGING_PR=$(gh pr create --base "release/$version" --head "chore/release-$version" --title "Stage release $version" --body-file "$body_file")
+gh pr checks "$STAGING_PR" --watch
+gh pr merge "$STAGING_PR" --merge
 ```
 
-The expected result is at least one analysis for the branch and zero new alerts. An empty alert list with no analysis
-means the branch was never scanned: open the release pull request as a draft, wait for its `CodeQL` check, then read
-the alerts again.
-
-**9. Open the release pull request and merge.**
+**8. Scan the draft release PR into main.** Fetch before synchronizing the ship head.
 
 ```bash
-gh pr create --base main --title "chore: release <version>" --body "Release <version>. See CHANGELOG.md."
-gh pr checks <N> --watch                          # background it
+git fetch origin
 ```
 
-Run `/sharpit:llm-council --tier high` on the branch. All checks green and no council blocker, then merge with a **merge commit** (never squash) and remove the worktree:
+Find an existing PR with the command below, setting `ship` to `chore/release-$version` on the direct
+path or `release/$version` on the version-branch path. Reuse its number if it is draft. If it is ready,
+return it to draft with `gh pr ready "$N" --undo` before verification. Run the applicable create command
+only when the lookup returns no PR.
 
 ```bash
-gh pr merge <N> --merge --delete-branch
-cd <main checkout> && git worktree remove ../sharpit-release-<version>
+gh pr list --state open --base main --head "$ship" --json number,isDraft
 ```
 
-On Windows a held `.venv` can block the removal: merge without `--delete-branch`, run
-`git push origin --delete chore/release-<version>`, and list the directory for manual deletion.
+For the direct path, update and push the chore branch. Open the draft shown below, or reuse the existing
+draft with the same head and base.
+
+```bash
+git switch "chore/release-$version"
+git merge --no-edit origin/main
+git push origin "chore/release-$version"
+gh pr create --draft --base main --head "chore/release-$version" --title "Release $version" --body-file "$body_file"
+```
+
+For the version-branch path, check `git merge-base --is-ancestor origin/main "origin/release/$version"`.
+If the version branch lacks the current main commit or needs a fix, start a fresh staging branch from the
+current version branch. Set `stage` to an unused branch name. Apply and commit any fix on that branch.
+
+```bash
+git switch -c "$stage" "origin/release/$version"
+git merge --no-edit origin/main
+git push -u origin "$stage"
+STAGING_PR=$(gh pr create --base "release/$version" --head "$stage" --title "Update release $version" --body-file "$body_file")
+gh pr checks "$STAGING_PR" --watch
+gh pr merge "$STAGING_PR" --merge
+```
+
+After staging, open or reuse the draft from the version branch.
+
+```bash
+gh pr create --draft --base main --head "release/$version" --title "Release $version" --body-file "$body_file"
+```
+
+For either path, set `N` to the draft PR number. Wait for all checks to pass and verify CodeQL and the code-scan ratchet on the draft.
+
+```bash
+gh pr checks "$N" --watch
+uv run python scripts/ci/ship_scan.py "$N"
+```
+
+**9. Review the scanned draft and merge.** Review the exact draft head with `/sharpit:llm-council --tier high`.
+Record the reviewed SHA as `COUNCIL_SHA`. Resolve any council blocker through the applicable path in step 8.
+After council approval, rerun the gate on the draft.
+
+```bash
+uv run python scripts/ci/ship_scan.py "$N"
+```
+
+Record the successful gate's printed head and base as `VERIFIED_SHA` and `VERIFIED_BASE`. Proceed only when
+`COUNCIL_SHA` equals `VERIFIED_SHA` and all checks are green.
+
+```bash
+gh pr ready "$N"
+```
+
+Immediately before merging, confirm all checks are still green and each comparison succeeds. Stop at a failed check.
+
+```bash
+gh pr checks "$N"
+test "$(gh pr view "$N" --json headRefOid --jq .headRefOid)" = "$VERIFIED_SHA"
+test "$(gh pr view "$N" --json baseRefName --jq .baseRefName)" = main
+test "$(gh api repos/ffroliva/sharpit/git/ref/heads/main --jq .object.sha)" = "$VERIFIED_BASE"
+```
+
+If the head, base branch or base SHA changes, return the PR to draft and repeat step 8, council, gate and checks.
+
+```bash
+gh pr ready "$N" --undo
+```
+
+When every check passes, merge at the verified head. The merge command pins only the head, so the hold on
+merges to main from step 3 covers the interval after the live base check. After a successful merge, delete
+only the chore branch by name. Set `main_checkout` to the main checkout path and remove the worktree there.
+
+```bash
+gh pr merge "$N" --merge --match-head-commit "$VERIFIED_SHA"
+git push origin --delete "chore/release-$version"
+cd "$main_checkout" && git worktree remove "../sharpit-release-$version"
+```
 
 **10. Sign the tag on the merged `main`.**
 
@@ -175,4 +252,4 @@ permanent: fix forward with a patch release.
 - Never change `release.yml` in the same PR as a release.
 
 Ported from gflow-cli's `release` skill and `release.yml`: same signed-tag gate, OIDC publish and Release step;
-sharpit has one branch (`main`) and one version site, so the develop back-merge and the seven-site table are gone.
+sharpit tags releases on `main` and has one version site, so the develop back-merge and the seven-site table are gone.

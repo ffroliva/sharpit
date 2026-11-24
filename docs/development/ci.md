@@ -80,6 +80,28 @@ full matrix runs on every merge before anything ships.
   of that branch, which refreshes the base analysis the PR scans compare against (a stale one made each PR's Python sensor
   re-parse ~848 files). Every push is its own concurrency group (`run_id`), so none cancels another.
 
+## CodeQL on release pull requests
+
+The classic branch protection rule for `release/*` enables CodeQL default setup on pull requests into version
+branches alongside ruleset `27883117`. The classic rule adds no required checks or reviews and permits
+fast-forward pushes. Default setup records PR analyses on `refs/pull/<N>/head`. For the draft release PR into
+`main`, `scripts/ci/ship_scan.py` verifies the exact head's CodeQL evidence and code-scan ratchet before the PR
+becomes ready. The gate on this draft is independent of the classic rule.
+
+To undo the classic rule, look up the exact pattern and use its matching ID as `RULE_ID`. Ruleset `27883117`
+continues to protect `release/**`.
+
+```bash
+gh api graphql --paginate -f query='query($endCursor:String){
+  repository(owner:"ffroliva",name:"sharpit"){branchProtectionRules(first:100,after:$endCursor){
+    nodes{id pattern} pageInfo{hasNextPage endCursor}
+  }}
+}' --jq '.data.repository.branchProtectionRules.nodes[] | select(.pattern == "release/*")'
+gh api graphql -f r="$RULE_ID" -f query='mutation($r:ID!){
+  deleteBranchProtectionRule(input:{branchProtectionRuleId:$r}){clientMutationId}
+}'
+```
+
 ## Wall clock
 
 Target (owner, top priority): a PR's run, first job queued to last check green, averages 3-5 minutes, and so does an
