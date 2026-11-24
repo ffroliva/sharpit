@@ -14,6 +14,7 @@ except ImportError:  # pluggy before the public re-export
 from sharpit.engine.testsession.partial import partial_run
 from sharpit.pytest_plugin import swallowed
 from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
+from sharpit.pytest_plugin.paths import relativize_sql_locations
 
 WORKER_APPS = "sharpit-worker-apps"
 APPS_KEY = "sharpit_apps"  # workeroutput: {"names": candidates or None, "snapshot": an installed app was assessed}
@@ -84,6 +85,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
 
         sqla.apply_relationship_facts(test)
         sqla.apply_unbounded_read_facts(test)
+        relativize_sql_locations(test, item.config.rootpath)
         findings = plugin.gates.evaluate_test(
             test,
             budget,
