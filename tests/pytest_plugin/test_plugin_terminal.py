@@ -15,6 +15,65 @@ def get_users(): return []
 @app.delete('/items/{item_id}')
 def delete(item_id: int): return {}
 """
+CHECKED_GATES = (
+    "sharpit checked: test-runtime gates (sharpit.max-queries, sharpit.n-plus-one, sharpit.exception, "
+    "sharpit.swallowed-exception, sharpit.unbounded-read)"
+)
+
+
+def test_summary_names_every_runtime_gate_when_a_swallow_is_found(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        def test_swallow():
+            try:
+                raise TypeError('example')
+            except Exception:
+                pass
+        """
+    )
+
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-no-advisors", "-q", "-n", "0")
+
+    assert result.ret == 1
+    assert "sharpit: sharpit.swallowed-exception:" in result.stdout.str()
+    assert _checked_line(result) == CHECKED_GATES
+
+
+@pytest.mark.parametrize(("workers", "unattached"), [(0, 1), (2, 0), (2, 1), (2, 2)])
+def test_summary_reports_unattached_swallowed_capture(pytester: pytest.Pytester, workers: int, unattached: int) -> None:
+    pytester.makeconftest(
+        f"""
+        import pytest
+        from sharpit.pytest_plugin.swallowed import allocator
+
+        def pytest_configure(config):
+            worker = getattr(config, 'workerinput', {{}}).get('workerid')
+            if {unattached} == 2 or ({unattached} == 1 and ({workers} == 0 or worker == 'gw0')):
+                patch = pytest.MonkeyPatch()
+                patch.setattr(allocator, 'claim', lambda: None)
+                config.add_cleanup(patch.undo)
+        """
+    )
+    pytester.makepyfile("def test_first(): pass\ndef test_second(): pass")
+
+    result = pytester.runpytest_inprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q", "-n", str(workers)
+    )
+
+    checked = _checked_line(result)
+    if unattached:
+        note = (
+            f"sharpit.swallowed-exception not attached on {unattached} of {workers or 1} processes: "
+            "sys.monitoring tool ids 3 and 4 are in use"
+        )
+        assert note in checked
+        assert checked == f"{CHECKED_GATES}. {note}"
+    else:
+        assert checked == CHECKED_GATES
+
+
+def _checked_line(result: pytest.RunResult) -> str:
+    return next((line for line in result.stdout.lines if line.startswith("sharpit checked:")), "")
 
 
 def test_verbose_keeps_advisor_notes(pytester: pytest.Pytester) -> None:
