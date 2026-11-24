@@ -18,6 +18,7 @@ from pathlib import Path
 
 from sharpit.cli.commands import _build_root_parser
 from sharpit.cli.manifest import Manifest
+from sharpit.engine.testsession.gates import GATE_IDS
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = ROOT / "website" / "docs"
@@ -45,6 +46,11 @@ def test_tutorial_page_exists_and_in_nav() -> None:
 
     text = MKDOCS_YML.read_text(encoding="utf-8")
     assert re.search(r"-\s+[^:\n]+:\s*tutorial\.md", text), "tutorial.md is not listed in mkdocs.yml navigation"
+
+
+def test_tutorial_pytest_output_lists_every_runtime_gate() -> None:
+    text = TUTORIAL_MD.read_text(encoding="utf-8")
+    assert f"sharpit checked: test-runtime gates ({', '.join(GATE_IDS)})" in text
 
 
 def test_all_sharpit_commands_in_tutorial_parse() -> None:

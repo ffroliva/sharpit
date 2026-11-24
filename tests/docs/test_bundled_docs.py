@@ -6,10 +6,23 @@ import re
 from pathlib import Path
 
 from sharpit.cli.commands import run
+from sharpit.engine.testsession.gates import GATE_IDS
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "website/docs"
 DECISIONS = ROOT / "docs/decisions"
+
+
+def test_pytest_guide_defines_every_runtime_gate() -> None:
+    text = (SITE / "pytest-plugin.md").read_text(encoding="utf-8")
+    rule_ids = re.findall(r"^\| `(sharpit\.[^` ]+)` \|", text, re.MULTILINE)
+    assert rule_ids == list(GATE_IDS)
+
+
+def test_pytest_guide_acknowledges_silent_exception_capture() -> None:
+    text = (SITE / "pytest-plugin.md").read_text(encoding="utf-8")
+    stale = "Silent `try...except` blocks that neither log nor re-raise leave no trace and cannot be detected."
+    assert stale not in text
 
 
 def test_catalog_covers_the_user_guides_and_all_decisions():
