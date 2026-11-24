@@ -107,11 +107,11 @@ class CallContext:
     def __post_init__(self) -> None:
         if self.host_loop_provider is None:
             # Preserve direct engine callers by binding their loop once, at invocation construction.
-            object.__setattr__(self, "host_loop_provider", _BoundHostLoopProvider(self.ctx.capture.loop))
+            object.__setattr__(self, "host_loop_provider", BoundHostLoopProvider(self.ctx.capture.loop))
 
 
 @dataclass(frozen=True)
-class _BoundHostLoopProvider:
+class BoundHostLoopProvider:
     loop: asyncio.AbstractEventLoop | None
 
     def current_loop(self) -> asyncio.AbstractEventLoop | None:
