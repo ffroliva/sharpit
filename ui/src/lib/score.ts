@@ -26,7 +26,7 @@ const SCAN_STATUS_LABELS: Record<string, string> = {
 };
 
 export function scanStatusLabel(status: unknown): string {
-  if (!status) return 'Unknown';
+  if (!status || (typeof status !== 'string' && typeof status !== 'number')) return 'Unknown';
   const text = String(status);
   return (
     SCAN_STATUS_LABELS[text] ??
@@ -37,7 +37,8 @@ export function scanStatusLabel(status: unknown): string {
 /** BootUI's colour band; sharpit's classes are ok / warn / danger / muted (DESIGN.md). */
 export function scoreBandTone(score: unknown): 'ok' | 'warn' | 'danger' | 'muted' {
   if (typeof score !== 'number' || !Number.isFinite(score) || score < MIN_SCORE || score > MAX_SCORE) return 'muted';
-  return score >= 80 ? 'ok' : score >= 50 ? 'warn' : 'danger';
+  if (score >= 80) return 'ok';
+  return score >= 50 ? 'warn' : 'danger';
 }
 
 /** Eligibility is established by each report, never by substituting a default number. */
@@ -49,8 +50,7 @@ export function overallScore(scores: unknown): number | null {
 }
 
 function severityWeight(severity: unknown): number {
-  if (!severity) return 0;
-  return SEVERITY_WEIGHTS[String(severity).toUpperCase()] ?? 0;
+  return typeof severity === 'string' ? (SEVERITY_WEIGHTS[severity.toUpperCase()] ?? 0) : 0;
 }
 
 function isKnownSeverity(severity: unknown): boolean {

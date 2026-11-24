@@ -7,11 +7,11 @@ import os
 import sysconfig
 
 _STDLIB = tuple(
-    {
+    dict.fromkeys(  # ordered de-duplication: stdlib and platstdlib are often the same directory
         os.path.normcase(os.path.abspath(p)) + os.sep
         for k in ("stdlib", "platstdlib")
         if (p := sysconfig.get_paths().get(k))
-    }
+    )
 )
 _SHARPIT = os.path.normcase(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))) + os.sep  # sharpit/
 _PACKAGE_DIRS = {"site-packages", "dist-packages"}

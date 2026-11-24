@@ -32,5 +32,5 @@ class DaemonExecutor(Executor):
             if future.set_running_or_notify_cancel():
                 try:
                     future.set_result(fn(*args, **kwargs))
-                except BaseException as exc:
+                except BaseException as exc:  # NOSONAR - the future carries it; the worker must not die
                     future.set_exception(exc)

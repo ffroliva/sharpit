@@ -190,7 +190,9 @@ def _toggle_value(raw: bytes) -> object:
         body: object = json.loads(raw) if raw.strip() else None
     except (ValueError, RecursionError):
         return 0
-    return None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
+    if body is None:
+        return None
+    return cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:

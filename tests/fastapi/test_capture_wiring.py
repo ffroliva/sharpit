@@ -150,8 +150,9 @@ def test_exception_after_start_keeps_status():
         await send(_start(201))
         raise ValueError("boom")
 
+    running = _run(handle.context, app)
     with pytest.raises(ValueError, match="boom"):
-        asyncio.run(_run(handle.context, app))
+        asyncio.run(running)
     row = _rows(handle)[0]
     assert row["status"] == 201
     assert _buffer(handle).get(row["id"])["error"] is True  # pyright: ignore[reportOptionalSubscript]
@@ -163,8 +164,9 @@ def test_unhandled_exception_500_and_reraised():
     async def app(_scope: Scope, _receive: Receive, _send: Send) -> None:
         raise ValueError("boom")
 
+    running = _run(handle.context, app)
     with pytest.raises(ValueError, match="boom"):
-        asyncio.run(_run(handle.context, app))
+        asyncio.run(running)
     assert _rows(handle)[0]["status"] == 500
     # through a real app: Starlette's ServerErrorMiddleware sends the 500 after us
     app = FastAPI()
