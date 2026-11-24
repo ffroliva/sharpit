@@ -518,7 +518,7 @@ def pytest_sessionfinish(session):
 """
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "-n",
         workers,
         "--sharpit",
