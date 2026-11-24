@@ -99,15 +99,21 @@ git push -u origin "chore/release-$version"
 ```
 
 For a release cut from `origin/main`, continue to step 8. For one cut from `origin/release/$version`, stage the
-changes on the version branch first. Capture the new PR URL as `STAGING_PR`.
-Pin the staging merge to the local commit that was pushed. If no checks are reported yet, wait and rerun
-the checks and pinned merge for the existing staging PR.
+changes on the version branch first. Record the pushed SHA and new PR URL.
 
 ```bash
 STAGING_SHA=$(git rev-parse "chore/release-$version") &&
-STAGING_PR=$(gh pr create --base "release/$version" --head "chore/release-$version" --title "Stage release $version" --body-file "$body_file") &&
+STAGING_PR=$(gh pr create --base "release/$version" --head "chore/release-$version" --title "Stage release $version" --body-file "$body_file")
+```
+
+**Shared staging merge.** For initial staging, fixes and retries, use the recorded URL, pushed SHA and release
+version. If checks are pending or absent, wait and rerun this block for the same PR.
+
+```bash
+: "${STAGING_PR:?}" "${STAGING_SHA:?}" "${version:?}" &&
 gh pr checks "$STAGING_PR" --watch &&
-gh pr merge "$STAGING_PR" --merge --match-head-commit "${STAGING_SHA:?}"
+test "$(gh pr view "$STAGING_PR" --json baseRefName --jq .baseRefName)" = "release/$version" &&
+gh pr merge "$STAGING_PR" --merge --match-head-commit "$STAGING_SHA"
 ```
 
 **8. Scan the draft release PR into main.** Fetch before synchronizing the ship head.
@@ -139,12 +145,10 @@ After committing any fix, stage the updated head.
 git merge --no-edit origin/main &&
 git push -u origin "$stage" &&
 STAGING_SHA=$(git rev-parse "$stage") &&
-STAGING_PR=$(gh pr create --base "release/$version" --head "$stage" --title "Update release $version" --body-file "$body_file") &&
-gh pr checks "$STAGING_PR" --watch &&
-gh pr merge "$STAGING_PR" --merge --match-head-commit "${STAGING_SHA:?}"
+STAGING_PR=$(gh pr create --base "release/$version" --head "$stage" --title "Update release $version" --body-file "$body_file")
 ```
 
-If no staging checks are reported yet, wait and rerun the checks and pinned merge for the existing staging PR.
+Run the shared staging merge in step 7 with this PR URL and pushed SHA.
 After its successful merge, clean up the temporary staging branch from the merged version-branch commit.
 
 ```bash
@@ -156,7 +160,7 @@ git branch -d "$stage"
 ```
 
 For either path, look up the PR after updating the ship head. Set `ship` to `chore/release-$version` or
-`release/$version` for the chosen path. A reusable PR must have been opened against main with that head.
+`release/$version` for the chosen path. Reuse only a PR opened against main with that head. If its base ever changed, close the PR and open a new draft against main.
 
 ```bash
 gh pr list --state open --base main --head "$ship" --json number,isDraft
@@ -180,23 +184,22 @@ gh pr create --draft --base main --head "release/$version" --title "Release $ver
 For either path, set `N` to the draft PR number. Wait for all checks to pass and verify CodeQL and the code-scan ratchet on the draft.
 
 ```bash
-gh pr checks "$N" --watch
+gh pr checks "${N:?}" --watch &&
 uv run python scripts/ci/ship_scan.py "$N"
 ```
 
 **9. Review the scanned draft and merge.** Review the exact draft head with `/sharpit:llm-council --tier high`.
 Record the reviewed SHA as `COUNCIL_SHA`. Resolve any council blocker through the applicable path in step 8.
-After council approval, rerun the gate on the draft.
+After council approval, run this block in one Bash shell. Keep the verified SHAs for the merge.
 
 ```bash
-uv run python scripts/ci/ship_scan.py "$N"
-```
-
-Record the successful gate's printed head and base as `VERIFIED_SHA` and `VERIFIED_BASE`. Proceed only when
-`COUNCIL_SHA` equals `VERIFIED_SHA` and all checks are green.
-
-```bash
-gh pr ready "$N"
+gh pr checks "${N:?}" --watch &&
+gate=$(uv run python scripts/ci/ship_scan.py "$N") &&
+[[ $gate =~ ^Verified\ head\ ([0-9a-f]{40})\ and\ base\ ([0-9a-f]{40})$ ]] &&
+VERIFIED_SHA=${BASH_REMATCH[1]} && VERIFIED_BASE=${BASH_REMATCH[2]} &&
+test "${COUNCIL_SHA:?}" = "${VERIFIED_SHA:?}" &&
+printf '%s\n' "$gate" &&
+gh pr ready "${N:?}"
 ```
 
 Shell variables do not persist between separate shell calls. In the shell running the following block,
