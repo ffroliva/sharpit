@@ -4,6 +4,7 @@ import functools
 import re
 from collections.abc import Callable, Collection, Sequence
 
+from sharpit.engine.capture.journal import FAILED, REENTRANT
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.spi import RouteInfo
 
@@ -78,6 +79,11 @@ def refusal(snapshot: Snapshot) -> str | None:
     if snapshot.dropped("http"):
         return (
             "The http source dropped completion events, so declared routes absent from its counts "
+            "cannot be classified as not exercised."
+        )
+    if key := next((k for k in (FAILED, REENTRANT) if snapshot.dropped(k)), None):
+        return (
+            f"The journal dropped events of an unknown source ({key}), so declared routes "
             "cannot be classified as not exercised."
         )
     if snapshot.status["evictedEvents"]:

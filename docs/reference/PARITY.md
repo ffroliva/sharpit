@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (25 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -388,3 +388,4 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 | not-exercised | insights:not-exercised-unmatched | adapted | An HTTP 404 without a captured route template never marks a declared route exercised, including a Host route rejected by its host condition. |
 | not-exercised | insights:not-exercised-missing-templates | adapted | A completed non-404 HTTP request with an explicitly absent route template refuses classification only when its method and path could belong to a listed declared FastAPI route, because included FastAPI routers can lose their prefix at capture, or when its path is masked and cannot be matched. Other template-less traffic (a CORS preflight, a static file, a slash redirect, a plain Starlette route, an opaque mount) is ignored, as an unmatched 404 is, and its path label never marks a declared route exercised. |
 | not-exercised | insights:not-exercised-output-masking | adapted | BootUI v2.5.0 does not mask the notExercised list. sharpit masks each declared route label at output through the service masker because the safety model requires secrets masked before every output, including HTTP and CLI/MCP agent views. |
+| not-exercised | insights:not-exercised-lost-completions | adapted | An HTTP completion the capture fails to journal (a request-start, probe-strip or request-end failure) is counted as an http drop, and any journal drop of an unknown source (failed or reentrant offers) refuses classification. Requests passed through while capture is detached are not counted, to keep per-request work off the capture path. |
