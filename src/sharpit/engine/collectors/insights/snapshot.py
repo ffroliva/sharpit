@@ -65,6 +65,7 @@ class Snapshot:
     # enabled sources whose producer is not armed here: not recorded, though no setting says so
     unarmed: frozenset[str] = frozenset()
     loss_horizon: int | None = None  # the latest start of an evicted or cleared unit-of-work event; None while none
+    clears: int = 0
 
     @cached_property
     def request_index(self) -> RequestIndex:
@@ -137,7 +138,8 @@ def project(
     enabled_produced = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
     produced = [s for s in enabled_produced if producing is None or producing(s)]
     hidden = {s: off for s in produced if (off := hidden_panels(s, panel_enabled))}
-    status, records, newest, horizon = journal.view([s for s in produced if s not in hidden])
+    completeness: dict[str, int] = {}
+    status, records, newest, horizon = journal.view([s for s in produced if s not in hidden], completeness=completeness)
     return Snapshot(
         status,
         records,
@@ -148,4 +150,5 @@ def project(
         shared_pools,
         frozenset(enabled_produced) - set(produced),
         horizon,
+        completeness["clears"],
     )

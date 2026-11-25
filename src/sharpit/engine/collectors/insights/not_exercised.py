@@ -16,6 +16,16 @@ def refusal(snapshot: Snapshot) -> str | None:
         return UNRECORDED
     if "http" in snapshot.hidden:
         return "The http-exchanges panel is disabled, so the routes no request reached are not listed."
+    if snapshot.clears:
+        return (
+            "The recording was cleared during this run, so declared routes absent from the remaining counts "
+            "cannot be classified as not exercised."
+        )
+    if snapshot.dropped("http"):
+        return (
+            "The http source dropped completion events, so declared routes absent from its counts "
+            "cannot be classified as not exercised."
+        )
     return None
 
 
