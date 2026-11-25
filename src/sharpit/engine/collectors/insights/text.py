@@ -68,3 +68,13 @@ def primary_call_site(sites: Sequence[str]) -> str:
     """The most frequent call site among the executions, preserving first-seen order on ties."""
     # Counter keeps first-seen order and most_common sorts stably, so ties go to the site seen first, in one pass
     return Counter(sites).most_common(1)[0][0] if sites else ""
+
+
+# The anonymous-access kinds (BootUI decides them from its authorization layer).
+ANONYMOUS_ACCESS_NOT_APPLICABLE = (
+    "sharpit observes no authorization decision: FastAPI security dependencies decide inside the endpoint, "
+    "and a request without a recorded principal may still be authenticated by a middleware or a dependency, "
+    "so anonymous access cannot be proven without running application code. The Security Advisor covers part "
+    "of this statically: SEC-AUTHZ-002 when no route is secured, SEC-AUTHZ-001 for an unsecured "
+    "state-changing route in an otherwise secured app."
+)

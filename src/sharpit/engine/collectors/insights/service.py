@@ -111,7 +111,7 @@ def _requests_hidden(observation: Observation, snapshot: Snapshot) -> str | None
 
 def _inapplicable(observation: Observation, snapshot: Snapshot) -> str | None:
     """Why the kind cannot run, in order: a fixed framework reason, a missing source, hidden requests, then BootUI's
-    ``Observation.notApplicable``; else ``None``. A stub or a fake kind has neither the fixed reason nor the gate."""
+    ``Observation.notApplicable``; else ``None``. A kind without the fixed reason or the gate skips that step."""
     if fixed := getattr(observation, "not_applicable_reason", None):
         return fixed
     missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
