@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.collectors.insights import listing, not_exercised
@@ -286,7 +286,10 @@ class InsightsService:
         report, _, snapshot = self._build()
         if snapshot is not None and self.declared_routes is not None:
             missing = not_exercised.list_for(
-                snapshot, self.declared_routes, report["limitations"], metadata_only=self._mask("") is None
+                snapshot,
+                self.declared_routes,
+                cast("list[str]", report["limitations"]),
+                metadata_only=self._mask("") is None,
             )
             report["notExercised"] = missing[:100]  # RuntimeInsightsReportDto.MAX_NOT_EXERCISED
             report["notExercisedOmitted"] = max(0, len(missing) - 100)

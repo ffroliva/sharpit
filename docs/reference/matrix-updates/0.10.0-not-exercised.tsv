@@ -1,0 +1,9 @@
+insights:not-exercised	adapted	Declared HTTP routes not reached by a completed request are listed in sorted order, capped at 100; the agent view keeps eight and counts omissions. Any journal eviction refuses classification because sharpit has no run-wide route aggregates.
+insights:not-exercised-framework	adapted	Framework handlers use the fastapi and starlette module prefixes; opaque mounts, custom routes, WebSockets and Python path catch-alls are excluded.
+insights:not-exercised-converters	adapted	Python converter syntax remains unchanged on both declared paths and captured labels, rather than canonicalising only the declared path.
+insights:not-exercised-templates	adapted	Plain Starlette routes are omitted and counted in a limitation because captured templates are unavailable on FastAPI and older Starlette releases.
+insights:not-exercised-suspension	adapted	A capture suspension during the run refuses classification even after resume; the boundary is recorded at hook transitions, without per-request bookkeeping.
+insights:not-exercised-exposure	adapted	METADATA_ONLY refuses classification because masked request identifiers and labels cannot prove route exercise.
+insights:not-exercised-masked-labels	adapted	Secret-looking route literals may be listed despite having been called when their captured label is masked; a limitation states this and a regression test pins it.
+insights:not-exercised-unmatched	adapted	An HTTP 404 without a captured route template never marks a declared route exercised, including a Host route rejected by its host condition.
+insights:not-exercised-missing-templates	adapted	A completed non-404 HTTP request with an explicitly absent route template refuses classification. Included FastAPI routers can lose their prefix at capture; the report does not infer a match from the masked request path.

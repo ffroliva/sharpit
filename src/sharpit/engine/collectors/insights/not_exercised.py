@@ -40,7 +40,20 @@ def list_for(
                 limitations.append(
                     f"{unsupported} declared HTTP {noun} left out because its captured route template is not available."
                 )
-            exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route")}
+            if any(
+                "routeTemplate" in r and r["routeTemplate"] is None and r.get("status") != 404
+                for r in snapshot.records.get("http", ())
+            ):
+                limitations.append(
+                    "Some completed HTTP requests have no captured route template, so declared routes "
+                    "cannot be classified as not exercised."
+                )
+                return []
+            exercised = {
+                str(r["route"])
+                for r in snapshot.records.get("http", ())
+                if r.get("route") and not (r.get("status") == 404 and not r.get("routeTemplate"))
+            }
             if any("******" in label for label in exercised):
                 limitations.append(
                     "Some captured route labels were masked, so routes listed as not exercised may have been reached."
