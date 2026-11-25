@@ -72,54 +72,70 @@ GET routes:
 | 26 | `/memory/rules/{ruleId}/violations` | `web/AdvisorViolationsEndpoint:12` | — | Decision (Phase 8) |
 | 27 | `/hibernate` | `hibernate/HibernateController:39` | `reads` | Decision (Phase 8) |
 | 28 | `/hibernate/rules/{ruleId}/violations` | `web/AdvisorViolationsEndpoint:12` | — | Decision (Phase 8) |
-| 29 | `/dev-services/{id}/logs` | `web/DevServicesController:45` | — | `n-a` (`0.9.0-r0`) |
-| 30 | `/heap-dump/download` | `web/HeapDumpController:57` | — | `n-a` (`0.9.0-r0`) |
+| 29 | `/dev-services/{id}/logs` | `web/DevServicesController:45` | — | `n-a` (Quarkus Dev Services, extends R0) |
+| 30 | `/heap-dump/download` | `web/HeapDumpController:57` | — | Maintainer decision (Phase 1) |
 | 31 | `/crac/dockerfile` | `crac/CracController:94` | — | `n-a` (JVM CRaC, `X`) |
 | 32 | `/crac/entrypoint` | `crac/CracController:103` | — | `n-a` (JVM CRaC, `X`) |
 | 33 | `/graalvm/dockerfile` | `graalvm/GraalVmController:124` | — | `n-a` (GraalVM, `X`) |
 
 ## Phase 1 — smallest contract inventory correction (Task 1)
 
-**Files:** `tests/parity/routes_status.json`, `tests/parity/test_routes_parity.py`, `tests/docs/test_parity_matrix.py`,
-`ROADMAP.md`, `README.md`, `docs/reference/matrix-updates/0.10.0-routes-300.tsv`, `docs/reference/PARITY.md`. No
-multi-version schema and no live scan. Keep `len(_ROUTES) == 97` (`tests/parity/test_routes_parity.py:104`) and add an
-optional `"scenario"` field. Point the eight `*/scanned.captured.json` rows (`architecture`, `database-advisor`,
-`fastapi`, `memory`, `postgresql`, `rest-api`, `security`, `vulnerabilities`) at `/sharpit/api/<panel>` with
-`"scenario": "post-scan"` (`"post-read"` for `postgresql`; `memory` stays `missing` until Phase 8). Point
-`traces/detail.captured.json` at `/sharpit/api/traces/{id}` (`fastapi/routes/traces.py:46,54`,
-`"scenario": "seeded-trace"`). Fix `runtime-insights/impact-symbols.captured.json` to
-`/sharpit/api/runtime-insights/impact/symbols`. Four served panels (`database-advisor`, `fastapi`, `postgresql`,
-`security`) have an unscanned `captured.json` row marked `n-a` due to `emptyLists` and a `scanned.captured.json`
-scenario on the same canonical GET: all 97 fixture rows remain in `_ROUTES`, while the seven served post-action rows
-and `traces/detail.captured.json` become `partial`. In `tests/docs/test_parity_matrix.py`, merge rows sharing a
-canonical `route` when computing route-level doc totals (a served `partial`/`matched` scenario supersedes an unscanned
-`n-a` empty-list row) or update `routes_status.json["counts"]`, `ROADMAP.md`, and `README.md` together. **Phase 4b
-(Task 4b)** is the closing owner for all seven post-action differences and `GET /traces/{id}`.
-- [ ] **Red & Green:** assert no `route` in `routes_status.json` ends with `/scanned`, `/traces/detail`, or
-  `/impact-symbols`, `len(_ROUTES) == 97`, and `GET /traces/{id}` returns 200 when seeded and 404 when unknown
-  (`# ported: AbstractBootUiApiConformanceTest.tracesListClearAndDetailContract`). Record `#19, #29–#33` as `n-a` in
-  `0.10.0-routes-300.tsv`. Verify `uv run --extra test pytest -q -n 4 tests/parity tests/docs` and commit as
-  `test: map post-action and trace detail fixtures to canonical routes`.
+**Files** include `tests/parity/routes_status.json`, `tests/parity/test_routes_parity.py`, `tests/docs/test_parity_matrix.py`,
+`README.md`, `ROADMAP.md`, and the parity matrix fragment and generated matrix. Keep 97 classified rows.
+Add optional `scenario` and share one scenario dispatcher between the matched, partial, and missing GET tests.
+It prepares only the selected fixture, checks action responses, resolves trace IDs to actual paths, and returns the
+GET response. Keep a separate unseeded 404 assertion for an unknown trace ID. The partial test expects an
+`AssertionError` and compares its exact text. For scenario errors without a ` parity: ` prefix, compare verbatim.
+The two `n-a` cases have an explicit empty-list reason and use the empty-list test.
+
+| Golden | Canonical GET | Scenario setup | Status | Exact difference |
+|---|---|---|---|---|
+| `architecture/scanned.captured.json` | `/architecture` | `post-scan`: Writable panel, POST /architecture/scan without configured scope | `partial` | `architecture/scanned.captured.json parity: basePackages: non-empty golden list requires a non-empty payload list` |
+| `database-advisor/scanned.captured.json` | `/database-advisor` | `post-scan`: Writable panel, POST /database-advisor/scan without an engine | `n-a` | — (comparison passes with empty-list golden) |
+| `fastapi/scanned.captured.json` | `/fastapi` | `post-scan`: Writable panel, POST /fastapi/scan on the sample app | `partial` | `fastapi/scanned: golden list inspected has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4)` |
+| `postgresql/scanned.captured.json` | `/postgresql` | `post-read`: Writable panel, POST /postgresql/read without database configuration | `n-a` | — (comparison passes with empty-list golden) |
+| `rest-api/scanned.captured.json` | `/rest-api` | `post-scan`: Writable panel, POST /rest-api/scan on the sample app | `partial` | `rest-api/scanned.captured.json parity: evidence.limitations: non-empty golden list requires a non-empty payload list` |
+| `security/scanned.captured.json` | `/security` | `post-scan`: Writable panel, POST /security/scan and GET /security on the sample app | `partial` | `security/scanned: golden list filterChains has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4)` |
+| `vulnerabilities/scanned.captured.json` | `/vulnerabilities` | `post-scan`: Writable panel, POST /vulnerabilities/scan with empty successful OSV replies and EPSS disabled | `partial` | `vulnerabilities/scanned.captured.json parity: coverage.unidentifiedArchives: non-empty golden list requires a non-empty payload list; evidence.limitations: non-empty golden list requires a non-empty payload list` |
+| `traces/detail.captured.json` | `/traces/{id}` | `seeded-trace`: Add a finished local OTel span with no attributes to the span buffer and substitute its trace ID | `partial` | `traces/detail.captured.json parity: spans[].attributes: non-empty golden list requires a non-empty payload list` |
+
+The unscanned database-advisor, FastAPI, PostgreSQL and security comparisons also pass and retain their existing
+`n-a` fixture classification. The memory scenario maps to `/memory` and remains `missing` (GET returns 404).
+Canonicalize `/runtime-insights/impact-symbols` to `/runtime-insights/impact/symbols`. Use a route inventory check
+that rejects the synthetic suffixes and a scenario fixture test that demonstrates that a literal `{id}` returns 404.
+Phase 1 changes fixture counts from 5 matched / 28 partial / 23 missing / 41 n-a to 5 / 34 / 15 / 43.
+The published matrix currently counts fixture rows (39 served of 54 applicable after Phase 1). Update
+`README.md` and `ROADMAP.md` together. `ROUTES_MATCHED_PIN` stays at 5 and the BootUI marks stay as recorded.
+
+**Maintainer decision — heap download.** The mapping marks heap dumps `P` and lists a Python adaptation for heap dumps and the R0 fragment
+records only `GET /heap-dump` as JVM-only. Preserve the mapping for `/heap-dump/download` and defer it pending a
+Python snapshot format and a guarded download design (higher cost), or classify the JVM binary download as `n-a`
+with a mapping amendment and matrix row (documentation cost, no Python download). Default to deferral. Record
+inventory entries #19, #29 and #31–#33 as `n-a` where their platform classification applies. Verify parity and docs.
 
 ## Phase 2 — request journal, R1 (Task 2: `GET /activity/request/{id}/journal`)
 
 **Sources and files:** BootUI `activity/LiveActivityController.java:560–586`,
 `engine/journal/RequestJournalProfiles.java:47–330,700–1010`, `core/dto/RequestJournalProfileDto.java:37–85`. Sharpit
-`engine/panels.py:37`, `engine/capture/journal.py`, `engine/capture/request_journal.py`, `fastapi/routes/activity.py`,
+`engine/panels.py:37`, `engine/capture/journal.py`, new `engine/capture/request_journal.py`, `fastapi/routes/activity.py`,
 `tests/fastapi/test_activity_api.py`. Verify `Panel("activity", "Live Activity", False, "/activity")` returns 403
 `PANEL_ACCESS_DENIED` when disabled. Add a targeted selector on `RuntimeJournal` (`engine/capture/journal.py`) that
 matches `requestId` (or `executionId`), its children, same-route HTTP events (`MINIMUM_ROUTE_REQUESTS = 5`), and
-trace-linked AI events under `self._lock`, and masks (`_masked`) only that matched subset (no full-journal `view()` or
-`RequestIndex` per read, and no capture-time route aggregates). A retained HTTP anchor whose earlier children were
-evicted (`oldestRetainedAt > startedAt` or `startedAt <= lossHorizon`) still returns 200 with `available: true` and
-BootUI's eviction note (`RequestJournalProfiles.java:276–281`). Any echoed caller `requestId` in `requestId` or
+trace-linked AI events under `self._clearing` then `self._lock`, following `view()`. Release the locks before masking
+the selected subset with `_masked`. A retained HTTP anchor returns 200 with `available: true` when earlier children
+were lost. Emit the eviction note when `evictedEvents > 0` and `oldestRetainedAt > startedAt`, or when the loss
+horizon establishes partial loss (`RequestJournalProfiles.java:276–281,701–705`). Any echoed caller `requestId` in `requestId` or
 `unavailableReason` (`:70–73,188–189`) strips control characters, runs `ctx.masker.mask_text`, and truncates to 64
 chars with `"…"` (`safeRequestId`, `:711–717`); under `METADATA_ONLY`, `requestId` is withheld/masked.
 - [ ] **Red & Green:** reds for disabled-panel 403, unknown/retained/partially-evicted 200 shape (`# ported:
   AbstractBootUiApiConformanceTest.requestJournalProfileKeepsOneShapeForAnUnknownAndARecordedRequest`), disabled child
   panels (`# ported: RequestJournalProfilesTests.disabledChildPanelsHideTheirEvidenceFromAVisibleWebSocketExecution`),
+  a zero-eviction case with `oldestRetainedAt > startedAt` and no loss horizon that emits no eviction note,
   and `METADATA_ONLY`/`MASKED`/`FULL` exposure + echoed-`requestId` sanitization. Emit `baselineComparison: null` until
-  Task 3. Verify with `no_side_effects` and commit as `feat: expose retained request journal profiles`.
+  Task 3. Record raw upstream `requestId` versus sanitized sharpit `safeRequestId` as a matrix deviation. Move the
+  `missing` journal row to `partial` with a probe and a pinned contract fixture. Adding the absent 2.3.0 fixture
+  increases the on-disk fixture count from 96 to 97 and leaves the classified row count at 97. Verify with
+  `no_side_effects` and commit as `feat: expose retained request journal profiles`.
 
 ## Phase 3 — same-route baselines, R2 (Task 3: `baselineComparison`)
 
@@ -128,10 +144,12 @@ chars with `"…"` (`safeRequestId`, `:711–717`); under `METADATA_ONLY`, `requ
 `engine/journal/RequestJournalProfiles.java:411–724`, `core/dto/RequestBaselineDiffDto.java:42`,
 `RequestBaselineCandidateDto.java:11`. Engine logic in `engine/capture/request_journal.py` (no #260 block). Under
 `RuntimeJournal`'s single FIFO ring (`reservedEvents: 0`, `engine/capture/journal.py:464`), child events offered during
-a request evict before the completion-time HTTP anchor. An anchor outliving its children (`startedAt <= lossHorizon` or
-`startedAt < oldestRetainedAt`) replaces BootUI's reserved-failure survival case and is refused as a baseline or target
-(`RequestJournalProfiles.java:431–436,511–514`). Without capture-time aggregates, exclude the cold first request when
-`evictedEvents == 0` and no clear occurred; record post-eviction cold-request identity as a deviation. Sanitize, mask
+a request evict before the completion-time HTTP anchor. Refuse that anchor as a baseline or target when
+`startedAt <= lossHorizon`, or when `evictedEvents > 0` and `startedAt < oldestRetainedAt`. This adapts BootUI's
+reserved-failure survival case (`RequestJournalProfiles.java:431–436,511–514,701–705`). Exclude the cold first
+request only when the retained history proves it is present. The journal exposes no clear counter.
+Use the loss horizon for recorded loss and treat cold-request identity across clears or evictions as unverified.
+Record that limitation as a deviation. Sanitize, mask
 (`mask_text`), and cap echoed `compareWith` at 64 chars (`safeRequestId`, `:500,711–717`). Cap candidates at 20 and
 `distinguishingSqlShapes` at 5.
 - [ ] **Red & Green:** reds for explicit `compareWith` + echoed-ID sanitization, auto-baseline excluding cold first
@@ -139,96 +157,93 @@ a request evict before the completion-time HTTP anchor. An anchor outliving its 
   `.comparesASlowOrFailedRequestWithTheClosestWarmRetained2xxBaselineAndExcludesTheColdFirstRequest`), FIFO anchor
   outliving children + disabled/unverified SQL null deltas + per-exposure (`METADATA_ONLY`/`MASKED`/`FULL`) SQL shapes
   (`# ported: RequestJournalProfilesTests.partiallyEvictedRequestsAreNeverUsedAsBaselinesOrComparedAsCompleteTargets`,
-  `# ported: RequestJournalProfilesTests.preparationOnlySqlAndDisabledPanelsKeepBaselineDimensionsNull`). Run paired
-  overhead checks and commit as `feat: compare retained requests with same-route baselines`.
+  `# ported: RequestJournalProfilesTests.preparationOnlySqlAndDisabledPanelsKeepBaselineDimensionsNull`). For same-route reads, project allow-listed
+  numeric fields after existing masking and visibility checks. A direct numeric projection requires a byte-identical
+  gate-corpus comparison against the fully masked projection across all exposures, planted secrets and disabled
+  sources. Run paired overhead checks and commit as `feat: compare retained requests with same-route baselines`.
 
 ## Phase 4 — `GET /cache`, `GET /activity/service-map`, and R3 partial closure
 
 ### Task 4a — `GET /cache` and `GET /activity/service-map`
 
-**Sources and files:** BootUI `web/SpringCacheController.java:37`, `engine/cache/CacheService.java:81–195,249–350`,
-`activity/LiveServiceMapController.java:62`. Sharpit `engine/panels.py:37,79`, `engine/collectors/cache/clear.py`.
-Assert disabled-panel 403 (`PANEL_ACCESS_DENIED`) for `cache` (`action_capable=True`, `panels.py:79`) and `activity`
-(`panels.py:37`), plus read-only 200 on `GET /cache` and read-only 403 on `POST /cache/clear`.
-- [ ] **Cache (`GET /cache`):** (1) no-provider (`provider is None` or unavailable) returns 200 with `available: false`,
-  zero counts, and empty lists (`# ported:
-  SpringCacheControllerTests.cacheReportIsStableWhenNoCacheManagersArePresent`); (2) remote-provider refusal: zero
-  network I/O on GET (`no_side_effects`), non-local objects refused by `InProcessCacheProvider.register`; (3) mask
-  manager names, cache names, and truncation warnings via `ctx.masker.mask_text`; (4) read live counts and stats
-  (`cache_info().currsize/hits/misses/maxsize` for `functools`, `len(cache)/maxsize` for `cachetools.Cache`) in
-  `InProcessCacheProvider.managers()` (`# ported:
-  SpringCacheControllerTests.cacheReportListsManagersCachesMetricsAndAnnotatedOperations`). Commit as
-  `feat: report registered cache snapshots`.
-- [ ] **Service Map (`GET /activity/service-map`):** project bounded nodes/edges from visible local sources, omit
-  disabled source panels, and strip SQL literals and query strings (`# ported:
-  AbstractBootUiApiConformanceTest.serviceMapIsBoundedAndCarriesOnlySafeIdentities`, `# ported:
-  ServiceMapAssemblerTests.omitsEvidenceFromDisabledSourcePanels`). Commit as
-  `feat: report a service map from local evidence`.
+**Sources and files** include BootUI `web/SpringCacheController.java:37`, `engine/cache/CacheService.java:81–195,249–350`
+and `activity/LiveServiceMapController.java:62`. Sharpit changes cover `engine/panels.py`, `engine/panels04/cache.py`,
+`engine/collectors/cache/clear.py`, new `engine/servicemap/*`, and the cache and activity routes and tests.
 
-### Task 4b — close all 28 partial rows, 7 post-action scenarios, and `GET /traces/{id}`
+- [ ] **Cache.** Flip `engine/panels04/cache.py` to `IMPLEMENTED = True` to engage the panel gate, with disabled-panel
+  403 and read-only GET 200 reds. Verify read-only POST /cache/clear returns 403 after the flag flip. Refresh counts in
+  `README.md` and `ROADMAP.md` from the registered and listed panel checks. No provider returns 200 with
+  `available: false`, zero counts and empty lists. With a test provider, mask names and warnings, and collect only
+  supported local statistics. `register` accepts supported objects tagged `is_remote`. Add a red with a supported
+  remote cache that fails on any stats access. GET lists its metadata without touching the native object.
+  Use `no_side_effects` for GETs. Update `test_get_never_clears` in `tests/fastapi/test_cache_clear_route.py` to
+  expect 200 for the new GET and preserve its cache-size assertion.
+- [ ] **Service map.** Project bounded nodes and edges from visible local sources. Omit disabled sources and strip
+  SQL literals and query strings. Port `serviceMapIsBoundedAndCarriesOnlySafeIdentities` and
+  `omitsEvidenceFromDisabledSourcePanels`.
+- [ ] **Inventory.** Both GETs currently return 404. Move their `missing` rows to `partial` on mounting and record
+  verified gaps, including the empty-list golden constraints. Update the status counts and served matrix with Phase 2.
 
-All Task 4b work lives in `src/sharpit/engine/`, `tests/fixtures/bootui/2.3.0/*/nullable.json`, and `tests/parity/`, so
-**none of Task 4b is blocked on #260**. Every row has **exactly one outcome**:
+**Maintainer decision — cache registration.** Nothing installs a provider today. The default adds no public API and
+ships the unavailable report with internal provider contract tests (low cost). A supported installation option or
+handle method enables host registrations and requires an API contract, lifecycle, documentation and compatibility
+tests (medium cost). Select it explicitly before exposing registration.
 
-#### (a) Platform-nullable / deviation rows (7 rows — close via `nullable.json` + matrix row + unit test)
+### Task 4b — disposition of the 28 partial rows and Phase 1 scenarios
 
-| Route | Gap in `routes_status.json` | Single closing outcome |
+The table covers the 28 existing partial rows. The probe compares the real sample app against the 2.3.0 fixtures
+with `matched=True`. The residual column lists what remains after temporarily allowing the reported nulls in
+memory. `nullable.json` is valid only for real platform-nullable fields (see `tests/golden.py:_compare`). Missing
+keys, non-empty-list requirements and shapeless golden lists get explicit matrix deviations. The seeded checks
+below are implementation acceptance tests. The probe uses an unseeded app except where stated.
+
+| Golden | Residual probe result | Default status and closing evidence |
 |---|---|---|
-| `/email` | `unavailableReason` null | Add to `email/nullable.json`; test trap-on/off + masking. |
-| `/fastapi-security/endpoints` | `endpoints[].description` null | Add to `nullable.json`; test docstring vs null. |
-| `/github` | `unavailableReason` null | Add to `github/nullable.json`; test connected vs off. |
-| `/http-exchanges` | `retention.reserved*`, `slow*` | Add FIFO nulls to `nullable.json` + matrix row. |
-| `/java-agent` | `setup.jarPath`, `snippets` | Record W6 sensor floor deviation in `nullable.json`. |
-| `/overview` | `contextPath`, `managementPort` | Add Spring-only fields to `nullable.json`; seed profiles. |
-| `/vulnerabilities` (`post-scan`) | `unidentifiedArchives` empty | Record `.dist-info` deviation; test initial+scan. |
+| `activity/captured.json` | `entries`, `typeCounts.LOG`, `typeCounts.SQL`, `typeCounts.TRANSACTION` | `partial` — Seed sanitized activity and verify LOG, SQL and TRANSACTION counters. |
+| `activity/journal.captured.json` | `recorded.connection`, `recorded.gc`, `recorded.lifecycle`, `recorded.log`, `recorded.sql`, `recorded.transaction` | `partial` — Seed connection, log and SQL. Record gc, lifecycle and transaction as unproduced by PRODUCED_SOURCES. |
+| `activity/resources.captured.json` | `families`, `points` | `partial` — Record families and points as unavailable without a local resource sampler. |
+| `architecture/captured.json` | `basePackages` | `partial` — Configure scan scope and assert basePackages. |
+| `config/captured.json` | `activeProfiles` | `partial` — Seed a profile and verify masked search. |
+| `database-connection-pools/pools.captured.json` | `pools` | `partial` — Register a local engine and assert pool shape. |
+| `email/captured.json` | PASS | `partial` — Cover trap state and masking. Record shapeless messages. |
+| `exceptions/captured.json` | `groups` | `partial` — Seed a masked exception and assert group shape. |
+| `fastapi-security/endpoints.captured.json` | PASS | `partial` — Cover declared descriptions and the null case. Record shapeless roles. |
+| `github/captured.json` | PASS | `partial` — Cover connected and disconnected reasons. Record shapeless lists. |
+| `health/captured.json` | `components` | `partial` — Register a local check before the action. Seeded comparison passes, but the golden contains empty lists. |
+| `http-exchanges/captured.json` | PASS | `partial` — Verify FIFO retention semantics. Record the shapeless exchanges golden. |
+| `java-agent/captured.json` | `setup.snippets` | `partial` — Allow setup.jarPath only if platform-nullable. Record JVM setup.snippets as unsupported. |
+| `log-tail/recent.captured.json` | `<root>` | `partial` — Record and mask a log event before GET. |
+| `metrics/captured.json` | `groups[].baseUnits` | `partial` — Record baseUnits list gap and assert local catalogue metadata. |
+| `overview/captured.json` | `activeProfiles`, `defaultProfiles` | `partial` — Seed profiles and record Spring-only fields and remaining list shape gaps. |
+| `profile-diff/captured.json` | `activeProfiles`, `profileSources` | `partial` — Seed profiles and a local env file, then assert masked sources. |
+| `rest-api/captured.json` | `basePackages` | `partial` — Configure scan scope and assert basePackages. |
+| `rest-api/error-contract.captured.json` | `entries` | `partial` — Seed declared errors and verify declaration-only GET. |
+| `runtime-insights/captured.json` | `coverage`, `limitations`, `notExercised`, `observations` | `partial` — Seed journal events and record missing lists and window semantics. |
+| `scheduled/captured.json` | `tasks` | `partial` — Register an in-memory job and verify task shape. |
+| `sql-trace/captured.json` | `entries`, `topStatements` | `partial` — Allow FIFO retention nulls and seed SQL. Record remaining list gaps. |
+| `sql-trace/insights.captured.json` | `statements` | `partial` — Seed SQL and verify statements and window shape. |
+| `startup/captured.json` | `steps` | `partial` — Seed lifespan startup steps and verify their shape. |
+| `threads/captured.json` | `hiddenBootUiThreads`, `quality` | `partial` — Record hiddenBootUiThreads and quality until real equivalent fields exist. Allow platform-nullable CPU times. |
+| `traces/captured.json` | `traces` | `partial` — Record a local span and verify trace list, ID lookup and masking. |
+| `transactions/captured.json` | `entries` | `partial` — Record a local SQLAlchemy transaction and verify entries. |
+| `vulnerabilities/captured.json` | `coverage.unidentifiedArchives` | `partial` — Record unidentifiedArchives as a platform list deviation for Python distributions. |
 
-#### (b) Seeded conformance rows (16 rows + 6 `post-scan` scenarios + `GET /traces/{id}` — seeded parity test)
+Keep an exact failing comparison for each residual gap that still raises. If the probe passes after approved nulls
+or seeding, use a separately identified deviation assertion that checks the successful comparison and the exact
+empty-list paths in the golden. Keep the matched test and its empty-list prohibition intact. A structural gap
+that disappears under seeding gets an explicit seeded assertion plus a documented limitation of the unseeded evidence.
+Reprobe each changed scenario before recording the final difference. Phase 1 supplies the exact post-action and
+trace-detail evidence. Retain its six partial and two n-a classifications by default, including the REST evidence
+limitation and the shapeless FastAPI and security lists. An empty reply from the advisory service leaves both
+`coverage.unidentifiedArchives` and `evidence.limitations` as gaps after scan. Use an offline advisory stub.
 
-| Route (+ scenario) | Unseeded gap | Single closing outcome (`assert_parity` seeded) |
-|---|---|---|
-| `/activity/journal` | `oldestRetainedAt`, `recorded.*` | Seed journal sources; assert timestamp and keys. |
-| `/architecture` (`post-scan`) | `basePackages` empty; `post-scan` | Seed scope, run `/architecture/scan`, test GET. |
-| `/config` | `activeProfiles` empty | Seed active profile + secret; test masked search. |
-| `/database-advisor` (`post-scan`) | Initial `n-a`; `post-scan` diff | Seed engine, run `/database-advisor/scan`. |
-| `/database-connection-pools/pools` | `pools` empty | Register SQLAlchemy engine; assert `pools` shape. |
-| `/exceptions` | `groups` empty | Seed exception with secret; assert `groups` shape. |
-| `/fastapi` (`post-scan`) | Initial `n-a`; `post-scan` diff | Run `POST /fastapi/scan`; assert `post-scan` GET. |
-| `/health` | `components` empty | Run `POST /health/check`; assert cached GET. |
-| `/log-tail/recent` | `<root>` empty | Log secret assignment; assert list and masking. |
-| `/postgresql` (`post-read`) | Initial `n-a`; `post-read` diff | Seed cached snapshot; assert GET touches no DB. |
-| `/profile-diff` | `activeProfiles`, `profileSources` | Seed `.env` files; assert masked `profileSources`. |
-| `/rest-api` (+ `post-scan`) | `basePackages` empty; `post-scan` | Seed scope, run `POST /rest-api/scan`, test GETs. |
-| `/rest-api/error-contract` | `entries` empty | Seed declared errors; assert declaration-only GET. |
-| `/runtime-insights` | `coverage`, `observations`, `window` | Seed journal events; assert lists and `window`. |
-| `/scheduled` | `tasks` empty | Seed in-memory scheduler job; assert `tasks` row. |
-| `/security` (`post-scan`) | Initial `n-a`; `post-scan` diff | Run `POST /security/scan`; assert `post-scan` GET. |
-| `/sql-trace/insights` | `statements`, `window.*` | Record SQL statements; assert `statements` shape. |
-| `/startup` | `steps` empty | Seed lifespan startup steps; assert `steps` shape. |
-| `/traces` (+ `/traces/{id}`) | `traces` empty; `detail` scenario | Seed host trace with secret; test list + `{id}`. |
-| `/transactions` | `entries` empty | Seed SQLAlchemy transaction; assert `entries` row. |
-
-Ported conformance attributions for (a) and (b): `captureBuffersReportReconcilingRetention`,
-`theJavaAgentPanelReportsNotAttachedWithSetupSnippetsWhenTheJvmRunsWithoutTheAgent`,
-`overviewEndpointServesShellContract`, `vulnerabilitiesGetHasCanonicalShape`,
-`runtimeJournalReportsOneShapeAndClearingItNeedsConfirmation`, `architectureScanLifecycleFromUnscannedToScanned`,
-`databaseAdvisorPreservesPartialEvidenceAcrossScanAndCachedRead`,
-`scoredAdvisorReportsExposeConservativeEvidenceWithoutTriggeringScans`,
-`logTailMasksSecretAssignmentsInTheSnapshotAndTheStream`,
-`PostgresInsightServiceTests.initialReportTouchesNeitherDiscoveryNorDatabase`,
-`trackedAdvisorsCompareASecondScanWithTheFirstWithoutInventingChanges`,
-`errorContractEndpointReturnsAStableDeclarationOnlyCatalogue`,
-`runtimeInsightsProjectTheJournalIntoObservationsWithStableIdsAndEvidence`,
-`sqlTraceInsightsAreBoundedAndDiscloseTheirCorrelationTiers`, `traceDataFollowsTheLiveValueExposurePolicy`.
-
-#### (c) Real DTO or collector gaps (5 rows — fix in `src/sharpit/engine/` + test)
-
-| Route | Engine defect in `src/sharpit/engine/` | Single closing outcome |
-|---|---|---|
-| `/activity` | `activity.py`: 0-count `typeCounts` & KPIs | Emit `LOG`/`SQL`/`TRANSACTION`, KPIs, `nullable.json`. |
-| `/activity/resources` | `activity.py`: `families`, `points`, `totals` | Project local CPU/memory or record gap. |
-| `/metrics` | `metrics/`: `catalogueVersion`, `baseUnits` | Populate catalogue metadata; nulls in `nullable.json`. |
-| `/sql-trace` | `sqltrace.py`: `retention.reserved*` null | Reconcile `reserved*` (`0` or `nullable.json`) + SQL. |
-| `/threads` | `threads.py`: `hiddenBootUiThreads`, `quality` | Emit both in `threads_report`; CPU in `nullable.json`. |
+**Maintainer decision — served classification.** Keep all 28 existing partial rows in the served count by default,
+including passing comparisons with shapeless goldens. This preserves the Phase 4b input counts and requires explicit
+deviation assertions. Reclassifying a currently served fixture to `n-a` costs one served and one applicable row per
+fixture in the published matrix and requires updated docs. Promoting to `matched` requires shape-bearing goldens
+and passing strict comparisons plus updates to `ROUTES_MATCHED_PIN` and the corresponding BootUI marks. The default
+keeps the pin and marks at their Phase 1 values. With the three new served rows in Phases 2 and 4a, the projected
+fixture counts are 5 matched / 37 partial / 12 missing / 43 n-a, or 42 served of 54 applicable.
 
 ## Phases 5–8 — scope tables pending maintainer selection
 
@@ -289,6 +304,6 @@ default; departures (including marking `P` or `A` rows `n-a`) require a maintain
 - [ ] Request journal and baselines use targeted reads with bounded masking, return retained FIFO-partially-evicted
   anchors with the eviction note, refuse incomplete baselines, enforce `METADATA_ONLY`/`MASKED`/`FULL` masking, and
   sanitize/mask/truncate echoed `requestId` and `compareWith`.
-- [ ] `GET /cache` and `GET /activity/service-map` pass parity and safety checks, and all 28 partial rows + 7
-  post-action scenarios + `GET /traces/{id}` close in Task 4b without waiting on #260 for `engine/` work.
-- [ ] Plan verification: `uv run --extra test pytest -q -n 4 tests/docs tests/test_agent_workflow.py`.
+- [ ] `GET /cache` and `GET /activity/service-map` pass parity and safety checks, and all 28 partial rows and eight served scenarios
+  have verified dispositions in Task 4b without waiting on #260 for `engine/` work.
+- [ ] Plan verification: `uv run --extra test pytest -q -n 2 tests/docs tests/test_agent_workflow.py tests/parity`.
