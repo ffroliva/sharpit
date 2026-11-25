@@ -215,3 +215,42 @@ def test_an_unmatched_404_does_not_exercise_a_declared_route():
     journal = RuntimeJournal()
     journal.offer({"source": "http", "route": "GET /uncalled", "requestId": "r1", "status": 404, "routeTemplate": None})
     assert service(journal).report()["notExercised"] == ["GET /uncalled"]
+
+
+MISSING_TEMPLATE = (
+    "Some completed HTTP requests have no captured route template, so declared routes "
+    "cannot be classified as not exercised."
+)
+
+
+def _template_less(method, path, status=200):
+    return {
+        "source": "http", "route": f"{method} {path}", "requestId": "r1", "method": method, "path": path,
+        "status": status, "routeTemplate": None,
+    }  # fmt: skip
+
+
+def test_a_template_less_request_outside_every_declared_route_keeps_the_list():
+    journal = RuntimeJournal()
+    journal.offer(_template_less("GET", "/elsewhere"))
+    journal.offer(_template_less("OPTIONS", "/uncalled"))
+    report = service(journal).report()
+    assert report["notExercised"] == ["GET /uncalled"]
+    assert MISSING_TEMPLATE not in report["limitations"]
+
+
+def test_a_template_less_request_under_an_included_router_prefix_still_refuses():
+    journal = RuntimeJournal()
+    journal.offer(_template_less("GET", "/api/items/7"))
+    report = service(journal, [route("/api/items/{id:int}"), route()]).report()
+    assert report["notExercised"] == []
+    assert MISSING_TEMPLATE in report["limitations"]
+
+
+def test_a_template_less_request_with_a_masked_path_still_refuses():
+    journal = RuntimeJournal()
+    journal.offer(_template_less("GET", "/k/AKIAIOSFODNN7EXAMPLE"))
+    assert "******" in str(journal.records("http")[0]["path"])
+    report = service(journal).report()
+    assert report["notExercised"] == []
+    assert MISSING_TEMPLATE in report["limitations"]
