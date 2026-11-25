@@ -125,3 +125,32 @@ def test_a_low_footprint_suspend_during_the_run_lists_no_route():
             "HTTP recording was suspended during this run, so declared routes cannot be classified as not exercised."
             in report["limitations"]
         )
+
+
+# ported: NotExercisedRoutesTests.aRouteInventoryThatCannotBeReadIsSaidRatherThanListingNoRoute
+def test_a_route_inventory_that_cannot_be_read_is_said_rather_than_listing_no_route():
+    def boom():
+        raise RuntimeError("private failure detail")
+
+    for supplier in (lambda: None, boom):
+        report = InsightsService(RuntimeJournal(), [], declared_routes=supplier).report()
+        assert report["notExercised"] == []
+        assert report["limitations"] == [
+            "The application's declared routes could not be read, so the routes no request reached are not listed: that does not mean every route was exercised."
+        ]
+    assert service(routes=[]).report()["limitations"] == []
+    assert InsightsService(RuntimeJournal(), []).report()["limitations"] == []
+
+
+def test_inventory_is_read_only_for_the_report():
+    calls = []
+
+    def declared():
+        calls.append(1)
+        return [route()]
+
+    subject = InsightsService(RuntimeJournal(), [], declared_routes=declared)
+    subject.insight("unknown")
+    assert calls == []
+    subject.report()
+    assert calls == [1]
