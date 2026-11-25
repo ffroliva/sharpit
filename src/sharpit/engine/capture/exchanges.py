@@ -6,8 +6,10 @@ buffer never holds a raw secret; ``report()`` only filters and pages.
 
 from __future__ import annotations
 
+import inspect
 import re
 import threading
+import types
 from collections import deque
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -77,6 +79,48 @@ def trace_id(request_headers: RawHeaders, request_id: str) -> str:
     return traceparent_id(request_headers) or request_id
 
 
+def _plain(obj: object, name: str, kind: type) -> Any:
+    """``obj.name`` when it is plain data of exactly ``kind``; never runs a property, descriptor or ``__getattr__``.
+    A ``__slots__`` field is read through its C member descriptor, which runs no application code."""
+    value = inspect.getattr_static(obj, name, None)
+    if type(value) is types.MemberDescriptorType:
+        try:
+            value = value.__get__(obj, type(obj))
+        except AttributeError:  # an unset slot
+            return None
+    return value if type(value) is kind else None
+
+
+def _simple_user(cls: type) -> type | None:
+    """Starlette's ``SimpleUser`` in ``cls``'s MRO, found from the classes' own dicts, else None."""
+    for base in cls.__mro__:
+        if vars(base).get("__module__") == "starlette.authentication" and _TYPE_NAME.__get__(base) == "SimpleUser":
+            return base
+    return None
+
+
+_TYPE_NAME = type.__dict__["__name__"]
+
+
+def _user_name(user: object) -> str | None:
+    """``scope["user"]``'s name, read as plain data only.
+
+    Starlette's ``SimpleUser`` (or a subclass that keeps its ``is_authenticated`` and ``display_name``) gives its
+    ``username``; any other user is named only when both are plain data, the flag exactly ``True``, the name a ``str``.
+    """
+    if user is None:
+        return None
+    simple = _simple_user(type(user))
+    if simple is not None:
+        own = vars(simple)
+        if all(inspect.getattr_static(type(user), n, None) is own[n] for n in ("is_authenticated", "display_name")):
+            return _plain(user, "username", str)  # those two properties only return True and this field
+        return None
+    if _plain(user, "is_authenticated", bool) is not True:
+        return None
+    return _plain(user, "display_name", str)
+
+
 def exchange_row(
     masker: Masker,  # NOSONAR - keyword-only fields of one flat row, built once a request on the capture hot path
     *,
@@ -104,9 +148,8 @@ def exchange_row(
     raw_query = query_string.decode("latin-1")
     query = masker.mask_query(raw_query) if raw_query else None
     query = None if query is None else _cut(query, MAX_QUERY)
-    principal = None
-    if user is not None and getattr(user, "is_authenticated", False):  # Starlette's AuthenticationMiddleware
-        principal = masker.mask("principal", getattr(user, "display_name", None))[0]
+    name = _user_name(user)
+    principal = None if name is None else masker.mask("principal", name)[0]
     return {
         "id": request_id,
         "timestamp": _iso(started_epoch_ns),
