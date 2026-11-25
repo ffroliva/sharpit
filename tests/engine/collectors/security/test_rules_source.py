@@ -106,7 +106,7 @@ def test_jwt_decode_with_signature_verification_disabled_fires(run_rule: RuleRun
     package = _package(tmp_path)
     (package / "auth.py").write_text(f"import jwt\njwt.decode(token, key, {arguments})\n", encoding="utf-8")
     messages = [message for _, message in run_rule("SEC-OAUTH-002", FastAPI(), source=package)]
-    assert messages == ["shop/auth.py:2: jwt.decode disables signature verification with verify_signature=False."]
+    assert messages == ["jwt.decode disables signature verification with verify_signature=False. (shop/auth.py line 2)"]
 
 
 def test_jwt_decode_with_signature_verification_enabled_does_not_fire(run_rule: RuleRun, tmp_path: Path):
@@ -114,6 +114,54 @@ def test_jwt_decode_with_signature_verification_enabled_does_not_fire(run_rule: 
     (package / "auth.py").write_text(
         'import jwt\njwt.decode(token, key, audience="api", options={"verify_signature": True})\n', encoding="utf-8"
     )
+    assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []
+
+
+def test_jwt_message_survives_masking_in_a_file_named_auth(
+    inputs_of,
+    service_for,
+    tmp_path: Path,
+):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text(
+        'import jwt\njwt.decode(token, key, audience="api", options={"verify_signature": False})\n', encoding="utf-8"
+    )
+    service = service_for(lambda: inputs_of(FastAPI(), source=package))
+    results = service.scan()["results"]
+    result = next(row for row in results if row["id"] == "SEC-OAUTH-002")
+    assert result["sampleViolations"] == [
+        "jwt.decode disables signature verification with verify_signature=False. (shop/auth.py line 2)"
+    ]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param('{"verify_signature": False, "verify_signature": True}', id="overwritten"),
+        pytest.param('{"verify_signature": False, **{"verify_signature": True}}', id="overwritten-by-unpack"),
+        pytest.param('{"verify_signature": False, **overrides}', id="unknown-unpack"),
+    ],
+)
+def test_jwt_option_that_may_be_overwritten_does_not_fire(run_rule: RuleRun, tmp_path: Path, options: str):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text(
+        f'import jwt\njwt.decode(token, key, audience="api", options={options})\n', encoding="utf-8"
+    )
+    assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []
+
+
+def test_jwt_option_after_an_unpack_still_fires(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text(
+        'import jwt\njwt.decode(token, key, audience="api", options={**base, "verify_signature": False})\n',
+        encoding="utf-8",
+    )
+    assert _targets(run_rule("SEC-OAUTH-002", FastAPI(), source=package)) == ["shop/auth.py:2"]
+
+
+def test_decode_from_a_project_jwt_module_does_not_fire(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("from .jwt import decode\ndecode(token, key)\n", encoding="utf-8")
     assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []
 
 
