@@ -163,3 +163,27 @@ def test_the_list_caps_at_100_and_counts_the_rest():
     assert report["notExercised"][0] == "GET /route/000"
     assert agent_list(report, None, None, Steps({}))["notExercisedOmitted"] == 93
     assert len(agent_list(report, None, None, Steps({}))["notExercised"]) == 8
+
+
+def test_reading_the_report_with_declared_routes_has_no_side_effects(no_side_effects):
+    journal = RuntimeJournal()
+    before = journal.status()
+    report = service(journal).report()
+    assert report["notExercised"] == ["GET /uncalled"]
+    assert journal.status() == before
+    assert no_side_effects.violations == []
+
+
+def test_metadata_only_exposure_lists_no_route_and_says_why():
+    from sharpit.engine.masking import Exposure, Masker
+
+    for recorded in (False, True):
+        journal = RuntimeJournal(masker=Masker(Exposure.METADATA_ONLY, True))
+        if recorded:
+            journal.offer({"source": "http", "route": "GET /uncalled", "requestId": "r1"})
+        report = service(journal).report()
+        assert report["notExercised"] == []
+        assert (
+            "Request ids are withheld at METADATA_ONLY exposure, so declared routes cannot be classified as not exercised (SHARPIT_EXPOSE_VALUES)."
+            in report["limitations"]
+        )
