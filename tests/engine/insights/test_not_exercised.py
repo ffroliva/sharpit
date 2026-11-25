@@ -254,3 +254,15 @@ def test_a_template_less_request_with_a_masked_path_still_refuses():
     report = service(journal).report()
     assert report["notExercised"] == []
     assert MISSING_TEMPLATE in report["limitations"]
+
+
+def test_a_failed_or_reentrant_journal_drop_refuses_classification():
+    for key in ("failed", "reentrant"):
+        journal = RuntimeJournal()
+        journal.count_dropped(key)
+        report = service(journal).report()
+        assert report["notExercised"] == []
+        assert (
+            f"The journal dropped events of an unknown source ({key}), so declared routes "
+            "cannot be classified as not exercised."
+        ) in report["limitations"]
