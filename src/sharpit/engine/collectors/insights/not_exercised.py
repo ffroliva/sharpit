@@ -24,6 +24,12 @@ def list_for(
     try:
         routes = declared()
         if routes is not None:
+            unsupported = sum(application_route(r) and not r.exercise_supported for r in routes)
+            if unsupported:
+                noun = "route is" if unsupported == 1 else "routes are"
+                limitations.append(
+                    f"{unsupported} declared HTTP {noun} left out because its captured route template is not available."
+                )
             exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route")}
             return of(routes, exercised)
     except Exception:  # noqa: BLE001 - an inventory failure must never crash the host
@@ -62,15 +68,7 @@ def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
     paths = {label.partition(" ")[2] for label in labels}
     missing: set[str] = set()
     for route in declared:
-        if (
-            not route.path.startswith("/")
-            or "*" in route.path
-            or ":path}" in route.path
-            or route.handler.startswith(("fastapi.", "starlette."))
-            or route.handler == "custom route"
-            or not route.methods
-            and route.path.endswith("/{path}")
-        ):
+        if not application_route(route) or not route.exercise_supported:
             continue
         for method in route.methods or ("ANY",):
             method = method.strip().upper()
@@ -82,3 +80,15 @@ def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
             elif (label := f"{method} {route.path}") not in labels:
                 missing.add(label)
     return sorted(missing)
+
+
+def application_route(route: RouteInfo) -> bool:
+    return (
+        route.path.startswith("/")
+        and "*" not in route.path
+        and ":path}" not in route.path
+        and not route.handler.startswith(("fastapi.", "starlette."))
+        and route.handler != "custom route"
+        and (bool(route.methods) or not route.path.endswith("/{path}"))
+        and route.methods != ("WS",)
+    )
