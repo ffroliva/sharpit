@@ -6,8 +6,9 @@ import ast
 import asyncio
 import json
 import re
+import threading
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -288,11 +289,25 @@ def test_matched_routes_pass_23_parity(scenario_get: Callable[..., httpx.Respons
     assert_parity(sharpit_id, name, payload, fixture_version="2.3.0", matched=True)
 
 
+@contextmanager
+def _second_thread() -> Iterator[None]:
+    """Only the current thread has a CPU time, so the recorded thread gaps need another live thread."""
+    stop = threading.Event()
+    thread = threading.Thread(target=stop.wait, name="parity-second-thread")
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
+
+
 @pytest.mark.parametrize("item", _PARTIAL, ids=lambda r: str(r["golden"]))
 def test_partial_routes_record_exact_gaps(scenario_get: Callable[..., httpx.Response], item: dict[str, Any]) -> None:
     route = item["route"]
     sharpit_id, name = _fixture_parts(item["golden"])
-    response = scenario_get(item)
+    with _second_thread():
+        response = scenario_get(item)
     assert response.status_code == 200, f"{route} returned HTTP {response.status_code}"
     payload = response.json()
 
