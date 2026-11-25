@@ -187,3 +187,16 @@ def test_metadata_only_exposure_lists_no_route_and_says_why():
             "Request ids are withheld at METADATA_ONLY exposure, so declared routes cannot be classified as not exercised (SHARPIT_EXPOSE_VALUES)."
             in report["limitations"]
         )
+
+
+def test_a_called_secret_looking_route_is_listed_with_a_masking_limitation():
+    secret_route = "/hooks/AKIAIOSFODNN7EXAMPLE"
+    journal = RuntimeJournal()
+    journal.offer({"source": "http", "route": f"GET {secret_route}", "requestId": "r1"})
+    assert journal.records("http")[0]["route"] == "******"
+    report = service(journal, [route(secret_route)]).report()
+    assert report["notExercised"] == [f"GET {secret_route}"]
+    assert (
+        "Some captured route labels were masked, so routes listed as not exercised may have been reached."
+        in report["limitations"]
+    )
