@@ -1,6 +1,6 @@
 """Declared routes no completed request reached (BootUI v2.5.0 NotExercisedRoutes)."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.spi import RouteInfo
@@ -9,6 +9,27 @@ UNRECORDED = (
     "The runtime journal does not record the http source (SHARPIT_RUNTIME_JOURNAL_SOURCES), "
     "so the routes no request reached are not listed."
 )
+INVENTORY_UNAVAILABLE = (
+    "The application's declared routes could not be read, so the routes no request reached are not listed: "
+    "that does not mean every route was exercised."
+)
+
+
+def list_for(
+    snapshot: Snapshot, declared: Callable[[], Sequence[RouteInfo] | None], limitations: list[str]
+) -> list[str]:
+    if reason := refusal(snapshot):
+        limitations.append(reason)
+        return []
+    try:
+        routes = declared()
+        if routes is not None:
+            exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route")}
+            return of(routes, exercised)
+    except Exception:  # noqa: BLE001 - an inventory failure must never crash the host
+        pass
+    limitations.append(INVENTORY_UNAVAILABLE)
+    return []
 
 
 def refusal(snapshot: Snapshot) -> str | None:
