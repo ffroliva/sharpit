@@ -79,3 +79,21 @@ def test_no_route_is_listed_while_http_is_hidden():
         "The http-exchanges panel is disabled, so the routes no request reached are not listed."
     ]
     assert agent_list(report, None, None, Steps({}))["notExercised"] == []
+
+
+# ported: NotExercisedRoutesTests.droppedHttpOrAClearCannotProveDeclaredRoutesWereNotExercised
+def test_dropped_http_or_a_clear_cannot_prove_declared_routes_were_not_exercised():
+    for action in ("drop", "clear", "empty-clear"):
+        journal = RuntimeJournal(max_bytes=200)
+        if action == "drop":
+            journal.offer({"source": "http", "route": "x" * 1000})
+            reason = "The http source dropped completion events, so declared routes absent from its counts cannot be classified as not exercised."
+        else:
+            if action == "clear":
+                journal.offer({"source": "http", "route": "GET /uncalled"})
+            journal.discard()
+            reason = "The recording was cleared during this run, so declared routes absent from the remaining counts cannot be classified as not exercised."
+        report = service(journal).report()
+        assert report["notExercised"] == []
+        assert reason in report["limitations"]
+        assert "clears" not in journal.status()
