@@ -262,6 +262,7 @@ class RuntimeJournal:
         self._dropped: Counter[str] = Counter()
         self._evicted = 0
         self._clears = 0  # internal clear boundary; not part of RuntimeJournalStatusDto
+        self._http_suspended = False
         self._loss_horizon: int | None = None  # EvidenceRing.lossHorizonMillis
         self._reentrant = 0  # a plain int, never a Counter key: a refusal during a read must not resize what it walks
         self._binding_bound: str | None = None
@@ -418,6 +419,7 @@ class RuntimeJournal:
             status = self._status()
             if completeness is not None:
                 completeness["clears"] = self._clears
+                completeness["httpSuspended"] = int(self._http_suspended)
             horizon = self._loss_horizon
             newest = None
             for event, _, stamp, _ in self._events:  # one pass, whatever the number of sources read
@@ -429,7 +431,13 @@ class RuntimeJournal:
 
     def suspend(self) -> None:
         with self._lock:
+            self._http_suspended = True
             self._accepting = False
+
+    def http_suspended(self) -> None:
+        """Record a capture-hook transition, never work on the per-request path."""
+        with self._lock:
+            self._http_suspended = True
 
     def resume(self) -> None:
         with self._lock:

@@ -66,6 +66,7 @@ class Snapshot:
     unarmed: frozenset[str] = frozenset()
     loss_horizon: int | None = None  # the latest start of an evicted or cleared unit-of-work event; None while none
     clears: int = 0
+    http_suspended: bool = False
 
     @cached_property
     def request_index(self) -> RequestIndex:
@@ -151,4 +152,5 @@ def project(
         frozenset(enabled_produced) - set(produced),
         horizon,
         completeness["clears"],
+        bool(completeness["httpSuspended"]),
     )

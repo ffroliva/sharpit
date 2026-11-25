@@ -340,6 +340,8 @@ class CaptureWiring:
         if name in self.suspended_hooks or self._context is None:
             return
         self.suspended_hooks.add(name)
+        if name == HOOK_CAPTURE_MIDDLEWARE and self._context.capture.journal is not None:
+            self._context.capture.journal.http_suspended()
         self._actions.get(name, (_nothing, _nothing))[0]()
 
     def resume_hook(self, name: str) -> None:
