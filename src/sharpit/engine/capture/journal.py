@@ -261,6 +261,7 @@ class RuntimeJournal:
         self._accepted: Counter[str] = Counter()
         self._dropped: Counter[str] = Counter()
         self._evicted = 0
+        self._clears = 0  # internal clear boundary; not part of RuntimeJournalStatusDto
         self._loss_horizon: int | None = None  # EvidenceRing.lossHorizonMillis
         self._reentrant = 0  # a plain int, never a Counter key: a refusal during a read must not resize what it walks
         self._binding_bound: str | None = None
@@ -407,7 +408,7 @@ class RuntimeJournal:
         return tuple({key: shown(key, value) for key, value in event.items()} for event in events)
 
     def view(
-        self, sources: Iterable[str]
+        self, sources: Iterable[str], *, completeness: dict[str, int] | None = None
     ) -> tuple[dict[str, Any], dict[str, tuple[dict[str, object], ...]], int | None, int | None]:
         """``status()``, ``records(s)`` per source, the newest event's epoch ms and the loss horizon (BootUI
         ``lossHorizonMillis``: the latest start of an evicted or cleared unit-of-work event, None while none was lost)
@@ -415,6 +416,8 @@ class RuntimeJournal:
         held: dict[str, list[dict[str, object]]] = {s: [] for s in sources}
         with self._clearing, self._lock:  # a clear still walking what it dropped has not raised the horizon: wait
             status = self._status()
+            if completeness is not None:
+                completeness["clears"] = self._clears
             horizon = self._loss_horizon
             newest = None
             for event, _, stamp, _ in self._events:  # one pass, whatever the number of sources read
@@ -436,6 +439,7 @@ class RuntimeJournal:
         with self._clearing:  # a producer never takes it; a read waits on it
             with self._lock:
                 cleared, self._events, self._bytes = self._events, deque(), 0
+                self._clears += 1
             now = time.time_ns() // 1_000_000
             latest = 0  # a running max: no list of up to ``max_events`` starts is built
             for event, _, at, _ in cleared:
