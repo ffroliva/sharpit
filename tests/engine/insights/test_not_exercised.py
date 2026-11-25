@@ -1,8 +1,9 @@
 """Declared route coverage (BootUI v2.5.0 NotExercisedRoutesTests)."""
 
 from sharpit.engine.capture.journal import RuntimeJournal
-from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.collectors.insights.agent_view import Steps, agent_list
 from sharpit.engine.collectors.insights.not_exercised import of
+from sharpit.engine.collectors.insights.service import InsightsService
 from sharpit.engine.spi import RouteInfo
 
 
@@ -68,3 +69,13 @@ def test_no_route_is_listed_while_http_is_not_recorded():
         "The runtime journal does not record the http source (SHARPIT_RUNTIME_JOURNAL_SOURCES), "
         "so the routes no request reached are not listed."
     ]
+
+
+# ported: NotExercisedRoutesTests.noRouteIsListedAsNotExercisedWhileHttpExchangesIsHiddenOrHttpIsNotRecorded
+def test_no_route_is_listed_while_http_is_hidden():
+    report = service(panel_enabled=lambda panel: panel != "http-exchanges").report()
+    assert report["notExercised"] == []
+    assert report["limitations"] == [
+        "The http-exchanges panel is disabled, so the routes no request reached are not listed."
+    ]
+    assert agent_list(report, None, None, Steps({}))["notExercised"] == []
