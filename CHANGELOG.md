@@ -13,6 +13,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- SEC-OAUTH-002 reports `jwt.decode` with `verify_signature` set to `False` in a literal `options=` keyword, also when an audience is passed, and its message is readable for a file named `auth.py` (#332).
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
 
 ## [0.9.0] - 2026-11-23
