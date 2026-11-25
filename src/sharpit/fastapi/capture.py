@@ -186,6 +186,7 @@ class CaptureWiring:
     def __init__(self) -> None:
         self.app: Any = None
         self.middleware_added = False
+        self.capture_too_late = False  # Starlette refused the middleware: the http source records nothing
         self.detached = False
         self.started = False  # startup or first request has run its checks
         self.log_handler: SharpitLogHandler | None = None
@@ -269,6 +270,7 @@ class CaptureWiring:
             app.add_middleware(CaptureMiddleware, ctx=ctx)
         except RuntimeError:  # Starlette refuses once the middleware stack is built
             logger.warning("%s", CAPTURE_TOO_LATE)
+            self.capture_too_late = True
             if ctx.capture.exchanges is not None:
                 ctx.capture.exchanges.unavailable_reason = CAPTURE_TOO_LATE_REASON
             if store is not None:

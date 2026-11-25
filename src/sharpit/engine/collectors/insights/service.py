@@ -426,6 +426,8 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         return panel is None or panel.enabled
 
     def producing(source: str) -> bool:  # a source whose listener is not armed here is not recorded, however enabled
+        if source == "http":  # a too-late install added no capture middleware: no request is recorded
+            return not getattr(ctx.capture.wiring, "capture_too_late", False)
         # no recorder (capture or its panel off): the SQL-capture state already says why, as it does for ``sql``
         return source != "connection" or ctx.capture.sql_trace is None or sqla.following_connections(ctx)
 
