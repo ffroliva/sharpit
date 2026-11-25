@@ -708,7 +708,8 @@ class CaptureMiddleware:
                     if journal is not None:
                         with _request_end_guard(wiring, self.ctx):
                             journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
-                except Exception as exc:  # noqa: BLE001 - before the journal offer, the last step
+                # a failure here comes before the journal offer, the last step: that completion is lost
+                except Exception as exc:  # noqa: BLE001
                     wiring.hook_failed("request end", exc)
                     _lose_http(self.ctx)
             return
