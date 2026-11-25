@@ -28,6 +28,7 @@ from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, S
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
+from sharpit.engine.spi import RouteInfo
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -266,8 +267,10 @@ class InsightsService:
         producing: Producing | None = None,
         pool_sizes: PoolSizes | None = None,
         shared_pools: SharedPools | None = None,
+        declared_routes: Callable[[], Sequence[RouteInfo] | None] | None = None,
     ) -> None:
         self.journal = journal
+        self.declared_routes = declared_routes
         self.shared_pools = shared_pools  # None: no pool is known to share its connection
         self.pool_sizes = pool_sizes  # None: no pool size is known (``RuntimeInsightsService.setPoolSizes``)
         self.producing = producing  # None: every produced source's producer can run
@@ -280,7 +283,19 @@ class InsightsService:
         self._mask: Mask = masker.mask_text if masker else str
 
     def report(self) -> Row:
-        return self._build()[0]
+        report, _, snapshot = self._build()
+        if snapshot is not None and self.declared_routes is not None:
+            exercised = {r.get("route") for r in snapshot.records.get("http", ())}
+            report["notExercised"] = sorted(
+                {
+                    f"{method} {r.path}"
+                    for r in self.declared_routes() or ()
+                    if not r.handler.startswith(("fastapi.", "starlette."))
+                    for method in r.methods
+                    if f"{method} {r.path}" not in exercised
+                }
+            )
+        return report
 
     def insight(self, observation_id: str) -> Row:
         """One observation with its evidence (``RuntimeInsightsService.insight``): at most 20 masked rows."""
@@ -297,9 +312,9 @@ class InsightsService:
         )
         return _detail(True, None, row, finding.columns, shown, len(finding.rows) - len(shown))
 
-    def _build(self) -> tuple[Row, Details]:
+    def _build(self) -> tuple[Row, Details, Snapshot | None]:
         if self.journal is None:
-            return _report(False, DISABLED, None, [], [], [], []), {}
+            return _report(False, DISABLED, None, [], [], [], []), {}, None
         snapshot = project(
             self.journal,
             self.ai_token_threshold,
@@ -319,9 +334,11 @@ class InsightsService:
             key=lambda pair: (pair[0]["status"] == "INSUFFICIENT", -int(str(pair[0]["affected"])), str(pair[0]["id"]))
         )
         rows = [row for row, _ in found]
-        return _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot)), {
-            str(row["id"]): (row, finding) for row, finding in found
-        }
+        return (
+            _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot)),
+            {str(row["id"]): (row, finding) for row, finding in found},
+            snapshot,
+        )
 
     def _capture(self) -> SqlCapture:
         """RuntimeInsightsService.sqlCapture: asked once per report; null is capturing, a failure is not recorded."""
@@ -433,5 +450,6 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
             producing,
             pool_size,
             shared_pool,
+            ctx.introspector.routes,
         ),
     )
