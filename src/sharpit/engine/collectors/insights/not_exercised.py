@@ -16,10 +16,20 @@ INVENTORY_UNAVAILABLE = (
 
 
 def list_for(
-    snapshot: Snapshot, declared: Callable[[], Sequence[RouteInfo] | None], limitations: list[str]
+    snapshot: Snapshot,
+    declared: Callable[[], Sequence[RouteInfo] | None],
+    limitations: list[str],
+    *,
+    metadata_only: bool = False,
 ) -> list[str]:
     if reason := refusal(snapshot):
         limitations.append(reason)
+        return []
+    if snapshot.ids_withheld or metadata_only:
+        limitations.append(
+            "Request ids are withheld at METADATA_ONLY exposure, so declared routes cannot be classified as "
+            "not exercised (SHARPIT_EXPOSE_VALUES)."
+        )
         return []
     try:
         routes = declared()
