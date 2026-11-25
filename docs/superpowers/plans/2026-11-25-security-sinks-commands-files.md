@@ -30,7 +30,7 @@ Out of scope: `SecuritySinks.java` (deserialization, weak algorithms, trust mana
 - [x] Cross-model design review of D1-D8: its accepted changes are folded into the deviation table and the tasks below (eager tasks and plain Starlette routes in D1, miss memory and the character-cost budget in D2, the explicit executable in D3, path-first order in D4, the end/clear generation check and the cheap repeat key in D5, malformed escapes in D6, plain containers in D7).
 - [ ] Run `/sharpit:scenario` on this plan; add each accepted scenario as a test to its owning task.
 - [ ] Run `/sharpit:llm-council --tier high` on this plan: it holds request values in memory and changes what two sensors record. A finding that contradicts a deviation below stops the plan.
-- [ ] Obtain the owner's approval of the deviations below; each then becomes one line of `docs/reference/matrix-updates/0.10.0-security-sinks.tsv` (Task 6).
+- [x] Obtain the owner's approval of the deviations below (approved as revised; D1's eager-task case ships as a stated limitation with a test). A further deviation needs the same approval before it is coded; each then becomes one line of `docs/reference/matrix-updates/0.10.0-security-sinks.tsv` (Task 6).
 
 ### Deviations from BootUI
 
