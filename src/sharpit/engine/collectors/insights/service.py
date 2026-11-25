@@ -285,7 +285,9 @@ class InsightsService:
     def report(self) -> Row:
         report, _, snapshot = self._build()
         if snapshot is not None and self.declared_routes is not None:
-            report["notExercised"] = not_exercised.list_for(snapshot, self.declared_routes, report["limitations"])
+            missing = not_exercised.list_for(snapshot, self.declared_routes, report["limitations"])
+            report["notExercised"] = missing[:100]  # RuntimeInsightsReportDto.MAX_NOT_EXERCISED
+            report["notExercisedOmitted"] = max(0, len(missing) - 100)
         return report
 
     def insight(self, observation_id: str) -> Row:
