@@ -109,6 +109,20 @@ def _requests_hidden(observation: Observation, snapshot: Snapshot) -> str | None
     return f"{_panels_label(panels)} {_verb(panels)} disabled, so its unit-of-work evidence cannot be evaluated."
 
 
+def _inapplicable(observation: Observation, snapshot: Snapshot) -> str | None:
+    """Why the kind cannot run, in order: a fixed framework reason, a missing source, hidden requests, then BootUI's
+    ``Observation.notApplicable``; else ``None``. A stub or a fake kind has neither the fixed reason nor the gate."""
+    if fixed := getattr(observation, "not_applicable_reason", None):
+        return fixed
+    missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
+    if missing is not None:
+        return _missing(snapshot, missing)
+    if (hidden := _requests_hidden(observation, snapshot)) is not None:
+        return hidden
+    gate = getattr(observation, "not_applicable", None)
+    return gate(snapshot) if gate else None
+
+
 def _check(observation: Observation, status: str, eligible: int, findings: int, reason: str | None) -> Row:
     return {
         "kind": observation.kind, "title": observation.title, "status": status, "eligibleRequests": eligible,
@@ -333,14 +347,7 @@ class InsightsService:
     def _evaluate(
         self, observation: Observation, snapshot: Snapshot, capture: SqlCapture
     ) -> tuple[Row, list[tuple[Row, Finding]]]:
-        missing = next((s for s in sorted(observation.reads) if not snapshot.available(s)), None)
-        if missing is not None:
-            return _check(observation, "NOT_APPLICABLE", 0, 0, _missing(snapshot, missing)), []
-        if (hidden := _requests_hidden(observation, snapshot)) is not None:
-            return _check(observation, "NOT_APPLICABLE", 0, 0, hidden), []
-        gate = getattr(observation, "not_applicable", None)  # BootUI Observation.notApplicable; a stub has none
-        reason = gate(snapshot) if gate else None
-        if reason is not None:
+        if (reason := _inapplicable(observation, snapshot)) is not None:
             return _check(observation, "NOT_APPLICABLE", 0, 0, reason), []
         evaluate = observation.evaluate
         if evaluate is None:

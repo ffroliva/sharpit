@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Runtime Insights reports the anonymous-data-reach and anonymous-success-on-restricted-route checks as not applicable, with the reason: FastAPI makes no authorization decision sharpit can observe. SEC-AUTHZ-001 partly covers a forgotten security dependency on state-changing routes.
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
 - The pytest terminal summary lists all five runtime gates.
 - The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.
