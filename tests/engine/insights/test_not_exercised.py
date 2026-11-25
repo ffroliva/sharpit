@@ -87,12 +87,18 @@ def test_dropped_http_or_a_clear_cannot_prove_declared_routes_were_not_exercised
         journal = RuntimeJournal(max_bytes=200)
         if action == "drop":
             journal.offer({"source": "http", "route": "x" * 1000})
-            reason = "The http source dropped completion events, so declared routes absent from its counts cannot be classified as not exercised."
+            reason = (
+                "The http source dropped completion events, so declared routes absent "
+                "from its counts cannot be classified as not exercised."
+            )
         else:
             if action == "clear":
                 journal.offer({"source": "http", "route": "GET /uncalled"})
             journal.discard()
-            reason = "The recording was cleared during this run, so declared routes absent from the remaining counts cannot be classified as not exercised."
+            reason = (
+                "The recording was cleared during this run, so declared routes absent "
+                "from the remaining counts cannot be classified as not exercised."
+            )
         report = service(journal).report()
         assert report["notExercised"] == []
         assert reason in report["limitations"]
@@ -108,9 +114,9 @@ def test_an_evicted_event_lists_no_route():
         report = service(journal).report()
         assert report["notExercised"] == []
         assert (
-            "The journal evicted events during this run, so declared routes cannot be classified as not exercised: this journal keeps no run-wide route counts."
-            in report["limitations"]
-        )
+            "The journal evicted events during this run, so declared routes cannot "
+            "be classified as not exercised: this journal keeps no run-wide route counts."
+        ) in report["limitations"]
 
 
 def test_a_low_footprint_suspend_during_the_run_lists_no_route():
@@ -136,7 +142,10 @@ def test_a_route_inventory_that_cannot_be_read_is_said_rather_than_listing_no_ro
         report = InsightsService(RuntimeJournal(), [], declared_routes=supplier).report()
         assert report["notExercised"] == []
         assert report["limitations"] == [
-            "The application's declared routes could not be read, so the routes no request reached are not listed: that does not mean every route was exercised."
+            (
+                "The application's declared routes could not be read, so the routes no "
+                "request reached are not listed: that does not mean every route was exercised."
+            )
         ]
     assert service(routes=[]).report()["limitations"] == []
     assert InsightsService(RuntimeJournal(), []).report()["limitations"] == []
@@ -184,9 +193,9 @@ def test_metadata_only_exposure_lists_no_route_and_says_why():
         report = service(journal).report()
         assert report["notExercised"] == []
         assert (
-            "Request ids are withheld at METADATA_ONLY exposure, so declared routes cannot be classified as not exercised (SHARPIT_EXPOSE_VALUES)."
-            in report["limitations"]
-        )
+            "Request ids are withheld at METADATA_ONLY exposure, so declared routes "
+            "cannot be classified as not exercised (SHARPIT_EXPOSE_VALUES)."
+        ) in report["limitations"]
 
 
 def test_a_called_secret_looking_route_is_listed_with_a_masking_limitation():
@@ -200,3 +209,9 @@ def test_a_called_secret_looking_route_is_listed_with_a_masking_limitation():
         "Some captured route labels were masked, so routes listed as not exercised may have been reached."
         in report["limitations"]
     )
+
+
+def test_an_unmatched_404_does_not_exercise_a_declared_route():
+    journal = RuntimeJournal()
+    journal.offer({"source": "http", "route": "GET /uncalled", "requestId": "r1", "status": 404, "routeTemplate": None})
+    assert service(journal).report()["notExercised"] == ["GET /uncalled"]
