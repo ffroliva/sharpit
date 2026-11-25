@@ -52,6 +52,43 @@ def test_a_plain_starlette_route_called_once_is_not_listed_without_a_limitation(
         )
 
 
+def _opaque_asgi(scope, receive, send):
+    from starlette.responses import PlainTextResponse
+
+    return PlainTextResponse("ok")(scope, receive, send)
+
+
+@pytest.mark.parametrize(
+    "traffic", ["cors-preflight", "static-file", "redirect-slashes", "plain-route", "opaque-mount"]
+)
+def test_template_less_traffic_outside_declared_fastapi_routes_keeps_the_list(traffic, tmp_path):
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.responses import PlainTextResponse
+    from starlette.staticfiles import StaticFiles
+
+    app = FastAPI()
+    app.add_api_route("/uncalled", lambda: {})
+    app.add_middleware(CORSMiddleware, allow_origins=["http://example.com"], allow_methods=["*"])
+    (tmp_path / "a.txt").write_text("a")
+    app.mount("/static", StaticFiles(directory=tmp_path))
+    app.mount("/opaque", _opaque_asgi)
+    app.add_route("/metrics", lambda request: PlainTextResponse(""))
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        if traffic == "cors-preflight":
+            headers = {"Origin": "http://example.com", "Access-Control-Request-Method": "GET"}
+            assert client.options("/uncalled", headers=headers).status_code == 200
+        elif traffic == "static-file":
+            assert client.get("/static/a.txt").status_code == 200
+        elif traffic == "redirect-slashes":
+            assert client.get("/uncalled/", follow_redirects=False).status_code == 307
+        elif traffic == "plain-route":
+            assert client.get("/metrics").status_code == 200
+        else:
+            assert client.get("/opaque/x").status_code == 200
+        assert client.get(API).json()["notExercised"] == ["GET /uncalled"]
+
+
 def test_included_router_and_mounted_fastapi_routes_match_their_labels():
     from fastapi import APIRouter
 
