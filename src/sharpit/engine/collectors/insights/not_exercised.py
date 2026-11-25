@@ -37,32 +37,31 @@ def list_for(
         return []
     try:
         routes = declared()
-        if routes is not None:
-            unsupported = sum(application_route(r) and not r.exercise_supported for r in routes)
-            if unsupported:
-                noun = "route is" if unsupported == 1 else "routes are"
-                limitations.append(
-                    f"{unsupported} declared HTTP {noun} left out because its captured route template is not available."
-                )
-            if any(_unmatched_declared(r, routes) for r in snapshot.records.get("http", ())):
-                limitations.append(
-                    "Some completed HTTP requests have no captured route template, so declared routes "
-                    "cannot be classified as not exercised."
-                )
-                return []
-            # a template-less label is the request path, not a declaration (``/a/`` redirected is labelled ``/a``)
-            exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route") and _templated(r)}
-            if any("******" in label for label in exercised):
-                limitations.append(
-                    "Some captured route labels were masked and could not be matched to declarations, so "
-                    "routes listed as not exercised may have been reached."
-                )
-            return of(routes, exercised)
     except Exception:  # noqa: BLE001 - an inventory failure must never crash the host
+        routes = None
+    if routes is None:
         limitations.append(INVENTORY_UNAVAILABLE)
         return []
-    limitations.append(INVENTORY_UNAVAILABLE)
-    return []
+    unsupported = sum(application_route(r) and not r.exercise_supported for r in routes)
+    if unsupported:
+        noun = "route is" if unsupported == 1 else "routes are"
+        limitations.append(
+            f"{unsupported} declared HTTP {noun} left out because its captured route template is not available."
+        )
+    if any(_unmatched_declared(r, routes) for r in snapshot.records.get("http", ())):
+        limitations.append(
+            "Some completed HTTP requests have no captured route template, so declared routes "
+            "cannot be classified as not exercised."
+        )
+        return []
+    # a template-less label is the request path, not a declaration (``/a/`` redirected is labelled ``/a``)
+    exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route") and _templated(r)}
+    if any("******" in label for label in exercised):
+        limitations.append(
+            "Some captured route labels were masked and could not be matched to declarations, so "
+            "routes listed as not exercised may have been reached."
+        )
+    return of(routes, exercised)
 
 
 def refusal(snapshot: Snapshot) -> str | None:
