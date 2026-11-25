@@ -182,10 +182,10 @@ class Console:
             host_loop_provider,
         )
         response = await self._run_handler(route, call)
+        if request.method == "HEAD":
+            response = self._head_response(response)
         self._audit(route, response)
-        headers = _response_headers(response.headers, route.response_class)
-        response = replace(response, headers=headers)
-        return self._head_response(response) if request.method == "HEAD" else response
+        return replace(response, headers=_response_headers(response.headers, route.response_class))
 
     def _select_route(self, method: str, path: str) -> tuple[RouteSpec, dict[str, str]] | ConsoleResponse:
         matched = match_route(self.routes, "GET" if method == "HEAD" else method, path)
@@ -210,7 +210,6 @@ class Console:
         headers = response.headers
         if (
             response.body is not None
-            and response.status >= 200
             and response.status not in (204, 304)
             and not any(name.lower() == "content-length" for name, _ in headers)
         ):
