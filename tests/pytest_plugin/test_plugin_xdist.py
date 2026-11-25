@@ -245,3 +245,33 @@ def test_xdist_snapshot_suppresses_worker_autodetect(pytester: pytest.Pytester) 
     assert "otherapp:app" not in apps
     assert len(apps) == 1
     assert "sharpit: using app" not in result.stdout.str()
+
+
+def test_a_failed_sink_hook_in_a_worker_makes_the_run_unknown(pytester: pytest.Pytester) -> None:
+    """The worker's SQL hook fails on every statement: its part names the lost source, so the run cannot pass."""
+    pytester.makeconftest(
+        """
+        from sharpit.engine.testsession import sink
+        def broken(*args, **kwargs): raise RuntimeError('injected')
+        sink.filtered_rule = broken
+        """
+    )
+    pytester.makepyfile(
+        """
+        import sqlite3
+
+        def test_n_plus_one():
+            conn = sqlite3.connect(":memory:")
+            conn.execute("CREATE TABLE pets (id INTEGER)")
+            for _ in range(10):
+                conn.execute("SELECT id FROM pets WHERE id = 1").fetchall()
+        """
+    )
+
+    result = pytester.runpytest_subprocess(
+        "-n", "1", "--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q"
+    )
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker gw0"]
+    assert result.ret == 1

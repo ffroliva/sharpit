@@ -8,7 +8,7 @@ import weakref
 
 import pytest
 
-from engine.testsession.tsfakes import NODE, event, run_phase
+from engine.testsession.tsfakes import NODE, LockProbe, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sources.dispatch import SqlEvent
@@ -285,6 +285,106 @@ def test_sink_hook_failure_costs_a_warning_not_an_exception() -> None:
     sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
     sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
     assert len(sink.facts.warnings) == 1
+
+
+def _hook_warning(name: str) -> str:
+    return f"a sharpit session hook failed ({name}); some facts may be missing"
+
+
+def test_a_hook_failure_marks_the_plugin_source_unattached_once() -> None:
+    """A failed hook lost facts: the plugin's own source is unattached, so the run cannot pass."""
+    sink = _sink()
+    sink.begin_test(NODE)
+    sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
+    sink.on_exception(ValueError("x"), "log", object())  # type: ignore[arg-type]
+    plugin = {"name": "pytest-plugin", "attached": False, "reason": _hook_warning("AttributeError"), "limitations": []}
+    assert sink.facts.sources == [plugin]
+
+
+def test_a_hook_failure_in_an_earlier_attempt_stays_recorded() -> None:
+    """A clean rerun attempt does not prove the failed attempt's facts complete: the run stays unknown."""
+    sink = _sink()
+    sink.begin_test(NODE)
+    sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
+    attempt = sink.begin_test(NODE)
+    run_phase(sink, NODE, attempt, "call", "SELECT 1")
+    assert [source["name"] for source in sink.facts.sources] == ["pytest-plugin"]
+
+
+def test_a_hook_failure_is_recorded_under_the_sink_lock() -> None:
+    """Hooks fail on host threads too: the source is recorded under the sink's lock."""
+    sink = _sink()
+    probe = LockProbe(sink._lock)  # pyright: ignore[reportPrivateUsage]
+    sink.facts.sources = probe  # type: ignore[assignment]
+    sink.on_sql(object(), None)  # type: ignore[arg-type]
+    assert probe.held == [True]
+
+
+class _HostTypeError(TypeError):
+    pass
+
+
+def _raised_here(error: BaseException) -> BaseException:
+    """``error`` with the traceback a C driver leaves: one frame, the caller's, and nothing below it."""
+    try:
+        raise error
+    except BaseException as exc:  # noqa: BLE001
+        return exc
+
+
+def _raise(error: BaseException) -> None:
+    raise error
+
+
+def _raised_below(error: BaseException) -> BaseException:
+    """``error`` raised by Python code below the catching frame (a host cursor class, a driver written in Python)."""
+    try:
+        _raise(error)
+    except BaseException as exc:  # noqa: BLE001
+        return exc
+    raise AssertionError("unreachable")
+
+
+def _statement(sql: object, error: BaseException | None, source: str = "sqlite3") -> SqlEvent:
+    return SqlEvent(source, sql, (), False, None, 0, 1000, -1, error, None, None, Dialect.SQLITE)  # type: ignore[arg-type]
+
+
+def test_a_statement_the_stdlib_driver_refused_is_not_a_hook_failure() -> None:
+    """``sqlite3`` refused a statement that is not text, in C: nothing ran, so nothing is missing."""
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_statement(123, _raised_here(TypeError("bad statement"))), (NODE, attempt, "call"))
+    assert sink.facts.warnings == []
+
+
+@pytest.mark.parametrize(
+    ("sql", "error", "source"),
+    [
+        pytest.param(123, None, "sqlite3", id="accepted"),
+        pytest.param(123, _raised_below(TypeError("x")), "sqlite3", id="python-frame-below"),
+        pytest.param(123, _raised_here(_HostTypeError("x")), "sqlite3", id="typeerror-subclass"),
+        pytest.param(123, _raised_here(ValueError("x")), "sqlite3", id="another-error"),
+        pytest.param(123, _raised_here(TypeError("x")), "sqlalchemy", id="another-source"),
+    ],
+)
+def test_a_statement_that_is_not_text_otherwise_stays_a_hook_failure(
+    sql: object, error: BaseException | None, source: str
+) -> None:
+    """Only the stdlib driver's own refusal proves nothing ran; any other non-text statement may have run."""
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_statement(sql, error, source), (NODE, attempt, "call"))
+    assert sink.facts.warnings == [_hook_warning("TypeError")]
+
+
+def test_a_text_statement_that_failed_with_typeerror_is_counted() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_statement("SELECT 1", _raised_here(TypeError("x"))), (NODE, attempt, "call"))
+    assert sink.current_test is not None
+    phase = sink.current_test.phases.get("call")
+    assert phase is not None
+    assert phase.queries == 1
 
 
 def test_latest_snapshot_kept_after_gc() -> None:

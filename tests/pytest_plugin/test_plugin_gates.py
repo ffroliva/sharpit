@@ -763,6 +763,81 @@ def test_early_attach_failure_does_not_interrupt_session(pytester: pytest.Pytest
     assert any(source["name"] == "pytest-plugin" and not source["attached"] for source in data["sources"])
 
 
+_N_PLUS_ONE = """
+import sqlite3
+
+def test_n_plus_one():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE pets (id INTEGER)")
+    for _ in range(10):
+        conn.execute("SELECT id FROM pets WHERE id = 1").fetchall()
+"""
+_REPORT_ARGS = ("--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q")
+
+
+def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester) -> None:
+    """The sink's own SQL hook fails on every statement: the N+1 is never seen, so the run cannot pass."""
+    pytester.makeconftest(
+        """
+        import pytest
+        from sharpit.engine.testsession import sink
+        _filtered_rule = sink.filtered_rule
+        def broken(*args, **kwargs): raise RuntimeError('injected')
+        sink.filtered_rule = broken
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_unconfigure(config):
+            yield
+            sink.filtered_rule = _filtered_rule
+        """
+    )
+    pytester.makepyfile(_N_PLUS_ONE)
+
+    result = pytester.runpytest_inprocess(*_REPORT_ARGS)
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker master"]
+    assert result.ret == 1
+
+
+def test_a_statement_sqlite3_refused_is_no_hook_failure(pytester: pytest.Pytester) -> None:
+    """The stdlib driver refuses a statement that is not text before anything runs: the run stays known."""
+    pytester.makepyfile(
+        """
+        import sqlite3
+        import pytest
+
+        def test_refused():
+            conn = sqlite3.connect(":memory:")
+            with pytest.raises(TypeError):
+                conn.execute(123)
+            conn.execute("SELECT 1")
+        """
+    )
+
+    result = pytester.runpytest_inprocess(*_REPORT_ARGS)
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert [warning for warning in data["warnings"] if "hook failed" in warning] == []
+    assert result.ret == 0
+
+
+def test_a_nested_in_process_pytest_run_makes_the_outer_run_unknown(pytester: pytest.Pytester) -> None:
+    """An inner ``pytest.main`` detaches the outer session's capture; the N+1 after it is lost, so it cannot pass."""
+    (pytester.path / "inner_check.py").write_text("def test_inner():\n    pass\n")
+    nested = (
+        "import pathlib\nimport pytest\n\n"
+        "def test_a_nested_run():\n"
+        '    pytest.main([str(pathlib.Path(__file__).with_name("inner_check.py")), "-q", "-p", "no:cacheprovider"])\n'
+    )
+    pytester.makepyfile(test_outer=nested + _N_PLUS_ONE.replace("def test_n_plus_one", "def test_b_n_plus_one"))
+
+    result = pytester.runpytest_inprocess(*_REPORT_ARGS)
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert "source 'pytest-plugin' not attached in worker master" in data["unknownReasons"]
+    assert result.ret == 1
+
+
 @pytest.mark.usefixtures("restore_logging")
 def test_dictconfig_in_conftest_keeps_basicconfig_working(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(
