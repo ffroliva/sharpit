@@ -360,10 +360,26 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (16 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (32 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
+| #300 | route:GET /architecture (post-scan) | partial | architecture/scanned.captured.json parity: basePackages: non-empty golden list requires a non-empty payload list |
+| #300 | route:GET /crac/dockerfile | n-a | JVM-only: the CRaC container build requires a Java runtime with checkpoint support. |
+| #300 | route:GET /crac/entrypoint | n-a | JVM-only: the CRaC entrypoint launches or restores a Java runtime. |
+| #300 | route:GET /database-advisor (post-scan) | partial | Strict comparison passes. Empty golden lists provide no item shape. Paths: dataSourceNames, dataSources, diagnostics, results, suppression.findings, suppression.incompleteRules, violationDetails.locationNotes. |
+| #300 | route:GET /dev-services/{id}/logs | deferred | BootUI serves Docker Compose and Testcontainers logs. The Python dev-services mapping is A. The route awaits a maintainer decision. |
+| #300 | route:GET /fastapi (post-scan) | partial | fastapi/scanned: golden list inspected has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4) |
+| #300 | route:GET /graalvm/dockerfile | n-a | JVM-only: the GraalVM container build requires native-image tooling. |
+| #300 | route:GET /heap-dump/download | deferred | A Python snapshot format and a guarded download design are pending. The Python heap snapshot mapping remains P. |
+| #300 | route:GET /jms | n-a | JVM-only: Java Message Service has no Python counterpart. |
+| #300 | route:GET /memory | missing | sharpit has no route at /sharpit/api/memory (HTTP 404). |
+| #300 | route:GET /postgresql (post-read) | partial | Strict comparison passes. Empty golden lists provide no item shape. Paths: databases, diagnostics, limitations. |
+| #300 | route:GET /rest-api (post-scan) | partial | rest-api/scanned.captured.json parity: evidence.limitations: non-empty golden list requires a non-empty payload list |
+| #300 | route:GET /runtime-insights/impact/symbols | missing | sharpit has no route at /sharpit/api/runtime-insights/impact/symbols (HTTP 404). |
+| #300 | route:GET /security (post-scan) | partial | security/scanned: golden list filterChains has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4) |
+| #300 | route:GET /traces/{id} (seeded-trace) | partial | traces/detail.captured.json parity: spans[].attributes: non-empty golden list requires a non-empty payload list |
+| #300 | route:GET /vulnerabilities (post-scan) | partial | vulnerabilities/scanned.captured.json parity: coverage.unidentifiedArchives: non-empty golden list requires a non-empty payload list; evidence.limitations: non-empty golden list requires a non-empty payload list |
 | #305 | pentesting:PT-A05-002:recommendation | adapted | BootUI says "Enable content type sniffing protection through Spring Security headers or equivalent middleware." sharpit names security-header middleware. |
 | #305 | pentesting:PT-A05-006:learnMoreUrl | adapted | BootUI links to https://docs.spring.io/spring-boot/reference/web/servlet.html. sharpit links to FastAPI's error-handling guide. |
 | #305 | pentesting:A01:initial-description | adapted | BootUI says "Spring MVC mappings have not been inspected yet." sharpit states that the local scan does not assess route authorization. |
