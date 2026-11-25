@@ -285,6 +285,9 @@ class InsightsService:
     def report(self) -> Row:
         report, _, snapshot = self._build()
         if snapshot is not None and self.declared_routes is not None:
+            if reason := not_exercised.refusal(snapshot):
+                report["limitations"].append(reason)
+                return report
             exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route")}
             report["notExercised"] = not_exercised.of(self.declared_routes() or (), exercised)
         return report
