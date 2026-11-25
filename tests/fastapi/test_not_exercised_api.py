@@ -1,5 +1,6 @@
 """Declared route exercise coverage over real HTTP capture."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
@@ -109,3 +110,21 @@ def test_the_mcp_tool_returns_the_same_unexercised_routes():
         result = client.post("/sharpit/api/mcp", json=call).json()["result"]["structuredContent"]
         assert result["notExercised"] == client.get(API).json()["notExercised"]
         assert result["notExercised"] == ["GET /uncalled"]
+
+
+@pytest.mark.parametrize("surface", ["http", "mcp"])
+def test_declared_secret_route_labels_are_masked_in_http_and_mcp_output(surface):
+    secret = "AKIAIOSFODNN7EXAMPLE"
+    app = FastAPI()
+    app.add_api_route("/k/" + secret, lambda: {})
+    install(app, enabled="ON", show_banner=False, config_scan=False, mcp_enabled="ON")
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        if surface == "http":
+            response = client.get(API)
+            body = response.json()
+        else:
+            call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_runtime_insights"}}
+            response = client.post("/sharpit/api/mcp", json=call)
+            body = response.json()["result"]["structuredContent"]
+        assert secret not in response.text
+        assert body["notExercised"] == ["******"]
