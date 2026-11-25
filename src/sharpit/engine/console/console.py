@@ -11,6 +11,7 @@ from functools import lru_cache
 from urllib.parse import parse_qs
 
 from sharpit.engine import guard
+from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.console.types import (
     ActionAuditEvent,
     ActionAuditHook,
@@ -27,7 +28,8 @@ from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.spi import HostLoopProvider
 
-_STATIC_ERROR_HEADERS = tuple(security_headers("api"))
+_JSON_CONTENT_TYPE = ("Content-Type", "application/json")
+_STATIC_ERROR_HEADERS = (_JSON_CONTENT_TYPE, *security_headers("api"))
 _LOGGER = logging.getLogger("sharpit")
 
 
@@ -92,6 +94,8 @@ def _headers(request: ConsoleRequest) -> tuple[dict[str, list[str]], guard.Denia
 
 
 def _response_headers(headers: ResponseHeaders, kind: ResponseClass) -> ResponseHeaders:
+    if any(name.lower() == "content-security-policy" for name, _ in headers):
+        return headers
     merged = list(headers)
     for key, value in security_headers(kind):
         if not any(existing.lower() == key.lower() for existing, _ in merged):
@@ -117,6 +121,8 @@ class Console:
             return await self._handle(request, host_loop_provider)
         except Exception as exc:
             try:
+                if isinstance(exc, AdvisorViolationError):
+                    return self._json(exc.status, {"error": exc.message})
                 if isinstance(exc, BadRequest):
                     return self._json(400, {"error": str(exc)})
                 _LOGGER.warning("sharpit console request failed: %s", self.ctx.masker.mask_text(str(exc)))
@@ -129,7 +135,9 @@ class Console:
                 )
 
     def _json(self, status: int, value: object, headers: tuple[tuple[str, str], ...] = ()) -> ConsoleResponse:
-        return ConsoleResponse(status, _response_headers(headers, "api"), json.dumps(value).encode())
+        body = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+        headers = _response_headers((*headers, _JSON_CONTENT_TYPE), "api")
+        return ConsoleResponse(status, headers, body)
 
     async def _handle(self, request: ConsoleRequest, host_loop_provider: HostLoopProvider | None) -> ConsoleResponse:
         values, header_denial = _headers(request)

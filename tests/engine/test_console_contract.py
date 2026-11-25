@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture.streams import StreamSlots
 from sharpit.engine.console import (
     ActionAuditEvent,
@@ -149,6 +150,7 @@ def test_handler_exception_is_masked_and_bad_request_is_400(no_side_effects, cap
     assert response.status == 500
     assert "secret-value" not in body
     assert "Traceback" not in body
+    assert "sharpit console request failed:" in caplog.text
     assert "secret-value" not in caplog.text
     assert "content-security-policy" in names
     assert "x-frame-options" in names
@@ -353,21 +355,17 @@ def test_401_guard_denial_does_not_duplicate_cache_control(no_side_effects) -> N
     assert len(keys) == len(set(keys))
 
 
-def test_response_headers_keeps_other_headers_when_csp_set(no_side_effects) -> None:
-    no_side_effects.unblock_network()
-    ctx = _context(no_side_effects)
+def test_response_headers_preserves_only_handler_headers_when_csp_set(dispatch) -> None:
+    headers = (("content-Security-policy", "default-src 'none'"), ("Cache-Control", "no-cache"))
 
     def handler(_call: ConsoleCall) -> ConsoleResponse:
-        return ConsoleResponse(200, (("Content-Security-Policy", "default-src 'none'"),), b"ok")
+        return ConsoleResponse(200, headers, b"ok")
 
     route = RouteSpec("test.csp", "GET", "/api/test/csp", handler, None, "read")
-    console = Console(ctx, (route,))
-    response = asyncio.run(console.handle(_request("/api/test/csp")))
+    response = dispatch((route,), _request("/api/test/csp"))
+
+    assert response.headers == headers
     assert response.status == 200
-    header_dict = {k.lower(): v for k, v in response.headers}
-    assert header_dict.get("content-security-policy") == "default-src 'none'"
-    assert "x-frame-options" in header_dict
-    assert "x-content-type-options" in header_dict
 
 
 def test_joined_sec_fetch_site_is_not_denied_before_the_guard(no_side_effects) -> None:
@@ -415,7 +413,7 @@ def test_static_fallback_on_json_error(no_side_effects, monkeypatch: pytest.Monk
     response = asyncio.run(console.handle(_request("/api/test/fail")))
     assert response.status == 500
     assert response.body == b'{"error":"Internal Server Error"}'
-    assert response.headers == tuple(security_headers("api"))
+    assert response.headers == (("Content-Type", "application/json"), *security_headers("api"))
 
 
 def test_route_spec_stream_defaults_to_false() -> None:
@@ -627,3 +625,71 @@ def test_guard_denial_precedes_method_selection(dispatch, method: str) -> None:
     assert _json(response) == {"error": MESSAGE_DISALLOWED_HOST}
     assert dict(security_headers("api")).items() <= dict(response.headers).items()
     assert "Allow" not in dict(response.headers)
+
+
+def test_advisor_violation_keeps_its_status_and_message(dispatch) -> None:
+    def handler(_call: ConsoleCall) -> ConsoleResponse:
+        raise AdvisorViolationError(422, "Invalid advisor violation")
+
+    route = RouteSpec("test.advisor", "GET", "/api/overview", handler, None, "read")
+
+    response = dispatch((route,), _request())
+
+    assert response.status == 422
+    assert _json(response) == {"error": "Invalid advisor violation"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "is_probe", "status", "body"),
+    [
+        pytest.param("GET", "/api/missing", False, 404, b'{"error":"Not Found"}', id="not-found"),
+        pytest.param("POST", "/api/overview", False, 405, b'{"error":"Method Not Allowed"}', id="wrong-method"),
+        pytest.param("GET", "/api/bad", False, 400, b'{"error":"bad page"}', id="bad-request"),
+        pytest.param("GET", "/api/fail", False, 500, b'{"error":"Internal Server Error"}', id="internal-error"),
+        pytest.param(
+            "GET",
+            "/api/overview",
+            True,
+            403,
+            b'{"error":"sharpit refused an internal probe request."}',
+            id="denial",
+        ),
+    ],
+)
+def test_core_errors_are_compact_json(
+    dispatch, method: str, path: str, is_probe: bool, status: int, body: bytes
+) -> None:
+    def bad_request(_call: ConsoleCall) -> ConsoleResponse:
+        raise BadRequest("bad page")
+
+    def fail(_call: ConsoleCall) -> ConsoleResponse:
+        raise RuntimeError("handler failed")
+
+    routes = (
+        RouteSpec("test.read", "GET", "/api/overview", lambda _: ConsoleResponse(200, ()), None, "read"),
+        RouteSpec("test.bad", "GET", "/api/bad", bad_request, None, "read"),
+        RouteSpec("test.fail", "GET", "/api/fail", fail, None, "read"),
+    )
+
+    response = dispatch(routes, _request(path, method=method, is_probe=is_probe))
+
+    assert response.body == body
+    assert response.status == status
+    assert dict(response.headers).get("Content-Type") == "application/json"
+
+
+def test_core_error_content_type_is_application_json(dispatch) -> None:
+    response = dispatch((), _request())
+
+    assert dict(response.headers).get("Content-Type") == "application/json"
+
+
+def test_core_error_encodes_non_ascii_message_as_utf8(dispatch) -> None:
+    def handler(_call: ConsoleCall) -> ConsoleResponse:
+        raise BadRequest("café")
+
+    route = RouteSpec("test.bad", "GET", "/api/overview", handler, None, "read")
+
+    response = dispatch((route,), _request())
+
+    assert response.body == b'{"error":"caf\xc3\xa9"}'
