@@ -204,10 +204,10 @@ def test_a_called_secret_looking_route_is_listed_with_a_masking_limitation():
     journal.offer({"source": "http", "route": f"GET {secret_route}", "requestId": "r1"})
     assert journal.records("http")[0]["route"] == "******"
     report = service(journal, [route(secret_route)]).report()
-    assert report["notExercised"] == [f"GET {secret_route}"]
+    assert report["notExercised"] == ["GET ******"]
     assert (
-        "Some captured route labels were masked, so routes listed as not exercised may have been reached."
-        in report["limitations"]
+        "Some captured route labels were masked and could not be matched to declarations, so "
+        "routes listed as not exercised may have been reached." in report["limitations"]
     )
 
 
