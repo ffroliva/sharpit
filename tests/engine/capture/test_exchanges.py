@@ -251,3 +251,57 @@ def test_exchange_row_emits_route_route_source_request_id_and_retention():
         "evicted": 1,
         "slowThresholdMillis": None,
     }
+
+
+class _PropertyUser:
+    """A host user whose attributes are properties: reading them runs application code."""
+
+    calls: list[str] = []
+
+    @property
+    def is_authenticated(self) -> bool:
+        self.calls.append("is_authenticated")
+        return True
+
+    @property
+    def display_name(self) -> str:
+        self.calls.append("display_name")
+        return "alice"
+
+
+class _DynamicUser:
+    def __getattr__(self, name: str) -> object:
+        _DynamicUser.seen.append(name)
+        return True if name == "is_authenticated" else "alice"
+
+    seen: list[str] = []
+
+
+class _AlwaysAnonymous:
+    is_authenticated = False
+    display_name = "guest"
+
+
+def test_capture_never_runs_a_user_property():
+    _PropertyUser.calls.clear()
+    row = _row(user=_PropertyUser())
+    assert _PropertyUser.calls == []
+    assert row["principal"] is None
+
+
+def test_capture_never_runs_a_user_getattr():
+    _DynamicUser.seen.clear()
+    row = _row(user=_DynamicUser())
+    assert _DynamicUser.seen == []
+    assert row["principal"] is None
+
+
+def test_an_always_anonymous_custom_user_is_never_named():
+    assert _row(user=_AlwaysAnonymous())["principal"] is None
+
+
+def test_starlette_users_are_read_as_plain_data():
+    from starlette.authentication import SimpleUser, UnauthenticatedUser
+
+    assert _row(user=SimpleUser("alice"))["principal"] == "alice"
+    assert _row(user=UnauthenticatedUser())["principal"] is None
