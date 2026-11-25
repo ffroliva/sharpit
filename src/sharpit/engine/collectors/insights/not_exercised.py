@@ -26,6 +26,11 @@ def refusal(snapshot: Snapshot) -> str | None:
             "The http source dropped completion events, so declared routes absent from its counts "
             "cannot be classified as not exercised."
         )
+    if snapshot.status["evictedEvents"]:
+        return (
+            "The journal evicted events during this run, so declared routes cannot be classified as not exercised: "
+            "this journal keeps no run-wide route counts."
+        )
     return None
 
 
