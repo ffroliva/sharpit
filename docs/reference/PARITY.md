@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (31 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (32 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -395,3 +395,4 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (31 entries):
 | #305 | pentesting:A07:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Spring authentication metadata. Endpoint authentication, account policy, and runtime login behavior were not tested." sharpit states whether Basic or Digest headers in the synthetic GET response produced a review finding. The note explains the limit on dependency-based authentication and qualifies incomplete evidence. |
 | #305 | pentesting:A08:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review." sharpit's local scan does not assess deserialization safeguards. |
 | exchanges-principal | http-exchanges:principal | adapted | BootUI names the authenticated principal from Spring Security. sharpit reads scope["user"] as plain data and never runs a property, descriptor or __getattr__: Starlette's SimpleUser, or a subclass that keeps its is_authenticated and display_name, gives its username; UnauthenticatedUser gives none; any other user is named only when is_authenticated is exactly True and display_name exactly a str, both plain attributes or __slots__ fields. A computed name, a str subclass or a truthy non-bool flag gives no principal. |
+| gate-completeness | pytest-gate:capture-completeness | adapted | BootUI counts failed events per journal source (journal:failed:<source>) and withholds completeness for that source's dimensions. sharpit's pytest gate has no journal: a failed capture hook of its own, or capture ended before the session by a nested in-process pytest run, marks the pytest-plugin source not attached for that worker (or the xdist controller), and the whole run is unknown. |
