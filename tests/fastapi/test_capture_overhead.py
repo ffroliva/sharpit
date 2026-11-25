@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from starlette.authentication import SimpleUser
 from starlette.responses import PlainTextResponse
 from starlette.types import Message
 from tests.overhead import check_budget, paired
@@ -32,6 +33,7 @@ SCOPE = {
     "headers": [(b"host", b"localhost"), (b"user-agent", b"bench"), (b"accept", b"*/*")],
     "client": ("127.0.0.1", 50000),
     "server": ("localhost", 80),
+    "user": SimpleUser("bench"),  # the principal read runs on the measured path
 }
 
 
