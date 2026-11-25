@@ -2,7 +2,17 @@
 
 from collections.abc import Collection, Sequence
 
+from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.spi import RouteInfo
+
+UNRECORDED = (
+    "The runtime journal does not record the http source (SHARPIT_RUNTIME_JOURNAL_SOURCES), "
+    "so the routes no request reached are not listed."
+)
+
+
+def refusal(snapshot: Snapshot) -> str | None:
+    return UNRECORDED if not snapshot.journaled("http") else None
 
 
 def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
