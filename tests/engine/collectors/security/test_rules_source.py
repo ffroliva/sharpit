@@ -150,11 +150,19 @@ def test_jwt_option_that_may_be_overwritten_does_not_fire(run_rule: RuleRun, tmp
     assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []
 
 
-def test_jwt_option_after_an_unpack_still_fires(run_rule: RuleRun, tmp_path: Path):
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param('{"verify_signature": False, **{"verify_exp": True}}', id="unrelated-unpack"),
+        pytest.param('{"verify_aud": False, **{"verify_exp": True}}', id="unrelated-unpack-aud"),
+        pytest.param('{**{"verify_signature": False}}', id="nested"),
+        pytest.param('{**base, "verify_signature": False}', id="earlier-unpack"),
+    ],
+)
+def test_jwt_option_that_stays_disabled_fires(run_rule: RuleRun, tmp_path: Path, options: str):
     package = _package(tmp_path)
     (package / "auth.py").write_text(
-        'import jwt\njwt.decode(token, key, audience="api", options={**base, "verify_signature": False})\n',
-        encoding="utf-8",
+        f'import jwt\njwt.decode(token, key, audience="api", options={options})\n', encoding="utf-8"
     )
     assert _targets(run_rule("SEC-OAUTH-002", FastAPI(), source=package)) == ["shop/auth.py:2"]
 
