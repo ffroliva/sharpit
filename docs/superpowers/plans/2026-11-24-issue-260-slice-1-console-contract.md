@@ -44,12 +44,16 @@ does not report them as defects:
 - A handler runs only for its own method, and the `GET` handler for `HEAD` (a read). That every `GET` route is a
   read rests on the contract's `ROUTES` test (wiring slice).
 - An unmarked stream route fails closed: when the `GET` handler of a `HEAD` returns a stream, the stream is closed (its
-  slot released) and the answer is 405 with `Allow: GET`.
+  slot released) and the answer is 405 with `Allow: GET`. If its close hook raises, the slot is already released and the
+  answer is the masked 500.
 - `HEAD` resolves the first matching `GET` route, as a `GET` would, and then reads its `stream` mark. It never goes on to
   a later template: `/api/exceptions/stream` precedes `/api/exceptions/{id}` and must not reach the detail handler.
 - `Allow` follows the same rule: `HEAD` is listed only when the first matching `GET` route is not a stream.
 - 405 names methods only, after the guard, and 404 keeps its body. Only a route's own body response is emptied for `HEAD`: a denial, 404, 405, 400 or 500
-  is returned as for `GET` and the adapter sends no body.
+  keeps the core's error response, body included, and the adapter sends no body for `HEAD`. The stream 405 is the only
+  answer that exists for `HEAD` alone.
+- The contract gives exception mapping to the adapter boundary. `Console.handle` maps `BadRequest` and 500 today, and row
+  7 joins them there; the wiring slice owns the transfer.
 - `AdvisorViolationError.message` reaches the body as the FastAPI routes return it today; nothing new is echoed.
 
 ## Tasks
@@ -67,9 +71,10 @@ after, and each is shown to bite by removing its control.
       `{"error": "Method Not Allowed"}` and the exact `Allow` (`GET, HEAD`); `Allow` lists every method of a path with
       several, in the fixed order; an unknown path stays 404; with a stream route before a parameterized sibling, `HEAD` on the stream path
       gives 405, `Allow: GET` and zero calls of either handler; `HEAD` gives the `GET` status and headers
-      with an empty body and the `Content-Length` of a non-empty `GET` body, a length set by the handler is kept, and a
-      file response keeps `file`; a `HEAD` whose handler raises gives the answer of `GET`; an unmarked stream route gives
-      405 and `slots.count == 0`; `HEAD` on a stream route gives 405 with `Allow: GET` and does not call the handler; the guard's answer (status, body
+      with an empty body and the `Content-Length` of a non-empty `GET` body, a length set by the handler is kept, 204 and 304 get none, and a
+      file response keeps `file`; a `HEAD` whose handler raises gives the core's error response; an unmarked stream route gives
+      405 after a handler that records an acquired slot and a close hook that ran, with `slots.count == 0`, and 500 when the
+      hook raises; `POST` and `DELETE` on a marked stream path give 405 with the exact `Allow: GET`; `HEAD` on a stream route gives 405 with `Allow: GET` and does not call the handler; the guard's answer (status, body
       and headers, without `Allow`) wins over each.
       `RouteSpec` has no mark for a stream route, so it gains `stream: bool = False`; the refusal reads that field and
       therefore acquires no slot. The contract's `RouteSpec` listing gains the field in the same commit. Emptying the body
@@ -77,7 +82,7 @@ after, and each is shown to bite by removing its control.
       preservation tests.
 - [ ] **Task 3, errors and headers** (`tests/engine/test_console_contract.py`): `AdvisorViolationError` gives its status
       and message; another exception stays a masked log line and 500; a response with its own CSP keeps exactly its own
-      headers, one without gets all of them; 404, 405, 400, 500 and a denial are compact JSON with
+      headers, one without gets all of them; 404, 405, 400, 500 and a denial are compact JSON (the static fallback keeps its bytes) with
       `Content-Type: application/json`, and a non-ASCII message is UTF-8. `test_response_headers_keeps_other_headers_when_csp_set` expects the
       opposite and is replaced.
 - [ ] Each fix is removed in turn and a named test fails.
