@@ -12,7 +12,11 @@ UNRECORDED = (
 
 
 def refusal(snapshot: Snapshot) -> str | None:
-    return UNRECORDED if not snapshot.journaled("http") else None
+    if not snapshot.journaled("http"):
+        return UNRECORDED
+    if "http" in snapshot.hidden:
+        return "The http-exchanges panel is disabled, so the routes no request reached are not listed."
+    return None
 
 
 def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
