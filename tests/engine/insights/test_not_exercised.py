@@ -154,3 +154,12 @@ def test_inventory_is_read_only_for_the_report():
     assert calls == []
     subject.report()
     assert calls == [1]
+
+
+def test_the_list_caps_at_100_and_counts_the_rest():
+    report = service(routes=[route(f"/route/{i:03}") for i in range(101)]).report()
+    assert len(report["notExercised"]) == 100
+    assert report["notExercisedOmitted"] == 1
+    assert report["notExercised"][0] == "GET /route/000"
+    assert agent_list(report, None, None, Steps({}))["notExercisedOmitted"] == 93
+    assert len(agent_list(report, None, None, Steps({}))["notExercised"]) == 8
