@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,13 +112,14 @@ class RouteSpec:
     kind: RouteKind
     response_class: ResponseClass = "api"
     on_loop: bool = False
+    stream: bool = False
 
 
 def frame_sse(event: str, event_id: str | None, data: str) -> bytes:
     lines = [f"event: {event}"]
     if event_id is not None:
         lines.append(f"id: {event_id}")
-    lines.extend(f"data: {line}" for line in data.splitlines() or [""])
+    lines.extend(f"data: {line}" for line in data.split("\n"))
     return ("\n".join(lines) + "\n\n").encode()
 
 
@@ -125,18 +127,15 @@ async def stream_frames(events: Events, max_seconds: float) -> AsyncGenerator[by
     loop = asyncio.get_running_loop()
     deadline = loop.time() + max_seconds
     try:
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                yield b"retry: 1000\n\n"
-                return
+        while (remaining := deadline - loop.time()) > 0:
             try:
                 event, event_id, data = await asyncio.wait_for(anext(events), remaining)
-            except TimeoutError:
-                yield b"retry: 1000\n\n"
-                return
+            except (TimeoutError, StopAsyncIteration):
+                break
             yield frame_sse(event, event_id, data)
+        yield b"retry: 1000\n\n"
     finally:
         close = getattr(events, "aclose", None)
         if close is not None:
-            await close()
+            with contextlib.suppress(Exception):
+                await close()

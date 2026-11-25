@@ -149,6 +149,7 @@ class RouteSpec:
     kind: RouteKind
     response_class: ResponseClass = "api"
     on_loop: bool = False
+    stream: bool = False
 
 
 ROUTES: tuple[RouteSpec, ...]
@@ -260,7 +261,7 @@ There is **exactly one outermost catch per adapter**, so exception ownership is 
      - `AdvisorViolationError` (`src/sharpit/engine/advisors/retention.py:19-25`) maps to `exc.status` JSON `{"error": exc.message}` with `security_headers("api")`, matching `src/sharpit/fastapi/routes/__init__.py:558-559`, `architecture.py:37-38`, `database_advisor.py:46-47`, `dismissed_findings.py:77-78`, `fastapi.py:41-42`, and `security.py:38-39`.
      - Any other `Exception` logs a masked line (`ctx.masker.mask_text`, `src/sharpit/engine/masking.py:609`) and maps to a `500` JSON response `{"error": "Internal Server Error"}` with `security_headers("api")` and no traceback. Adapters never let an exception escape into the host framework (under `flask run --debug`, an uncaught exception would otherwise be rendered by Werkzeug's `DebuggedApplication` debugger).
 2. **Minimal static fallback if building the 500 response itself fails:**
-   - If logging, masking, or building the `500` response itself raises an exception inside the outermost `except` block, the adapter sends a fixed minimal response: a static `500` body (`b'{"error":"Internal Server Error"}'`) and static security headers (`security_headers("api")`), with no masking call.
+   - If logging, masking, or building the `500` response itself raises an exception inside the outermost `except` block, the adapter sends a fixed minimal response: a static `500` body (`b'{"error":"Internal Server Error"}'`) `Content-Type: application/json` and static security headers (`security_headers("api")`), with no masking call.
 3. **Stream failure after `start_response` (or ASGI `http.response.start`):**
    - A stream that fails after `start_response` (during `__next__` / `__anext__` or `close()`) cannot become a `500`. Instead, the stream is aborted: close the stream (`frames.aclose()` and private event loop shutdown on WSGI), release its `StreamSlots` slot (`ConsoleStream.close()`), and log a masked line. No traceback reaches the client.
 
