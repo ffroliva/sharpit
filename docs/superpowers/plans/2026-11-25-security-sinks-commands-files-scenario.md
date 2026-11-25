@@ -141,6 +141,8 @@ paragraph of Task 6, and row 24, which waits on the decision below. Suggested te
 
 ## Decisions required before Task 1
 
+Decided: all three follow BootUI. D6 keeps a value under no name and decodes invalid UTF-8 with replacement; a request past the deadline holds no values again; D3 states the overflow rule. The plan's D3, D6 and Task 1 carry them.
+
 These differ from BootUI in ways D1-D8 do not record. Each needs the same approval as the table's rows, then a line in
 `docs/reference/matrix-updates/0.10.0-security-sinks.tsv`.
 
