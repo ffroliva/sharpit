@@ -103,3 +103,72 @@ async def test_stream_suppresses_source_close_error_after_timeout() -> None:
 )
 def test_frame_sse_splits_data_on_line_feed_only(data: str, expected: bytes) -> None:
     assert frame_sse("update", "42", data) == expected
+
+
+@pytest.mark.asyncio
+async def test_steady_stream_ends_at_its_overall_deadline() -> None:
+    async def steady() -> AsyncIterator[tuple[str, str | None, str]]:
+        while True:
+            await asyncio.sleep(0.01)
+            yield "update", None, ""
+
+    frames = []
+    async for frame in stream_frames(steady(), 0.1):
+        frames.append(frame)
+        if len(frames) > 50:
+            break
+
+    assert frames[-1] == b"retry: 1000\n\n"
+
+
+@pytest.mark.asyncio
+async def test_stream_timeout_counts_time_spent_on_earlier_events() -> None:
+    loop = asyncio.get_running_loop()
+
+    async def one_then_hang() -> AsyncIterator[tuple[str, str | None, str]]:
+        await asyncio.sleep(0.3)
+        yield "update", None, ""
+        await asyncio.Event().wait()
+
+    started = loop.time()
+    frames = [frame async for frame in stream_frames(one_then_hang(), 0.5)]
+    elapsed = loop.time() - started
+
+    assert frames == [b"event: update\ndata: \n\n", b"retry: 1000\n\n"]
+    assert elapsed < 0.75
+
+
+@pytest.mark.asyncio
+async def test_stream_source_without_aclose_still_ends_with_retry() -> None:
+    class Events:
+        def __aiter__(self) -> AsyncIterator[tuple[str, str | None, str]]:
+            return self
+
+        async def __anext__(self) -> tuple[str, str | None, str]:
+            raise StopAsyncIteration
+
+    frames = [frame async for frame in stream_frames(Events(), 1)]
+
+    assert frames == [b"retry: 1000\n\n"]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_closing_the_source_propagates() -> None:
+    class Events:
+        def __aiter__(self) -> AsyncIterator[tuple[str, str | None, str]]:
+            return self
+
+        async def __anext__(self) -> tuple[str, str | None, str]:
+            raise StopAsyncIteration
+
+        async def aclose(self) -> None:
+            raise asyncio.CancelledError
+
+    cancelled = False
+    try:
+        async for _frame in stream_frames(Events(), 1):
+            pass
+    except asyncio.CancelledError:
+        cancelled = True
+
+    assert cancelled is True
