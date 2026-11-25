@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Runtime Insights lists declared HTTP routes not exercised during the run, with report and agent limits and explicit limitations when recording loss, suspension, exposure, or missing templates prevent classification.
+
 ### Changed
 
 - Runtime Insights reports the anonymous-data-reach and anonymous-success-on-restricted-route checks as not applicable, with the reason: sharpit observes no authorization decision, and a missing principal does not prove a request was anonymous. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically.
@@ -16,6 +20,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - SEC-OAUTH-002 reports `jwt.decode` with `verify_signature` set to `False` in a literal `options=` keyword, also when an audience is passed, and its message is readable for a file named `auth.py` (#332).
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
+- HTTP exchange capture reads the request user as plain data and never runs a property, descriptor or `__getattr__` of it; a user whose name or authentication flag is computed is no longer named in HTTP Exchanges and Live Activity.
 
 ## [0.9.0] - 2026-11-23
 

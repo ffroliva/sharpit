@@ -571,7 +571,7 @@
       "panel": "runtime-insights",
       "route": "/sharpit/api/runtime-insights",
       "status": "partial",
-      "difference": "runtime-insights/captured.json parity: coverage: non-empty golden list requires a non-empty payload list; limitations: non-empty golden list requires a non-empty payload list; notExercised: non-empty golden list requires a non-empty payload list; observations: non-empty golden list requires a non-empty payload list; window.firstEventAt: null in payload, golden has number; not listed in nullable.json; window.lastEventAt: null in payload, golden has number; not listed in nullable.json"
+      "difference": "runtime-insights/captured.json parity: coverage: non-empty golden list requires a non-empty payload list; limitations: non-empty golden list requires a non-empty payload list; observations: non-empty golden list requires a non-empty payload list; window.firstEventAt: null in payload, golden has number; not listed in nullable.json; window.lastEventAt: null in payload, golden has number; not listed in nullable.json"
     },
     {
       "golden": "runtime-insights/comparison.captured.json",

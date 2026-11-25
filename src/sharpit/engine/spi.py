@@ -31,6 +31,7 @@ class RouteInfo:
     produces: str | None
     consumes: str | None
     name: str | None
+    exercise_supported: bool = True  # adapter can match its captured HTTP label to this declaration
 
 
 @dataclass(frozen=True)
