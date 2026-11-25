@@ -116,16 +116,14 @@ def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
 
 
 def _templated(record: dict[str, object]) -> bool:
-    if "routeTemplate" in record:
-        return record["routeTemplate"] is not None
-    return record.get("status") != 404
+    return record.get("routeTemplate") is not None
 
 
 def _unmatched_declared(record: dict[str, object], declared: Sequence[RouteInfo]) -> bool:
     """A completed request with no captured template whose path a listed route could have answered (an included
     router's prefix lost at capture). A masked path cannot be matched, so it counts; other traffic (a CORS preflight,
     a static file, a redirect, a plain Starlette route) is ignored, as an unmatched 404 is."""
-    if "routeTemplate" not in record or record["routeTemplate"] is not None or record.get("status") == 404:
+    if _templated(record) or record.get("status") == 404:
         return False
     path, method = record.get("path"), str(record.get("method") or "").upper()
     if not isinstance(path, str) or "******" in path:

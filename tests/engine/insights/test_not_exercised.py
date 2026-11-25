@@ -23,8 +23,10 @@ def service(journal=None, routes=None, **kwargs):
 # ported: NotExercisedRoutesTests.listsDeclaredApplicationRoutesNoRequestReachedAndLeavesFrameworkRoutesOut
 def test_lists_declared_application_routes_no_request_reached_and_leaves_framework_routes_out():
     journal = RuntimeJournal()
-    journal.offer({"source": "http", "route": "PUT /ping", "requestId": "r1"})
-    journal.offer({"source": "http", "route": "POST /graphql (query Products)", "requestId": "r2"})
+    journal.offer({"source": "http", "route": "PUT /ping", "requestId": "r1", "routeTemplate": "/ping"})
+    journal.offer(
+        {"source": "http", "route": "POST /graphql (query Products)", "requestId": "r2", "routeTemplate": "/graphql"}
+    )
     rows = [
         route("/ping", ()),
         route("/legacy", ()),
@@ -189,7 +191,7 @@ def test_metadata_only_exposure_lists_no_route_and_says_why():
     for recorded in (False, True):
         journal = RuntimeJournal(masker=Masker(Exposure.METADATA_ONLY, True))
         if recorded:
-            journal.offer({"source": "http", "route": "GET /uncalled", "requestId": "r1"})
+            journal.offer({"source": "http", "route": "GET /uncalled", "requestId": "r1", "routeTemplate": "/uncalled"})
         report = service(journal).report()
         assert report["notExercised"] == []
         assert (
@@ -201,7 +203,7 @@ def test_metadata_only_exposure_lists_no_route_and_says_why():
 def test_a_called_secret_looking_route_is_listed_with_a_masking_limitation():
     secret_route = "/hooks/AKIAIOSFODNN7EXAMPLE"
     journal = RuntimeJournal()
-    journal.offer({"source": "http", "route": f"GET {secret_route}", "requestId": "r1"})
+    journal.offer({"source": "http", "route": f"GET {secret_route}", "requestId": "r1", "routeTemplate": secret_route})
     assert journal.records("http")[0]["route"] == "******"
     report = service(journal, [route(secret_route)]).report()
     assert report["notExercised"] == ["GET ******"]
