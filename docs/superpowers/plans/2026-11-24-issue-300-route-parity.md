@@ -73,7 +73,7 @@ GET routes:
 | 27 | `/hibernate` | `hibernate/HibernateController:39` | `reads` | Decision (Phase 8) |
 | 28 | `/hibernate/rules/{ruleId}/violations` | `web/AdvisorViolationsEndpoint:12` | — | Decision (Phase 8) |
 | 29 | `/dev-services/{id}/logs` | `web/DevServicesController:45` | — | `n-a` (Quarkus Dev Services, extends R0) |
-| 30 | `/heap-dump/download` | `web/HeapDumpController:57` | — | Maintainer decision (Phase 1) |
+| 30 | `/heap-dump/download` | `web/HeapDumpController:57` | — | Deferred (heap download, Phase 1) |
 | 31 | `/crac/dockerfile` | `crac/CracController:94` | — | `n-a` (JVM CRaC, `X`) |
 | 32 | `/crac/entrypoint` | `crac/CracController:103` | — | `n-a` (JVM CRaC, `X`) |
 | 33 | `/graalvm/dockerfile` | `graalvm/GraalVmController:124` | — | `n-a` (GraalVM, `X`) |
@@ -115,7 +115,8 @@ Phase 1 changes fixture counts from 5 matched / 28 partial / 23 missing / 41 n-a
 tools, 64 exact BootUI names, 49 panels (47 listed), 11 of 29 insight kinds evaluating, and 33 served routes
 (5 shape-identical, 28 partial). Add a sharpit 0.10.0 column to `README.md` and `ROADMAP.md`. Update
 `tests/docs/test_parity_matrix.py::_matrix` to assert the historical cells and compute only the new sharpit
-column from current code and fixtures. Keep released values fixed in subsequent phases. `ROUTES_MATCHED_PIN`
+column from current code and fixtures. Keep released values fixed in subsequent phases. Update the sentence of `ROADMAP.md`
+that says the test recomputes the 0.9.0 column. `ROUTES_MATCHED_PIN`
 stays at 5 and the BootUI marks stay as recorded.
 
 **Heap download.** The Python mapping remains `P` and `/heap-dump/download` is deferred until a Python snapshot
@@ -194,7 +195,8 @@ and `activity/LiveServiceMapController.java:62`. Sharpit changes cover `engine/p
   wrappers. List cachetools caches using registration metadata alone. Keep `len()`, iteration, `currsize`, `repr()`,
   and all other native-object access out of their GET path. `register` accepts supported objects tagged `is_remote`.
   Add a red for a supported remote cache that fails on any stats access. GET lists its registration metadata.
-  Add a red using a fake clock and an expired `TTLCache` entry, with cachetools installed only for tests. Assert the
+  Add a red using a fake clock and an expired `TTLCache` entry, with `cachetools>=5.5.2` added to
+  the `test` extra of `pyproject.toml` and to `uv.lock` (the floor the `lowest-direct` job installs). Assert the
   entry is still physically retained after GET using an inspection that does not expire it. Reading `currsize` or `len()` can evict it, and `no_side_effects`
   does not detect that in-memory mutation. Use the fixture for GETs as well. Update `test_get_never_clears` in
   `tests/fastapi/test_cache_clear_route.py` to expect 200 on `GET /cache`, retain the non-200 check on
@@ -214,7 +216,13 @@ Provider-present scenarios use the internal test seam.
 
 The table covers the 28 existing partial rows. The probe compares the real sample app against the 2.3.0 fixtures
 with `matched=True`. The residual column lists what remains after temporarily allowing the reported nulls in
-memory. `nullable.json` is valid only for real platform-nullable fields (see `tests/golden.py:_compare`). Missing
+memory. `nullable.json` is valid only for real platform-nullable fields (see `tests/golden.py:_compare`). A null with a
+reason in the 2.2.0 `nullable.json` of its panel keeps that reason in the 2.3.0 fixture: `kpis.*`, `persistenceOption`,
+`oldestRetainedAt` and `totals` of activity where listed, and `contextPath` and `managementPort` of overview. The
+exceptions are the retention fields, which become 0: their 2.2.0 entries (`http-exchanges`: three, `sql-trace`: two) are
+removed in the same commit. The other reported nulls (`catalogueVersion` and `groups[].interpretation` of metrics,
+`window.*` of runtime-insights, `unavailableReason` of email and github) are pinned as matrix deviations, unless the
+implementation cites the DTO or producer line that makes the path nullable. Missing
 keys, non-empty-list requirements and shapeless golden lists get explicit matrix deviations. The seeded checks
 below are implementation acceptance tests. The probe uses an unseeded app except where stated.
 
@@ -231,7 +239,7 @@ below are implementation acceptance tests. The probe uses an unseeded app except
 | `fastapi-security/endpoints.captured.json` | PASS | `partial` — Cover declared descriptions and the null case. Record shapeless roles. |
 | `github/captured.json` | PASS | `partial` — Cover connected and disconnected reasons. Record shapeless lists. |
 | `health/captured.json` | `components` | `partial` — Register a local check before the action. Seeded comparison passes, but the golden contains empty lists. |
-| `http-exchanges/captured.json` | PASS | `partial` — Verify FIFO retention semantics. Record the shapeless exchanges golden. |
+| `http-exchanges/captured.json` | PASS | `partial` — Verify FIFO retention semantics. Emit 0 for `retention.reserved`, `retention.reservedCapacity` and `retention.slowThresholdMillis` and keep them out of `nullable.json`: BootUI allows null only when `applicationManaged` (`CaptureRetentionDto.java`). Record the shapeless exchanges golden. |
 | `java-agent/captured.json` | `setup.snippets` | `partial` — Assert Python's `setup.jarPath: null` and empty `setup.snippets` as JVM setup deviations. Keep `setup.jarPath` out of `nullable.json` because BootUI always returns a path or placeholder (`JavaAgentSetupDto.java:8–15` and `AgentSetupSnippets.java:51–57`). |
 | `log-tail/recent.captured.json` | `<root>` | `partial` — Record and mask a log event before GET. |
 | `metrics/captured.json` | `groups[].baseUnits` | `partial` — Record baseUnits list gap and assert local catalogue metadata. |
