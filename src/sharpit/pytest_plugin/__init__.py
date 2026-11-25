@@ -31,7 +31,7 @@ from sharpit.engine.sqltext import load_key
 from sharpit.engine.testsession import gates as gates
 from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
-from sharpit.engine.testsession.sink import TestSessionSink, report_masker_warnings
+from sharpit.engine.testsession.sink import HOOK_FAILURE_WARNING, TestSessionSink, report_masker_warnings
 from sharpit.pytest_plugin.apps import (
     load_app as _load_app,
 )
@@ -56,7 +56,7 @@ from sharpit.pytest_plugin.terminal import pytest_terminal_summary as pytest_ter
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 _STATE_ATTR = "_sharpit_pytest_state"
-_HOOK_FAILURE_WARNING = "a sharpit session hook failed ({}); some facts may be missing"
+_CAPTURE_STOPPED = "sharpit capture stopped before the session ended (another pytest run in this process?)"
 _active_state: _State | None = None
 
 __all__ = [
@@ -87,12 +87,7 @@ __all__ = [
 
 
 def _record_hook_failure(sink: TestSessionSink, exc: BaseException) -> None:
-    warning = _HOOK_FAILURE_WARNING.format(type(exc).__name__)
-    if warning not in sink.facts.warnings:
-        sink.facts.warnings.append(warning)
-    source = next((item for item in sink.facts.sources if item["name"] == "pytest-plugin"), None)
-    if source is None:
-        sink.facts.sources.append({"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []})
+    sink.record_failure(exc)
 
 
 def _record_config_hook_failure(config: Any, exc: BaseException) -> None:
@@ -107,10 +102,10 @@ class _ExceptionHandler(LockFreeHandler):
         self.sink = sink
 
     def emit(self, record: logging.LogRecord) -> None:
-        if not record.exc_info or record.exc_info[1] is None:
-            return
         try:
-            exc = record.exc_info[1]
+            exc = record.exc_info[1] if isinstance(record.exc_info, tuple) else None
+            if not isinstance(exc, BaseException):  # no exception object: nothing to capture
+                return
             fastapi_errors = sys.modules.get("fastapi.exceptions")
             validation_error_type = getattr(fastapi_errors, "RequestValidationError", None)
             validation_error = isinstance(validation_error_type, type) and isinstance(exc, validation_error_type)
@@ -578,7 +573,7 @@ def _refresh_report_after_hook_failure(state: _State, config: Any, exc: BaseExce
     data = cast("dict[str, Any] | None", getattr(config, "_sharpit_report", None))
     if not isinstance(data, dict):
         return
-    warning = _HOOK_FAILURE_WARNING.format(type(exc).__name__)
+    warning = HOOK_FAILURE_WARNING.format(type(exc).__name__)
     data["status"] = "unknown"
     source: dict[str, Any] = {"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []}
     if not any(item.get("name") == "pytest-plugin" for item in data["sources"]):
@@ -607,6 +602,8 @@ def _final_facts(state: _State) -> SessionFacts:
     facts.engine_drivers.update(dispatch.engine_drivers())
     facts.engine_drivers.update(sqla.live_engine_drivers())
     _source_state(sink, state.sqlite_attached)
+    if dispatch.session_sink() is not sink:  # a nested in-process pytest run detached capture before this session ended
+        sink.record_lost(_CAPTURE_STOPPED)
     return facts
 
 
