@@ -26,7 +26,7 @@ def test_parity_md_contains_current_deviations_sections() -> None:
 def test_every_fragment_row_is_categorized(release: str) -> None:
     _, fragments = parity._RELEASES[release]
     deviations = parity.collect_deviations(fragments=fragments)
-    counts = {"0.7.0": 117, "0.8.0": 116, "0.10.0": 31}
+    counts = {"0.7.0": 117, "0.8.0": 116, "0.10.0": 42}
     if release in counts:
         assert len(deviations) == counts[release]
 

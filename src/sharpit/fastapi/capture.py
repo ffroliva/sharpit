@@ -128,11 +128,20 @@ def _outcome(status: int | None, failed: bool, cancelled: bool, disconnected: bo
 
 
 @contextlib.contextmanager
-def _request_end_guard(wiring: CaptureWiring) -> Generator[None]:
+def _request_end_guard(wiring: CaptureWiring, lost: SharpitContext | None = None) -> Generator[None]:
+    """``lost``: the context whose http completion a failure here loses (counted as an http drop)."""
     try:
         yield
     except Exception as exc:  # noqa: BLE001
         wiring.hook_failed("request end", exc)
+        if lost is not None:
+            _lose_http(lost)
+
+
+def _lose_http(ctx: SharpitContext) -> None:
+    """A request the capture could not journal is an http drop, so a route is never reported absent because of it."""
+    if (journal := ctx.capture.journal) is not None:
+        journal.count_dropped("http")
 
 
 def _needs_log_handler(ctx: SharpitContext, journal: RuntimeJournal | None) -> bool:
@@ -186,6 +195,7 @@ class CaptureWiring:
     def __init__(self) -> None:
         self.app: Any = None
         self.middleware_added = False
+        self.capture_too_late = False  # Starlette refused the middleware: the http source records nothing
         self.detached = False
         self.started = False  # startup or first request has run its checks
         self.log_handler: SharpitLogHandler | None = None
@@ -269,6 +279,7 @@ class CaptureWiring:
             app.add_middleware(CaptureMiddleware, ctx=ctx)
         except RuntimeError:  # Starlette refuses once the middleware stack is built
             logger.warning("%s", CAPTURE_TOO_LATE)
+            self.capture_too_late = True
             if ctx.capture.exchanges is not None:
                 ctx.capture.exchanges.unavailable_reason = CAPTURE_TOO_LATE_REASON
             if store is not None:
@@ -340,6 +351,8 @@ class CaptureWiring:
         if name in self.suspended_hooks or self._context is None:
             return
         self.suspended_hooks.add(name)
+        if name == HOOK_CAPTURE_MIDDLEWARE and self._context.capture.journal is not None:
+            self._context.capture.journal.mark_http_suspended()
         self._actions.get(name, (_nothing, _nothing))[0]()
 
     def resume_hook(self, name: str) -> None:
@@ -526,6 +539,7 @@ class CaptureMiddleware:
         except Exception as exc:  # noqa: BLE001
             if wiring is not None:
                 wiring.hook_failed(REQUEST_START, exc)
+            _lose_http(self.ctx)
             try:
                 headers = scope.get("headers")
                 if headers:
@@ -576,6 +590,7 @@ class CaptureMiddleware:
             )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
             wiring.hook_failed(REQUEST_START, exc)
+            _lose_http(self.ctx)
         else:
             sqla.note_request_captured()
 
@@ -691,10 +706,12 @@ class CaptureMiddleware:
                                 )
                             )
                     if journal is not None:
-                        with _request_end_guard(wiring):
+                        with _request_end_guard(wiring, self.ctx):
                             journal.offer_flat(http_event(info, scope["headers"], started_epoch_ns, recorded, template))
+                # a failure here comes before the journal offer, the last step: that completion is lost
                 except Exception as exc:  # noqa: BLE001
                     wiring.hook_failed("request end", exc)
+                    _lose_http(self.ctx)
             return
 
         await self.app(scope, receive, send)

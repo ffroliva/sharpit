@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sharpit.engine import sqla
-from sharpit.engine.collectors.insights import listing
+from sharpit.engine.collectors.insights import listing, not_exercised
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import (
@@ -28,6 +28,7 @@ from sharpit.engine.collectors.insights.sqlcapture import NOT_RECORDED_SUFFIX, S
 from sharpit.engine.collectors.insights.sqlcapture import UNREADABLE as SQL_CAPTURE_UNREADABLE
 from sharpit.engine.collectors.insights.sqlcapture import for_context as sql_capture_for
 from sharpit.engine.collectors.insights.text import UNDER_DEFAULT_FLOOR, counted, stable_hash
+from sharpit.engine.spi import RouteInfo
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -266,8 +267,10 @@ class InsightsService:
         producing: Producing | None = None,
         pool_sizes: PoolSizes | None = None,
         shared_pools: SharedPools | None = None,
+        declared_routes: Callable[[], Sequence[RouteInfo] | None] | None = None,
     ) -> None:
         self.journal = journal
+        self.declared_routes = declared_routes
         self.shared_pools = shared_pools  # None: no pool is known to share its connection
         self.pool_sizes = pool_sizes  # None: no pool size is known (``RuntimeInsightsService.setPoolSizes``)
         self.producing = producing  # None: every produced source's producer can run
@@ -280,7 +283,18 @@ class InsightsService:
         self._mask: Mask = masker.mask_text if masker else str
 
     def report(self) -> Row:
-        return self._build()[0]
+        report, _, snapshot = self._build()
+        if snapshot is not None and self.declared_routes is not None:
+            missing = not_exercised.list_for(
+                snapshot,
+                self.declared_routes,
+                cast("list[str]", report["limitations"]),
+                metadata_only=self._mask("") is None,
+            )
+            shown = sorted({self._mask(label) or "" for label in missing})  # masked first: two secrets are one label
+            report["notExercised"] = shown[:100]  # RuntimeInsightsReportDto.MAX_NOT_EXERCISED
+            report["notExercisedOmitted"] = max(0, len(shown) - 100)
+        return report
 
     def insight(self, observation_id: str) -> Row:
         """One observation with its evidence (``RuntimeInsightsService.insight``): at most 20 masked rows."""
@@ -297,9 +311,9 @@ class InsightsService:
         )
         return _detail(True, None, row, finding.columns, shown, len(finding.rows) - len(shown))
 
-    def _build(self) -> tuple[Row, Details]:
+    def _build(self) -> tuple[Row, Details, Snapshot | None]:
         if self.journal is None:
-            return _report(False, DISABLED, None, [], [], [], []), {}
+            return _report(False, DISABLED, None, [], [], [], []), {}, None
         snapshot = project(
             self.journal,
             self.ai_token_threshold,
@@ -319,9 +333,11 @@ class InsightsService:
             key=lambda pair: (pair[0]["status"] == "INSUFFICIENT", -int(str(pair[0]["affected"])), str(pair[0]["id"]))
         )
         rows = [row for row, _ in found]
-        return _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot)), {
-            str(row["id"]): (row, finding) for row, finding in found
-        }
+        return (
+            _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot)),
+            {str(row["id"]): (row, finding) for row, finding in found},
+            snapshot,
+        )
 
     def _capture(self) -> SqlCapture:
         """RuntimeInsightsService.sqlCapture: asked once per report; null is capturing, a failure is not recorded."""
@@ -411,6 +427,8 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
         return panel is None or panel.enabled
 
     def producing(source: str) -> bool:  # a source whose listener is not armed here is not recorded, however enabled
+        if source == "http":  # a too-late install added no capture middleware: no request is recorded
+            return not getattr(ctx.capture.wiring, "capture_too_late", False)
         # no recorder (capture or its panel off): the SQL-capture state already says why, as it does for ``sql``
         return source != "connection" or ctx.capture.sql_trace is None or sqla.following_connections(ctx)
 
@@ -433,5 +451,6 @@ def insights_service(ctx: SharpitContext) -> InsightsService:
             producing,
             pool_size,
             shared_pool,
+            ctx.introspector.routes,
         ),
     )
