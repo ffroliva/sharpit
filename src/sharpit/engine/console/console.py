@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from dataclasses import replace
 from functools import lru_cache
 from urllib.parse import parse_qs
 
@@ -55,7 +56,7 @@ def _compile(template: str) -> re.Pattern[str]:
     return re.compile("^" + pattern + "$")
 
 
-def match_route(routes: tuple[RouteSpec, ...], method: str, path: str):
+def match_route(routes: tuple[RouteSpec, ...], method: str, path: str) -> tuple[RouteSpec, dict[str, str]] | None:
     for route in routes:
         if route.method != method:
             continue
@@ -63,6 +64,18 @@ def match_route(routes: tuple[RouteSpec, ...], method: str, path: str):
         if matched:
             return route, matched.groupdict()
     return None
+
+
+def _allowed_methods(routes: tuple[RouteSpec, ...], path: str) -> str:
+    first_by_method: dict[str, RouteSpec] = {}
+    for route in routes:
+        if _compile(route.template).fullmatch(path):
+            first_by_method.setdefault(route.method, route)
+    allowed = set(first_by_method)
+    get = first_by_method.get("GET")
+    if get is not None and not get.stream:
+        allowed.add("HEAD")
+    return ", ".join(method for method in ("GET", "HEAD", "POST", "DELETE") if method in allowed)
 
 
 def _headers(request: ConsoleRequest) -> tuple[dict[str, list[str]], guard.Denial | None]:
@@ -147,10 +160,10 @@ class Console:
                 ("?" + request.raw_query.decode("latin-1")) if request.raw_query else ""
             )
             return ConsoleResponse(307, (("Location", location), *security_headers("api")), b"")
-        matched = match_route(self.routes, request.method, request.path)
-        if matched is None:
-            return self._json(404, {"error": "Not Found"})
-        route, params = matched
+        selected = self._select_route(request.method, request.path)
+        if isinstance(selected, ConsoleResponse):
+            return selected
+        route, params = selected
         call = ConsoleCall(
             self.ctx,
             request,
@@ -163,7 +176,38 @@ class Console:
         response = await self._run_handler(route, call)
         self._audit(route, response)
         headers = _response_headers(response.headers, route.response_class)
-        return ConsoleResponse(response.status, headers, response.body, response.file, response.stream)
+        response = replace(response, headers=headers)
+        return self._head_response(response) if request.method == "HEAD" else response
+
+    def _select_route(self, method: str, path: str) -> tuple[RouteSpec, dict[str, str]] | ConsoleResponse:
+        matched = match_route(self.routes, "GET" if method == "HEAD" else method, path)
+        if matched is not None:
+            if method == "HEAD" and matched[0].stream:
+                return self._method_not_allowed("GET")
+            return matched
+        allow = _allowed_methods(self.routes, path)
+        if allow:
+            return self._method_not_allowed(allow)
+        return self._json(404, {"error": "Not Found"})
+
+    def _method_not_allowed(self, allow: str) -> ConsoleResponse:
+        return self._json(405, {"error": "Method Not Allowed"}, (("Allow", allow),))
+
+    def _head_response(self, response: ConsoleResponse) -> ConsoleResponse:
+        if response.stream is not None:
+            response.stream.close()
+            return self._method_not_allowed("GET")
+        if response.file is not None:
+            return response
+        headers = response.headers
+        if (
+            response.body is not None
+            and response.status >= 200
+            and response.status not in (204, 304)
+            and not any(name.lower() == "content-length" for name, _ in headers)
+        ):
+            headers = (*headers, ("Content-Length", str(len(response.body))))
+        return replace(response, headers=headers, body=b"")
 
     async def _run_handler(self, route: RouteSpec, call: ConsoleCall) -> ConsoleResponse:
         if inspect.iscoroutinefunction(route.handler):

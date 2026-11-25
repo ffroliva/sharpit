@@ -3,18 +3,23 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine.capture.streams import StreamSlots
 from sharpit.engine.console import (
     ActionAuditEvent,
     Console,
     ConsoleCall,
+    ConsoleFile,
     ConsoleRequest,
     ConsoleResponse,
+    ConsoleStream,
     RouteSpec,
     match_route,
 )
@@ -417,3 +422,208 @@ def test_route_spec_stream_defaults_to_false() -> None:
     route = RouteSpec("test.default", "GET", "/api/overview", lambda _: ConsoleResponse(200, ()), None, "read")
 
     assert getattr(route, "stream", None) is False
+
+
+@pytest.fixture
+def console_loop() -> Iterator[asyncio.AbstractEventLoop]:
+    # Windows creates the loop's wake-up socket before the side-effect fixture blocks networking.
+    loop = asyncio.new_event_loop()
+    try:
+        yield loop
+    finally:
+        loop.close()
+
+
+@pytest.fixture
+def dispatch(console_loop: asyncio.AbstractEventLoop, no_side_effects):
+    ctx = _context(no_side_effects, trust_container_gateway="OFF")
+
+    def handle(routes: tuple[RouteSpec, ...], request: ConsoleRequest) -> ConsoleResponse:
+        return console_loop.run_until_complete(Console(ctx, routes).handle(request))
+
+    return handle
+
+
+def test_method_not_allowed_on_known_path(dispatch) -> None:
+    route = RouteSpec("test.read", "GET", "/api/overview", lambda _: ConsoleResponse(200, ()), None, "read")
+
+    other = RouteSpec("test.other", "POST", "/api/other", lambda _: ConsoleResponse(200, ()), None, "action")
+
+    response = dispatch((route, other), _request(method="POST"))
+
+    assert response.status == 405
+    assert _json(response) == {"error": "Method Not Allowed"}
+    assert dict(response.headers).get("Allow") == "GET, HEAD"
+
+
+def test_allow_lists_every_matching_method_in_contract_order(dispatch) -> None:
+    def handler(_call: ConsoleCall) -> ConsoleResponse:
+        return ConsoleResponse(200, ())
+
+    routes = (
+        RouteSpec("test.delete", "DELETE", "/api/items/{id}", handler, None, "action"),
+        RouteSpec("test.post", "POST", "/api/items/42", handler, None, "action"),
+        RouteSpec("test.get", "GET", "/api/items/{id}", handler, None, "read"),
+        RouteSpec("test.stream", "GET", "/api/items/42", handler, None, "read", stream=True),
+    )
+
+    response = dispatch(routes, _request("/api/items/42", method="PATCH"))
+
+    assert dict(response.headers).get("Allow") == "GET, HEAD, POST, DELETE"
+    assert response.status == 405
+
+
+def test_unknown_path_remains_not_found(dispatch) -> None:
+    route = RouteSpec("test.read", "GET", "/api/overview", lambda _: ConsoleResponse(200, ()), None, "read")
+
+    response = dispatch((route,), _request("/api/missing"))
+
+    assert response.status == 404
+    assert _json(response) == {"error": "Not Found"}
+    assert "Allow" not in dict(response.headers)
+
+
+@pytest.mark.parametrize(
+    ("method", "with_sibling"),
+    [("HEAD", False), ("HEAD", True), ("POST", True), ("DELETE", True)],
+)
+def test_marked_stream_allows_only_get_without_running_handlers(dispatch, method: str, with_sibling: bool) -> None:
+    calls: list[str] = []
+
+    def stream(_call: ConsoleCall) -> ConsoleResponse:
+        calls.append("stream")
+        return ConsoleResponse(200, ())
+
+    def detail(_call: ConsoleCall) -> ConsoleResponse:
+        calls.append("detail")
+        return ConsoleResponse(200, ())
+
+    path = "/api/exceptions/stream"
+    route = RouteSpec("test.stream", "GET", path, stream, None, "read", stream=True)
+    sibling = RouteSpec("test.detail", "GET", "/api/exceptions/{id}", detail, None, "read")
+    routes = (route, sibling) if with_sibling else (route,)
+
+    response = dispatch(routes, _request(path, method=method))
+
+    assert response.status == 405
+    assert dict(response.headers).get("Allow") == "GET"
+    assert calls == []
+
+
+def test_head_preserves_get_status_and_headers_and_uses_byte_length(dispatch) -> None:
+    body = "café".encode()
+    route = RouteSpec(
+        "test.read",
+        "GET",
+        "/api/items/{id}",
+        lambda call: ConsoleResponse(202, (("X-Item", call.path_params["id"]),), body),
+        None,
+        "read",
+    )
+    get_response = dispatch((route,), _request("/api/items/42"))
+
+    response = dispatch((route,), _request("/api/items/42", method="HEAD"))
+
+    assert response.status == 202
+    assert response.status == get_response.status
+    assert dict(response.headers) == {**dict(get_response.headers), "Content-Length": str(len(body))}
+    assert response.body == b""
+
+
+def test_head_keeps_handler_content_length(dispatch) -> None:
+    headers = (("content-length", "42"),)
+    route = RouteSpec(
+        "test.read", "GET", "/api/overview", lambda _: ConsoleResponse(200, headers, b"short"), None, "read"
+    )
+
+    response = dispatch((route,), _request(method="HEAD"))
+
+    assert response.status == 200
+    assert response.headers == (*headers, *security_headers("api"))
+    assert response.body == b""
+
+
+@pytest.mark.parametrize("status", [204, 304])
+def test_head_does_not_infer_length_for_bodyless_status(dispatch, status: int) -> None:
+    route = RouteSpec(
+        "test.read", "GET", "/api/overview", lambda _: ConsoleResponse(status, (), b"ignored"), None, "read"
+    )
+
+    response = dispatch((route,), _request(method="HEAD"))
+
+    assert response.status == status
+    assert "Content-Length" not in dict(response.headers)
+    assert response.body == b""
+
+
+def test_head_preserves_file_for_the_adapter(dispatch, tmp_path: Path) -> None:
+    file = ConsoleFile(tmp_path / "asset.txt")
+    route = RouteSpec("test.asset", "GET", "/api/overview", lambda _: ConsoleResponse(200, (), file=file), None, "read")
+    get_response = dispatch((route,), _request())
+
+    response = dispatch((route,), _request(method="HEAD"))
+
+    assert response.status == 200
+    assert response == get_response
+
+
+def test_head_keeps_handler_exception_response(dispatch) -> None:
+    def handler(_call: ConsoleCall) -> ConsoleResponse:
+        raise BadRequest("bad page")
+
+    route = RouteSpec("test.read", "GET", "/api/overview", handler, None, "read")
+    get_response = dispatch((route,), _request())
+
+    response = dispatch((route,), _request(method="HEAD"))
+
+    assert response.status == 400
+    assert response == get_response
+    assert _json(response) == {"error": "bad page"}
+
+
+@pytest.mark.parametrize(("close_fails", "status"), [(False, 405), (True, 500)], ids=["close", "close-error"])
+def test_head_closes_unmarked_stream_and_releases_slot(dispatch, close_fails: bool, status: int) -> None:
+    slots = StreamSlots()
+    acquired: list[int] = []
+    closed: list[int] = []
+
+    async def events() -> AsyncIterator[tuple[str, str | None, str]]:
+        yield "unused", None, ""
+
+    def on_close() -> None:
+        closed.append(slots.count)
+        if close_fails:
+            raise RuntimeError("stream close failed")
+
+    def handler(_call: ConsoleCall) -> ConsoleResponse:
+        slots.acquire()
+        acquired.append(slots.count)
+        return ConsoleResponse(200, (), stream=ConsoleStream(events(), slots, 1, on_close))
+
+    route = RouteSpec("test.unmarked", "GET", "/api/overview", handler, None, "read")
+
+    response = dispatch((route,), _request(method="HEAD"))
+
+    assert response.status == status
+    assert acquired == [1]
+    assert closed == [0]
+    assert slots.count == 0
+    if close_fails:
+        assert _json(response) == {"error": "Internal Server Error"}
+    else:
+        assert dict(response.headers).get("Allow") == "GET"
+
+
+@pytest.mark.parametrize("method", ["POST", "HEAD"])
+def test_guard_denial_precedes_method_selection(dispatch, method: str) -> None:
+    route = RouteSpec(
+        "test.stream", "GET", "/api/overview", lambda _: ConsoleResponse(200, ()), None, "read", stream=True
+    )
+    headers = ((b"host", b"evil.example"),)
+
+    response = dispatch((route,), _request(method=method, headers=headers))
+
+    assert response.status == 403
+    assert _json(response) == {"error": MESSAGE_DISALLOWED_HOST}
+    assert dict(security_headers("api")).items() <= dict(response.headers).items()
+    assert "Allow" not in dict(response.headers)
