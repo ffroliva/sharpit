@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (14 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -378,5 +378,13 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (14 entries):
 | #305 | pentesting:A02:scanned-description:clean | adapted | BootUI uses "No findings were produced by the evaluated synthetic-response, Spring configuration, and Spring MVC mapping checks. This does not establish that every route, authorization rule, or deployment edge is configured safely." sharpit's no-finding note refers to the synthetic GET, CORS preflight, and available route-table and middleware configuration checks. |
 | #305 | pentesting:A07:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Spring authentication metadata. Endpoint authentication, account policy, and runtime login behavior were not tested." sharpit states whether Basic or Digest headers in the synthetic GET response produced a review finding. The note explains the limit on dependency-based authentication and qualifies incomplete evidence. |
 | #305 | pentesting:A08:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review." sharpit's local scan does not assess deserialization safeguards. |
-
-| 0.10.0 | runtime-insights:not-exercised | adapted | BootUI 2.5.0 declared-route subtraction, sorting, limits and source/panel/clear/drop refusals. Evictions, capture suspensions, METADATA_ONLY exposure and missing captured templates refuse classification; plain Starlette routes are omitted with a count. Secret-looking captured labels retain an explicit masking limitation. See matrix-updates/0.10.0-not-exercised.tsv. |
+| not-exercised | insights:not-exercised | adapted | Declared HTTP routes not reached by a completed request are listed in sorted order, capped at 100; the agent view keeps eight and counts omissions. Any journal eviction refuses classification because sharpit has no run-wide route aggregates. |
+| not-exercised | insights:not-exercised-framework | adapted | Framework handlers use the fastapi and starlette module prefixes; opaque mounts, custom routes, WebSockets and Python path catch-alls are excluded. |
+| not-exercised | insights:not-exercised-converters | adapted | Python converter syntax remains unchanged on both declared paths and captured labels, rather than canonicalising only the declared path. |
+| not-exercised | insights:not-exercised-templates | adapted | Plain Starlette routes are omitted and counted in a limitation because captured templates are unavailable on FastAPI and older Starlette releases. |
+| not-exercised | insights:not-exercised-suspension | adapted | A capture suspension during the run refuses classification even after resume; the boundary is recorded at hook transitions, without per-request bookkeeping. |
+| not-exercised | insights:not-exercised-exposure | adapted | METADATA_ONLY refuses classification because masked request identifiers and labels cannot prove route exercise. |
+| not-exercised | insights:not-exercised-masked-labels | adapted | Secret-looking route literals may be listed despite having been called when their captured label is masked; a limitation states this and a regression test pins it. |
+| not-exercised | insights:not-exercised-unmatched | adapted | An HTTP 404 without a captured route template never marks a declared route exercised, including a Host route rejected by its host condition. |
+| not-exercised | insights:not-exercised-missing-templates | adapted | A completed non-404 HTTP request with an explicitly absent route template refuses classification. Included FastAPI routers can lose their prefix at capture; the report does not infer a match from the masked request path. |
+| not-exercised | insights:not-exercised-output-masking | adapted | BootUI v2.5.0 does not mask the notExercised list. sharpit masks each declared route label at output through the service masker because the safety model requires secrets masked before every output, including HTTP and CLI/MCP agent views. |
