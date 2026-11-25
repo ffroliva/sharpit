@@ -1,6 +1,4 @@
-"""ROADMAP.md and README.md state how close sharpit is to BootUI; these numbers are recomputed from the code and the
-BootUI 2.5.0 fixtures (the route inventory is 2.5.0's; route shapes stay compared with the 2.3.0 live goldens), so the
-docs cannot drift from either."""
+"""Pin the published parity columns and compute sharpit 0.10.0 from the code and fixtures."""
 
 from __future__ import annotations
 
@@ -40,22 +38,20 @@ def _matrix() -> dict[str, str]:
     routes = json.loads((ROOT / "tests" / "parity" / "routes_status.json").read_text("utf-8"))["counts"]
     implemented = [k for k in KINDS if k.module.IMPLEMENTED]
     evaluating = [k for k in implemented if k.reads <= PRODUCED_SOURCES]
-    applicable = routes["total"] - routes["n-a"]
-    bootui_panels = len(json.loads((BOOTUI / "panels.json").read_text("utf-8"))["panels"])
     return {
-        "tools": f"| MCP/CLI tools | 54 | 71 | 71 | 73 | {len(ours)} | 116 | 116 | {len(bootui_tools)} |",
-        "names": f"| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | {len(ours & bootui_tools)} | - | - | - |",
-        "panels": f"| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | "
-        f"49 (47 listed in the console) | {len(PANELS)} "
-        f"({_listed_panels()} listed in the console) | 65 (Spring) | 65 (Spring) | {bootui_panels} (Spring) |",
+        "tools": f"| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | {len(ours)} | 116 | 116 | 116 |",
+        "names": "| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | "
+        f"{len(ours & bootui_tools)} | - | - | - |",
+        "panels": "| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | "
+        f"49 (47 listed in the console) | 49 (47 listed in the console) | {len(PANELS)} "
+        f"({_listed_panels()} listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |",
         "insights": "| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | "
-        f"11 of 29 registered | {len(evaluating)} of {len(KINDS)} registered | 28 | 28 | 29 |",
-        # BootUI 2.3.0: 65 applicable routes in its inventory; 2.5.0: computed from tests/parity/routes_status.json
+        f"11 of 29 registered | 11 of 29 registered | {len(evaluating)} of {len(KINDS)} registered | 28 | 28 | 29 |",
         "routes": "| BootUI API routes served, of those that apply to Python | not measured | "
         "33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | "
-        "33 (5 shape-identical, 28 partial) | "
+        "33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | "
         f"{routes['matched'] + routes['partial']} ({routes['matched']} shape-identical, {routes['partial']} partial) | "
-        f"65 | not captured | {applicable} |",
+        "65 | not captured | 56 |",
     }
 
 
@@ -63,6 +59,7 @@ def test_roadmap_matrix_matches_the_code_and_the_bootui_fixtures():
     roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
     for name, row in _matrix().items():
         assert row in roadmap, f"ROADMAP.md {name} row must read: {row}"
+    assert "| sharpit 0.9.0 | sharpit 0.10.0 | BootUI 2.3.0 |" in roadmap
 
 
 def test_readme_states_the_matrix_and_links_the_roadmap():
@@ -70,3 +67,4 @@ def test_readme_states_the_matrix_and_links_the_roadmap():
     assert "(ROADMAP.md)" in readme, "README.md must link ROADMAP.md"
     for name, row in _matrix().items():
         assert row in readme, f"README.md {name} row must read: {row}"
+    assert "| sharpit 0.9.0 | sharpit 0.10.0 | BootUI 2.3.0 |" in readme

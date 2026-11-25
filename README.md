@@ -139,13 +139,13 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
 
 sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0; 0.9.0 stays on BootUI 2.5.0 and closes recorded gaps.
 
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | sharpit 0.9.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
-|---|---|---|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | 116 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | - | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of those that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 65 | not captured | 56 |
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | sharpit 0.9.0 | sharpit 0.10.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | 73 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | 64 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
+| BootUI API routes served, of those that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 (5 shape-identical, 36 partial) | 65 | not captured | 56 |
 
 How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
 
