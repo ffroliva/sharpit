@@ -26,7 +26,7 @@ def test_parity_md_contains_current_deviations_sections() -> None:
 def test_every_fragment_row_is_categorized(release: str) -> None:
     _, fragments = parity._RELEASES[release]
     deviations = parity.collect_deviations(fragments=fragments)
-    counts = {"0.7.0": 117, "0.8.0": 116}
+    counts = {"0.7.0": 117, "0.8.0": 116, "0.10.0": 30}
     if release in counts:
         assert len(deviations) == counts[release]
 
@@ -42,6 +42,16 @@ def test_every_fragment_row_is_categorized(release: str) -> None:
                 if status != "matched":
                     expected.append(parity.DeviationRow(lane, key, status, reason[0] if reason else ""))
     assert deviations == expected
+
+
+def test_dev_service_logs_are_deferred() -> None:
+    _, fragments = parity._RELEASES["0.10.0"]
+    statuses = [
+        row.status
+        for row in parity.collect_deviations(fragments=fragments)
+        if row.key == "route:GET /dev-services/{id}/logs"
+    ]
+    assert statuses == ["deferred"]
 
 
 def test_default_heading_matches_the_release() -> None:
