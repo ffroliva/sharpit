@@ -2,7 +2,7 @@
 
 import functools
 import re
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 
 from sharpit.engine.capture.journal import FAILED, REENTRANT
 from sharpit.engine.capture.securitylogs import CAPTURE_UNAVAILABLE_REASON
@@ -99,20 +99,19 @@ def refusal(snapshot: Snapshot) -> str | None:
 def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
     labels = {label.split(" (", 1)[0] for label in exercised}
     paths = {label.partition(" ")[2] for label in labels}
-    missing: set[str] = set()
-    for route in declared:
-        if not application_route(route) or not route.exercise_supported:
-            continue
-        for method in route.methods or ("ANY",):
-            method = method.strip().upper()
-            if method == "WS":
-                continue
-            if method in {"", "ANY", "*"}:
-                if route.path not in paths:
-                    missing.add(f"ANY {route.path}")
-            elif (label := f"{method} {route.path}") not in labels:
-                missing.add(label)
-    return sorted(missing)
+    listed = (route for route in declared if application_route(route) and route.exercise_supported)
+    return sorted({label for route in listed for label in _unreached(route, labels, paths)})
+
+
+def _unreached(route: RouteInfo, labels: Collection[str], paths: Collection[str]) -> Iterator[str]:
+    """The labels of ``route`` no captured label matches: per method, or by path alone for an any-method route."""
+    for method in route.methods or ("ANY",):
+        method = method.strip().upper()
+        if method in {"", "ANY", "*"}:
+            if route.path not in paths:
+                yield f"ANY {route.path}"
+        elif method != "WS" and (label := f"{method} {route.path}") not in labels:
+            yield label
 
 
 def _templated(record: dict[str, object]) -> bool:
