@@ -32,6 +32,12 @@ def test_lists_declared_application_routes_no_request_reached_and_leaves_framewo
         route("/docs", handler="fastapi.applications:docs"),
     ]
 
+    assert service(journal, rows).report()["notExercised"] == [
+        "ANY /legacy",
+        "DELETE /orders/{id:int}",
+        "GET /orders/{id:int}",
+    ]
+
 
 def test_a_catch_all_websocket_and_opaque_rows_are_never_listed():
     rows = [
@@ -52,8 +58,13 @@ def test_a_converter_route_that_was_called_is_not_listed():
 
 def test_duplicate_hosts_are_one_label():
     assert of([route(), route()], ()) == ["GET /uncalled"]
-    assert service(journal, rows).report()["notExercised"] == [
-        "ANY /legacy",
-        "DELETE /orders/{id:int}",
-        "GET /orders/{id:int}",
+
+
+# ported: NotExercisedRoutesTests.noRouteIsListedAsNotExercisedWhileHttpExchangesIsHiddenOrHttpIsNotRecorded
+def test_no_route_is_listed_while_http_is_not_recorded():
+    report = service(RuntimeJournal(sources=["sql"])).report()
+    assert report["notExercised"] == []
+    assert report["limitations"] == [
+        "The runtime journal does not record the http source (SHARPIT_RUNTIME_JOURNAL_SOURCES), "
+        "so the routes no request reached are not listed."
     ]
