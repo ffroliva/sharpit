@@ -569,10 +569,8 @@ class FastApiIntrospector:
             if in_fastapi:
                 self._fastapi_routes.add(id(route))
             info = self._leaf(cast(BaseRoute, route), prefix, host)
-            if not issubclass(route_type, _fastapi_classes().routes):
-                # Plain Starlette templates are absent on FastAPI and on older Starlette versions.
-                info = replace(info, exercise_supported=False)
-            yield info, route
+            # Plain Starlette templates are absent on FastAPI and on older Starlette versions.
+            yield replace(info, exercise_supported=issubclass(route_type, _fastapi_classes().routes)), route
 
     def _walk_included(
         self,
