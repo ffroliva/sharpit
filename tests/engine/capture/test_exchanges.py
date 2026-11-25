@@ -354,3 +354,14 @@ def test_a_simple_user_subclass_that_overrides_its_name_is_not_named():
             return "computed"
 
     assert _row(user=Renamed("alice"))["principal"] is None
+
+
+class _UnsetSlot:
+    __slots__ = ("display_name", "is_authenticated")
+
+    def __init__(self) -> None:
+        self.is_authenticated = True  # display_name is never set
+
+
+def test_an_unset_slot_gives_no_principal_and_keeps_the_row():
+    assert _row(user=_UnsetSlot())["principal"] is None
