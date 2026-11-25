@@ -291,8 +291,9 @@ class InsightsService:
                 cast("list[str]", report["limitations"]),
                 metadata_only=self._mask("") is None,
             )
-            report["notExercised"] = [self._mask(label) or "" for label in missing[:100]]
-            report["notExercisedOmitted"] = max(0, len(missing) - 100)
+            shown = sorted({self._mask(label) or "" for label in missing})  # masked first: two secrets are one label
+            report["notExercised"] = shown[:100]  # RuntimeInsightsReportDto.MAX_NOT_EXERCISED
+            report["notExercisedOmitted"] = max(0, len(shown) - 100)
         return report
 
     def insight(self, observation_id: str) -> Row:
