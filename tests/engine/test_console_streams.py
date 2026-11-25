@@ -122,20 +122,24 @@ async def test_steady_stream_ends_at_its_overall_deadline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_timeout_counts_time_spent_on_earlier_events() -> None:
-    loop = asyncio.get_running_loop()
+async def test_stream_timeout_counts_time_spent_on_earlier_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    timeouts: list[float] = []
+    wait_for = asyncio.wait_for
 
-    async def one_then_hang() -> AsyncIterator[tuple[str, str | None, str]]:
-        await asyncio.sleep(0.3)
+    async def recording_wait_for(awaitable, timeout: float):
+        timeouts.append(timeout)
+        return await wait_for(awaitable, timeout)
+
+    async def slow_event() -> AsyncIterator[tuple[str, str | None, str]]:
+        await asyncio.sleep(0.05)
         yield "update", None, ""
-        await asyncio.Event().wait()
 
-    started = loop.time()
-    frames = [frame async for frame in stream_frames(one_then_hang(), 0.5)]
-    elapsed = loop.time() - started
+    monkeypatch.setattr(asyncio, "wait_for", recording_wait_for)
+
+    frames = [frame async for frame in stream_frames(slow_event(), 60)]
 
     assert frames == [b"event: update\ndata: \n\n", b"retry: 1000\n\n"]
-    assert elapsed < 0.75
+    assert timeouts[1] < timeouts[0]
 
 
 @pytest.mark.asyncio
