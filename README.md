@@ -145,7 +145,10 @@ sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targe
 | Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | 64 | - | - | - |
 | Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
 | Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of those that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 (5 shape-identical, 36 partial) | 65 | not captured | 56 |
+| Applicable BootUI GET fixture cases served | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 across 38 routes (5 shape-identical, 36 partial) | 65 | not captured | 56 |
+
+The increase from 33 to 41 reflects an inventory correction for existing routes. Most cases marked `n-a` are
+served with fixtures that cannot establish parity.
 
 How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
 

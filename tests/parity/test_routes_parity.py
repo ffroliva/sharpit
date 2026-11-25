@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import re
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from pathlib import Path
@@ -26,14 +27,52 @@ from sharpit.engine.collectors.vulns.osv import OsvClient
 
 _API = "/sharpit/api"
 _FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0"
+_BOOTUI_25 = _FIXTURES_DIR.with_name("2.5.0")
 _STATUS_FILE = Path(__file__).with_name("routes_status.json")
 _TRACE_ID = 1
-_TRACE_PATH = f"{_API}/traces/{_TRACE_ID:032x}"
+
+_ROUTE_ADAPTATIONS = {
+    # Python counterparts of the Spring advisor and Spring Security reads.
+    "/fastapi": "/spring",
+    "/fastapi-security": "/spring-security",
+    "/fastapi-security/endpoints": "/spring-security/endpoints",
+    "/fastapi-security/explain": "/spring-security/explain",
+    # The 2.3.0 golden keeps the original spelling.
+    "/graalvm/scan-progress": "/graalvm/scan/progress",
+}
+_UNMOUNTED_DECLARATIONS = {
+    "AgentSessionController.java",
+    "ReactiveAgentSessionController.java",
+    "BootUiIndexController.java",
+    "ReactiveBootUiIndexController.java",
+    "AdvisorViolationsEndpoint.java",
+}
+# These starter controllers implement AdvisorViolationsEndpoint at v2.5.0.
+_ADVISOR_CONTROLLERS = {
+    "ArchitectureController.java",
+    "DatabaseAdvisorController.java",
+    "HibernateController.java",
+    "MemoryController.java",
+    "RestApiController.java",
+    "SecurityController.java",
+    "SpringController.java",
+}
 
 _STATUS_DATA = json.loads(_STATUS_FILE.read_text(encoding="utf-8"))
 _ROUTES = _STATUS_DATA["routes"]
 _ROUTES_BY_GOLDEN = {r["golden"]: r for r in _ROUTES}
 _PASSING_SCENARIOS = ("database-advisor/scanned.captured.json", "postgresql/scanned.captured.json")
+_EMPTY_GOLDEN_DIFFERENCE = "Strict comparison passes. Empty golden lists provide no item shape."
+_SCENARIOS = {
+    "architecture/scanned.captured.json": "post-scan",
+    "database-advisor/scanned.captured.json": "post-scan",
+    "fastapi/scanned.captured.json": "post-scan",
+    "postgresql/scanned.captured.json": "post-read",
+    "rest-api/scanned.captured.json": "post-scan",
+    "security/scanned.captured.json": "post-scan",
+    "traces/detail.captured.json": "seeded-trace",
+    "vulnerabilities/scanned.captured.json": "post-scan",
+}
 
 _MATCHED = [r for r in _ROUTES if r["status"] == "matched"]
 _PARTIAL = [r for r in _ROUTES if r["status"] == "partial" and r["golden"] not in _PASSING_SCENARIOS]
@@ -133,14 +172,20 @@ def scenario_get(
         app = make_app(**options)
         if scenario in ("post-scan", "post-read"):
             action = f"{route}/{scenario.removeprefix('post-')}"
-            response = asgi_request(app, "POST", action)
-            assert response.status_code == 200, f"POST {action} returned HTTP {response.status_code}"
-        elif scenario == "seeded-trace":
+            action_response = asgi_request(app, "POST", action)
+            assert action_response.status_code == 200, f"POST {action} returned HTTP {action_response.status_code}"
+            response = asgi_request(app, "GET", route)
+            report = action_response.json()
+            assert response.json() == report, f"GET {route} differs from the POST report"
+            # PostgreSQL can return the same empty report before and after POST when SQLAlchemy is unavailable.
+            if item["panel"] in ("architecture", "database-advisor"):
+                assert report["scan"]["scannedAt"] is not None, f"POST {action} did not record a scan"
+            return response
+
+        if scenario == "seeded-trace":
             route = route.format(id=_seed_trace(app, attributes))
         else:
             assert scenario is None, f"Unknown scenario {scenario!r}"
-
-        no_side_effects.rebaseline()
         return asgi_request(app, "GET", route)
 
     return get
@@ -184,40 +229,53 @@ def test_every_golden_file_is_classified() -> None:
     assert len(_ROUTES) == 97
 
 
-@pytest.mark.parametrize(
-    ("golden", "path"),
-    [
-        ("architecture/scanned.captured.json", "/architecture"),
-        ("database-advisor/scanned.captured.json", "/database-advisor"),
-        ("fastapi/scanned.captured.json", "/fastapi"),
-        ("memory/scanned.captured.json", "/memory"),
-        ("postgresql/scanned.captured.json", "/postgresql"),
-        ("rest-api/scanned.captured.json", "/rest-api"),
-        ("runtime-insights/impact-symbols.captured.json", "/runtime-insights/impact/symbols"),
-        ("security/scanned.captured.json", "/security"),
-        ("traces/detail.captured.json", "/traces/{id}"),
-        ("vulnerabilities/scanned.captured.json", "/vulnerabilities"),
-    ],
-)
-def test_inventory_uses_canonical_paths(golden: str, path: str) -> None:
-    assert _ROUTES_BY_GOLDEN[golden]["route"] == f"{_API}{path}"
+def _route_template(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", "{}", path)
 
 
-@pytest.mark.parametrize(
-    ("golden", "scenario"),
-    [
-        ("architecture/scanned.captured.json", "post-scan"),
-        ("database-advisor/scanned.captured.json", "post-scan"),
-        ("fastapi/scanned.captured.json", "post-scan"),
-        ("postgresql/scanned.captured.json", "post-read"),
-        ("rest-api/scanned.captured.json", "post-scan"),
-        ("security/scanned.captured.json", "post-scan"),
-        ("traces/detail.captured.json", "seeded-trace"),
-        ("vulnerabilities/scanned.captured.json", "post-scan"),
-    ],
-)
-def test_inventory_pins_served_scenario_setup(golden: str, scenario: str) -> None:
-    assert _ROUTES_BY_GOLDEN[golden].get("scenario") == scenario
+@pytest.fixture(scope="module")
+def bootui_route_catalog() -> dict[str, Any]:
+    return json.loads((_BOOTUI_25 / "routes.json").read_text(encoding="utf-8"))
+
+
+def test_inventory_uses_canonical_paths(bootui_route_catalog: dict[str, Any]) -> None:
+    starter = bootui_route_catalog["crossCheck"]["starterMappings"]
+    paths = {_route_template(row["path"]) for row in starter if row["verb"] == "GET"}
+    paths.update(_route_template(row["path"]) for row in bootui_route_catalog["reads"] if row["method"] == "GET")
+    unknown = {}
+    for item in _ROUTES:
+        full_route = item["route"]
+        route = full_route.removeprefix(_API)
+        if route == full_route or _route_template(_ROUTE_ADAPTATIONS.get(route, route)) not in paths:
+            unknown[item["golden"]] = item["route"]
+    assert not unknown, f"GET routes absent from the BootUI catalogue: {unknown}"
+
+
+def test_bootui_25_starter_declares_143_api_get_routes(bootui_route_catalog: dict[str, Any]) -> None:
+    cross_check = bootui_route_catalog["crossCheck"]
+    starter = [row for row in cross_check["starterMappings"] if row["verb"] == "GET"]
+    # Session bases are expanded in inheritedMappings. The index serves the UI and GET /mcp answers 405.
+    mounted = {
+        row["path"] for row in starter if row["controller"] not in _UNMOUNTED_DECLARATIONS and row["path"] != "/mcp"
+    }
+    mounted.update(row["path"] for row in cross_check["inheritedMappings"] if row["verb"] == "GET")
+    advisor_paths = {row["path"] for row in starter if row["controller"] == "AdvisorViolationsEndpoint.java"}
+    advisor_prefixes = {row["path"] for row in starter if row["controller"] in _ADVISOR_CONTROLLERS} & {
+        row["path"] for row in bootui_route_catalog["reads"] if row["path"] == f"/{row['panel']}"
+    }
+    assert len(advisor_prefixes) == len(_ADVISOR_CONTROLLERS)
+    mounted.update(f"{prefix}{path}" for prefix in advisor_prefixes for path in advisor_paths)
+    assert len({_route_template(path) for path in mounted}) == 143
+
+
+def test_inventory_pins_served_scenario_setup() -> None:
+    actual = {item["golden"]: item["scenario"] for item in _ROUTES if "scenario" in item}
+    assert actual == _SCENARIOS
+
+
+def test_unknown_scenario_is_rejected(scenario_get: Callable[..., httpx.Response]) -> None:
+    with pytest.raises(AssertionError, match="Unknown scenario 'unknown'"):
+        scenario_get({"route": f"{_API}/panels", "scenario": "unknown"})
 
 
 @pytest.mark.parametrize("item", _MATCHED, ids=lambda r: str(r["golden"]))
@@ -254,6 +312,7 @@ def test_partial_routes_record_exact_gaps(scenario_get: Callable[..., httpx.Resp
 def test_passing_scenarios_pin_empty_golden_lists(scenario_get: Callable[..., httpx.Response], golden: str) -> None:
     item = _ROUTES_BY_GOLDEN[golden]
     assert item["status"] == "partial"
+    assert item["difference"] == _EMPTY_GOLDEN_DIFFERENCE
     response = scenario_get(item)
     assert response.status_code == 200
     assert_parity(*_fixture_parts(golden), response.json(), fixture_version="2.3.0", matched=True)
@@ -273,20 +332,22 @@ def test_seeded_trace_renders_attributes(scenario_get: Callable[..., httpx.Respo
     ]
 
 
+@pytest.mark.usefixtures("no_side_effects")
 def test_seeded_trace_does_not_resolve_literal_id(
     asgi_request: Callable[[FastAPI, str, str], httpx.Response],
     make_app: Callable[..., FastAPI],
-    no_side_effects: SideEffectGuard,
 ) -> None:
     app = make_app()
     _seed_trace(app)
-    no_side_effects.rebaseline()
     response = asgi_request(app, "GET", f"{_API}/traces/{{id}}")
     assert response.status_code == 404
+    assert response.json() == {"error": "trace {id} not found"}
 
 
 def test_unknown_trace_returns_404(scenario_get: Callable[..., httpx.Response]) -> None:
-    assert scenario_get({"route": _TRACE_PATH}).status_code == 404
+    response = scenario_get({"route": f"{_API}/traces/{_TRACE_ID:032x}"})
+    assert response.status_code == 404
+    assert response.json() == {"error": f"trace {_TRACE_ID:032x} not found"}
 
 
 def test_error_contract_records_its_bootui_23_parity_gap(scenario_get: Callable[..., httpx.Response]) -> None:
@@ -311,6 +372,7 @@ def test_missing_routes_return_404(scenario_get: Callable[..., httpx.Response], 
     route = item["route"]
     response = scenario_get(item)
     assert response.status_code == 404, f"{route} unexpectedly returned HTTP {response.status_code}"
+    assert item["difference"] == f"sharpit has no route at {route} (HTTP {response.status_code})"
 
 
 @pytest.mark.parametrize("item", _NA, ids=lambda r: str(r["golden"]))

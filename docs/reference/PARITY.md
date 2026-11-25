@@ -368,7 +368,7 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (30 entries):
 | #300 | route:GET /crac/dockerfile | n-a | JVM-only: the CRaC container build requires a Java runtime with checkpoint support. |
 | #300 | route:GET /crac/entrypoint | n-a | JVM-only: the CRaC entrypoint launches or restores a Java runtime. |
 | #300 | route:GET /database-advisor (post-scan) | partial | Strict comparison passes. Empty golden lists provide no item shape. Paths: dataSourceNames, dataSources, diagnostics, results, suppression.findings, suppression.incompleteRules, violationDetails.locationNotes. |
-| #300 | route:GET /dev-services/{id}/logs | n-a | Quarkus Dev Services logs have no Python counterpart. |
+| #300 | route:GET /dev-services/{id}/logs | deferred | BootUI serves Docker Compose and Testcontainers logs. The Python dev-services mapping is A. The route awaits a maintainer decision. |
 | #300 | route:GET /fastapi (post-scan) | partial | fastapi/scanned: golden list inspected has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4) |
 | #300 | route:GET /graalvm/dockerfile | n-a | JVM-only: the GraalVM container build requires native-image tooling. |
 | #300 | route:GET /heap-dump/download | deferred | A Python snapshot format and a guarded download design are pending. The Python heap snapshot mapping remains P. |

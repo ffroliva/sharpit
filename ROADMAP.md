@@ -11,7 +11,7 @@ Each sharpit release targets one BootUI tag: 0.6.0 targets BootUI 2.3.0, 0.7.0 t
 | Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | 64 | - | - | - |
 | Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
 | Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
-| BootUI API routes served, of those that apply to Python | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 (5 shape-identical, 36 partial) | 65 | not captured | 56 |
+| Applicable BootUI GET fixture cases served | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 across 38 routes (5 shape-identical, 36 partial) | 65 | not captured | 56 |
 
 `tests/docs/test_parity_matrix.py` recomputes the sharpit 0.10.0 column from the code and the fixtures on every run.
 Released sharpit columns preserve their published counts, and BootUI columns use their respective tags.
@@ -32,10 +32,13 @@ How each row is counted:
   implemented yet.
   A kind evaluates when it is implemented and every journal source it requires is one sharpit produces (all 10 do).
   BootUI counts the classes implementing `Observation`.
-- **Routes** count the 97 inventory cases in `tests/parity/routes_status.json`, including cases that use the same GET
-  route after an action. Of the 56 applicable cases in 0.10.0, 5 match BootUI's shape, 36 are served with recorded
-  differences, and 15 are missing. The other 41 cases are not applicable. The sharpit 0.6.0 to 0.8.0 counts use the
-  BootUI 2.3.0 inventory with 65 applicable cases. The 0.9.0 and 0.10.0 counts use the BootUI 2.5.0 inventory.
+- **Routes** count the 97 fixture cases in `tests/parity/routes_status.json`, including cases that use the same GET
+  route after an action. Sharpit 0.10.0 serves 41 of 56 applicable fixture cases across 38 GET routes. Of these cases,
+  5 match BootUI's shape and 36 have recorded differences. 15 applicable cases are missing. Of the 41 cases marked
+  `n-a`, 10 are classified as JVM-only and 31 are served with fixtures that cannot establish parity.
+  The increase from 33 to 41 reflects an inventory correction for existing routes. The sharpit 0.6.0 to 0.8.0
+  counts use the BootUI 2.3.0 inventory with 65 applicable cases. The 2.5.0 inventory used by sharpit 0.9.0 and
+  0.10.0 classifies 10 cases as JVM-only and adds the request journal case, leaving 56 applicable cases.
 
 ## The 8 insight kinds that evaluate in 0.6.0 and the 10 that evaluate in 0.7.0
 
