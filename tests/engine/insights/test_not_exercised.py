@@ -2,6 +2,7 @@
 
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights.service import InsightsService
+from sharpit.engine.collectors.insights.not_exercised import of
 from sharpit.engine.spi import RouteInfo
 
 
@@ -30,6 +31,27 @@ def test_lists_declared_application_routes_no_request_reached_and_leaves_framewo
         route("/orders/{id:int}", ("DELETE", "GET")),
         route("/docs", handler="fastapi.applications:docs"),
     ]
+
+
+def test_a_catch_all_websocket_and_opaque_rows_are_never_listed():
+    rows = [
+        route("/ws", ("WS",)),
+        route("/all/{full_path:path}"),
+        route("/web/*"),
+        route("/api", (), "custom route"),
+        route("/static/{path}", (), "app:opaque"),
+        route("(any)", ()),
+        route("/files/{path}"),
+    ]
+    assert of(rows, ()) == ["GET /files/{path}"]
+
+
+def test_a_converter_route_that_was_called_is_not_listed():
+    assert of([route("/items/{id:int}")], ["GET /items/{id:int}"]) == []
+
+
+def test_duplicate_hosts_are_one_label():
+    assert of([route(), route()], ()) == ["GET /uncalled"]
     assert service(journal, rows).report()["notExercised"] == [
         "ANY /legacy",
         "DELETE /orders/{id:int}",
