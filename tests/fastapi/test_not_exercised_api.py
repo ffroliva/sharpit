@@ -127,4 +127,4 @@ def test_declared_secret_route_labels_are_masked_in_http_and_mcp_output(surface)
             response = client.post("/sharpit/api/mcp", json=call)
             body = response.json()["result"]["structuredContent"]
         assert secret not in response.text
-        assert body["notExercised"] == ["******"]
+        assert body["notExercised"] == ["GET ******"]
