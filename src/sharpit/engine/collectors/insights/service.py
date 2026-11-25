@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sharpit.engine import sqla
-from sharpit.engine.collectors.insights import listing
+from sharpit.engine.collectors.insights import listing, not_exercised
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
 from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.snapshot import (
@@ -285,16 +285,8 @@ class InsightsService:
     def report(self) -> Row:
         report, _, snapshot = self._build()
         if snapshot is not None and self.declared_routes is not None:
-            exercised = {r.get("route") for r in snapshot.records.get("http", ())}
-            report["notExercised"] = sorted(
-                {
-                    f"{method} {r.path}"
-                    for r in self.declared_routes() or ()
-                    if not r.handler.startswith(("fastapi.", "starlette."))
-                    for method in r.methods
-                    if f"{method} {r.path}" not in exercised
-                }
-            )
+            exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route")}
+            report["notExercised"] = not_exercised.of(self.declared_routes() or (), exercised)
         return report
 
     def insight(self, observation_id: str) -> Row:
