@@ -1,5 +1,7 @@
 """Declared routes no completed request reached (BootUI v2.5.0 NotExercisedRoutes)."""
 
+import functools
+import re
 from collections.abc import Callable, Collection, Sequence
 
 from sharpit.engine.collectors.insights.snapshot import Snapshot
@@ -40,20 +42,14 @@ def list_for(
                 limitations.append(
                     f"{unsupported} declared HTTP {noun} left out because its captured route template is not available."
                 )
-            if any(
-                "routeTemplate" in r and r["routeTemplate"] is None and r.get("status") != 404
-                for r in snapshot.records.get("http", ())
-            ):
+            if any(_unmatched_declared(r, routes) for r in snapshot.records.get("http", ())):
                 limitations.append(
                     "Some completed HTTP requests have no captured route template, so declared routes "
                     "cannot be classified as not exercised."
                 )
                 return []
-            exercised = {
-                str(r["route"])
-                for r in snapshot.records.get("http", ())
-                if r.get("route") and not (r.get("status") == 404 and not r.get("routeTemplate"))
-            }
+            # a template-less label is the request path, not a declaration (``/a/`` redirected is labelled ``/a``)
+            exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route") and _templated(r)}
             if any("******" in label for label in exercised):
                 limitations.append(
                     "Some captured route labels were masked and could not be matched to declarations, so "
@@ -109,6 +105,42 @@ def of(declared: Sequence[RouteInfo], exercised: Collection[str]) -> list[str]:
             elif (label := f"{method} {route.path}") not in labels:
                 missing.add(label)
     return sorted(missing)
+
+
+def _templated(record: dict[str, object]) -> bool:
+    if "routeTemplate" in record:
+        return record["routeTemplate"] is not None
+    return record.get("status") != 404
+
+
+def _unmatched_declared(record: dict[str, object], declared: Sequence[RouteInfo]) -> bool:
+    """A completed request with no captured template whose path a listed route could have answered (an included
+    router's prefix lost at capture). A masked path cannot be matched, so it counts; other traffic (a CORS preflight,
+    a static file, a redirect, a plain Starlette route) is ignored, as an unmatched 404 is."""
+    if "routeTemplate" not in record or record["routeTemplate"] is not None or record.get("status") == 404:
+        return False
+    path, method = record.get("path"), str(record.get("method") or "").upper()
+    if not isinstance(path, str) or "******" in path:
+        return True
+    return any(
+        application_route(r)
+        and r.exercise_supported
+        and _answers(r, method)
+        and _template_regex(r.path).fullmatch(path)
+        for r in declared
+    )
+
+
+def _answers(route: RouteInfo, method: str) -> bool:
+    methods = {m.strip().upper() for m in route.methods} or {"ANY"}
+    return method in methods or not methods.isdisjoint({"ANY", "*", ""})
+
+
+@functools.lru_cache(maxsize=1024)  # templates come from the host's code, never from a request
+def _template_regex(template: str) -> re.Pattern[str]:
+    # a parameter matches any one segment, looser than its converter: a doubtful match refuses, never lists
+    parts = re.split(r"\{[^}]*\}", template)
+    return re.compile("[^/]+".join(re.escape(p) for p in parts))
 
 
 def application_route(route: RouteInfo) -> bool:
