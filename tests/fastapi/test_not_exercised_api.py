@@ -36,16 +36,17 @@ def test_a_too_late_install_lists_no_route_because_http_is_not_recorded():
         assert any("does not record the http source" in text for text in report["limitations"])
 
 
-def test_a_plain_starlette_route_called_once_is_not_listed_without_a_limitation():
+def test_a_called_plain_starlette_route_is_omitted_and_counted_while_an_uncalled_fastapi_route_is_listed():
     app = FastAPI()
     app.add_route(
         "/plain/{name}", lambda request: __import__("starlette.responses", fromlist=["JSONResponse"]).JSONResponse({})
     )
+    app.add_api_route("/uncalled", lambda: {})
     install(app, enabled="ON", show_banner=False, config_scan=False)
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         assert client.get("/plain/a").status_code == 200
         report = client.get(API).json()
-        assert report["notExercised"] == []
+        assert report["notExercised"] == ["GET /uncalled"]
         assert (
             "1 declared HTTP route is left out because its captured route template is not available."
             in report["limitations"]
