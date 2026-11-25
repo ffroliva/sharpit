@@ -179,3 +179,61 @@ def test_declared_secret_route_labels_are_masked_in_http_and_mcp_output(surface)
             body = response.json()["result"]["structuredContent"]
         assert secret not in response.text
         assert body["notExercised"] == ["GET ******"]
+
+
+HTTP_DROPPED = (
+    "The http source dropped completion events, so declared routes absent from its counts "
+    "cannot be classified as not exercised."
+)
+
+
+@pytest.mark.parametrize("hook", ["http_event", "new_request_id"])
+def test_a_request_lost_to_a_capture_failure_refuses_classification(hook, monkeypatch):
+    import sharpit.fastapi.capture as capture
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    app = FastAPI()
+    app.add_api_route("/uncalled", lambda: {})
+    app.add_api_route("/called", lambda: {})
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        monkeypatch.setattr(capture, hook, broken)
+        assert client.get("/called").status_code == 200
+        monkeypatch.undo()
+        report = client.get(API).json()
+        assert report["notExercised"] == []
+        assert HTTP_DROPPED in report["limitations"]
+
+
+def test_a_request_passed_through_after_a_probe_strip_failure_refuses_classification():
+    import asyncio
+
+    class Unreadable(dict):
+        def get(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    app = FastAPI()
+    app.add_api_route("/uncalled", lambda: {})
+    app.add_api_route("/called", lambda: {})
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET", "scheme": "http",
+            "path": "/called", "raw_path": b"/called", "root_path": "", "query_string": b"", "headers": [],
+            "client": ("127.0.0.1", 50000), "server": ("localhost", 80), "extensions": Unreadable(state=1),
+        }  # fmt: skip
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        asyncio.run(app(scope, receive, send))
+        assert sent[0]["status"] == 200
+        report = client.get(API).json()
+        assert report["notExercised"] == []
+        assert HTTP_DROPPED in report["limitations"]
