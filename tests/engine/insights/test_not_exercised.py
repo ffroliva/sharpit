@@ -111,3 +111,17 @@ def test_an_evicted_event_lists_no_route():
             "The journal evicted events during this run, so declared routes cannot be classified as not exercised: this journal keeps no run-wide route counts."
             in report["limitations"]
         )
+
+
+def test_a_low_footprint_suspend_during_the_run_lists_no_route():
+    journal = RuntimeJournal()
+    journal.suspend()
+    for resumed in (False, True):
+        if resumed:
+            journal.resume()
+        report = service(journal).report()
+        assert report["notExercised"] == []
+        assert (
+            "HTTP recording was suspended during this run, so declared routes cannot be classified as not exercised."
+            in report["limitations"]
+        )
