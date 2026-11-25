@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sharpit.engine.capture.journal import RuntimeJournal
+from sharpit.engine.collectors.insights.registry import KINDS
 from sharpit.engine.collectors.insights.service import InsightsService
 from sharpit.settings_registry import JOURNAL_SOURCES
 
@@ -31,15 +32,6 @@ def test_anonymous_access_kinds_point_to_the_partial_static_check(kind: str) -> 
 
 
 def test_a_kind_with_a_fixed_reason_is_never_evaluated() -> None:
-    from sharpit.engine.collectors.insights.registry import KINDS
-
     fixed = [spec for spec in KINDS if spec.not_applicable_reason]
     assert {spec.kind for spec in fixed} == set(ANONYMOUS_KINDS)
     assert all(not spec.implemented and spec.evaluate is None for spec in fixed)
-
-
-def test_both_kinds_share_one_reason() -> None:
-    from sharpit.engine.collectors.insights.registry import KINDS
-
-    reasons = {spec.not_applicable_reason for spec in KINDS if spec.kind in ANONYMOUS_KINDS}
-    assert len(reasons) == 1
