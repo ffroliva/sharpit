@@ -41,9 +41,14 @@ def list_for(
                     f"{unsupported} declared HTTP {noun} left out because its captured route template is not available."
                 )
             exercised = {str(r["route"]) for r in snapshot.records.get("http", ()) if r.get("route")}
+            if any("******" in label for label in exercised):
+                limitations.append(
+                    "Some captured route labels were masked, so routes listed as not exercised may have been reached."
+                )
             return of(routes, exercised)
     except Exception:  # noqa: BLE001 - an inventory failure must never crash the host
-        pass
+        limitations.append(INVENTORY_UNAVAILABLE)
+        return []
     limitations.append(INVENTORY_UNAVAILABLE)
     return []
 
