@@ -16,26 +16,33 @@ This plan is the first of four. Each later plan produces its own working change:
 
 1. **This plan:** holder, matching, command and file sinks, journal rows, toggle.
 2. Rows, confirmation by a second request (`SideEffectsStore.confirmed`), wording (`SinkWording`), the Side Effects panel and the `request-input-in-sink` insight.
-3. SQL sink (`RequestInputSinks.sql`, `SqlSinkText`). A SQLAlchemy async statement runs in a greenlet, whose frame chain ends at the greenlet; ownership there needs its own design.
+3. SQL sink (`RequestInputSinks.sql`, `SqlSinkText`), with the SQL position flags (`POSITION_IN_LITERAL`, `FLAG_CROSSES_LITERAL`) added to the row. Ownership is this plan's: a SQLAlchemy async statement runs in a child greenlet, and Task 2 follows the parent greenlet's frames.
 4. Outbound URL sink (`RequestInputSinks.url`).
+
+All four ship in 0.10.0. The changelog, settings and skill lines for the feature land with plan 2, when its rows become visible in the console; this plan documents only `SECURITY.md`, the decision and the matrix.
 
 Out of scope: `SecuritySinks.java` (deserialization, weak algorithms, trust managers), the assessment header, and any shell or leading-dash rule, which BootUI does not have.
 
 ## Gates before Task 1
 
-- [ ] Run `/sharpit:predict` and `/sharpit:scenario` on this plan; add each accepted scenario as a test to its owning task.
+- [x] `/sharpit:predict`: STOP as first written (unlogged deviations), CAUTION after this revision. Its mitigations are folded into the tasks and the deviation table below.
+- [x] Ownership spike for SQLAlchemy async statements: the plain frame walk misses every async statement (it ends at `greenlet_spawn`); adding the parent greenlet's frames separates 9 cases, with and without `BaseHTTPMiddleware`, on CPython 3.12, 3.13 and 3.14. One ownership model serves all four plans.
+- [ ] Run `/sharpit:scenario` on this plan; add each accepted scenario as a test to its owning task.
 - [ ] Run `/sharpit:llm-council --tier high` on this plan: it holds request values in memory and changes what two sensors record. A finding that contradicts a deviation below stops the plan.
-- [ ] Obtain the owner's approval of the five deviations below; each then becomes one line of `docs/reference/matrix-updates/0.10.0-security-sinks.tsv` (Task 6).
+- [ ] Obtain the owner's approval of the deviations below; each then becomes one line of `docs/reference/matrix-updates/0.10.0-security-sinks.tsv` (Task 6).
 
 ### Deviations from BootUI
 
 | # | BootUI | sharpit | Reason |
 |---|---|---|---|
-| D1 | Owner slots and scopes decide whether work belongs to the request | The endpoint's or one of its dependencies' code objects is on the current Python stack | A context copy reaches sync endpoints, `to_thread` and child tasks alike; task and thread identity cannot tell them apart. A 15-case probe, with and without `BaseHTTPMiddleware`, separated all of them by frame |
-| D2 | Ownership is checked before matching | Matching first, then ownership; work that is not the endpoint's own publishes no sink row, but its process or file row is still redacted | The walk costs about 34 µs at 60 frames, so only a match pays it; the redaction is stricter than BootUI's |
-| D3 | `argument N` for every command | `argument N` for an argv list; the command name alone when the audit event carries one string (Windows, `os.system`) | `subprocess.Popen` on Windows raises the event with one joined command line |
-| D4 | Values are pushed at the handler phase | Values are read from `RequestInfo.scope` at the first check | A request that reaches no sink pays one dict lookup at its end |
-| D5 | FNV-style keyed hash; 100 ms lock wait with takeover | `blake2b` keyed hash; a check that cannot take its entry's lock at once reports busy | An audit hook can re-enter on one thread through a finalizer or a signal handler: it must never block |
+| D1 | Owner slots and scopes decide whether work belongs to the request (`RequestValues.java:1164-1195`) | The endpoint's or one of its dependencies' code objects is on the current Python stack, or on the stack of a parent greenlet | A context copy reaches sync endpoints, `to_thread` and child tasks alike; task and thread identity cannot tell them apart. An 18-case probe, with and without `BaseHTTPMiddleware`, and a 9-case SQLAlchemy async probe separated all of them by frame. Work a response runs after the endpoint returns (`FileResponse`'s worker-thread open, a streamed body) is not owned, as in BootUI |
+| D2 | Ownership is checked before matching (`:690` before `:702`, `:747` before `:754`) | Matching first, then ownership. Work that is not the endpoint's own publishes no sink row, but its process or file row is still redacted. Its checks and comparisons count against the request's budgets; it never marks a text as seen | The walk costs 34 to 49 µs at 60 frames and raises one `object.__getattr__` audit event per frame, so only a match pays it. Consequence: background work that checks many texts can use up the request's budget, and the endpoint's later checks then come back `NOT_CHECKED` (redacted, never named) |
+| D3 | `argument N` for every command, checked against `command` as given (`:697-699`) | `argument N` for an argv list, whose element 0 is `executable` when the event carries one; for one joined string (Windows `subprocess.Popen`, `os.system`), the executable held the value when a span starts before the end of the program's first occurrence in the string, and the target is otherwise the program name | `subprocess.Popen` on Windows raises the event after `list2cmdline` with `executable=None`; on POSIX `executable` is the program actually started. A value holding `"` or a trailing backslash is escaped by `list2cmdline` and no longer matches: nothing leaks, since the process row shows only the program name |
+| D4 | Values are pushed at the handler phase (`RequestPhaseInterceptor.java:34,54-57`) | Values are read from `RequestInfo.scope` at the first check | A request that reaches no sink pays one dict lookup at its end |
+| D5 | Unkeyed FNV repeat key (`:965,1087-1094`); `begin`, `end` and `wipeAll` wait 100 ms with takeover (`:370,422,465`); a check uses `tryLock` | One per-process keyed `blake2b` for the repeat key and the row hashes; a check uses a non-blocking acquire, as in BootUI; `end` and `clear` only pop the entry and never take its lock | A Python string cannot be wiped, so dropping the reference is all `end` can do; taking no lock there means a request's end can never wait on the audit hook |
+| D6 | Query read up to 8192 characters and 64 pairs, an undecodable pair skipped (`AgentRequestValues.java:56,59,271-283,312-317`) | The same limits, split by hand at `&` and `=` and decoded with `unquote_plus`, stopping at the cap | `parse_qsl` reads the whole string and its `max_num_fields` raises instead of stopping; the split runs inside the audit hook |
+| D7 | Only `String` values are read from JDK maps (`AgentRequestValues.java:254`) | `path_params` values of exact type `str`, `int`, `float` or `uuid.UUID`; any other type is skipped and never converted | `str()` of an application object would run its `__str__` inside the audit hook |
+| D8 | `RequestValues.status()` counters (`:1397-1424`) and the row's `POSITION_UNKNOWN` flag, first application frame and timestamp (`:659,793-795,873-882`) | Not in this plan's rows or status | Plan 2 adds them with the panel that shows them; this plan's rows reach only the journal |
 
 ## Global Constraints
 
@@ -44,6 +51,8 @@ Out of scope: `SecuritySinks.java` (deserialization, weak algorithms, trust mana
 - Limits, verbatim from `RequestValues.java`: `MIN_LENGTH=4`, `MAX_LENGTH=256`, `MAX_VALUES=32`, `ENTRIES=128`, `MAX_CHECKS=256`, `MAX_SCAN=16384`, `MAX_COMPARISONS=4194304`, `HASHES=32`, `MATCHED_HASHES=8`, `MAX_SPANS=8`, `MAX_NAME=64`, `DEADLINE_SECONDS=60`, `MAX_ARGUMENTS=32`.
 - `FROM_REQUEST_INPUT = "(not kept: it held request input)"`, `NOT_CHECKED = "(not kept: not checked for request input)"`.
 - No value, raw path or argument in any row, log, exception text, cache or `repr`. The audit hook never raises, blocks or logs.
+- Any exception while matching gives the row `NOT_CHECKED` (keeping `FROM_REQUEST_INPUT` when the executable had already matched) and no sink row, as BootUI does (`RequestValues.java:717-724,765-770`). Every non-blocking acquire is released in a `finally`.
+- No function in `processes.py` or `files.py` passes ruff C901 10 (neither file has a baseline entry); split helpers instead.
 - Reads have no side effects. The toggle is the existing `POST {api}/java-agent/sensors/{id}` action and stays behind its gates.
 - Budgets in `tests/engine/test_sensors_overhead.py` stay at 6 µs per event; a budget is never raised.
 - Each ported test cites its source: `# ported: RequestValuesTests.<method>`.
@@ -58,6 +67,8 @@ Out of scope: `SecuritySinks.java` (deserialization, weak algorithms, trust mana
 3. A value held in the file sensor's path cache or copy list after the response: nothing keeps it. (Task 4)
 4. Two concurrent requests with different values: neither matches the other's. (Task 2)
 5. The host app copies or lacks `scope["route"]` (mounted app, plain Starlette, class endpoint): the sink row degrades to absent, the host call is unaffected. (Task 2)
+6. A value equal to part of the temp, working or home folder (`?u=<user name>`) matches every file under it; the redacted path is classed `elsewhere`, as BootUI matches (`RequestValues.java:752-757`). (Task 4)
+7. Name-only lookalikes never reach a sink: `platform.system()` raises no command event, and unlinking a fixed temp file holds no request value. (Task 4)
 
 ## File Structure
 
@@ -65,10 +76,10 @@ Out of scope: `SecuritySinks.java` (deserialization, weak algorithms, trust mana
 |---|---|
 | `src/sharpit/engine/sensors/sinks/__init__.py` (create) | Public interface: re-exports `RequestValues`, `Match`, `SinkMatcher`, `SecuritySinksSensor`, and the constants |
 | `src/sharpit/engine/sensors/sinks/values.py` (create) | The holder: values, lifetime, bounded matching, redaction |
-| `src/sharpit/engine/sensors/sinks/ownership.py` (create) | Whether the current stack is the request's own endpoint or dependency |
-| `src/sharpit/engine/sensors/sinks/matcher.py` (create) | Joins request context, holder and ownership; builds sink rows |
+| `src/sharpit/fastapi/sink_ownership.py` (create) | Whether the current stack is the request's own endpoint or dependency (knows FastAPI's `Dependant` and Starlette's `HTTPEndpoint`, so it lives in the adapter) |
+| `src/sharpit/engine/sensors/sinks/matcher.py` (create) | Joins request context, holder and an injected ownership port; builds sink rows |
 | `src/sharpit/engine/sensors/processes.py`, `files.py` (modify) | Ask the matcher; redact their own rows; emit sink rows |
-| `src/sharpit/engine/sensors/lane.py` (modify) | Build, switch and wipe the sensor |
+| `src/sharpit/engine/sensors/lane.py` (modify) | Build, switch, pause and wipe the sensor; a reason per toggle |
 | `src/sharpit/settings.py`, `settings_registry.py` (modify) | The setting; the journal source |
 | `src/sharpit/fastapi/capture.py` (modify) | Pass the setting and context id; end the request |
 
@@ -101,12 +112,18 @@ class RequestValues:
     def clear(self) -> None: ...
     def held(self) -> int: ...  # entries alive
 
+    def mark_seen(self, request_id: str, match: Match) -> None: ...  # owned matches only (D2)
+
 
 def unchecked(match: Match) -> bool: ...  # flags & (F_STOPPED | F_BUSY | F_PARTIAL)
 def keyed_hash(text: str) -> int: ...  # blake2b, per-process random key, first MAX_SCAN chars, 1..2**63-1
 def valid_name(name: str) -> bool: ...  # 1..MAX_NAME chars of [A-Za-z0-9_.\-\[\]]
-def fallback_name(name: str) -> str: ...  # "param#" + 4 hex digits of keyed_hash(name) & 0xFFFF
+def fallback_name(
+    name: str,
+) -> str: ...  # "param#" + 4 hex digits of Java String.hashCode(name) & 0xFFFF, as BootUI (:559)
 ```
+
+`Match` carries the text's repeat key (`text_hash: int`, excluded from `repr`), so `mark_seen` needs no second scan.
 
 - [ ] **Step 1: Write the failing tests** in `test_sink_values.py`, with this helper:
 
@@ -185,13 +202,22 @@ def test_no_repr_shows_a_value_or_a_span_text() -> None:
     assert "needle" not in repr(match) + repr(held) + repr(held._entries)
 ```
 
-Also port, with the same names in snake case and their `# ported:` line: `aMissedEndIsSweptAfterTheDeadlineAndANewClaimWipesTheTable` (inject `clock`; only the deadline half, plus `clear()`), `namesThatAreNotSafeToShowAreReplacedByTheirPosition`, `theTableHoldsAtMostItsEntriesAndCountsTheRest` (129 requests, `held() == 128`), `checksStopAtTheirBudgetAndRepeatedTextsAreNotCheckedAgain`, `theComparisonBudgetStopsMatchingForTheRequest`, `signedAndDecimalNumbersAreNumbersAndNothingElseIs`. Their constants and expected flags come from the Java test bodies.
+Also port, with the same names in snake case and their `# ported:` line: `aMissedEndIsSweptAfterTheDeadlineAndANewClaimWipesTheTable` (inject `clock`; only the deadline half, plus `clear()`), `namesThatAreNotSafeToShowAreReplacedByTheirPosition`, `theTableHoldsAtMostItsEntriesAndCountsTheRest` (129 requests, `held() == 128`), `checksStopAtTheirBudgetAndRepeatedTextsAreNotCheckedAgain`, `theComparisonBudgetStopsMatchingForTheRequest`, `signedAndDecimalNumbersAreNumbersAndNothingElseIs`, `aTextCheckedBeforeAValueWasAddedIsCheckedAgainAfterwards`, `aLongTextIsScannedPartlyAndThenKeepsNoRedactedText`, the `MAX_VALUES` and duplicate-value half of `valuesOutsideTheLengthsAndPastTheCountAreSkippedAndCounted` (`:536-544`), and `anApplicationMapIsNeverReadAsALateSource` (D7). Their constants and expected flags come from the Java test bodies.
+
+Add, without a BootUI source:
+- `test_the_query_stops_at_8192_characters_and_64_pairs_and_skips_a_pair_that_does_not_decode` (D6).
+- `test_a_path_value_of_another_type_is_never_converted`: a `path_params` value whose `__str__` raises is skipped and `match` still answers (D7).
+- `test_end_and_clear_never_wait_for_an_entry_lock`: hold an entry's lock on another thread; `end` and `clear` return at once and `held() == 0` (D5).
+- `test_a_match_that_raises_inside_releases_the_entry_lock`: patch the comparison to raise; the next `match` on the same request is not `F_BUSY`.
+- `test_a_text_is_marked_seen_only_by_mark_seen`: a match without `mark_seen` matches again without `F_SEEN` (D2).
 
 - [ ] **Step 2: Add importable stubs** returning `Match((), (), 0, None, frozenset())` and `0`, so the red is an assertion, then run `uv run pytest -q -n 4 tests/engine/sensors/test_sink_values.py`. Expected: assertion failures, no import or collection error.
 
 - [ ] **Step 3: Implement `values.py`.** Translate `RequestValues.compare`, `add` and `redactChecked`, same order of checks. Decisions the Java does not settle:
-  - Values: `parse_qsl(query.decode("latin-1"), keep_blank_values=False)` then `str(v)` of each `path_params` item, added when the key first appears in the scope. Adding path values clears the entry's remembered hashes.
-  - `_entries: dict[str, _Entry]`; `_Entry` has `__slots__`, its own `threading.Lock`, no `repr` of fields. Take it with `acquire(blocking=False)` in `match`, blocking only in `end` and `clear`, which first pop the entry.
+  - Values: the query cut to 8192 characters, split at `&` and `=` by hand, at most 64 pairs, each decoded with `unquote_plus(errors="strict")` and skipped when it fails (D6); then each `path_params` value of exact type `str`, `int`, `float` or `uuid.UUID`, added when the key first appears in the scope (D7). At most `MAX_VALUES` values, duplicates dropped. Adding path values clears the entry's remembered hashes.
+  - `MAX_COMPARISONS` is counted per `str.find` call, as BootUI counts per `indexOf` (`RequestValues.java:39-43,988-1002`); never a per-character loop in Python.
+  - `_entries: dict[str, _Entry]`; `_Entry` has `__slots__`, its own `threading.Lock`, no `repr` of fields. Take it with `acquire(blocking=False)` in `match`, released in a `finally`. `end` and `clear` only pop entries and never take an entry lock (D5).
+  - `match` checks and counts but never records the repeat key; `mark_seen` records it, and the matcher calls it only for an owned match (D2).
   - Insert under a table lock taken with `blocking=False` (failure: `F_BUSY`), re-check `info.finished_ns is None` after the insert and pop the entry if it is not.
   - Entries older than 60 s by `clock` are popped at the next insert. A full table returns an empty match with flags 0, as BootUI does.
 
@@ -201,11 +227,11 @@ Also port, with the same names in snake case and their `# ported:` line: `aMisse
 ### Task 2: Ownership by stack frame
 
 **Files:**
-- Create: `src/sharpit/engine/sensors/sinks/ownership.py`
+- Create: `src/sharpit/fastapi/sink_ownership.py`
 - Test: `tests/fastapi/test_sink_ownership.py`
 
 **Interfaces:**
-- Produces: `def owned(scope: Mapping[str, Any]) -> bool`. Never raises. Reads `scope["endpoint"]` and `scope["route"].dependant` (`call`, `dependencies`) with `getattr` only.
+- Produces: `def owned(scope: Mapping[str, Any]) -> bool`. Never raises. Reads `scope["endpoint"]`, `scope["route"].dependant` (`call`, `dependencies`) and `scope["app"].dependency_overrides` with `getattr` only. The engine never imports it: `capture.py` passes it to `build_lane(..., owns=owned)` (Task 5), and the matcher's default is `lambda scope: False`, so an adapter without ownership publishes no sink rows rather than wrong ones.
 
 - [ ] **Step 1: Write the failing test.** A raw ASGI middleware sets a `ContextVar` to the scope; `probe()` appends `owned(scope)` to a list. Parametrize over `base_http_middleware: bool` (a pass-through `BaseHTTPMiddleware` between the middleware and the app) and:
 
@@ -222,8 +248,23 @@ OWN = [
     "nested_await",
     "starlette_function",
     "starlette_class",
+    "class_dependency",
+    "overridden_dependency",
+    "sqlalchemy_async_session",
+    "sqlalchemy_async_in_dependency",
 ]
-NOT_OWN = ["gather", "create_task", "to_thread", "anyio_thread", "raw_thread", "background_task", "stream_body"]
+NOT_OWN = [
+    "gather",
+    "create_task",
+    "to_thread",
+    "anyio_thread",
+    "raw_thread",
+    "background_task",
+    "stream_body",
+    "file_response",
+    "raw_asgi_mount_background",
+    "sqlalchemy_async_in_create_task",
+]
 
 
 @pytest.mark.parametrize("base_http_middleware", [False, True])
@@ -234,10 +275,10 @@ def test_only_the_endpoints_own_stack_is_owned(case: str, base_http_middleware: 
     assert set(seen) == {case in OWN}
 ```
 
-`raw_thread` captures the scope in the endpoint and passes it explicitly, since a raw thread has no context copy. Add two unit tests: `owned({})` is False; `owned({"endpoint": X, "route": Y})` where every attribute access of `Y` raises returns False.
+`raw_thread` captures the scope in the endpoint and passes it explicitly, since a raw thread has no context copy. `class_dependency` is `Depends(Pagination)` whose `__init__` opens the path; `overridden_dependency` sets `app.dependency_overrides[dep] = fake` and `fake` opens it. The SQLAlchemy cases use `sqlite+aiosqlite` (skipped with `pytest.importorskip` when absent) and record from a `before_cursor_execute` listener. `file_response` returns `FileResponse(base / name)`: Starlette opens it in a worker thread after the endpoint returns, so it is pinned as not owned, which the docs must state. `raw_asgi_mount_background` mounts a raw ASGI callable whose `__call__` schedules a task. Add two unit tests: `owned({})` is False; `owned({"endpoint": X, "route": Y})` where every attribute access of `Y` raises returns False.
 
 - [ ] **Step 2: Stub `owned` as `return False`; run** `uv run pytest -q -n 4 tests/fastapi/test_sink_ownership.py`. Expected: each `OWN` case fails on its assertion.
-- [ ] **Step 3: Implement.** Collect code objects of the endpoint and the dependency tree: unwrap `functools.partial`, bound methods, `__wrapped__` chains (at most 16 links), a callable instance's `type(x).__call__`, and an `HTTPEndpoint` class's handler named by `scope["method"].lower()` (`get` for `HEAD` when no `head`). Walk `sys._getframe(1)` to the root, returning True at the first frame whose `f_code` is in the set. Keep no frame or code reference after returning.
+- [ ] **Step 3: Implement.** Collect code objects of the endpoint and the dependency tree, each dependency replaced by its `dependency_overrides` entry when present: unwrap `functools.partial`, bound methods, `__wrapped__` chains (at most 16 links), a class dependency's `__init__`, a callable instance's `type(x).__call__` (dependencies only: an ASGI app as the endpoint would own everything it runs), and an `HTTPEndpoint` class's handler named by `scope["method"].lower()` (`get` for `HEAD` when no `head`). Cache the code set per route in a `weakref.WeakKeyDictionary` keyed by the route, so `__code__` is read once per route rather than per check (each read raises an `object.__getattr__` audit event). Walk `sys._getframe(1)` to the root; if no frame matched and `sys.modules.get("greenlet")` is loaded, walk `getcurrent().parent.gr_frame` and its parents, at most 8 greenlets. Return True at the first frame whose `f_code` is in the set. Never import `greenlet`; keep no frame reference after returning.
 - [ ] **Step 4: Run.** Expected: all pass. Also run it under the lowest supported FastAPI and Starlette through the CI `lowest` job; a version without `dependant.dependencies` must give False, not an error.
 - [ ] **Step 5: Add** `test_two_concurrent_requests_never_match_each_others_values` (two async endpoints held at an `asyncio.Barrier`, each opening a path with its own value and the other's; only its own matches through `RequestValues.match(REQUEST.get(), ...)`). Expected: pass.
 - [ ] **Step 6: Commit** `feat: tell a request's own work from work it handed off`.
@@ -249,7 +290,7 @@ def test_only_the_endpoints_own_stack_is_owned(case: str, base_http_middleware: 
 - Test: `tests/engine/sensors/test_sink_matcher.py`
 
 **Interfaces:**
-- Consumes: Task 1 and Task 2.
+- Consumes: Task 1. Ownership arrives as the injected `owns` callable (Task 2's `owned`, wired in Task 5).
 - Produces:
 
 ```python
@@ -262,7 +303,7 @@ class SinkMatcher:
         context_id: str,
         on: Callable[[], bool],
         values: RequestValues | None = None,
-        owns: Callable[[Mapping[str, Any]], bool] = owned,
+        owns: Callable[[Mapping[str, Any]], bool] = lambda scope: False,
     ) -> None: ...
     def check(self, text: str, kind: Kind) -> Match | None: ...  # None: off, internal, no request, other context
     def rows(self, kind: Kind, match: Match, text: str, target: str | None) -> tuple[Row, ...]: ...
@@ -302,8 +343,11 @@ A row is exactly:
   - `test_a_digits_only_value_is_flagged` (`# ported: RequestValuesSinksTests.aDigitsOnlyValueIsFlaggedSoTheEngineWaitsForConfirmation`): `?year=2024`, `numeric is True`.
   - `test_the_same_text_hashes_alike_and_another_value_differently`: `report-a` and `report-b` in two requests give equal `redactedHash` and different `rawHash`.
   - `test_an_owns_that_raises_publishes_nothing`: `rows(...) == ()`.
+  - `test_work_not_owned_never_hides_the_endpoints_later_row`: `owns` False then True for the same text; the second `rows(...)` has one row (D2).
+  - `test_a_holder_that_raises_gives_a_not_checked_match`: patch `RequestValues.match` to raise; `check` returns a match for which `unchecked` is True, and `rows(...) == ()`.
+  - `test_the_default_owns_publishes_nothing`: a matcher built without `owns` returns `()` from `rows`.
 - [ ] **Step 2: Stub, run** `uv run pytest -q -n 4 tests/engine/sensors/test_sink_matcher.py`. Expected: assertion failures.
-- [ ] **Step 3: Implement.** `check` order: `on()`, `INTERNAL`, `REQUEST`, `context_id`, `len(text) < MIN_LENGTH`, then the holder.
+- [ ] **Step 3: Implement.** `check` order: `on()`, `INTERNAL`, `REQUEST`, `context_id`, `len(text) < MIN_LENGTH`, then the holder, inside a `try` whose `except Exception` returns a match with `F_BUSY`. `rows` calls `owns` once, then `values.mark_seen` only when it returned True.
 - [ ] **Step 4: Run.** Expected: all pass.
 - [ ] **Step 5: Commit** `feat: build security-sinks rows from a request's own matches`.
 
@@ -399,23 +443,28 @@ def test_not_owned_work_redacts_its_row_and_publishes_no_sink() -> None:
     assert [(r["source"], r["target"]) for r in rows] == [("files", "./reports/{name}.csv")]
 ```
 
-Add `test_the_thirty_third_argument_is_not_checked` (`MAX_ARGUMENTS`), and `test_without_a_matcher_every_row_is_unchanged`, which replays the parametrized inputs already in `tests/engine/test_sensors_audit.py` for both sensors.
+Add `test_the_thirty_third_argument_is_not_checked` (`MAX_ARGUMENTS`), and `test_without_a_matcher_every_row_is_unchanged`, which replays the parametrized inputs already in `tests/engine/test_sensors_audit.py` for both sensors. Also:
+- `test_an_executable_the_request_could_not_check_is_never_named` (`# ported: RequestValuesSinksTests.aPathOrAnExecutableTheRequestsMatchingCouldNotCheckIsNeverNamed`): with the check budget spent, the process row is `NOT_CHECKED` and no sink row is published.
+- `test_a_check_that_raises_keeps_the_row_and_hides_its_target`, for both sensors: the matcher raises; one row, target `NOT_CHECKED`, no sink row; for a command whose executable already matched, `FROM_REQUEST_INPUT`.
+- `test_unlinking_a_temp_file_without_a_request_value_leaves_an_unchanged_row`: `os.remove` of a `tempfile.mkstemp` path under a request holding `v=quarterly`; the row equals the row without a matcher.
+- `test_platform_system_starts_no_command`: call `platform.system()` under a live hook with the processes sensor; no row. (It may open files under the interpreter's own folder, which the files sensor already skips.)
+- `test_a_value_naming_part_of_the_temp_folder_redacts_and_classes_elsewhere`: Review focus 6.
 
 - [ ] **Step 2: Run** `uv run pytest -q -n 4 tests/engine/sensors/test_sink_sensors.py`. Expected: assertion failures (accept and ignore `matcher` first so nothing fails on the signature).
-- [ ] **Step 3: Implement `processes.py`.** An argv list checks `[executable or argv[0], *argv[1:]]` up to 32 elements; index 0 targets `(the executable)`, a later one `<name>, argument N`, with `<name>` replaced by `(the executable)` when index 0 matched or was unchecked. One string is checked once: when a span starts before the end of the program's first occurrence in it, the executable held the value; otherwise the target is the program name. Element 0, or the one string, `unchecked` gives the process row `NOT_CHECKED`.
-- [ ] **Step 4: Implement `files.py`.** Extract `_is_skipped(text) -> bool` from `_resolve`. In `_row`, with a matcher on: skip test first, then `check(text, "file")`, before `_seen` is read or written. A match resolves `match.redacted` through `_resolve` without caching; `redacted is None` gives `FROM_REQUEST_INPUT`; `unchecked` gives `NOT_CHECKED`, with location `elsewhere`. A placeholder goes through the mask and collapse as any path text does, as in BootUI: a letters-only name stays, a digit run in a name becomes `{n}`; the sink row's `parameter` keeps the full name. `_pending` stores `hash(text)` instead of the text.
+- [ ] **Step 3: Implement `processes.py`**, in helpers `_argv_sink_rows` and `_string_sink_rows` so no function passes C901 10. An argv list checks `[executable or argv[0], *argv[1:]]` up to 32 elements; index 0 targets `(the executable)`, a later one `<name>, argument N`, with `<name>` replaced by `(the executable)` when index 0 matched or was unchecked. One string is checked once: when a span starts before the end of the program's first occurrence in it, the executable held the value; otherwise the target is the program name. Element 0, or the one string, `unchecked` gives the process row `NOT_CHECKED`.
+- [ ] **Step 4: Implement `files.py`.** Extract `_is_skipped(text) -> bool` from `_resolve`, and the matched branch into `_row_matched`. In `_row`, with a matcher on: skip test first, then `check(text, "file")`, before `_seen` is read or written. A match resolves `match.redacted` through `_resolve` without caching; `redacted is None` gives `FROM_REQUEST_INPUT`; `unchecked` gives `NOT_CHECKED`, with location `elsewhere`. A placeholder goes through the mask and collapse as any path text does, as in BootUI: a letters-only name stays, a digit run in a name becomes `{n}`; the sink row's `parameter` keeps the full name. `_pending` stores `hash(text)` instead of the text.
 - [ ] **Step 5: Run** the new file, `tests/engine/test_sensors_audit.py` and `tests/safety/test_w6_side_effects_safety.py`. Expected: all pass, none edited.
 - [ ] **Step 6: Commit** `feat: match request values in commands and file paths`.
 
 ### Task 5: Setting, journal source, lane and request end
 
 **Files:**
-- Modify: `src/sharpit/settings.py:113`, `src/sharpit/settings_registry.py` (`JOURNAL_SOURCES`, parser map, masking notes), `src/sharpit/engine/sensors/lane.py`, `src/sharpit/engine/sensors/floor.py` (opt-in reason), `src/sharpit/fastapi/capture.py` (`_arm_sensors`, the request's `finally` after `info.finished_ns = finished`)
+- Modify: `src/sharpit/settings.py:113`, `src/sharpit/settings_registry.py` (`JOURNAL_SOURCES`, parser map, masking notes), `src/sharpit/engine/sensors/lane.py` (`BUILT`, `toggles()` reason per sensor, `hooks()`), `src/sharpit/engine/sensors/floor.py` (opt-in reason), `src/sharpit/fastapi/capture.py` (`_arm_sensors`, the request's `finally`)
 - Test: `tests/fastapi/test_security_sinks.py`, `tests/test_settings.py`, `tests/engine/test_sensors_audit.py`, `tests/safety/test_security_sinks_safety.py`
 
 **Interfaces:**
-- Produces: `SharpitSettings.agent_security_sinks_request_values: bool = False` (`SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES`, invalid value: False and a warning); `"security-sinks"` in `JOURNAL_SOURCES`; `build_lane(configured, sink, mask_path, own=(), audit=hub, *, request_values: bool = False, context_id: str = "")`; `SensorLane.request_ended(request_id: str) -> None`.
-- The sensor is built only when `request_values` is true. `BUILT` and `SWITCHABLE` gain `security-sinks`. Every path that turns it off (`switch`, `pause`, `detach`) calls `wipe()`. Its toggle's `optInReason` is:
+- Produces: `SharpitSettings.agent_security_sinks_request_values: bool = False` (`SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES`, invalid value: False and a warning); `"security-sinks"` in `JOURNAL_SOURCES`; `build_lane(configured, sink, mask_path, own=(), audit=hub, *, request_values: bool = False, context_id: str = "", owns: Callable[[Mapping[str, Any]], bool] = lambda scope: False)`; `SensorLane.request_ended(request_id: str) -> None`.
+- The sensor is built only when `request_values` is true. `BUILT` gains `security-sinks` (`SWITCHABLE` derives from it, `lane.py:21`). `SinkMatcher.on` reads the lane's own off and paused state for `security-sinks`, not `hub.is_on`. Every path that turns it off (`switch`, `pause`, `detach`, suspending its capture hook from `lane.hooks()`) calls `wipe()`. `toggles()` takes the reason per sensor instead of `FILES_DEFAULT_REASON` for all. Its toggle's `optInReason` is:
 
 ```text
 Off by default: its request-value matching, which also needs SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true, holds each request's query and path values in memory while it runs.
@@ -425,25 +474,26 @@ Off by default: its request-value matching, which also needs SHARPIT_AGENT_SECUR
   - `test_off_by_default_a_request_value_in_a_path_leaves_no_sink_row`: sensors `("processes", "files", "security-sinks")` without the setting; no row, and `java-agent` lists no `security-sinks` toggle.
   - `test_an_endpoint_that_opens_a_requested_path_leaves_one_sink_row`: with the setting; `GET /read/quarterly` fires `open` from the endpoint; one row with `parameter == "name"`.
   - `test_values_are_gone_when_the_response_ends`, parametrized over a normal response, a raised exception, a client disconnect and a streaming response: `held() == 0`.
-  - `test_switching_the_sensor_off_wipes_held_values_at_once`: switch from inside the endpoint; `held() == 0` before the response.
+  - `test_switching_the_sensor_off_wipes_held_values_at_once`: switch from inside the endpoint; `held() == 0` before the response. Parametrize over switch, pause and suspending the capture hook.
+  - `test_a_paused_sensor_checks_nothing`: paused, an endpoint opening a requested path leaves the files row unredacted-by-sinks and `held() == 0`.
   - `test_a_background_task_and_a_streamed_body_leave_no_sink_row`.
   - `test_a_read_only_panel_refuses_the_switch` (status and body as the existing files-sensor test).
   - In the safety file: `test_a_seeded_value_reaches_no_route_log_or_error`: send a canary query value through an endpoint that opens a path, starts a command and raises; read every GET route in the console and every read tool at `MASKED` exposure. The exclusion list is the routes that already show the request itself (exchanges and the `http` journal source); the test names each one.
   - In `test_settings.py`, the row `("agent_security_sinks_request_values", "SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES", "maybe", False)`; in `test_sensors_audit.py`, `"security-sinks"` in the source parametrization.
 - [ ] **Step 2: Run** the four files with `-n 4`. Expected: assertion failures.
-- [ ] **Step 3: Implement.** In `capture.py`, `request_ended(info.id)` runs inside `_request_end_guard` immediately after `info.finished_ns` is set, and before anything that can fail.
+- [ ] **Step 3: Implement.** In `capture.py`, `request_ended(info.id)` is the first statement of the existing `_request_end_guard` block (`capture.py:643-647`), right after `info.finished_ns` is set and before `endpoint_name`, adding no branch to `__call__` (complexity 38, pinned); if it cannot go there without a branch, extract a helper. `_arm_sensors` passes `owns=sink_ownership.owned`.
 - [ ] **Step 4: Run** the four files and `tests/fastapi/test_w6_audit_sensors.py`, `tests/engine/test_import_boundary.py`, `tests/test_code_shape.py`. Expected: all pass.
 - [ ] **Step 5: Commit** `feat: wire the security-sinks sensor, off by default`.
 
 ### Task 6: Overhead, masking evidence and documentation
 
 **Files:**
-- Modify: `tests/engine/test_sensors_overhead.py`, `website/docs/settings.md:89-90`, `skills/sharpit/SKILL.md:209,229`, `plugins/sharpit/skills/sharpit/SKILL.md` (same lines), `CHANGELOG.md`, `SECURITY.md`, `AGENTS.md` (only if a path in its layout changes)
+- Modify: `tests/engine/test_sensors_overhead.py`, `website/docs/settings.md:89-90`, `src/sharpit/cli/tools.json:25,41` (drop "this version ships no agent sensors"), `SECURITY.md`, `AGENTS.md` (only if a path in its layout changes). The changelog and both skill files are plan 2's.
 - Create: `docs/reference/matrix-updates/0.10.0-security-sinks.tsv`, `docs/decisions/<next>-request-values-in-memory.md` and its index line
 
-- [ ] **Step 1: Extend the overhead test** with three measurements, each against 6.0e-6: processes and files with a matcher off; files with a matcher on and no request; files with a matcher on and one held 12-character value that matches nothing, over the existing hot set of 64. Run `uv run pytest -q -n 0 tests/engine/test_sensors_overhead.py`. Expected: pass. Failure is a design question: stop and report the measured numbers.
+- [ ] **Step 1: Extend the overhead test** with three measurements, each against 6.0e-6: processes and files with a matcher off; files with a matcher on and no request; files with a matcher on and one held 12-character value that matches nothing, over the existing hot set of 64. Add a fourth, reported and not budgeted in this plan: one owned match with a second audit hook installed, which pays the ownership walk; record its number in the PR body. Run `uv run pytest -q -n 0 tests/engine/test_sensors_overhead.py`. Expected: pass. Failure is a design question: stop and report the measured numbers.
 - [ ] **Step 2: Measure the capture middleware** with `/sharpit:perf-audit`, setting off and on, paired. Record the numbers in the PR body; the existing middleware budget test must pass unchanged.
 - [ ] **Step 3: Masking evidence.** Dump the masking corpora on the base commit and on the branch with the setting off and diff them. Expected: byte-identical. With the setting on, every changed row is listed in the PR body.
-- [ ] **Step 4: Documentation.** Settings row; the source list row; both skill files; a `SECURITY.md` paragraph stating what is held, for how long, and that matching is verbatim, not taint tracking; a changelog line; one matrix line per approved deviation; the decision file as decision, rationale and consequences.
+- [ ] **Step 4: Documentation.** Settings row; the source list row; the two tool descriptions; a `SECURITY.md` paragraph stating what is held, for how long, that matching is verbatim, not taint tracking, that redaction covers only checks made while the request is live, and that "no finding" is not "safe" (work after the endpoint returns, such as `FileResponse`, is not owned); one matrix line per approved deviation; the decision file as decision, rationale and consequences.
 - [ ] **Step 5: Run** `uv run pytest -q -n 4 tests/test_*.py tests/docs`, `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`. Expected: clean.
 - [ ] **Step 6: Commit** `docs: describe the security-sinks sensor` and run `/sharpit:check`, `/sharpit:live-verify` (an endpoint that opens a requested path, on Windows and Linux), `/sharpit:branch-review`, then `/sharpit:llm-council --tier high`.
