@@ -2,7 +2,8 @@
 
 `src/sharpit/engine/console/` has no production caller. Its behaviour differs from
 `docs/superpowers/plans/2026-11-22-sharpit-0.9.0/f0-console-contract.md` (the contract) in the points below. They are
-fixed before any route is wired through it. No route, adapter, setting or guard rule changes.
+fixed before any route is wired through it. No route, adapter, setting or guard rule changes. Rows 1 and 4 are the
+defects named on #260; the other six are adjacent differences in the same two files and belong to this slice.
 
 ## Scope
 
@@ -20,31 +21,50 @@ fixed before any route is wired through it. No route, adapter, setting or guard 
 Out of scope, with their owner: `IdleTracker.mark_active()` and the audit hook of multiplexed tool calls (both need the
 wiring slice), the differential gate, the `werkzeug` boundary, every Flask part.
 
+The contract departs from the FastAPI adapter of today in these points. They are listed so that the differential gate
+does not report them as defects:
+
+| Request | FastAPI adapter today | Contract or core | Disposition |
+|---|---|---|---|
+| `HEAD` on a stream route | 200, handler started | 405, `Allow: GET` | Contract departure, kept (row 6) |
+| `/api/overview/` (trailing slash) | 307 to the path without it | 404 | Wiring slice: decided with the differential gate |
+| Empty capture of a `:path` parameter | Starlette matches | no match (`.+`) | Wiring slice: decided with the differential gate |
+| `HEAD` on a file response | headers of `GET`, no body | not expressed here | Wiring slice: the adapter keeps the `GET` headers and sends no file body |
+
 ## Safety
 
 - The guard chain runs first and is unchanged: a denied request is answered by the guard, never by 404, 405 or `HEAD`
   handling. A test sends a wrong method and a `HEAD` that the guard refuses and expects the guard's answer.
 - A handler runs only for its own method, and the `GET` handler for `HEAD` (a read). `HEAD` never reaches an action.
+- `HEAD` resolves the first matching `GET` route, as a `GET` would, and then reads its `stream` mark. It never goes on to
+  a later template: `/api/exceptions/stream` precedes `/api/exceptions/{id}` and must not reach the detail handler.
+- `Allow` follows the same rule: `HEAD` is listed only when the first matching `GET` route is not a stream.
 - 405 names methods only, after the guard, and 404 keeps its body.
 - `AdvisorViolationError.message` reaches the body as the FastAPI routes return it today; nothing new is echoed.
 
 ## Tasks
 
 Each test is seen red for its assertion (`scripts/dev/red_check.py`) before the fix, one condition per assert. A crash is
-not a red: where the defect raises, the test catches it and asserts on the collected frames.
+not a red: where the defect raises, the test catches it and asserts that no exception was observed. The defaulted
+`stream` field is added in its own commit, without dispatch behavior, so that the stream test fails on its assertion.
+Guard precedence, the 404 of an unknown path and the masked 500 hold today: they are preservation tests, green before and
+after, and each is shown to bite by removing its control.
 
 - [ ] **Task 1, streams** (`tests/engine/test_console_streams.py`): an exhausted source yields its frames and then
-      `b"retry: 1000\n\n"`; a source whose `aclose` raises still ends; data with a trailing newline and with a vertical
-      tab gives the same bytes as `fastapi/sse.py`. Change `stream_frames` and `frame_sse` only.
+      `b"retry: 1000\n\n"`; a source whose `aclose` raises after a timed-out stream lets no
+      exception reach the reader; data with a trailing newline and with a vertical tab gives the same bytes as `fastapi/sse.py`. Change `stream_frames` and `frame_sse` only.
 - [ ] **Task 2, methods** (`tests/engine/test_console_contract.py`): `POST` to a `GET` route gives 405, body
       `{"error": "Method Not Allowed"}` and the exact `Allow` (`GET, HEAD`); `Allow` lists every method of a path with
-      several; an unknown path stays 404; `HEAD` gives the `GET` status and headers with an empty body; `HEAD` on a
-      stream route gives 405 with `Allow: GET` and does not call the handler; the guard's answer wins over each.
+      several; an unknown path stays 404; with a stream route before a parameterized sibling, `HEAD` on the stream path
+      gives 405, `Allow: GET` and zero calls of either handler; `HEAD` gives the `GET` status and headers
+      with an empty body; `HEAD` on a stream route gives 405 with `Allow: GET` and does not call the handler; the guard's answer (status, body
+      and headers, without `Allow`) wins over each.
       `RouteSpec` has no mark for a stream route, so it gains `stream: bool = False`; the refusal reads that field and
       therefore acquires no slot.
 - [ ] **Task 3, errors and headers** (`tests/engine/test_console_contract.py`): `AdvisorViolationError` gives its status
       and message; another exception stays a masked log line and 500; a response with its own CSP keeps exactly its own
-      headers, one without gets all of them.
+      headers, one without gets all of them. `test_response_headers_keeps_other_headers_when_csp_set` expects the
+      opposite and is replaced.
 - [ ] Each fix is removed in turn and a named test fails.
 
 ## Verification
@@ -52,5 +72,5 @@ not a red: where the defect raises, the test catches it and asserts on the colle
 - [ ] `uv run --extra test pytest -q -n 4 tests/engine/test_console_contract.py tests/engine/test_console_streams.py
       tests/engine/test_import_boundary.py tests/test_code_shape.py tests/test_agent_workflow.py tests/docs`
 - [ ] `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`.
-- [ ] The complexity baseline does not rise.
+- [ ] The complexity baseline does not rise; method selection is a function of its own, so `_handle` stays at 5 (C901).
 - [ ] `git diff --stat origin/main...HEAD` lists only the console package, its tests and this plan.
