@@ -6,6 +6,7 @@ buffer never holds a raw secret; ``report()`` only filters and pages.
 
 from __future__ import annotations
 
+import inspect
 import re
 import threading
 from collections import deque
@@ -77,6 +78,24 @@ def trace_id(request_headers: RawHeaders, request_id: str) -> str:
     return traceparent_id(request_headers) or request_id
 
 
+def _plain(obj: object, name: str, kind: type) -> Any:
+    """``obj.name`` when it is plain data of exactly ``kind``; never runs a property, descriptor or ``__getattr__``."""
+    value = inspect.getattr_static(obj, name, None)
+    return value if type(value) is kind else None
+
+
+def _user_name(user: object) -> str | None:
+    """``scope["user"]``'s name, read as plain data only: Starlette's ``SimpleUser`` gives its ``username``; any other
+    user is named only when its ``is_authenticated`` and ``display_name`` are plain data and the flag is True."""
+    if user is None:
+        return None
+    if type(user).__module__ == "starlette.authentication" and type(user).__name__ == "SimpleUser":
+        return _plain(user, "username", str)  # its properties only return this field
+    if _plain(user, "is_authenticated", bool) is not True:
+        return None
+    return _plain(user, "display_name", str)
+
+
 def exchange_row(
     masker: Masker,  # NOSONAR - keyword-only fields of one flat row, built once a request on the capture hot path
     *,
@@ -104,9 +123,8 @@ def exchange_row(
     raw_query = query_string.decode("latin-1")
     query = masker.mask_query(raw_query) if raw_query else None
     query = None if query is None else _cut(query, MAX_QUERY)
-    principal = None
-    if user is not None and getattr(user, "is_authenticated", False):  # Starlette's AuthenticationMiddleware
-        principal = masker.mask("principal", getattr(user, "display_name", None))[0]
+    name = _user_name(user)
+    principal = None if name is None else masker.mask("principal", name)[0]
     return {
         "id": request_id,
         "timestamp": _iso(started_epoch_ns),

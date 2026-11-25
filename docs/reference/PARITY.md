@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (14 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (15 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -378,3 +378,4 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (14 entries):
 | #305 | pentesting:A02:scanned-description:clean | adapted | BootUI uses "No findings were produced by the evaluated synthetic-response, Spring configuration, and Spring MVC mapping checks. This does not establish that every route, authorization rule, or deployment edge is configured safely." sharpit's no-finding note refers to the synthetic GET, CORS preflight, and available route-table and middleware configuration checks. |
 | #305 | pentesting:A07:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Spring authentication metadata. Endpoint authentication, account policy, and runtime login behavior were not tested." sharpit states whether Basic or Digest headers in the synthetic GET response produced a review finding. The note explains the limit on dependency-based authentication and qualifies incomplete evidence. |
 | #305 | pentesting:A08:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review." sharpit's local scan does not assess deserialization safeguards. |
+| exchanges-principal | http-exchanges:principal | adapted | BootUI names the authenticated principal from Spring Security. sharpit reads scope["user"] as plain data only and never runs application code: Starlette's SimpleUser gives its username, UnauthenticatedUser gives none, and any other user is named only when its is_authenticated and display_name are plain attributes and the flag is True; a user whose attributes are properties or come from __getattr__ is not named. |
