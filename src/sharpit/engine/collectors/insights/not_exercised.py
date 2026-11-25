@@ -5,6 +5,7 @@ import re
 from collections.abc import Callable, Collection, Sequence
 
 from sharpit.engine.capture.journal import FAILED, REENTRANT
+from sharpit.engine.capture.securitylogs import CAPTURE_UNAVAILABLE_REASON
 from sharpit.engine.collectors.insights.snapshot import Snapshot
 from sharpit.engine.spi import RouteInfo
 
@@ -65,6 +66,8 @@ def list_for(
 
 
 def refusal(snapshot: Snapshot) -> str | None:
+    if "http" in snapshot.unarmed:  # enabled, but a too-late install added no capture middleware
+        return f"{CAPTURE_UNAVAILABLE_REASON}, so the routes no request reached are not listed."
     if not snapshot.journaled("http"):
         return UNRECORDED
     if "http" in snapshot.hidden:
