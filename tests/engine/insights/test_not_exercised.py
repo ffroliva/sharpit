@@ -97,3 +97,17 @@ def test_dropped_http_or_a_clear_cannot_prove_declared_routes_were_not_exercised
         assert report["notExercised"] == []
         assert reason in report["limitations"]
         assert "clears" not in journal.status()
+
+
+# ported: NotExercisedRoutesTests.theReportCountsEvictedRequestsThroughTheRunsAggregates
+def test_an_evicted_event_lists_no_route():
+    for source in ("http", "sql"):
+        journal = RuntimeJournal(max_events=1)
+        journal.offer({"source": source, "route": "GET /called"})
+        journal.offer({"source": source, "route": "GET /other"})
+        report = service(journal).report()
+        assert report["notExercised"] == []
+        assert (
+            "The journal evicted events during this run, so declared routes cannot be classified as not exercised: this journal keeps no run-wide route counts."
+            in report["limitations"]
+        )
