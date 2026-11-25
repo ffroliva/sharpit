@@ -56,7 +56,8 @@ def list_for(
             }
             if any("******" in label for label in exercised):
                 limitations.append(
-                    "Some captured route labels were masked, so routes listed as not exercised may have been reached."
+                    "Some captured route labels were masked and could not be matched to declarations, so "
+                    "routes listed as not exercised may have been reached."
                 )
             return of(routes, exercised)
     except Exception:  # noqa: BLE001 - an inventory failure must never crash the host

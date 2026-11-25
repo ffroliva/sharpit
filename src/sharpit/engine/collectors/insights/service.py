@@ -291,7 +291,7 @@ class InsightsService:
                 cast("list[str]", report["limitations"]),
                 metadata_only=self._mask("") is None,
             )
-            report["notExercised"] = missing[:100]  # RuntimeInsightsReportDto.MAX_NOT_EXERCISED
+            report["notExercised"] = [self._mask(label) or "" for label in missing[:100]]
             report["notExercisedOmitted"] = max(0, len(missing) - 100)
         return report
 
