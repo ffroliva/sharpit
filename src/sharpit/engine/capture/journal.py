@@ -434,7 +434,7 @@ class RuntimeJournal:
             self._http_suspended = True
             self._accepting = False
 
-    def http_suspended(self) -> None:
+    def mark_http_suspended(self) -> None:
         """Record a capture-hook transition, never work on the per-request path."""
         with self._lock:
             self._http_suspended = True
