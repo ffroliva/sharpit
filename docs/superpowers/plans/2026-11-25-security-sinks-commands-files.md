@@ -47,7 +47,7 @@ Out of scope: `SecuritySinks.java` (deserialization, weak algorithms, trust mana
 
 Tests these rows add, each seen red first, in the task named:
 
-- Task 1: `test_path_values_keep_their_place_when_the_query_fills_max_values` (D4), `test_a_malformed_percent_escape_is_skipped` (D6, `%ZZneedle`), `test_path_params_that_are_not_a_plain_dict_are_never_iterated` (D7), `test_a_repeated_miss_costs_no_comparison_budget` (D2), `test_the_budget_charges_scanned_times_held_characters` (ported, `RequestValuesTests.java:321`), `test_a_check_after_end_or_clear_publishes_and_inserts_nothing` (D5, barrier-ordered).
+- Task 1: `test_path_values_keep_their_place_when_the_query_fills_max_values` (D4), `test_a_malformed_percent_escape_is_skipped` (D6, `%ZZneedle`), `test_a_value_whose_name_fails_to_decode_is_kept_by_position` (D6, `?%ZZ=../../etc/passwd`), `test_invalid_utf8_decodes_with_replacement_as_starlette_does` (D6, `?f=report%E9q3`), `test_path_params_that_are_not_a_plain_dict_are_never_iterated` (D7), `test_a_repeated_miss_costs_no_comparison_budget` (D2), `test_the_budget_charges_scanned_times_held_characters` (ported, `RequestValuesTests.java:321`), `test_a_check_after_end_or_clear_publishes_and_inserts_nothing` (D5, barrier-ordered).
 - Task 2: `test_eager_task_first_step_is_owned_as_documented` (D1 limitation), `test_a_plain_starlette_route_caches_by_endpoint` (D1).
 - Task 4: `test_an_explicit_executable_beside_one_string_is_checked_on_its_own` (D3).
 
