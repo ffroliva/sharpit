@@ -170,16 +170,18 @@ def _is_jwt_decode(func: ast.expr, module_aliases: set[str], decode_aliases: set
     )
 
 
-def _disables_option(call: ast.Call, name: str) -> bool:
-    options = _keyword(call, "options")
+def _option_disabled(options: ast.expr | None, name: str) -> bool | None:
+    """Whether the last setting of ``name`` is False; None when a literal does not set it. Unknown reads as False."""
     if not isinstance(options, ast.Dict):
         return False
     for key, value in reversed(list(zip(options.keys, options.values, strict=True))):
-        if key is None:  # a later ** may set the option: unknown
-            return False
-        if isinstance(key, ast.Constant) and key.value == name:
+        if key is None:
+            unpacked = _option_disabled(value, name)
+            if unpacked is not None:
+                return unpacked
+        elif isinstance(key, ast.Constant) and key.value == name:
             return isinstance(value, ast.Constant) and value.value is False
-    return False
+    return None
 
 
 def _passes_audience(call: ast.Call) -> bool:
@@ -191,9 +193,10 @@ def _passes_audience(call: ast.Call) -> bool:
 
 
 def _audience_message(call: ast.Call) -> str | None:
-    if _disables_option(call, "verify_signature"):  # PyJWT then skips the audience check by default as well
+    options = _keyword(call, "options")
+    if _option_disabled(options, "verify_signature"):  # PyJWT then skips the audience check by default as well
         return "jwt.decode disables signature verification with verify_signature=False."
-    if _disables_option(call, "verify_aud"):
+    if _option_disabled(options, "verify_aud"):
         return "jwt.decode disables audience validation with verify_aud=False."
     if not _passes_audience(call):
         return "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
