@@ -149,6 +149,7 @@ class RouteSpec:
     kind: RouteKind
     response_class: ResponseClass = "api"
     on_loop: bool = False
+    stream: bool = False
 
 
 ROUTES: tuple[RouteSpec, ...]

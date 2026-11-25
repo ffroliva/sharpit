@@ -411,3 +411,9 @@ def test_static_fallback_on_json_error(no_side_effects, monkeypatch: pytest.Monk
     assert response.status == 500
     assert response.body == b'{"error":"Internal Server Error"}'
     assert response.headers == tuple(security_headers("api"))
+
+
+def test_route_spec_stream_defaults_to_false() -> None:
+    route = RouteSpec("test.default", "GET", "/api/overview", lambda _: ConsoleResponse(200, ()), None, "read")
+
+    assert getattr(route, "stream", None) is False

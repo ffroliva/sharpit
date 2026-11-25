@@ -111,6 +111,7 @@ class RouteSpec:
     kind: RouteKind
     response_class: ResponseClass = "api"
     on_loop: bool = False
+    stream: bool = False
 
 
 def frame_sse(event: str, event_id: str | None, data: str) -> bytes:
