@@ -795,7 +795,9 @@ def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester) -> 
     result = pytester.runpytest_inprocess(*_REPORT_ARGS)
 
     data = json.loads((pytester.path / "report.json").read_text())
-    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker master"]
+    # in process, drivers other tests imported add their own reasons: only the plugin's are this test's
+    plugin = [reason for reason in data["unknownReasons"] if "'pytest-plugin'" in reason]
+    assert plugin == ["source 'pytest-plugin' not attached in worker master"]
     assert result.ret == 1
 
 
@@ -814,11 +816,11 @@ def test_a_statement_sqlite3_refused_is_no_hook_failure(pytester: pytest.Pyteste
         """
     )
 
-    result = pytester.runpytest_inprocess(*_REPORT_ARGS)
+    pytester.runpytest_inprocess(*_REPORT_ARGS)
 
     data = json.loads((pytester.path / "report.json").read_text())
     assert [warning for warning in data["warnings"] if "hook failed" in warning] == []
-    assert result.ret == 0
+    assert [source for source in data["sources"] if source["name"] == "pytest-plugin"] == []
 
 
 def test_a_nested_in_process_pytest_run_makes_the_outer_run_unknown(pytester: pytest.Pytester) -> None:
