@@ -63,6 +63,7 @@ FRAGMENTS_0_9_0: list[tuple[str, str]] = [
 FRAGMENTS_0_10_0 = [
     ("#300", "0.10.0-routes-300.tsv"),
     ("#305", "0.10.0-305.tsv"),
+    ("exchanges-principal", "0.10.0-exchanges-principal.tsv"),
     ("not-exercised", "0.10.0-not-exercised.tsv"),
 ]
 

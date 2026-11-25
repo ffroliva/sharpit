@@ -251,3 +251,117 @@ def test_exchange_row_emits_route_route_source_request_id_and_retention():
         "evicted": 1,
         "slowThresholdMillis": None,
     }
+
+
+class _PropertyUser:
+    """A host user whose attributes are properties: reading them runs application code."""
+
+    calls: list[str] = []
+
+    @property
+    def is_authenticated(self) -> bool:
+        self.calls.append("is_authenticated")
+        return True
+
+    @property
+    def display_name(self) -> str:
+        self.calls.append("display_name")
+        return "alice"
+
+
+class _DynamicUser:
+    def __getattr__(self, name: str) -> object:
+        _DynamicUser.seen.append(name)
+        return True if name == "is_authenticated" else "alice"
+
+    seen: list[str] = []
+
+
+class _AlwaysAnonymous:
+    is_authenticated = False
+    display_name = "guest"
+
+
+def test_capture_never_runs_a_user_property():
+    _PropertyUser.calls.clear()
+    row = _row(user=_PropertyUser())
+    assert _PropertyUser.calls == []
+    assert row["principal"] is None
+
+
+def test_capture_never_runs_a_user_getattr():
+    _DynamicUser.seen.clear()
+    row = _row(user=_DynamicUser())
+    assert _DynamicUser.seen == []
+    assert row["principal"] is None
+
+
+def test_an_always_anonymous_custom_user_is_never_named():
+    assert _row(user=_AlwaysAnonymous())["principal"] is None
+
+
+def test_starlette_users_are_read_as_plain_data():
+    from starlette.authentication import SimpleUser, UnauthenticatedUser
+
+    assert _row(user=SimpleUser("alice"))["principal"] == "alice"
+    assert _row(user=UnauthenticatedUser())["principal"] is None
+
+
+@dataclass(slots=True)
+class _SlotUser:
+    display_name: str
+    is_authenticated: bool = True
+
+
+class _NameProperty:
+    is_authenticated = True
+    calls: list[str] = []
+
+    @property
+    def display_name(self) -> str:
+        self.calls.append("display_name")
+        return "alice"
+
+
+def test_a_slots_user_with_plain_fields_is_named():
+    assert _row(user=_SlotUser("alice"))["principal"] == "alice"
+
+
+def test_capture_never_runs_a_display_name_property():
+    _NameProperty.calls.clear()
+    row = _row(user=_NameProperty())
+    assert _NameProperty.calls == []
+    assert row["principal"] is None
+
+
+def test_a_simple_user_subclass_keeps_its_username():
+    from starlette.authentication import SimpleUser
+
+    class Scoped(SimpleUser):
+        def __init__(self, username: str) -> None:
+            super().__init__(username)
+            self.scopes = ("read",)
+
+    assert _row(user=Scoped("alice"))["principal"] == "alice"
+
+
+def test_a_simple_user_subclass_that_overrides_its_name_is_not_named():
+    from starlette.authentication import SimpleUser
+
+    class Renamed(SimpleUser):
+        @property
+        def display_name(self) -> str:
+            return "computed"
+
+    assert _row(user=Renamed("alice"))["principal"] is None
+
+
+class _UnsetSlot:
+    __slots__ = ("display_name", "is_authenticated")
+
+    def __init__(self) -> None:
+        self.is_authenticated = True  # display_name is never set
+
+
+def test_an_unset_slot_gives_no_principal_and_keeps_the_row():
+    assert _row(user=_UnsetSlot())["principal"] is None

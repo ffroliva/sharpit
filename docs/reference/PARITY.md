@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (41 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (42 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -394,6 +394,7 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (41 entries):
 | #305 | pentesting:A02:scanned-description:clean | adapted | BootUI uses "No findings were produced by the evaluated synthetic-response, Spring configuration, and Spring MVC mapping checks. This does not establish that every route, authorization rule, or deployment edge is configured safely." sharpit's no-finding note refers to the synthetic GET, CORS preflight, and available route-table and middleware configuration checks. |
 | #305 | pentesting:A07:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Spring authentication metadata. Endpoint authentication, account policy, and runtime login behavior were not tested." sharpit states whether Basic or Digest headers in the synthetic GET response produced a review finding. The note explains the limit on dependency-based authentication and qualifies incomplete evidence. |
 | #305 | pentesting:A08:scanned-description | adapted | BootUI says "No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review." sharpit's local scan does not assess deserialization safeguards. |
+| exchanges-principal | http-exchanges:principal | adapted | BootUI names the authenticated principal from Spring Security. sharpit reads scope["user"] as plain data and never runs a property, descriptor or __getattr__: Starlette's SimpleUser, or a subclass that keeps its is_authenticated and display_name, gives its username; UnauthenticatedUser gives none; any other user is named only when is_authenticated is exactly True and display_name exactly a str, both plain attributes or __slots__ fields. A computed name, a str subclass or a truthy non-bool flag gives no principal. |
 | not-exercised | insights:not-exercised | adapted | Declared HTTP routes not reached by a completed request are listed in sorted order, capped at 100; the agent view keeps eight and counts omissions. Any journal eviction refuses classification because sharpit has no run-wide route aggregates. |
 | not-exercised | insights:not-exercised-framework | adapted | Framework handlers use the fastapi and starlette module prefixes; opaque mounts, custom routes, WebSockets and Python path catch-alls are excluded. |
 | not-exercised | insights:not-exercised-converters | adapted | Python converter syntax remains unchanged on both declared paths and captured labels, rather than canonicalising only the declared path. |
