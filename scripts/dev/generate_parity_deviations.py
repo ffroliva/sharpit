@@ -60,7 +60,11 @@ FRAGMENTS_0_9_0: list[tuple[str, str]] = [
     ("R0", "0.9.0-r0.tsv"),
     ("S3/S4", "0.9.0-s34.tsv"),
 ]
-FRAGMENTS_0_10_0 = [("#305", "0.10.0-305.tsv"), ("not-exercised", "0.10.0-not-exercised.tsv")]
+FRAGMENTS_0_10_0 = [
+    ("#300", "0.10.0-routes-300.tsv"),
+    ("#305", "0.10.0-305.tsv"),
+    ("not-exercised", "0.10.0-not-exercised.tsv"),
+]
 
 SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"
 SECTION_HEADING_0_8_0 = "## 0.8.0 against BootUI 2.5.0: deviations"

@@ -154,7 +154,7 @@ def _jwt_aliases(tree: ast.Module) -> tuple[set[str], set[str]]:
             module_aliases.update(
                 alias.asname or alias.name.split(".")[0] for alias in statement.names if alias.name == "jwt"
             )
-        elif isinstance(statement, ast.ImportFrom) and statement.module == "jwt":
+        elif isinstance(statement, ast.ImportFrom) and statement.module == "jwt" and statement.level == 0:
             decode_aliases.update(alias.asname or alias.name for alias in statement.names if alias.name == "decode")
     return module_aliases, decode_aliases
 
@@ -170,17 +170,18 @@ def _is_jwt_decode(func: ast.expr, module_aliases: set[str], decode_aliases: set
     )
 
 
-def _disables_audience(call: ast.Call) -> bool:
-    options = _keyword(call, "options")
+def _option_disabled(options: ast.expr | None, name: str) -> bool | None:
+    """Whether the last setting of ``name`` is False; None when a literal does not set it. Unknown reads as False."""
     if not isinstance(options, ast.Dict):
         return False
-    return any(
-        isinstance(key, ast.Constant)
-        and key.value == "verify_aud"
-        and isinstance(value, ast.Constant)
-        and value.value is False
-        for key, value in zip(options.keys, options.values, strict=True)
-    )
+    for key, value in reversed(list(zip(options.keys, options.values, strict=True))):
+        if key is None:
+            unpacked = _option_disabled(value, name)
+            if unpacked is not None:
+                return unpacked
+        elif isinstance(key, ast.Constant) and key.value == name:
+            return isinstance(value, ast.Constant) and value.value is False
+    return None
 
 
 def _passes_audience(call: ast.Call) -> bool:
@@ -192,7 +193,10 @@ def _passes_audience(call: ast.Call) -> bool:
 
 
 def _audience_message(call: ast.Call) -> str | None:
-    if _disables_audience(call):
+    options = _keyword(call, "options")
+    if _option_disabled(options, "verify_signature"):  # PyJWT then skips the audience check by default as well
+        return "jwt.decode disables signature verification with verify_signature=False."
+    if _option_disabled(options, "verify_aud"):
         return "jwt.decode disables audience validation with verify_aud=False."
     if not _passes_audience(call):
         return "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
@@ -210,7 +214,8 @@ def _jwt_audience(inputs: Inputs) -> list[Violation]:
             message = _audience_message(node)
             if message is not None:
                 at = f"{where}:{node.lineno}"
-                found.append(Violation(at, f"{at}: {message}"))
+                # the text comes first: in auth.py the masker reads "auth.py:<text>" as a secret assignment
+                found.append(Violation(at, f"{message} ({where} line {node.lineno})"))
     return found
 
 
@@ -264,8 +269,8 @@ RULES: tuple[SecurityRule, ...] = (
             "OAuth2 / JWT",
             "INFO",
             "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim; "
-            "verify_aud=False disables audience validation.",
-            "Pass the expected audience to jwt.decode and leave verify_aud enabled.",
+            "verify_aud=False disables audience validation; verify_signature=False disables signature verification.",
+            "Pass the expected audience to jwt.decode and leave verify_aud and verify_signature enabled.",
             "https://pyjwt.readthedocs.io/en/stable/api.html#jwt.decode",
         ),
         _jwt_audience,

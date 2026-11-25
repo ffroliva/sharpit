@@ -72,7 +72,7 @@ GET routes:
 | 26 | `/memory/rules/{ruleId}/violations` | `web/AdvisorViolationsEndpoint:12` | — | Decision (Phase 8) |
 | 27 | `/hibernate` | `hibernate/HibernateController:39` | `reads` | Decision (Phase 8) |
 | 28 | `/hibernate/rules/{ruleId}/violations` | `web/AdvisorViolationsEndpoint:12` | — | Decision (Phase 8) |
-| 29 | `/dev-services/{id}/logs` | `web/DevServicesController:45` | — | `n-a` (Quarkus Dev Services, extends R0) |
+| 29 | `/dev-services/{id}/logs` | `web/DevServicesController:45` | — | Deferred (Docker Compose and Testcontainers logs, Python mapping `A`, maintainer decision) |
 | 30 | `/heap-dump/download` | `web/HeapDumpController:57` | — | Deferred (heap download, Phase 1) |
 | 31 | `/crac/dockerfile` | `crac/CracController:94` | — | `n-a` (JVM CRaC, `X`) |
 | 32 | `/crac/entrypoint` | `crac/CracController:103` | — | `n-a` (JVM CRaC, `X`) |
@@ -121,7 +121,8 @@ stays at 5 and the BootUI marks stay as recorded.
 
 **Heap download.** The Python mapping remains `P` and `/heap-dump/download` is deferred until a Python snapshot
 format and guarded download design are available. The R0 JVM-only entry covers `GET /heap-dump`. Record inventory
-entries #19, #29 and #31–#33 as `n-a` where their platform classification applies. Verify parity and docs.
+entries #19 and #31–#33 as `n-a` where their platform classification applies. Record #29 as deferred pending a
+maintainer decision on Docker Compose and Testcontainers log support. Verify parity and docs.
 
 ## Phase 2 — request journal, R1 (Task 2: `GET /activity/request/{id}/journal`)
 

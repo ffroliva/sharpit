@@ -2,8 +2,8 @@
   "fixture": "tests/fixtures/bootui/2.5.0",
   "counts": {
     "matched": 5,
-    "partial": 28,
-    "missing": 23,
+    "partial": 36,
+    "missing": 15,
     "n-a": 41,
     "total": 97
   },
@@ -74,9 +74,10 @@
     {
       "golden": "architecture/scanned.captured.json",
       "panel": "architecture",
-      "route": "/sharpit/api/architecture/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/architecture/scanned (HTTP 404)"
+      "route": "/sharpit/api/architecture",
+      "status": "partial",
+      "difference": "architecture/scanned.captured.json parity: basePackages: non-empty golden list requires a non-empty payload list",
+      "scenario": "post-scan"
     },
     {
       "golden": "beans/captured.json",
@@ -207,9 +208,19 @@
     {
       "golden": "database-advisor/scanned.captured.json",
       "panel": "database-advisor",
-      "route": "/sharpit/api/database-advisor/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/database-advisor/scanned (HTTP 404)"
+      "route": "/sharpit/api/database-advisor",
+      "status": "partial",
+      "difference": "Strict comparison passes. Empty golden lists provide no item shape.",
+      "scenario": "post-scan",
+      "emptyGoldenLists": [
+        "dataSourceNames",
+        "dataSources",
+        "diagnostics",
+        "results",
+        "suppression.findings",
+        "suppression.incompleteRules",
+        "violationDetails.locationNotes"
+      ]
     },
     {
       "golden": "database-connection-pools/pools.captured.json",
@@ -277,9 +288,10 @@
     {
       "golden": "fastapi/scanned.captured.json",
       "panel": "fastapi",
-      "route": "/sharpit/api/fastapi/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/fastapi/scanned (HTTP 404)"
+      "route": "/sharpit/api/fastapi",
+      "status": "partial",
+      "difference": "fastapi/scanned: golden list inspected has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4)",
+      "scenario": "post-scan"
     },
     {
       "golden": "fastapi-security/captured.json",
@@ -459,9 +471,9 @@
     {
       "golden": "memory/scanned.captured.json",
       "panel": "memory",
-      "route": "/sharpit/api/memory/scanned",
+      "route": "/sharpit/api/memory",
       "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/memory/scanned (HTTP 404)"
+      "difference": "sharpit has no route at /sharpit/api/memory (HTTP 404)"
     },
     {
       "golden": "metrics/captured.json",
@@ -508,9 +520,15 @@
     {
       "golden": "postgresql/scanned.captured.json",
       "panel": "postgresql",
-      "route": "/sharpit/api/postgresql/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/postgresql/scanned (HTTP 404)"
+      "route": "/sharpit/api/postgresql",
+      "status": "partial",
+      "difference": "Strict comparison passes. Empty golden lists provide no item shape.",
+      "scenario": "post-read",
+      "emptyGoldenLists": [
+        "databases",
+        "diagnostics",
+        "limitations"
+      ]
     },
     {
       "golden": "profile-diff/captured.json",
@@ -536,9 +554,10 @@
     {
       "golden": "rest-api/scanned.captured.json",
       "panel": "rest-api",
-      "route": "/sharpit/api/rest-api/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/rest-api/scanned (HTTP 404)"
+      "route": "/sharpit/api/rest-api",
+      "status": "partial",
+      "difference": "rest-api/scanned.captured.json parity: evidence.limitations: non-empty golden list requires a non-empty payload list",
+      "scenario": "post-scan"
     },
     {
       "golden": "rest-client-trace/captured.json",
@@ -564,9 +583,9 @@
     {
       "golden": "runtime-insights/impact-symbols.captured.json",
       "panel": "runtime-insights",
-      "route": "/sharpit/api/runtime-insights/impact-symbols",
+      "route": "/sharpit/api/runtime-insights/impact/symbols",
       "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/runtime-insights/impact-symbols (HTTP 404)"
+      "difference": "sharpit has no route at /sharpit/api/runtime-insights/impact/symbols (HTTP 404)"
     },
     {
       "golden": "runtime-insights/impact.captured.json",
@@ -599,9 +618,10 @@
     {
       "golden": "security/scanned.captured.json",
       "panel": "security",
-      "route": "/sharpit/api/security/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/security/scanned (HTTP 404)"
+      "route": "/sharpit/api/security",
+      "status": "partial",
+      "difference": "security/scanned: golden list filterChains has no shape information; cannot satisfy 2.3.0 or later 'matched' parity (spec §4.4)",
+      "scenario": "post-scan"
     },
     {
       "golden": "security-logs/captured.json",
@@ -662,9 +682,10 @@
     {
       "golden": "traces/detail.captured.json",
       "panel": "traces",
-      "route": "/sharpit/api/traces/detail",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/traces/detail (HTTP 404)"
+      "route": "/sharpit/api/traces/{id}",
+      "status": "partial",
+      "difference": "traces/detail.captured.json parity: spans[].attributes: non-empty golden list requires a non-empty payload list",
+      "scenario": "seeded-trace"
     },
     {
       "golden": "transactions/captured.json",
@@ -683,9 +704,10 @@
     {
       "golden": "vulnerabilities/scanned.captured.json",
       "panel": "vulnerabilities",
-      "route": "/sharpit/api/vulnerabilities/scanned",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/vulnerabilities/scanned (HTTP 404)"
+      "route": "/sharpit/api/vulnerabilities",
+      "status": "partial",
+      "difference": "vulnerabilities/scanned.captured.json parity: coverage.unidentifiedArchives: non-empty golden list requires a non-empty payload list; evidence.limitations: non-empty golden list requires a non-empty payload list",
+      "scenario": "post-scan"
     }
   ]
 }

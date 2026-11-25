@@ -3,26 +3,80 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
+import re
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 import prometheus_client  # noqa: F401  the metrics goldens assume the observed registry is loaded (isolated run)
 import pytest
 from examples.fastapi_sample.app import create_app
-from fastapi.testclient import TestClient
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.util.instrumentation import InstrumentationScope
+from opentelemetry.trace import SpanContext, TraceFlags
 
+from conftest import SideEffectGuard
+from fastapi import FastAPI
 from golden import assert_parity, bootui_ids
+from sharpit.engine.capture.traces import span_buffer
+from sharpit.engine.collectors.vulns.osv import OsvClient
 
+_API = "/sharpit/api"
 _FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0"
+_BOOTUI_25 = _FIXTURES_DIR.with_name("2.5.0")
 _STATUS_FILE = Path(__file__).with_name("routes_status.json")
+_TRACE_ID = 1
+
+_ROUTE_ADAPTATIONS = {
+    # Python counterparts of the Spring advisor and Spring Security reads.
+    "/fastapi": "/spring",
+    "/fastapi-security": "/spring-security",
+    "/fastapi-security/endpoints": "/spring-security/endpoints",
+    "/fastapi-security/explain": "/spring-security/explain",
+    # The 2.3.0 golden keeps the original spelling.
+    "/graalvm/scan-progress": "/graalvm/scan/progress",
+}
+_UNMOUNTED_DECLARATIONS = {
+    "AgentSessionController.java",
+    "ReactiveAgentSessionController.java",
+    "BootUiIndexController.java",
+    "ReactiveBootUiIndexController.java",
+    "AdvisorViolationsEndpoint.java",
+}
+# These starter controllers implement AdvisorViolationsEndpoint at v2.5.0.
+_ADVISOR_CONTROLLERS = {
+    "ArchitectureController.java",
+    "DatabaseAdvisorController.java",
+    "HibernateController.java",
+    "MemoryController.java",
+    "RestApiController.java",
+    "SecurityController.java",
+    "SpringController.java",
+}
 
 _STATUS_DATA = json.loads(_STATUS_FILE.read_text(encoding="utf-8"))
 _ROUTES = _STATUS_DATA["routes"]
 _ROUTES_BY_GOLDEN = {r["golden"]: r for r in _ROUTES}
+_PASSING_SCENARIOS = ("database-advisor/scanned.captured.json", "postgresql/scanned.captured.json")
+_EMPTY_GOLDEN_DIFFERENCE = "Strict comparison passes. Empty golden lists provide no item shape."
+_SCENARIOS = {
+    "architecture/scanned.captured.json": "post-scan",
+    "database-advisor/scanned.captured.json": "post-scan",
+    "fastapi/scanned.captured.json": "post-scan",
+    "postgresql/scanned.captured.json": "post-read",
+    "rest-api/scanned.captured.json": "post-scan",
+    "security/scanned.captured.json": "post-scan",
+    "traces/detail.captured.json": "seeded-trace",
+    "vulnerabilities/scanned.captured.json": "post-scan",
+}
 
 _MATCHED = [r for r in _ROUTES if r["status"] == "matched"]
-_PARTIAL = [r for r in _ROUTES if r["status"] == "partial"]
+_PARTIAL = [r for r in _ROUTES if r["status"] == "partial" and r["golden"] not in _PASSING_SCENARIOS]
 _MISSING = [r for r in _ROUTES if r["status"] == "missing"]
 _NA = [r for r in _ROUTES if r["status"] == "n-a"]
 
@@ -60,10 +114,82 @@ def test_no_matched_golden_contains_an_empty_list() -> None:
     assert not with_empty_lists, f"matched rows have shapeless empty-list goldens: {with_empty_lists}"
 
 
+@pytest.fixture(scope="module")
+def asgi_request() -> Iterator[Callable[[FastAPI, str, str], httpx.Response]]:
+    # Windows creates the event loop's self-pipe before the side-effect guard starts.
+    with asyncio.Runner() as runner:
+        runner.get_loop()
+
+        async def send(app: FastAPI, method: str, path: str) -> httpx.Response:
+            transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 50000))
+            async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8000") as client:
+                return await client.request(method, path)
+
+        yield lambda app, method, path: runner.run(send(app, method, path))
+
+
 @pytest.fixture
-def client() -> TestClient:
-    app = create_app(show_banner=False)
-    return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+def make_app(tmp_state_dir: Path) -> Iterator[Callable[..., FastAPI]]:
+    with ExitStack() as cleanup:
+
+        def create(**options: Any) -> FastAPI:
+            app = create_app(show_banner=False, state_dir=str(tmp_state_dir), **options)
+            cleanup.callback(app.state.sharpit.uninstall_capture)
+            return app
+
+        yield create
+
+
+def _seed_trace(app: FastAPI, attributes: dict[str, bool | str] | None = None) -> str:
+    span = ReadableSpan(
+        "sample",
+        context=SpanContext(_TRACE_ID, 1, False, TraceFlags(1)),
+        start_time=1,
+        end_time=2,
+        instrumentation_scope=InstrumentationScope("parity"),
+        attributes=attributes,
+    )
+    span_buffer(app.state.sharpit.context).add(span)
+    return f"{_TRACE_ID:032x}"
+
+
+@pytest.fixture
+def scenario_get(
+    asgi_request: Callable[[FastAPI, str, str], httpx.Response],
+    make_app: Callable[..., FastAPI],
+    monkeypatch: pytest.MonkeyPatch,
+    no_side_effects: SideEffectGuard,
+) -> Callable[..., httpx.Response]:
+    def get(item: dict[str, Any], *, attributes: dict[str, bool | str] | None = None) -> httpx.Response:
+        route = item["route"]
+        scenario = item.get("scenario")
+        options: dict[str, Any] = {}
+        if scenario in ("post-scan", "post-read"):
+            options["panels"] = {item["panel"]: {"read_only": False}}
+        if scenario == "post-scan" and item["panel"] == "vulnerabilities":
+            options["vulnerabilities_epss_enabled"] = False
+            monkeypatch.setattr(OsvClient, "_query_page", lambda self, pending, deadline: [{} for _ in pending])
+
+        app = make_app(**options)
+        if scenario in ("post-scan", "post-read"):
+            action = f"{route}/{scenario.removeprefix('post-')}"
+            action_response = asgi_request(app, "POST", action)
+            assert action_response.status_code == 200, f"POST {action} returned HTTP {action_response.status_code}"
+            response = asgi_request(app, "GET", route)
+            report = action_response.json()
+            assert response.json() == report, f"GET {route} differs from the POST report"
+            # PostgreSQL can return the same empty report before and after POST when SQLAlchemy is unavailable.
+            if item["panel"] in ("architecture", "database-advisor"):
+                assert report["scan"]["scannedAt"] is not None, f"POST {action} did not record a scan"
+            return response
+
+        if scenario == "seeded-trace":
+            route = route.format(id=_seed_trace(app, attributes))
+        else:
+            assert scenario is None, f"Unknown scenario {scenario!r}"
+        return asgi_request(app, "GET", route)
+
+    return get
 
 
 def _fixture_parts(golden_rel: str) -> tuple[str, str]:
@@ -104,21 +230,84 @@ def test_every_golden_file_is_classified() -> None:
     assert len(_ROUTES) == 97
 
 
+def _route_template(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", "{}", path)
+
+
+@pytest.fixture(scope="module")
+def bootui_route_catalog() -> dict[str, Any]:
+    return json.loads((_BOOTUI_25 / "routes.json").read_text(encoding="utf-8"))
+
+
+def test_inventory_uses_canonical_paths(bootui_route_catalog: dict[str, Any]) -> None:
+    starter = bootui_route_catalog["crossCheck"]["starterMappings"]
+    paths = {_route_template(row["path"]) for row in starter if row["verb"] == "GET"}
+    paths.update(_route_template(row["path"]) for row in bootui_route_catalog["reads"] if row["method"] == "GET")
+    unknown = {}
+    for item in _ROUTES:
+        full_route = item["route"]
+        route = full_route.removeprefix(_API)
+        if route == full_route or _route_template(_ROUTE_ADAPTATIONS.get(route, route)) not in paths:
+            unknown[item["golden"]] = item["route"]
+    assert not unknown, f"GET routes absent from the BootUI catalogue: {unknown}"
+
+
+def test_bootui_25_starter_declares_143_api_get_routes(bootui_route_catalog: dict[str, Any]) -> None:
+    cross_check = bootui_route_catalog["crossCheck"]
+    starter = [row for row in cross_check["starterMappings"] if row["verb"] == "GET"]
+    # Session bases are expanded in inheritedMappings. The index serves the UI and GET /mcp answers 405.
+    mounted = {
+        row["path"] for row in starter if row["controller"] not in _UNMOUNTED_DECLARATIONS and row["path"] != "/mcp"
+    }
+    mounted.update(row["path"] for row in cross_check["inheritedMappings"] if row["verb"] == "GET")
+    advisor_paths = {row["path"] for row in starter if row["controller"] == "AdvisorViolationsEndpoint.java"}
+    advisor_prefixes = {row["path"] for row in starter if row["controller"] in _ADVISOR_CONTROLLERS} & {
+        row["path"] for row in bootui_route_catalog["reads"] if row["path"] == f"/{row['panel']}"
+    }
+    assert len(advisor_prefixes) == len(_ADVISOR_CONTROLLERS)
+    mounted.update(f"{prefix}{path}" for prefix in advisor_prefixes for path in advisor_paths)
+    assert len({_route_template(path) for path in mounted}) == 143
+
+
+def test_inventory_pins_served_scenario_setup() -> None:
+    actual = {item["golden"]: item["scenario"] for item in _ROUTES if "scenario" in item}
+    assert actual == _SCENARIOS
+
+
+def test_unknown_scenario_is_rejected(scenario_get: Callable[..., httpx.Response]) -> None:
+    with pytest.raises(AssertionError, match="Unknown scenario 'unknown'"):
+        scenario_get({"route": f"{_API}/panels", "scenario": "unknown"})
+
+
 @pytest.mark.parametrize("item", _MATCHED, ids=lambda r: str(r["golden"]))
-def test_matched_routes_pass_23_parity(client: TestClient, item: dict[str, Any]) -> None:
+def test_matched_routes_pass_23_parity(scenario_get: Callable[..., httpx.Response], item: dict[str, Any]) -> None:
     route = item["route"]
     sharpit_id, name = _fixture_parts(item["golden"])
-    response = client.get(route)
+    response = scenario_get(item)
     assert response.status_code == 200, f"{route} returned HTTP {response.status_code}"
     payload = response.json()
     assert_parity(sharpit_id, name, payload, fixture_version="2.3.0", matched=True)
 
 
+@contextmanager
+def _second_thread() -> Iterator[None]:
+    """Only the current thread has a CPU time, so the recorded thread gaps need another live thread."""
+    stop = threading.Event()
+    thread = threading.Thread(target=stop.wait, name="parity-second-thread")
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
+
+
 @pytest.mark.parametrize("item", _PARTIAL, ids=lambda r: str(r["golden"]))
-def test_partial_routes_record_exact_gaps(client: TestClient, item: dict[str, Any]) -> None:
+def test_partial_routes_record_exact_gaps(scenario_get: Callable[..., httpx.Response], item: dict[str, Any]) -> None:
     route = item["route"]
     sharpit_id, name = _fixture_parts(item["golden"])
-    response = client.get(route)
+    with _second_thread():
+        response = scenario_get(item)
     assert response.status_code == 200, f"{route} returned HTTP {response.status_code}"
     payload = response.json()
 
@@ -134,8 +323,50 @@ def test_partial_routes_record_exact_gaps(client: TestClient, item: dict[str, An
         assert actual_diff == expected_diff
 
 
-def test_error_contract_records_its_bootui_23_parity_gap(client: TestClient) -> None:
-    response = client.get("/sharpit/api/rest-api/error-contract")
+@pytest.mark.parametrize("golden", _PASSING_SCENARIOS)
+def test_passing_scenarios_pin_empty_golden_lists(scenario_get: Callable[..., httpx.Response], golden: str) -> None:
+    item = _ROUTES_BY_GOLDEN[golden]
+    assert item["status"] == "partial"
+    assert item["difference"] == _EMPTY_GOLDEN_DIFFERENCE
+    response = scenario_get(item)
+    assert response.status_code == 200
+    assert_parity(*_fixture_parts(golden), response.json(), fixture_version="2.3.0", matched=True)
+    expected = json.loads((_FIXTURES_DIR / golden).read_text(encoding="utf-8"))
+    assert _empty_list_paths(expected) == set(item["emptyGoldenLists"])
+
+
+def test_seeded_trace_renders_attributes(scenario_get: Callable[..., httpx.Response]) -> None:
+    golden = "traces/detail.captured.json"
+    response = scenario_get(_ROUTES_BY_GOLDEN[golden], attributes={"parity.flag": True, "parity.label": "sample"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert_parity(*_fixture_parts(golden), payload, fixture_version="2.3.0", matched=True)
+    assert payload["spans"][0]["attributes"] == [
+        {"key": "parity.flag", "type": "BOOLEAN", "value": "true"},
+        {"key": "parity.label", "type": "STRING", "value": "sample"},
+    ]
+
+
+@pytest.mark.usefixtures("no_side_effects")
+def test_seeded_trace_does_not_resolve_literal_id(
+    asgi_request: Callable[[FastAPI, str, str], httpx.Response],
+    make_app: Callable[..., FastAPI],
+) -> None:
+    app = make_app()
+    _seed_trace(app)
+    response = asgi_request(app, "GET", f"{_API}/traces/{{id}}")
+    assert response.status_code == 404
+    assert response.json() == {"error": "trace {id} not found"}
+
+
+def test_unknown_trace_returns_404(scenario_get: Callable[..., httpx.Response]) -> None:
+    response = scenario_get({"route": f"{_API}/traces/{_TRACE_ID:032x}"})
+    assert response.status_code == 404
+    assert response.json() == {"error": f"trace {_TRACE_ID:032x} not found"}
+
+
+def test_error_contract_records_its_bootui_23_parity_gap(scenario_get: Callable[..., httpx.Response]) -> None:
+    response = scenario_get({"route": f"{_API}/rest-api/error-contract"})
     assert response.status_code == 200
     payload = response.json()
     with pytest.raises(AssertionError) as exc_info:
@@ -152,11 +383,11 @@ def test_error_contract_records_its_bootui_23_parity_gap(client: TestClient) -> 
 
 
 @pytest.mark.parametrize("item", _MISSING, ids=lambda r: str(r["golden"]))
-def test_missing_routes_return_404(client: TestClient, item: dict[str, Any]) -> None:
+def test_missing_routes_return_404(scenario_get: Callable[..., httpx.Response], item: dict[str, Any]) -> None:
     route = item["route"]
-    assert route not in {getattr(r, "path", "") for r in client.app.routes}
-    response = client.get(route)
+    response = scenario_get(item)
     assert response.status_code == 404, f"{route} unexpectedly returned HTTP {response.status_code}"
+    assert item["difference"] == f"sharpit has no route at {route} (HTTP {response.status_code})"
 
 
 @pytest.mark.parametrize("item", _NA, ids=lambda r: str(r["golden"]))
@@ -177,10 +408,10 @@ def test_na_routes_have_empty_list_in_fixture(item: dict[str, Any]) -> None:
     )
 
 
-def test_matched_cases_fail_if_golden_mutated(client: TestClient) -> None:
+def test_matched_cases_fail_if_golden_mutated(scenario_get: Callable[..., httpx.Response]) -> None:
     for item in _MATCHED:
         sharpit_id, name = _fixture_parts(item["golden"])
-        response = client.get(item["route"])
+        response = scenario_get(item)
         assert response.status_code == 200
         mutated = dict(response.json())
         expected = json.loads((_FIXTURES_DIR / item["golden"]).read_text(encoding="utf-8"))
