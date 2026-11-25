@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.fastapi.capture import CAPTURE_TOO_LATE_REASON
 
 API = "/sharpit/api/runtime-insights"
 
@@ -23,7 +24,7 @@ def test_a_route_nobody_called_is_listed_and_a_called_one_is_not():
         assert client.get(API).json()["notExercised"] == ["GET /uncalled"]
 
 
-def test_a_too_late_install_lists_no_route_because_http_is_not_recorded():
+def test_a_too_late_install_lists_no_route_and_names_the_install_order():
     app = FastAPI()
     app.add_api_route("/called", lambda: {})
     app.middleware_stack = app.build_middleware_stack()
@@ -33,7 +34,7 @@ def test_a_too_late_install_lists_no_route_because_http_is_not_recorded():
         assert client.get("/called").status_code == 200
         report = client.get(API).json()
         assert report["notExercised"] == []
-        assert any("does not record the http source" in text for text in report["limitations"])
+        assert f"{CAPTURE_TOO_LATE_REASON}, so the routes no request reached are not listed." in report["limitations"]
 
 
 def test_a_called_plain_starlette_route_is_omitted_and_counted_while_an_uncalled_fastapi_route_is_listed():
