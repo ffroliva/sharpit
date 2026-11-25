@@ -266,3 +266,10 @@ def test_a_failed_or_reentrant_journal_drop_refuses_classification():
             f"The journal dropped events of an unknown source ({key}), so declared routes "
             "cannot be classified as not exercised."
         ) in report["limitations"]
+
+
+def test_masked_labels_are_deduplicated_and_sorted_before_the_cap():
+    routes = [route("/b"), route("/k/AKIAIOSFODNN7EXAMPLE"), route("/k/AKIAI44QH8DHBEXAMPLE"), route("/a")]
+    report = service(routes=routes).report()
+    assert report["notExercised"] == ["GET ******", "GET /a", "GET /b"]
+    assert report["notExercisedOmitted"] == 0
