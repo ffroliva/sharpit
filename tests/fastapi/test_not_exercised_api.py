@@ -23,6 +23,19 @@ def test_a_route_nobody_called_is_listed_and_a_called_one_is_not():
         assert client.get(API).json()["notExercised"] == ["GET /uncalled"]
 
 
+def test_a_too_late_install_lists_no_route_because_http_is_not_recorded():
+    app = FastAPI()
+    app.add_api_route("/called", lambda: {})
+    app.middleware_stack = app.build_middleware_stack()
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        assert client.get("/called").status_code == 200
+        assert client.get("/called").status_code == 200
+        report = client.get(API).json()
+        assert report["notExercised"] == []
+        assert any("does not record the http source" in text for text in report["limitations"])
+
+
 def test_a_plain_starlette_route_called_once_is_not_listed_without_a_limitation():
     app = FastAPI()
     app.add_route(
