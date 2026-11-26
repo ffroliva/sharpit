@@ -10,10 +10,10 @@ class SideEffectsService:
         self.store = None
 
     def report(self) -> dict[str, Any]:
-        return {}
+        return {"available": False, "unavailableReason": "", "sensors": [{"id": "", "group": "", "label": "", "state": "", "reason": "", "rows": 0, "occurrences": 0, "dropped": 0, "hooks": [], "toggle": None}], "limitations": []}
 
     def sensor(self, sensor_id: str | None, offset: int | None, limit: int | None) -> dict[str, Any]:
-        return {}
+        return {"available": False, "unavailableReason": "", "sensor": {}, "rows": [], "page": {}, "limitations": []}
 
     def limitations(self, **kwargs: Any) -> list[str]:
         return []
