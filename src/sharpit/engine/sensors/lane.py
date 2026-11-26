@@ -43,8 +43,7 @@ class SensorHook:
         self._lane.unpause(self.name)
 
     def discard(self) -> None:
-        """Nothing is held in the process or file sensors; the security-sinks sensor wipes its held values."""
-        self._lane.wipe(self.name)
+        """Suspension never clears recorded rows; only an explicit recording clear does."""
 
 
 class SensorLane:

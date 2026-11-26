@@ -77,8 +77,7 @@ SIDE_EFFECT_SENSORS = (
     (
         "security-sinks",
         "Security sinks",
-        "Request input reaching SQL, commands, file paths, and URLs; deserialization without a filter, weak"
-        " algorithms, and trust managers",
+        "Request input reaching commands and file paths",
     ),
 )
 # SideEffectsService.LIMITATION_SCOPE, _VALUES, _NETWORK: the minimisation the sensors will keep, BootUI -> sharpit
