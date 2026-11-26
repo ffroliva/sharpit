@@ -486,3 +486,19 @@ def test_rows_the_pending_list_dropped_are_reported_as_dropped_by_their_sensor()
     dropped = {sensor["id"]: sensor["dropped"] for sensor in service.report()["sensors"]}
     assert dropped["processes"] == 1
     assert dropped["files"] == 0
+
+
+def test_a_service_built_without_ready_at_records_an_unowned_row() -> None:
+    rows = SensorRows()
+    lane = SimpleNamespace(rows=rows, is_on=lambda _name: True, holder_status=lambda: None)
+    capture = SimpleNamespace(sensors=lane, journal=SimpleNamespace(request_routes=lambda _ids: {}))
+    service = SideEffectsService(capture, Masker(exposure=Exposure.MASKED, mask_secrets=True))
+    rows.append({"source": "processes", "at": time.time_ns() // 1_000_000, "kind": "start", "target": "python"})
+    failures: list[str] = []
+    try:
+        report = service.sensor("processes", 0, 20)
+    except TypeError as error:
+        failures.append(repr(error))
+        report = {"rows": []}
+    assert failures == []
+    assert len(report["rows"]) == 1

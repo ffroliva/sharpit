@@ -303,3 +303,25 @@ it('shows the empty state and the limitations', async () => {
   await until(() => expect(h.text()).toContain('No file has been opened yet in this run.'));
   expect(h.text()).toContain('No process started yet in this run.');
 });
+
+it('names only what the security sinks tab checks when it has no rows', async () => {
+  h.route((url) => {
+    if (url === 'api/side-effects') {
+      return json(200, summary({ sensors: { 'security-sinks': { state: 'recording', reason: null } } }));
+    }
+    if (url.startsWith('api/side-effects/sensor') && url.includes('sensor=security-sinks')) {
+      return json(200, sensorReport('security-sinks', []));
+    }
+    return undefined;
+  });
+
+  h.mount(SideEffects, { panel: panel('side-effects', { title: 'Side Effects' }) });
+
+  await until(() => expect(tab('Security sinks')).toBeDefined());
+  tab('Security sinks')?.click();
+
+  await until(() =>
+    expect(h.text()).toContain('No request input has reached a command or a file path in this run.'),
+  );
+  expect(h.text()).not.toContain('SQL text');
+});

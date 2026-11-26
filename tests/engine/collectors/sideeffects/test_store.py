@@ -424,3 +424,74 @@ def test_a_process_or_file_row_is_shown_from_one_occurrence() -> None:
     assert len(store.rows_of("files")) == 1
     assert store.counts("processes") == (1, 1)
     assert store.counts("files") == (1, 1)
+
+
+ROUTE_HIDDEN = "(route hidden)"
+
+
+def _routed_store(hidden: list[bool]) -> tuple[FakeSensorRows, SideEffectsStore]:
+    rings = FakeSensorRows()
+    store = SideEffectsStore(
+        rings,
+        route_reader=lambda ids: dict.fromkeys(ids, "GET /files/{id}"),
+        routes_hidden=lambda: hidden[0],
+    )
+    return rings, store
+
+
+def _numeric_pair(rings: FakeSensorRows) -> None:
+    for req, raw_hash in ((1, 11), (2, 12)):
+        rings.append(
+            sink_row(req, "open, argument 1", kind="file-path", raw_hash=raw_hash, redacted_hash=7, numeric=True)
+        )
+
+
+# adapted from: SideEffectsStoreTests.rowsHideTheirRouteOnReadWhileHttpExchangesIsHidden
+def test_a_numeric_sink_match_confirms_across_two_requests_while_exchanges_is_off() -> None:
+    hidden = [True]
+    rings, store = _routed_store(hidden)
+    _numeric_pair(rings)
+    store.drain()
+    rows = store.rows_of("security-sinks")
+    assert [(row.scope, row.attribution) for row in rows] == [("route", ROUTE_HIDDEN)]
+    assert rows[0].exemplar_request_ids == []
+    assert store.unconfirmed() == 0
+
+
+def test_rows_show_their_route_again_after_exchanges_is_re_enabled() -> None:
+    hidden = [True]
+    rings, store = _routed_store(hidden)
+    _numeric_pair(rings)
+    store.drain()
+    hidden[0] = False
+    rows = store.rows_of("security-sinks")
+    assert [row.attribution for row in rows] == ["GET /files/{id}"]
+    assert rows[0].exemplar_request_ids == [f"{1:016x}", f"{2:016x}"]
+
+
+def test_rows_recorded_while_exchanges_was_on_are_hidden_after_it_is_disabled() -> None:
+    hidden = [False]
+    rings, store = _routed_store(hidden)
+    rings.append(sink_row(1, "convert, argument 1", route="GET /files/{id}"))
+    store.drain()
+    assert [row.attribution for row in store.rows_of("security-sinks")] == ["GET /files/{id}"]
+    hidden[0] = True
+    rows = store.rows_of("security-sinks")
+    assert [row.attribution for row in rows] == [ROUTE_HIDDEN]
+    assert rows[0].exemplar_request_ids == []
+
+
+def test_unowned_rows_never_wait_or_drop() -> None:
+    from sharpit.engine.sensors.rows import RING_CAPACITY
+
+    rings, store = _routed_store([False])
+    for _ in range(RING_CAPACITY):
+        rings.append(file_row("./burst.txt"))
+    unowned_sink = sink_row(1, "convert, argument 1")
+    del unowned_sink["requestId"]
+    rings.append(unowned_sink)
+    rings.append(process_row("python"))
+    store.drain()
+    assert store.counts("security-sinks") == (1, 1)
+    assert store.counts("processes") == (1, 1)
+    assert [store.dropped(sensor) for sensor in ("files", "processes", "security-sinks")] == [0, 0, 0]
