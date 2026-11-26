@@ -4,9 +4,8 @@ import re
 
 SEEN_ONCE = " Seen in one request so far."
 OTHER = (
-    # shortcut: the wording promises a recording clear that sharpit does not yet offer.
     "Request input reached more sinks than this table keeps apart; their parameters and"
-    " sinks are counted here. Clear the recording to see them again."
+    " sinks are counted here. Restart the application to see them again."
 )
 _ARGUMENT = re.compile(r"^(.*), argument (\d+)$")
 
