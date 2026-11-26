@@ -1,17 +1,23 @@
 """The processes sensor (W6 lane S3): which commands the application starts, by file name only.
 
-Minimisation: a row is ``{source, kind, target}``. The target is the base name of the program, or BootUI's
-``(unknown)`` when the program cannot be told apart from what follows it. Arguments, the environment, the working
-directory and a shell's ``NAME=value`` prefixes are never read into a row.
+Minimisation: a row is ``{source, kind, target, requestId, at, callSite, threadName}``. The target is the base name of
+the program, or BootUI's ``(unknown)`` when the program cannot be told apart from what follows it. Arguments, the
+environment, the working directory and a shell's ``NAME=value`` prefixes are never read into a row.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import sys
+import threading
+import time
 from collections.abc import Mapping, Sequence
+from types import FrameType
 from typing import Any, cast
 
+from sharpit.engine.capture.correlation import REQUEST
+from sharpit.engine.capture.frames import call_site_label, first_application_frame
 from sharpit.engine.sensors.sinks import (
     F_OVERFLOW,
     FROM_REQUEST_INPUT,
@@ -133,11 +139,28 @@ def _check_joined_command(
     return executable
 
 
+def _process_row(target: str, context_id: str | None, caller: FrameType | None) -> dict[str, object]:
+    req = REQUEST.get()
+    req_id = req.id if req is not None and (context_id is None or req.context_id == context_id) else None
+    app_frame = first_application_frame(caller)
+    return {
+        "source": SOURCE,
+        "kind": "start",
+        "target": target,
+        "requestId": req_id,
+        "at": time.time_ns() // 1_000_000,
+        "callSite": call_site_label(app_frame) if app_frame is not None else None,
+        "threadName": threading.current_thread().name if req_id is None else None,
+    }
+
+
 def _string_sink_rows(
     matcher: SinkMatcher,
     command_name: str,
     program: str | None,
     command_line: str,
+    context_id: str | None = None,
+    caller: FrameType | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     executable: str | None = None
     checking = False
@@ -152,7 +175,7 @@ def _string_sink_rows(
             executable = NOT_CHECKED
         sink_rows.clear()
     proc_target = executable if executable is not None else command_name
-    return ({"source": SOURCE, "kind": "start", "target": proc_target}, *sink_rows)
+    return (_process_row(proc_target, context_id, caller), *sink_rows)
 
 
 def _argv_elements(program: object, argv: Sequence[object]) -> list[str]:
@@ -199,6 +222,8 @@ def _argv_sink_rows(
     command_name: str,
     program: object,
     argv: Sequence[object],
+    context_id: str | None = None,
+    caller: FrameType | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     elements = _argv_elements(program, argv)
     executable: str | None = None
@@ -212,7 +237,7 @@ def _argv_sink_rows(
             executable = NOT_CHECKED
         sink_rows.clear()
     proc_target = executable if executable is not None else command_name
-    return ({"source": SOURCE, "kind": "start", "target": proc_target}, *sink_rows)
+    return (_process_row(proc_target, context_id, caller), *sink_rows)
 
 
 _ARGV_AT = {
@@ -227,23 +252,28 @@ class ProcessesSensor:
     name = SOURCE
     events = ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn")
 
-    def __init__(self, matcher: SinkMatcher | None = None) -> None:
+    def __init__(self, matcher: SinkMatcher | None = None, *, context_id: str | None = None) -> None:
         self._matcher = matcher
+        self._context_id = (
+            context_id if context_id is not None else (matcher._context_id if matcher is not None else None)  # pyright: ignore[reportPrivateUsage]
+        )
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+        caller = sys._getframe(1)  # pyright: ignore[reportPrivateUsage]
         if self._matcher is None:
             target = self._target(event, args)
-            return ({"source": SOURCE, "kind": "start", "target": target},) if target else ()
+            return (_process_row(target, self._context_id, caller),) if target else ()
         target = self._target(event, args)
         if target is None:
             return ()
-        return self._record_matched(event, args, target)
+        return self._record_matched(event, args, target, caller)
 
     def _record_matched(
         self,
         event: str,
         args: tuple[Any, ...],
         target: str | None = None,
+        caller: FrameType | None = None,
     ) -> tuple[Mapping[str, object], ...]:
         if self._matcher is None:
             return ()
@@ -252,19 +282,23 @@ class ProcessesSensor:
             return ()
         if event == "os.system":
             command = _text(args[0]) if args else None
-            return _string_sink_rows(self._matcher, cmd_target, None, command) if command else ()
+            return (
+                _string_sink_rows(self._matcher, cmd_target, None, command, self._context_id, caller) if command else ()
+            )
         where = _ARGV_AT.get(event)
         if not where or len(args) <= where[1]:
             return ()
         program, argv = args[where[0]], args[where[1]]
         if isinstance(argv, (list, tuple)):
-            return _argv_sink_rows(self._matcher, cmd_target, program, cast("Sequence[object]", argv))
+            return _argv_sink_rows(
+                self._matcher, cmd_target, program, cast("Sequence[object]", argv), self._context_id, caller
+            )
         line = _text(cast("object", argv)) if isinstance(argv, (str, bytes)) else None
         prog_text = _text(program) if program is not None else None
         if line is not None:
-            return _string_sink_rows(self._matcher, cmd_target, prog_text, line)
+            return _string_sink_rows(self._matcher, cmd_target, prog_text, line, self._context_id, caller)
         if prog_text is not None:
-            return _string_sink_rows(self._matcher, cmd_target, None, prog_text)
+            return _string_sink_rows(self._matcher, cmd_target, None, prog_text, self._context_id, caller)
         return ()
 
     @staticmethod
