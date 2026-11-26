@@ -703,3 +703,29 @@ def test_every_sensor_row_is_offered_with_the_exact_flat_walk_size() -> None:
         for target_val in (None, "./reports/{name}.csv"):
             sink_variant = {**base_sink, "target": target_val, "callSite": req_id, "requestId": req_id}
             assert row_size(sink_variant) == _flat(sink_variant)[1]
+
+
+def test_a_lane_without_request_values_gives_another_installs_row_no_request_id() -> None:
+    from sharpit.engine.capture.journal import RuntimeJournal
+    from sharpit.engine.sensors.audit import AuditHub
+    from sharpit.engine.sensors.lane import build_lane
+
+    hooks: list[Any] = []
+    lane = build_lane(
+        ("processes", "files"),
+        RuntimeJournal(sources=["http"]),
+        lambda p: p,
+        audit=AuditHub(add_hook=hooks.append),
+        context_id="ctx",
+    )
+    assert lane is not None
+    lane.attach()
+    token = REQUEST.set(info("file=x", request_id="c" * 16, context_id="other"))
+    try:
+        hooks[0]("os.system", ("convert out.png",))
+        hooks[0]("open", ("reports/annual.csv", "r", 0))
+    finally:
+        REQUEST.reset(token)
+    rows = [*lane.rows.drain("processes"), *lane.rows.drain("files")]
+    assert len(rows) == 2
+    assert [row["requestId"] for row in rows] == [None, None]
