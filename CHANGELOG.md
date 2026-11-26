@@ -10,13 +10,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
 - The pytest terminal summary lists all five runtime gates.
 - The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.
+- The pytest gate reports `unknown` when a hook of the pytest plugin or of its session sink fails, or when a nested in-process pytest run ends capture early. A statement that the stdlib `sqlite3` driver refuses because it is not text is skipped. Through SQLAlchemy, sharpit counts a refused `None`, `b""` or `0` statement as one statement with empty text. Other non-text statements make the run `unknown`: pass the statement as text or use `--sharpit-allow-unknown`.
 
 ### Fixed
 
 - SEC-OAUTH-002 reports `jwt.decode` with `verify_signature` set to `False` in a literal `options=` keyword, also when an audience is passed, and its message is readable for a file named `auth.py` (#332).
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
 - HTTP exchange capture reads the request user as plain data and never runs a property, descriptor or `__getattr__` of it; a user whose name or authentication flag is computed is no longer named in HTTP Exchanges and Live Activity.
-- The pytest gate reports `unknown` when one of its own capture hooks fails, or when a nested in-process pytest run ends capture early. A statement that the stdlib `sqlite3` driver refuses because it is not text no longer counts as a failure; other non-text statements make the run `unknown`: pass the statement as text or use `--sharpit-allow-unknown`.
 
 ## [0.9.0] - 2026-11-23
 

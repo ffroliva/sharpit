@@ -15,17 +15,18 @@ that names what was not read and says that having no finding at or above `--shar
 none, and a finding at or above the threshold still fails. Everything else stays `UNKNOWN`: an advisor with no usable
 routes and a limitation, a router or exception handler sharpit could not read, an errored scan or a rule that threw.
 An app with no routes and no limitation is confirmed empty and passes, as it has since 0.3.0. These cases of lost
-capture stay `unknown` whatever the advisors report: no SQL source, a missing worker, a failed capture hook of
-sharpit's own (the report lists the `pytest-plugin` source as not attached, for the worker or the `controller`), and
+capture stay `unknown` whatever the advisors report: no SQL source, a missing worker, a failed hook of the
+pytest plugin or of its session sink (the report lists the `pytest-plugin` source as not attached, for the worker or the `controller`), and
 capture ended before the session did, as a nested in-process pytest run (`pytest.main`,
 `pytester.runpytest_inprocess`) does; start such a run with `-p no:sharpit` or in a subprocess. A failed hook in one
 attempt of a rerun test keeps the run `unknown`, also when a later attempt is clean. A partly assessed
 advisor does not count as having run for baselines: its baselined entries are neither reported fixed nor dropped.
 
-A statement that the stdlib `sqlite3` driver refuses because it is not text did not run and is not counted. Any other
-statement that is not text (a query object passed to a cursor class or to SQLAlchemy's `exec_driver_sql`) cannot be
-read, and the run is `unknown`: pass the statement as text, or use `--sharpit-allow-unknown`. SQLAlchemy reports
-`None`, `b""` and `0` as empty text, so such a call counts as one statement and does not make the run `unknown`.
+A statement that the stdlib `sqlite3` driver refuses because it is not text did not run and is skipped. Through
+SQLAlchemy, sharpit counts a refused `None`, `b""` or `0` statement as one statement with empty text, so it does not
+make the run `unknown`. Any other statement that is not text (a query object passed to a cursor class or to
+SQLAlchemy's `exec_driver_sql`) cannot be read, and the run is `unknown`: pass the statement as text, or use
+`--sharpit-allow-unknown`.
 
 Pytest's exit status is preserved when pytest already returns non-zero. Sharpit changes a successful pytest exit (`0`)
 to `1` when the gate fails; it does not replace pytest's status for failing tests, interruption, an internal error, a
