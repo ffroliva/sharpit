@@ -495,9 +495,7 @@ class RuntimeJournal:
             return {}
         with self._lock:
             events = tuple(self._events)
-        return self._request_routes(
-            (event for event, _, _, _ in events if event.get("source") == "http"), ids
-        )
+        return self._request_routes((event for event, _, _, _ in events if event.get("source") == "http"), ids)
 
     def _request_routes(self, events: Iterable[dict[str, object]], ids: AbstractSet[str]) -> dict[str, str]:
         routes: dict[str, str] = {}

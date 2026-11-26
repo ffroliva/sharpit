@@ -102,7 +102,7 @@ def test_a_thread_name_holding_a_secret_never_reaches_its_family() -> None:
 
 
 def test_resolved_requests_leave_no_route_behind() -> None:
-    pending = Pending(lambda ids: {request_id: "GET /items" for request_id in ids}, lambda: 0)
+    pending = Pending(lambda ids: dict.fromkeys(ids, "GET /items"), lambda: 0)
     request_ids = {f"r{index}" for index in range(20)}
     for request_id in request_ids:
         pending.add({"at": 1000}, request_id)
