@@ -318,6 +318,18 @@ def test_a_lost_capture_reason_is_masked() -> None:
     assert SECRET not in json.dumps(sink.facts.to_json())
 
 
+def test_a_masker_that_fails_still_marks_the_capture_lost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Masking the reason fails on a host thread: nothing reaches the host, and the run is still `unknown`."""
+    sink = _sink()
+
+    def broken(text: str | None) -> str | None:
+        raise RuntimeError(text)
+
+    monkeypatch.setattr(sink.masker, "mask_text", broken)
+    sink.record_lost("capture lost")
+    assert [source["reason"] for source in sink.facts.sources] == [_hook_warning("RuntimeError")]
+
+
 def test_a_hook_failure_is_recorded_under_the_sink_lock() -> None:
     """Hooks fail on host threads too: the source is recorded under the sink's lock."""
     sink = _sink()

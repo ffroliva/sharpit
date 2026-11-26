@@ -103,7 +103,8 @@ class _ExceptionHandler(LockFreeHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            exc = record.exc_info[1] if isinstance(record.exc_info, tuple) else None
+            info = record.exc_info
+            exc = info[1] if isinstance(info, (tuple, list)) and len(info) > 1 else None
             if not isinstance(exc, BaseException):  # no exception object: nothing to capture
                 return
             fastapi_errors = sys.modules.get("fastapi.exceptions")

@@ -147,7 +147,11 @@ class TestSessionSink:
         self.record_lost(HOOK_FAILURE_WARNING.format(type(exc).__name__))
 
     def record_lost(self, reason: str) -> None:
-        """Capture lost facts: say so once, and mark the plugin's own source unattached so the run cannot pass."""
+        """Capture lost facts: say so once, and mark the plugin's own source unattached so the run is `unknown`."""
+        try:
+            reason = self._mask(reason)
+        except Exception as exc:  # noqa: BLE001 - a failing masker must not reach the host, and the reason stays unread
+            reason = HOOK_FAILURE_WARNING.format(type(exc).__name__)
         with self._lock:
             if reason not in self.facts.warnings:
                 self.facts.warnings.append(reason)
