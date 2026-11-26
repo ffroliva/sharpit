@@ -307,7 +307,12 @@ class CaptureWiring:
             owner=sink_ownership.owner,
         )
         if lane is not None:
-            ctx.capture.side_effects = SideEffectsService(ctx.capture, ctx.masker, lambda: ctx.capture.ready_at_ms)
+            ctx.capture.side_effects = SideEffectsService(
+                ctx.capture,
+                ctx.masker,
+                lambda: ctx.capture.ready_at_ms,
+                exchanges_enabled=lambda: _panel_enabled(ctx, "http-exchanges"),
+            )
             for hook in lane.hooks():
                 ctx.capture.hooks.register(hook)
             lane.attach()

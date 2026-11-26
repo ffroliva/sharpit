@@ -292,10 +292,11 @@ class SideEffectsStore:
         max_rows: int = MAX_ROWS,
         route_reader: Callable[[AbstractSet[str]], dict[str, str]] | None = None,
         ready_at: Callable[[], int | None] = lambda: None,
+        routes_hidden: Callable[[], bool] = lambda: False,
     ) -> None:
         self._rows = rows
         self._intake = intake
-        self.pending = Pending(route_reader, ready_at) if route_reader is not None else None
+        self.pending = Pending(route_reader, ready_at, routes_hidden) if route_reader is not None else None
         self._clock = clock
         self._max_rows_per_sensor = max_rows_per_sensor
         self._max_rows = max_rows

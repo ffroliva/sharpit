@@ -68,12 +68,17 @@ class SideEffectsService:
         exchanges_enabled: Callable[[], bool] = lambda: True,
     ) -> None:
         self.capture = capture
+        self._exchanges_enabled = exchanges_enabled
         self.masker = masker
         self.lock = threading.Lock()
         lane = getattr(capture, "sensors", None)
         self.store = (
             SideEffectsStore(
-                lane.rows, display.intake(masker), route_reader=capture.journal.request_routes, ready_at=ready_at
+                lane.rows,
+                display.intake(masker),
+                route_reader=capture.journal.request_routes,
+                ready_at=ready_at,
+                routes_hidden=self._routes_hidden,
             )
             if lane is not None and masker is not None
             else None
@@ -127,6 +132,7 @@ class SideEffectsService:
                     cleared=store.clears() > 0,
                     unconfirmed=store.unconfirmed(),
                     holder=self._holder(),
+                    routes_hidden=self._routes_hidden(),
                 ),
             }
 
@@ -179,6 +185,7 @@ class SideEffectsService:
                     cleared=store.clears() > 0,
                     unconfirmed=store.unconfirmed(),
                     holder=self._holder(),
+                    routes_hidden=self._routes_hidden(),
                 ),
             }
 
@@ -203,6 +210,11 @@ class SideEffectsService:
             "hooks": [],
             "toggle": None,
         }
+
+    def _routes_hidden(self) -> bool:
+        """BootUI's ``!read.requests()``: route rows cannot be named while HTTP Exchanges does not record."""
+        accepts = getattr(self.capture.journal, "accepts", None)
+        return not self._exchanges_enabled() or (accepts is not None and not accepts("http"))
 
     def _state(self, sensor_id: str) -> tuple[str, str | None]:
         lane = self.capture.sensors

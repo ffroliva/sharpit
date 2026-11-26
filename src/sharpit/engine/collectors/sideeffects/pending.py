@@ -39,8 +39,14 @@ class _Waiting:
 class Pending:
     """Rows awaiting the retained HTTP event that names their request."""
 
-    def __init__(self, reader: Callable[[AbstractSet[str]], dict[str, str]], ready_at: Callable[[], int | None]):
+    def __init__(
+        self,
+        reader: Callable[[AbstractSet[str]], dict[str, str]],
+        ready_at: Callable[[], int | None],
+        hidden: Callable[[], bool] = lambda: False,
+    ):
         self.reader = reader
+        self.hidden = hidden
         self.ready_at = ready_at
         self._waiting: list[_Waiting] = []
         self.dropped = 0
@@ -58,7 +64,8 @@ class Pending:
         self._waiting.append(_Waiting(dict(observation), request_id))
 
     def resolve(self, now: int) -> list[dict[str, object]]:
-        ids = frozenset(item.request_id for item in self._waiting if item.request_id is not None)
+        hidden = self.hidden()  # without HTTP Exchanges no route can be named: route rows merge (ST:1323-1345)
+        ids = frozenset(item.request_id for item in self._waiting if item.request_id is not None and not hidden)
         if ids and (not self._last_read or now - self._last_read >= READ_RESOLVE_MILLIS):
             self._routes.update(self.reader(ids))
             self._last_read = now
@@ -70,7 +77,9 @@ class Pending:
             request_id = item.request_id
             route = self._routes.get(request_id) if request_id is not None else None
             at = _as_int(observation.get("at"))
-            if route is not None:
+            if hidden and request_id is not None:
+                resolved.append(_owned(observation, ROUTE_HIDDEN, None))
+            elif route is not None:
                 resolved.append(_owned(observation, route, request_id))
             elif request_id is not None and now - at >= PENDING_MILLIS:
                 resolved.append(_owned(observation, UNKNOWN_ROUTE, request_id))
