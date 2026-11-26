@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Runtime Insights lists declared HTTP routes not exercised during the run, with report and agent limits and explicit limitations when recording loss, suspension, exposure, or missing templates prevent classification.
+
 ### Changed
 
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
