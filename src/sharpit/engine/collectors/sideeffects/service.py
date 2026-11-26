@@ -38,6 +38,21 @@ _HOLDER_SKIPS = (
 )
 
 
+SINKS_OFF_REASON = (
+    "Request-value matching is off: set SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true and restart the application "
+    "to check whether request input reaches a command or a file path."
+)
+
+
+def _sinks_reason(processes: bool, files: bool) -> str:
+    """JavaAgentService.securitySinksCoverage (JavaAgentService.java:289-336), adapted to the two sinks (F1)."""
+    commands = (
+        "Checks commands through the processes sensor" if processes else "; not commands: the processes sensor is off"
+    )
+    paths = "; file paths through the files sensor." if files else "; not file paths: the files sensor is off."
+    return commands + paths
+
+
 def holder_line(holder: Mapping[str, int]) -> str:
     line = f"Request-value matching: {holder.get('requests', 0)} requests held values, "
     line += f"{holder.get('checks', 0)} sink checks ran."
@@ -73,7 +88,7 @@ class SideEffectsService:
             for sensor_id, group, label in SIDE_EFFECT_SENSORS:
                 if sensor_id in RINGED:
                     count, occurrences = store.counts(sensor_id)
-                    state, reason = ("recording", None) if lane.is_on(sensor_id) else ("disabled", "The sensor is off.")
+                    state, reason = self._state(sensor_id)
                     dropped = lane.rows.dropped(sensor_id)
                 else:
                     state, reason, count, occurrences, dropped = (
@@ -166,7 +181,7 @@ class SideEffectsService:
         if wanted in RINGED:
             store = cast("SideEffectsStore", self.store)
             count, occurrences = store.counts(wanted)
-            state, reason = ("recording", None) if lane.is_on(wanted) else ("disabled", "The sensor is off.")
+            state, reason = self._state(wanted)
             dropped = lane.rows.dropped(wanted)
         else:
             state, reason, count, occurrences, dropped = "not-available", "Not available in this version.", 0, 0, 0
@@ -182,6 +197,16 @@ class SideEffectsService:
             "hooks": [],
             "toggle": None,
         }
+
+    def _state(self, sensor_id: str) -> tuple[str, str | None]:
+        lane = self.capture.sensors
+        if sensor_id == "security-sinks" and lane.is_on(sensor_id):
+            return "recording", _sinks_reason(lane.is_on("processes"), lane.is_on("files"))
+        if lane.is_on(sensor_id):
+            return "recording", None
+        if sensor_id == "security-sinks" and self._holder() is None:
+            return "disabled", SINKS_OFF_REASON
+        return "disabled", "The sensor is off."
 
     def _holder(self) -> dict[str, int] | None:
         """The request-value holder's counters; None while the setting is off (the lane then has no such sensor)."""
