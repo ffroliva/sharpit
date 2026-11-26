@@ -31,6 +31,7 @@ from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
+from sharpit.engine.sensors.floor import AGENT_SENSOR_TOOLS
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.sqltext import Dialect
@@ -49,7 +50,7 @@ from sharpit.engine.tools import (
     tool_gate,
 )
 from sharpit.settings import PanelSettings, SharpitSettings, load_settings
-from surface import lane_tools
+from surface import catalogue_lane_tools
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 LANES = safety.load()  # lane TOOL_SEEDS: arguments for tools this file's bare context cannot answer alone
@@ -142,7 +143,27 @@ _ISOLATED_SESSIONS = {
 
 def _ctx(**options: Any) -> SharpitContext:
     settings = load_settings({"config_scan": False, **_ISOLATED_SESSIONS, **options}, {})
-    return SharpitContext(settings, ACTIVATION, FakeIntrospector())
+    ctx = SharpitContext(settings, ACTIVATION, FakeIntrospector())
+    if settings.agent_sensors:
+        from sharpit.engine.capture.journal import RuntimeJournal
+        from sharpit.engine.collectors.sideeffects.service import SideEffectsService
+        from sharpit.engine.sensors.lane import build_lane
+
+        journal = ctx.capture.journal = RuntimeJournal()
+        lane = ctx.capture.sensors = build_lane(
+            settings.agent_sensors,
+            journal,
+            ctx.masker.mask_path,
+            own=(settings.state_dir,),
+            request_values=settings.agent_security_sinks_request_values,
+            context_id=ctx.context_id,
+        )
+        if lane is not None:
+            ctx.capture.side_effects = SideEffectsService(ctx.capture, ctx.masker, lambda: ctx.capture.ready_at_ms)
+            for hook in lane.hooks():
+                ctx.capture.hooks.register(hook)
+            lane.attach()
+    return ctx
 
 
 def _call(ctx: SharpitContext, scope: dict[str, Any] | None = None) -> CallContext:
@@ -158,7 +179,7 @@ def test_catalogue_names_panels_actions_and_schemas():
     # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows plus the 2.2.0 capture tools, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
     assert rows[26:] == [
-        *((t.name, t.panel, t.action, t.input_schema) for t in lane_tools()),
+        *((t.name, t.panel, t.action, t.input_schema) for t in catalogue_lane_tools()),
         ("get_low_footprint", "live-memory", False, NONE_SCHEMA),
         ("enable_low_footprint", "live-memory", True, NONE_SCHEMA),
         ("disable_low_footprint", "live-memory", True, NONE_SCHEMA),
@@ -563,9 +584,14 @@ def test_cap_counts_running_and_abandoned_together():
 
 
 @pytest.mark.parametrize("name", [t.name for t in TOOLS if not t.action])
-def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
+def test_mcp_tools_no_side_effects(
+    name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path, recorded_audit_hook: list[Any]
+):
     # new: brief ruling (no socket, file, logger level or os.environ change)
-    ctx = _ctx(state_dir=str(tmp_state_dir))
+    extra: dict[str, Any] = {}
+    if name in AGENT_SENSOR_TOOLS:
+        extra["agent_sensors"] = ("files",)
+    ctx = _ctx(state_dir=str(tmp_state_dir), **extra)
     arguments = _mcp_arguments(name, ctx)
     no_side_effects.rebaseline()
     result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")

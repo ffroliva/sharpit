@@ -90,6 +90,11 @@ BASE_CLI_COMMANDS = {
 }
 
 
+def catalogue_lane_tools() -> tuple[Any, ...]:
+    """The tools the implemented lane modules add (``engine/tools04/<id>.py``) in full catalogue order."""
+    return panels04.tool_definitions()[0]
+
+
 def lane_tools() -> tuple[Any, ...]:
     """The tools the implemented lane modules add (``engine/tools04/<id>.py``) that an application with no agent
     sensor on lists, in catalogue order: an agent-sensor tool is listed only while a sensor records."""
