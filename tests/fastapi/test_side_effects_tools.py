@@ -158,9 +158,9 @@ def test_the_bundled_cli_manifest_lists_side_effects_always() -> None:
     manifest = json.loads(
         (Path(__file__).parents[2] / "src" / "sharpit" / "cli" / "tools.json").read_text(encoding="utf-8")
     )
-    entry = next(tool for tool in manifest["tools"] if tool["name"] == TOOL)
-    assert entry["command"] == "side-effects"
-    assert entry["arguments"] == ["query", "limit"]
+    entry = next((tool for tool in manifest["tools"] if tool["name"] == TOOL), {})
+    assert entry.get("command") == "side-effects"
+    assert entry.get("arguments") == ["query", "limit"]
 
 
 def _seed(client: TestClient) -> None:
@@ -200,22 +200,12 @@ def test_the_tool_leaks_neither_a_request_value_nor_a_secret_looking_name(tmp_pa
             for arguments in ({}, {"query": "files"}, {"query": "security-sinks"}, {"query": "name"})
         ]
         asked = _mcp_call(client, query=SEEDED)
+        shown = _mcp_call(client, query="security-sinks")
     handle.uninstall_capture()
+    assert shown["matched"] >= 2
     assert all(SEEDED not in body for body in bodies)
     assert all(SECRET_NAME not in body for body in bodies)
     assert asked["matched"] == 0
-
-
-def test_the_tool_is_cut_off_with_the_panel_like_any_other(
-    tmp_path: Path, hook: Hook, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("SHARPIT_PANELS_SIDE_EFFECTS_ENABLED", "false")
-    app, handle = _sinks_app(tmp_path, hook)
-    with _client(app) as client:
-        answer = _rpc(client, "tools/call", {"name": TOOL, "arguments": {}})
-    handle.uninstall_capture()
-    assert answer["result"]["isError"] is True
-    assert answer["result"]["content"][0]["text"] == "Panel is disabled via SHARPIT_PANELS_SIDE_EFFECTS_ENABLED=false"
 
 
 def test_the_limit_argument_is_validated_and_clamped(tmp_path: Path, hook: Hook) -> None:

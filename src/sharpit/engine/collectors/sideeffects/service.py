@@ -218,7 +218,7 @@ class SideEffectsService:
     def agent_report(self, query: str | None, limit: int | None) -> dict[str, Any]:
         return {
             "available": False,
-            "unavailableReason": None,
+            "unavailableReason": "",
             "query": (query or "").strip(),
             "sensors": [],
             "matched": 0,
