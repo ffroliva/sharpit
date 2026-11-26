@@ -51,7 +51,7 @@ def test_without_the_lane_every_read_is_unavailable_with_its_reason() -> None:
 
 def test_the_holder_line_is_shown_whenever_the_setting_is_on() -> None:
     assert "Request-value matching: 0 requests held values, 0 sink checks ran." in SideEffectsService(None).limitations(
-        holder_enabled=True
+        holder={}
     )
 
 
@@ -60,9 +60,7 @@ def test_no_holder_line_without_the_setting() -> None:
 
 
 def test_limitation_lines_follow_bootuis_order() -> None:
-    lines = SideEffectsService(None).limitations(
-        holder_enabled=True, routes_hidden=True, cleared=True, folded=1, unconfirmed=1
-    )
+    lines = SideEffectsService(None).limitations(holder={}, routes_hidden=True, cleared=True, folded=1, unconfirmed=1)
     assert lines[0] == "Side Effects records only what the sharpit agent's side-effect sensors hook."
     assert lines[1].startswith("A process row shows the command's file name only")
     assert lines[2] == "A network row shows a host and port, never a byte sent or received, nor a URL's path or query."
@@ -110,11 +108,6 @@ def test_two_reads_and_a_clear_at_once_lose_and_duplicate_nothing() -> None:
     assert all(event.is_set() for event in completed)
 
 
-def test_ready_at_is_when_the_host_lifespan_startup_completed() -> None:
-    ready_at = 1_800_000_000_000
-    assert SideEffectsService(None, ready_at=lambda: ready_at).ready_at() == ready_at
-
-
 def test_without_a_lifespan_no_row_counts_under_startup() -> None:
     service, rows = _service_with_rows()
     _append(rows, "processes", kind="process", target="worker", threadName="worker-1")
@@ -126,11 +119,11 @@ def test_without_a_lifespan_no_row_counts_under_startup() -> None:
 
 def test_clearing_the_recording_clears_the_side_effects_rows() -> None:
     # adapted from: SideEffectsServiceTests.theAgentReportFiltersRowsAndClearRecordingDropsThem
-    service = SideEffectsService(None)
+    service, _rows = _service_with_rows()
     service.clear_recording()
     assert (
         "The recording was cleared: rows recorded before then were dropped, and so is a record the agent "
-        "still held whose first occurrence came before the clear." in service.limitations()
+        "still held whose first occurrence came before the clear." in service.report()["limitations"]
     )
 
 

@@ -12,7 +12,6 @@ MAX_PENDING = 10_000
 READ_RESOLVE_MILLIS = 250
 MAX_THREAD_FAMILY = 120
 UNKNOWN_ROUTE = "(unknown route)"
-ROUTE_HIDDEN = "(route hidden)"
 _SAFE_OR_DIGITS = re.compile(r"\d+|[^a-zA-Z._:/ \[\]-]+")
 _THREAD_NAME_MASKER = Masker(Exposure.MASKED, True)
 # own copy: masking's vendor pattern lacks the AWS ids and keeps a lookbehind, so reusing it would change thread names
@@ -59,17 +58,26 @@ class Pending:
     def waiting_count(self) -> int:
         return len(self._waiting)
 
-    def add(self, observation: Mapping[str, object], request_id: str | None) -> None:
+    def add(self, observation: Mapping[str, object], request_id: str | None) -> dict[str, object] | None:
+        """Queue a row for its route; when the list is full, a row whose route is known is decided now (ST:958-962)."""
         if len(self._waiting) >= MAX_PENDING:
+            route = self._routes.get(request_id) if request_id is not None else None
+            if route is not None:
+                return _owned(observation, route, request_id)
             self.dropped += 1
             sensor = str(observation.get("sensor") or observation.get("source") or "")
             self.dropped_by_sensor[sensor] = self.dropped_by_sensor.get(sensor, 0) + 1
-            return
+            return None
         self._waiting.append(_Waiting(dict(observation), request_id))
+        return None
+
+    def unowned(self, observation: Mapping[str, object]) -> dict[str, object]:
+        """A row with no request needs no route: attributed at once (ST:970-978)."""
+        return _unowned(observation, self.ready_at())
 
     def resolve(self, now: int) -> list[dict[str, object]]:
-        hidden = self.hidden()  # without HTTP Exchanges no route can be named: route rows merge (ST:1323-1345)
-        ids = frozenset(item.request_id for item in self._waiting if item.request_id is not None and not hidden)
+        hidden = self.hidden()  # without HTTP Exchanges a route is never named later: decide now, the read hides it
+        ids = frozenset(item.request_id for item in self._waiting if item.request_id is not None)
         if ids and (not self._last_read or now - self._last_read >= READ_RESOLVE_MILLIS):
             self._routes.update(self.reader(ids))
             self._last_read = now
@@ -81,11 +89,9 @@ class Pending:
             request_id = item.request_id
             route = self._routes.get(request_id) if request_id is not None else None
             at = _as_int(observation.get("at"))
-            if hidden and request_id is not None:
-                resolved.append(_owned(observation, ROUTE_HIDDEN, None))
-            elif route is not None:
+            if route is not None:
                 resolved.append(_owned(observation, route, request_id))
-            elif request_id is not None and now - at >= PENDING_MILLIS:
+            elif request_id is not None and (hidden or now - at >= PENDING_MILLIS):
                 resolved.append(_owned(observation, UNKNOWN_ROUTE, request_id))
             elif request_id is None:
                 resolved.append(_unowned(observation, self.ready_at()))

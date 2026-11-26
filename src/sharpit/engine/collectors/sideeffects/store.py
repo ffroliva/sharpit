@@ -8,18 +8,19 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol, cast, runtime_checkable
 
 from sharpit.engine.collectors.sideeffects import wording
 from sharpit.engine.collectors.sideeffects.pending import Pending
+from sharpit.engine.sensors.rows import RINGED
 
 MAX_ROWS_PER_SENSOR: int = 500
 MAX_ROWS: int = 2_000
 EXEMPLARS: int = 3
 CONFIRMATIONS: int = 4
 OTHER: str = "Other"
-RINGED: tuple[str, ...] = ("processes", "files", "security-sinks")
+ROUTE_HIDDEN: str = "(route hidden)"
 
 
 def epoch_ms() -> int:
@@ -68,50 +69,6 @@ class StoreRow:
     confirmed: bool = False
     standalone: bool = False
 
-    @property
-    def callSite(self) -> str | None:
-        return self.call_site
-
-    @property
-    def insideMethod(self) -> str | None:
-        return self.inside_method
-
-    @property
-    def nonZeroExits(self) -> int:
-        return self.non_zero_exits
-
-    @property
-    def lastExitStatus(self) -> int | None:
-        return self.last_exit_status
-
-    @property
-    def totalMillis(self) -> int:
-        return self.total_millis
-
-    @property
-    def maxMillis(self) -> int:
-        return self.max_millis
-
-    @property
-    def firstSeen(self) -> int:
-        return self.first_seen
-
-    @property
-    def lastSeen(self) -> int:
-        return self.last_seen
-
-    @property
-    def exemplarRequestIds(self) -> list[str]:
-        return self.exemplar_request_ids
-
-    @property
-    def capturedBy(self) -> str | None:
-        return self.captured_by
-
-    @property
-    def leftRunning(self) -> int:
-        return self.left_running
-
 
 @dataclass(frozen=True, slots=True)
 class RowKey:
@@ -143,6 +100,10 @@ def _attribution_and_scope(row: Mapping[str, object], request_id: str | None) ->
     if thread_name:
         return "thread", str(row.get("attribution") or thread_name)
     return "unattributed", str(row.get("attribution") or "(unattributed)")
+
+
+_SUMMED = ("count", "failed", "completed", "non_zero_exits", "total_millis", "left_running", "requests")
+_FIRST = ("origin", "client", "capture", "captured_by")
 
 
 class Row:
@@ -229,6 +190,26 @@ class Row:
         else:
             self.standalone = True
 
+    def merge(self, other: Row, with_exemplars: bool) -> None:
+        """Fold other into this copy (ST:683-720): the confirmations are kept, the exemplars only on request."""
+        self.standalone |= other.standalone
+        for raw_hash, redacted_hash, request_id in other.confirmations:
+            self.remember(raw_hash, redacted_hash, request_id)
+        if other.last_exit_status is not None and (self.last_exit_status is None or other.last_seen >= self.last_seen):
+            self.last_exit_status = other.last_exit_status
+        for name in _SUMMED:
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        self.max_millis = max(self.max_millis, other.max_millis)
+        self.first_seen = other.first_seen if self.first_seen == 0 else min(self.first_seen, other.first_seen)
+        self.last_seen = max(self.last_seen, other.last_seen)
+        for name in _FIRST:
+            if getattr(self, name) is None:
+                setattr(self, name, getattr(other, name))
+        if with_exemplars:
+            for request_id in other.exemplars:
+                if len(self.exemplars) < EXEMPLARS and request_id not in self.exemplars:
+                    self.exemplars.append(request_id)
+
     def detail(self) -> str | None:
         if self.key.sensor != "security-sinks":
             return None
@@ -297,6 +278,7 @@ class SideEffectsStore:
         self._rows = rows
         self._intake = intake
         self.pending = Pending(route_reader, ready_at, routes_hidden) if route_reader is not None else None
+        self._routes_hidden = routes_hidden
         self._clock = clock
         self._max_rows_per_sensor = max_rows_per_sensor
         self._max_rows = max_rows
@@ -308,6 +290,22 @@ class SideEffectsStore:
         self._cleared = 0
         self._unconfirmed_past_cap = 0
         self._folded = 0
+
+    def _view(self, sensor: str) -> list[Row]:
+        """The store's rows as a read shows them (ST:1334-1363): without HTTP Exchanges route rows merge under
+        ROUTE_HIDDEN and lose their exemplars. Always copies: a read never changes a stored row."""
+        hide = self._routes_hidden()
+        merged: dict[RowKey, Row] = {}
+        for row in self._store_rows.values():
+            if row.key.sensor != sensor:
+                continue
+            hide_route = hide and row.key.scope == "route"
+            key = replace(row.key, attribution=ROUTE_HIDDEN) if hide_route else row.key
+            target = merged.get(key)
+            if target is None:
+                target = merged[key] = Row(key)
+            target.merge(row, not hide_route)
+        return list(merged.values())
 
     def _is_visible(self, row: Row) -> bool:
         if row.key.sensor != "security-sinks":
@@ -374,6 +372,16 @@ class SideEffectsStore:
         self._store_rows[key] = new_row
         self._rows_per_sensor[sensor] = per_sensor + 1
 
+    def _offer(self, row: dict[str, object]) -> None:
+        """Aggregate a row now, or queue it for its route; a row with no request needs no route (ST:970-978)."""
+        if self.pending is None:
+            self._aggregate(row)
+            return
+        request_id = row.get("requestId")
+        decided = self.pending.unowned(row) if request_id is None else self.pending.add(row, str(request_id))
+        if decided is not None:
+            self._aggregate(decided)
+
     def drain(self) -> None:
         """Drain the sensor rings and aggregate rows."""
         for sensor in RINGED:
@@ -391,19 +399,14 @@ class SideEffectsStore:
                 if clear_watermark > 0 and row_at <= clear_watermark:
                     self._cleared += 1
                     continue
-                intake_row = self._intake(row)
-                if self.pending is None:
-                    self._aggregate(intake_row)
-                else:
-                    request_id = intake_row.get("requestId")
-                    self.pending.add(intake_row, str(request_id) if request_id is not None else None)
+                self._offer(self._intake(row))
         if self.pending is not None:
             for row in self.pending.resolve(self._clock()):
                 self._aggregate(row)
 
     def rows_of(self, sensor: str) -> list[StoreRow]:
         """Return the visible rows of sensor."""
-        candidates = [r for r in self._store_rows.values() if r.key.sensor == sensor and self._is_visible(r)]
+        candidates = [r for r in self._view(sensor) if self._is_visible(r)]
         candidates.sort(
             key=lambda r: (
                 1 if r.key.scope == "other" else 0,
@@ -420,11 +423,7 @@ class SideEffectsStore:
 
     def unconfirmed(self) -> int:
         """Return the count of unconfirmed security-sinks matches."""
-        hidden = self._unconfirmed_past_cap
-        for row in self._store_rows.values():
-            if row.key.sensor == "security-sinks" and not self._is_visible(row):
-                hidden += 1
-        return hidden
+        return self._unconfirmed_past_cap + sum(1 for row in self._view("security-sinks") if not self._is_visible(row))
 
     def dropped(self, sensor: str) -> int:
         """Return the observations of sensor the pending list had no room for (SideEffectsStore.dropped)."""

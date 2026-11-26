@@ -70,6 +70,7 @@ class SideEffectsService:
         exchanges_enabled: Callable[[], bool] = lambda: True,
     ) -> None:
         self.capture = capture
+        self._ready_at = ready_at or (lambda: None)
         self._exchanges_enabled = exchanges_enabled
         self.masker = masker
         self.lock = threading.Lock()
@@ -79,14 +80,12 @@ class SideEffectsService:
                 lane.rows,
                 display.intake(masker),
                 route_reader=capture.journal.request_routes,
-                ready_at=ready_at,
+                ready_at=self._ready_at,
                 routes_hidden=self._routes_hidden,
             )
             if lane is not None and masker is not None
             else None
         )
-        self._clears = 0
-        self._ready_at = ready_at or (lambda: None)
 
     def report(self) -> dict[str, Any]:
         if self.store is None:
@@ -99,35 +98,9 @@ class SideEffectsService:
     def _report_locked(self, store: SideEffectsStore) -> dict[str, Any]:
         """One drain, then the counts and limitations of that drain: the caller holds ``self.lock``."""
         store.drain()
-        sensors: list[dict[str, object]] = []
-        lane = self.capture.sensors
-        for sensor_id, group, label in SIDE_EFFECT_SENSORS:
-            if sensor_id in RINGED:
-                count, occurrences = store.counts(sensor_id)
-                state, reason = self._state(sensor_id)
-                dropped = lane.rows.dropped(sensor_id) + store.dropped(sensor_id)
-            else:
-                state, reason, count, occurrences, dropped = (
-                    "not-available",
-                    "Not available in this version.",
-                    0,
-                    0,
-                    0,
-                )
-            sensors.append(
-                {
-                    "id": sensor_id,
-                    "group": group,
-                    "label": label,
-                    "state": state,
-                    "reason": reason,
-                    "rows": count,
-                    "occurrences": occurrences,
-                    "dropped": dropped,
-                    "hooks": [],
-                    "toggle": None,
-                }
-            )
+        sensors = [
+            self.report_sensor(sensor_id, (sensor_id, group, label)) for sensor_id, group, label in SIDE_EFFECT_SENSORS
+        ]
         return {
             "available": True,
             "unavailableReason": None,
@@ -154,13 +127,6 @@ class SideEffectsService:
                 400,
                 f"Unknown Side Effects sensor '{'null' if sensor_id is None else sensor_id}'; the sensors are {known}.",
             )
-        if wanted is None:
-            raise SensorRefusal(
-                400,
-                "Unknown Side Effects sensor 'null'; the sensors are "
-                + ", ".join(s[0] for s in SIDE_EFFECT_SENSORS)
-                + ".",
-            )
         if (offset is not None and offset < 0) or (limit is not None and limit < 0):
             raise SensorRefusal(400, "offset and limit must not be negative.")
         size = 100 if not limit else min(limit, 500)
@@ -171,7 +137,7 @@ class SideEffectsService:
             rows = [display.row_dto(row, self.masker) for row in raw]
             start = offset or 0
             selected = rows[start : start + size]
-            summary = self.report_sensor(wanted, sensor)
+            summary = self.report_sensor(sensor[0], sensor)
             return {
                 "available": True,
                 "unavailableReason": None,
@@ -239,7 +205,15 @@ class SideEffectsService:
             return None
         return {**status, "dropped": lane.rows.dropped("security-sinks")}
 
-    def limitations(self, **kwargs: Any) -> list[str]:
+    def limitations(
+        self,
+        *,
+        folded: int = 0,
+        cleared: bool = False,
+        unconfirmed: int = 0,
+        holder: Mapping[str, int] | None = None,
+        routes_hidden: bool = False,
+    ) -> list[str]:
         sinks = (
             "Security sinks: request input is matched only while SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES is on, "
             "against the current request's query and path parameter values of 4 to 256 characters, at most 32 of "
@@ -267,12 +241,6 @@ class SideEffectsService:
             sinks,
             attribution,
         ]
-        routes_hidden = kwargs.get("routes_hidden", False)
-        folded = kwargs.get("folded", 0)
-        cleared = kwargs.get("cleared", False) or self._clears > 0
-        holder = kwargs.get("holder")
-        holder_enabled = kwargs.get("holder_enabled", False) or holder is not None
-        unconfirmed = kwargs.get("unconfirmed", 0)
         if routes_hidden:
             lines.append(
                 "HTTP Exchanges is disabled: Side Effects attributes rows to the request's route only while "
@@ -288,8 +256,8 @@ class SideEffectsService:
                 "The recording was cleared: rows recorded before then were dropped, and so is a record the agent "
                 "still held whose first occurrence came before the clear."
             )
-        if holder_enabled:
-            lines.append(holder_line(holder or {}))
+        if holder is not None:
+            lines.append(holder_line(holder))
         if unconfirmed:
             lines.append(
                 f"{unconfirmed} security-sinks match is not shown yet: a number, or one whose place in the text "
@@ -298,9 +266,6 @@ class SideEffectsService:
             )
         return lines
 
-    def ready_at(self) -> int | None:
-        return self._ready_at()
-
     def clear_recording(self) -> None:
         with self.lock:
             if self.store is not None:
@@ -308,7 +273,6 @@ class SideEffectsService:
                 for sensor in RINGED:
                     self.capture.sensors.rows.clear(sensor, now)
                 self.store.clear(now)
-            self._clears += 1
 
     def agent_report(self, query: str | None, limit: int | None) -> dict[str, Any]:
         """``SideEffectsService.agentReport``: every sensor's coverage, then the matching rows, most frequent first."""
