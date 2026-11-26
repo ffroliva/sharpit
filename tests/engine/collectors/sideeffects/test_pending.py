@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from sharpit.engine.collectors.sideeffects.pending import Pending
 
 
@@ -118,3 +120,29 @@ def test_a_secret_straddling_the_thread_family_cut_never_shows() -> None:
     family = thread_family("x" * 110 + "AKIAIOSFODNN7EXAMPLE")
 
     assert "AKIA" not in str(family)
+
+
+def test_a_thread_family_keeps_the_text_after_a_masked_token() -> None:
+    from sharpit.engine.collectors.sideeffects.pending import thread_family
+
+    family = thread_family("pool-AKIAIOSFODNN7EXAMPLE-worker-3")
+    assert family is not None
+    assert "AKIA" not in family
+    assert family.endswith("-worker-{n}")
+
+
+def test_a_thread_family_masks_with_one_masking_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.collectors.sideeffects import pending
+    from sharpit.engine.collectors.sideeffects.pending import thread_family
+
+    calls = 0
+    original = pending._THREAD_NAME_MASKER.mask_text
+
+    def counting_mask_text(text: str | None) -> str | None:
+        nonlocal calls
+        calls += 1
+        return original(text)
+
+    monkeypatch.setattr(pending._THREAD_NAME_MASKER, "mask_text", counting_mask_text)
+    thread_family("x" * 200)
+    assert 0 < calls <= 1
