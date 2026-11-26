@@ -27,7 +27,8 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
-from collections.abc import Callable, Iterable, Mapping, Sequence, Set as AbstractSet
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from typing import Any, Protocol, cast
 
 from sharpit.engine import sqltext
@@ -489,7 +490,26 @@ class RuntimeJournal:
         }
 
     def request_routes(self, ids: AbstractSet[str]) -> dict[str, str]:
-        """Route labels for the requested HTTP events still retained in the journal."""
-        del ids
-        return {}
+        """Route labels for requested HTTP events still retained in the journal."""
+        if not ids:
+            return {}
+        with self._lock:
+            events = tuple(
+                dict(event)
+                for event, _, _, _ in self._events
+                if event.get("source") == "http"
+                and event.get("requestId") in ids
+                and isinstance(event.get("route"), str)
+            )
+        return self._request_routes(events, ids)
 
+    def _request_routes(self, events: Iterable[dict[str, object]], ids: AbstractSet[str]) -> dict[str, str]:
+        routes: dict[str, str] = {}
+        for event in events:
+            request_id = event.get("requestId")
+            route = event.get("route")
+            if isinstance(request_id, str) and isinstance(route, str):
+                routes[request_id] = route
+                if len(routes) == len(ids):
+                    break
+        return routes

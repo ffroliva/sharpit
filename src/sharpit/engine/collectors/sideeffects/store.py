@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from typing import Protocol, cast, runtime_checkable
 
 from sharpit.engine.collectors.sideeffects import wording
+from sharpit.engine.collectors.sideeffects.pending import Pending
 
 MAX_ROWS_PER_SENSOR: int = 500
 MAX_ROWS: int = 2_000
@@ -288,9 +290,12 @@ class SideEffectsStore:
         clock: Callable[[], int] = epoch_ms,
         max_rows_per_sensor: int = MAX_ROWS_PER_SENSOR,
         max_rows: int = MAX_ROWS,
+        route_reader: Callable[[AbstractSet[str]], dict[str, str]] | None = None,
+        ready_at: Callable[[], int | None] = lambda: None,
     ) -> None:
         self._rows = rows
         self._intake = intake
+        self.pending = Pending(route_reader, ready_at) if route_reader is not None else None
         self._clock = clock
         self._max_rows_per_sensor = max_rows_per_sensor
         self._max_rows = max_rows
@@ -386,7 +391,14 @@ class SideEffectsStore:
                     self._cleared += 1
                     continue
                 intake_row = self._intake(row)
-                self._aggregate(intake_row)
+                if self.pending is None:
+                    self._aggregate(intake_row)
+                else:
+                    request_id = intake_row.get("requestId")
+                    self.pending.add(intake_row, str(request_id) if request_id is not None else None)
+        if self.pending is not None:
+            for row in self.pending.resolve(self._clock()):
+                self._aggregate(row)
 
     def rows_of(self, sensor: str) -> list[StoreRow]:
         """Return the visible rows of sensor."""
@@ -432,6 +444,8 @@ class SideEffectsStore:
         self._unconfirmed_past_cap = 0
         self._folded = 0
         self._cleared_at = now
+        if self.pending is not None:
+            self.pending.clear(now)
         for sensor in RINGED:
             self._last_seen_cleared_at[sensor] = max(self._last_seen_cleared_at.get(sensor, 0), now)
         self._clears += 1

@@ -563,12 +563,12 @@ def test_request_routes_does_not_hold_the_lock_while_mapping() -> None:
     journal = _journal_module().RuntimeJournal()
     journal.offer({"source": "http", "requestId": "r1", "route": "GET /items"})
     observed: list[bool] = []
-    original = journal._masked
+    original = journal._request_routes
 
-    def inspect_lock(source: str, events: object, memo: object = None) -> object:
+    def inspect_lock(events: object, ids: object) -> object:
         observed.append(journal._owned())
-        return original(source, events, memo)
+        return original(events, ids)  # type: ignore[arg-type]
 
-    journal._masked = inspect_lock  # type: ignore[method-assign]
+    journal._request_routes = inspect_lock  # type: ignore[method-assign]
     journal.request_routes({"r1"})
     assert observed == [False]
