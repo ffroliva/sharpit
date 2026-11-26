@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Mapping
 from typing import Any, cast
 
 from sharpit.engine.collectors.sideeffects import display
@@ -23,6 +24,24 @@ from sharpit.engine.sensors.floor import (
     SIDE_EFFECTS_LIMITATIONS,
     SensorRefusal,
 )
+
+# SideEffectsService.holderLine (SV:1772-1790): after the two fixed counts, each skip only when it happened
+_HOLDER_SKIPS = (
+    ("valuesTooLong", " values longer than 256 characters were not held."),
+    ("valuesOverCount", " values past 32 in a request were not held."),
+    ("tableFull", " requests held nothing: 128 requests held values already."),
+    ("stopped", " requests reached their matching budget: later sinks were not checked."),
+    ("partial", " texts were checked in their first 16 KB only."),
+    ("busy", " checks were skipped while another check of the same request ran."),
+    ("notKept", " targets or names were not kept: too many distinct ones in this run."),
+    ("dropped", " matches were dropped: the agent's ring was full."),
+)
+
+
+def holder_line(holder: Mapping[str, int]) -> str:
+    line = f"Request-value matching: {holder.get('requests', 0)} requests held values, "
+    line += f"{holder.get('checks', 0)} sink checks ran."
+    return line + "".join(f" {holder[key]}{text}" for key, text in _HOLDER_SKIPS if holder.get(key, 0) > 0)
 
 
 class SideEffectsService:
@@ -83,7 +102,10 @@ class SideEffectsService:
                 "unavailableReason": None,
                 "sensors": sensors,
                 "limitations": self.limitations(
-                    folded=store.folded(), cleared=store.clears() > 0, unconfirmed=store.unconfirmed()
+                    folded=store.folded(),
+                    cleared=store.clears() > 0,
+                    unconfirmed=store.unconfirmed(),
+                    holder=self._holder(),
                 ),
             }
 
@@ -132,7 +154,10 @@ class SideEffectsService:
                     "hasMore": start + len(selected) < len(rows),
                 },
                 "limitations": self.limitations(
-                    folded=store.folded(), cleared=store.clears() > 0, unconfirmed=store.unconfirmed()
+                    folded=store.folded(),
+                    cleared=store.clears() > 0,
+                    unconfirmed=store.unconfirmed(),
+                    holder=self._holder(),
                 ),
             }
 
@@ -157,6 +182,16 @@ class SideEffectsService:
             "hooks": [],
             "toggle": None,
         }
+
+    def _holder(self) -> dict[str, int] | None:
+        """The request-value holder's counters; None while the setting is off (the lane then has no such sensor)."""
+        lane = self.capture.sensors
+        # shortcut: reaches the lane's private sensor table, as the lane has no accessor yet; add one on the lane
+        sensor = getattr(lane, "_sensors", {}).get("security-sinks")
+        values = getattr(getattr(sensor, "matcher", None), "_values", None)
+        if values is None:
+            return None
+        return {**values.status(), "dropped": lane.rows.dropped("security-sinks")}
 
     def limitations(self, **kwargs: Any) -> list[str]:
         sinks = (
@@ -188,7 +223,8 @@ class SideEffectsService:
         routes_hidden = kwargs.get("routes_hidden", False)
         folded = kwargs.get("folded", 0)
         cleared = kwargs.get("cleared", False) or self._clears > 0
-        holder_enabled = kwargs.get("holder_enabled", False)
+        holder = kwargs.get("holder")
+        holder_enabled = kwargs.get("holder_enabled", False) or holder is not None
         unconfirmed = kwargs.get("unconfirmed", 0)
         if routes_hidden:
             lines.append(
@@ -206,7 +242,7 @@ class SideEffectsService:
                 "still held whose first occurrence came before the clear."
             )
         if holder_enabled:
-            lines.append("Request-value matching: 0 requests held values, 0 sink checks ran.")
+            lines.append(holder_line(holder or {}))
         if unconfirmed:
             lines.append(
                 f"{unconfirmed} security-sinks match is not shown yet: a number, or one whose place in the text "
