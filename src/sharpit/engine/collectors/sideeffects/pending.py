@@ -15,6 +15,7 @@ UNKNOWN_ROUTE = "(unknown route)"
 ROUTE_HIDDEN = "(route hidden)"
 _SAFE_OR_DIGITS = re.compile(r"\d+|[^a-zA-Z._:/ \[\]-]+")
 _THREAD_NAME_MASKER = Masker(Exposure.MASKED, True)
+# own copy: masking's vendor pattern lacks the AWS ids and keeps a lookbehind, so reusing it would change thread names
 _SECRET_TOKEN = re.compile(
     r"(?:AKIA|ASIA)[A-Z0-9]{16}"
     r"|(?:sk_live_|sk_test_|rk_live_|pk_live_|ghp_|gho_|ghs_|ghu_|github_pat_|glpat-|xoxb-|xoxp-|xoxa-|AIza|sk-ant-|sk-proj-)[A-Za-z0-9_-]{16,}"
