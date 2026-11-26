@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import sharpit.fastapi.capture_exceptions as capture_exceptions
+import sharpit.fastapi.sink_ownership as sink_ownership
 from sharpit.engine import sqla
 from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
@@ -142,6 +143,11 @@ def _lose_http(ctx: SharpitContext) -> None:
     """A request the capture could not journal is an http drop, so a route is never reported absent because of it."""
     if (journal := ctx.capture.journal) is not None:
         journal.count_dropped("http")
+
+
+def _end_request_sensors(ctx: SharpitContext, request_id: str) -> None:
+    if ctx.capture.sensors is not None:
+        ctx.capture.sensors.request_ended(request_id)
 
 
 def _needs_log_handler(ctx: SharpitContext, journal: RuntimeJournal | None) -> bool:
@@ -291,7 +297,13 @@ class CaptureWiring:
 
     def _arm_sensors(self, ctx: SharpitContext, journal: RuntimeJournal) -> None:
         lane = ctx.capture.sensors = build_lane(
-            ctx.settings.agent_sensors, journal, ctx.masker.mask_path, own=(ctx.settings.state_dir,)
+            ctx.settings.agent_sensors,
+            journal,
+            ctx.masker.mask_path,
+            own=(ctx.settings.state_dir,),
+            request_values=ctx.settings.agent_security_sinks_request_values,
+            context_id=ctx.context_id,
+            owns=sink_ownership.owned,
         )
         if lane is not None:
             for hook in lane.hooks():
@@ -659,6 +671,7 @@ class CaptureMiddleware:
                     finished = end_ns or time.perf_counter_ns()
                     info.finished_ns = finished
                     with _request_end_guard(wiring):
+                        _end_request_sensors(self.ctx, info.id)
                         info.endpoint = capture_exceptions.endpoint_name(scope.get("endpoint"))
                     store = self.ctx.capture.exceptions
                     if store is not None:

@@ -53,6 +53,16 @@ FILES_DEFAULT_REASON = (
     "On by default: it records the files the application opens, deletes, moves, and copies, as path patterns, never"
     " their contents. Switch it off to stop recording them."
 )
+# AgentSensorSettings.defaultReason("security-sinks"), BootUI -> sharpit
+SECURITY_SINKS_DEFAULT_REASON = (
+    "Off by default: its request-value matching, which also needs"
+    " SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true, holds each request's query and path values in memory while it"
+    " runs."
+)
+DEFAULT_REASONS: dict[str, str] = {
+    "files": FILES_DEFAULT_REASON,
+    "security-sinks": SECURITY_SINKS_DEFAULT_REASON,
+}
 _THREADS_AND_LEAKS = "Threads and leaks"
 # SideEffectsCatalog.SENSORS, in tab order: (id, group, label)
 SIDE_EFFECT_SENSORS = (

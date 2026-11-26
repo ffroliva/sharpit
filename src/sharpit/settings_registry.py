@@ -108,9 +108,9 @@ JOURNAL_SOURCES = (
     "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client", "cache",
     "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources", "app-event",
     "websocket", "orm", "agent.executors", "agent.caught-exceptions",
-    "processes", "files",
+    "processes", "files", "security-sinks",
 )  # fmt: skip
-# processes, files: sharpit-only journal sources, the W6 S3 sensors (BootUI keeps them in its Side Effects store)
+# processes, files, security-sinks: sharpit-only journal sources, the W6 S3 sensors (BootUI keeps them in Side Effects)
 
 # AgentSensorSettings.KNOWN_SENSORS: every id is accepted; sharpit builds only processes and files (engine/sensors/)
 AGENT_SENSORS = (
@@ -298,6 +298,7 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "runtime_journal_queue_capacity": (_int, 10_000),
     "runtime_journal_sources": (_journal_sources, None),
     "agent_sensors": (_agent_sensors, None),
+    "agent_security_sinks_request_values": (parse_bool, False),
     "runtime_insights_ai_token_threshold": (_int, None),
     "resources_jfr_max_duration": (_jfr_max_duration, None),
     "security_logs_max_logs": (_int, None),
@@ -447,6 +448,7 @@ _NON_CREDENTIAL_FIELDS = {
     "runtime_journal_queue_capacity": "Journal queue count limit, not a credential.",
     "runtime_journal_sources": "Journal source names, not credentials.",
     "agent_sensors": "Agent sensor ids, not credentials.",
+    "agent_security_sinks_request_values": _FLAG,
     "runtime_insights_ai_token_threshold": "Token count threshold, not a credential.",
     "resources_jfr_max_duration": "Profiling duration limit, not a credential.",
     "security_logs_max_logs": "Log count limit, not a credential.",

@@ -14,11 +14,18 @@ from typing import Any
 from sharpit.engine.capture.journal import JournalSink
 from sharpit.engine.sensors.audit import AuditHub, Sensor, hub
 from sharpit.engine.sensors.files import FilesSensor
-from sharpit.engine.sensors.floor import FILES_DEFAULT_REASON, SWITCHABLE_SENSORS
+from sharpit.engine.sensors.floor import DEFAULT_REASONS, SWITCHABLE_SENSORS
 from sharpit.engine.sensors.processes import ProcessesSensor
+from sharpit.engine.sensors.sinks import SecuritySinksSensor, SinkMatcher
 
-BUILT = ("processes", "files")  # the sensors this version builds
+BUILT = ("processes", "files", "security-sinks")  # the sensors this version builds
 SWITCHABLE = tuple(name for name in SWITCHABLE_SENSORS if name in BUILT)  # BootUI keeps processes always on
+
+
+def _wipe(sensor: Sensor | None) -> None:
+    wipe = getattr(sensor, "wipe", None)
+    if callable(wipe):
+        wipe()
 
 
 class SensorHook:
@@ -35,7 +42,8 @@ class SensorHook:
         self._lane.unpause(self.name)
 
     def discard(self) -> None:
-        """Nothing is held here: rows live in the journal."""
+        """Nothing is held in the process or file sensors; the security-sinks sensor wipes its held values."""
+        self._lane.wipe(self.name)
 
 
 class SensorLane:
@@ -49,11 +57,18 @@ class SensorLane:
         self._paused: set[str] = set()
         # off by the action or by configuration (a switchable sensor nobody asked for starts off): kept across restarts
         self._off = {name for name in self._sensors if name in SWITCHABLE and name not in self._configured}
+        self._matcher: SinkMatcher | None = getattr(self._sensors.get("security-sinks"), "matcher", None)
         self.attached = False
 
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(self._sensors)
+
+    def is_on(self, name: str) -> bool:
+        return self.attached and name in self._sensors and name not in self._paused and name not in self._off
+
+    def wipe(self, name: str) -> None:
+        _wipe(self._sensors.get(name))
 
     def hooks(self) -> list[SensorHook]:
         return [SensorHook(name, self) for name in self._sensors]
@@ -69,11 +84,13 @@ class SensorLane:
         self.attached = False
         for sensor in self._sensors.values():
             self._hub.release(sensor)
+            _wipe(sensor)
 
     def pause(self, name: str) -> None:
         self._paused.add(name)
         if (sensor := self._sensors.get(name)) is not None:
             self._hub.disable(sensor)
+            _wipe(sensor)
 
     def unpause(self, name: str) -> None:
         self._paused.discard(name)
@@ -81,7 +98,8 @@ class SensorLane:
             self.attach()
 
     def request_ended(self, request_id: str) -> None:
-        del request_id
+        if self._matcher is not None:
+            self._matcher.request_ended(request_id)
 
     def toggles(self) -> list[dict[str, Any]]:
         """``JavaAgentSensorToggleDto`` for each sensor this lane switches at run time."""
@@ -92,7 +110,7 @@ class SensorLane:
                 "enabled": (on := name not in self._off),
                 "overridden": on != (name in self._configured),
                 "state": "installed" if on else "off",
-                "optInReason": FILES_DEFAULT_REASON,
+                "optInReason": DEFAULT_REASONS[name],
                 "available": True,
                 "unavailableReason": None,
                 "failure": None,
@@ -111,7 +129,9 @@ class SensorLane:
                 self.attach()
         else:
             self._off.add(name)
-            self._hub.disable(self._sensors[name])
+            sensor = self._sensors[name]
+            self._hub.disable(sensor)
+            _wipe(sensor)
         return True
 
 
@@ -127,10 +147,26 @@ def build_lane(
     owns: Callable[[Mapping[str, Any]], bool] = lambda scope: False,
 ) -> SensorLane | None:
     """The lane for ``configured`` sensors, or None: nothing configured, or no journal to offer to."""
-    del request_values, context_id, owns
-    if not any(name in configured for name in BUILT) or sink is None:
+    available = BUILT if request_values else tuple(name for name in BUILT if name != "security-sinks")
+    if not any(name in configured for name in available) or sink is None:
         return None
-    built: dict[str, Any] = {"processes": ProcessesSensor, "files": lambda: FilesSensor(mask_path, own=own)}
+    lane: SensorLane | None = None
+    matcher = (
+        SinkMatcher(
+            context_id,
+            on=lambda: lane is not None and lane.is_on("security-sinks"),
+            owns=owns,
+        )
+        if request_values
+        else None
+    )
+    built: dict[str, Any] = {
+        "processes": lambda: ProcessesSensor(matcher=matcher),
+        "files": lambda: FilesSensor(mask_path, own=own, matcher=matcher),
+    }
+    if matcher is not None:
+        built["security-sinks"] = lambda: SecuritySinksSensor(matcher)
     # a switchable sensor is built even when not configured, off: the action may switch it on (BootUI's toggle)
-    wanted = [name for name in BUILT if name in configured or name in SWITCHABLE]
-    return SensorLane([built[name]() for name in wanted], sink, audit, configured)
+    wanted = [name for name in available if name in configured or name in SWITCHABLE]
+    lane = SensorLane([built[name]() for name in wanted], sink, audit, configured)
+    return lane
