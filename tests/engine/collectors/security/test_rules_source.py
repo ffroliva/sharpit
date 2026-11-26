@@ -254,20 +254,29 @@ def test_a_path_holding_a_secret_shaped_pair_stays_masked(inputs_of, service_for
     assert "abc12345678" not in repr(samples)
 
 
-def test_a_secret_shaped_name_in_the_message_slot_stays_masked(inputs_of, service_for, tmp_path: Path):
-    package = _shopapp(tmp_path, {"keys.py": 'CONFIG = {"token=abc12345678": "literal-value-1234"}\n'})
+SECRET_SHAPED_NAMES = [
+    pytest.param("token=abc12345678", "abc12345678", id="pair"),
+    pytest.param("password hunter2xyz", "hunter2xyz", id="space"),
+    pytest.param("secret/hunter2xyz", "hunter2xyz", id="slash"),
+]
+
+
+@pytest.mark.parametrize(("name", "tail"), SECRET_SHAPED_NAMES)
+def test_a_secret_shaped_name_in_the_message_slot_stays_masked(inputs_of, service_for, tmp_path: Path, name, tail):
+    package = _shopapp(tmp_path, {"keys.py": f'CONFIG = {{"{name}": "literal-value-1234"}}\n'})
     service = service_for(lambda: inputs_of(FastAPI(), source=package))
     samples = _samples(service, "SEC-SRC-001")
     assert samples != []
-    assert "abc12345678" not in repr(samples)
+    assert tail not in repr(samples)
 
 
-def test_a_secret_shaped_environment_key_stays_masked(inputs_of, service_for, tmp_path: Path):
-    package = _shopapp(tmp_path, {"settings.py": 'import os\nKEY = os.getenv("token=abc12345678", "dev-secret")\n'})
+@pytest.mark.parametrize(("name", "tail"), SECRET_SHAPED_NAMES)
+def test_a_secret_shaped_environment_key_stays_masked(inputs_of, service_for, tmp_path: Path, name, tail):
+    package = _shopapp(tmp_path, {"settings.py": f'import os\nKEY = os.getenv("{name}", "dev-secret")\n'})
     service = service_for(lambda: inputs_of(FastAPI(), source=package))
     samples = _samples(service, "SEC-CONFIG-007")
     assert samples != []
-    assert "abc12345678" not in repr(samples)
+    assert tail not in repr(samples)
 
 
 @pytest.mark.parametrize(
