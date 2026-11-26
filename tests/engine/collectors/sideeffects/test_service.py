@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from sharpit.engine.collectors.sideeffects.pending import MAX_PENDING
 from sharpit.engine.collectors.sideeffects.service import SideEffectsService
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sensors.floor import SensorRefusal
@@ -471,3 +472,17 @@ def test_the_agent_report_lists_the_rows_its_sensors_count() -> None:
     report = service.agent_report(None, None)
     counted = sum(sensor["rows"] for sensor in report["sensors"])
     assert len(report["rows"]) == counted
+
+
+def test_rows_the_pending_list_dropped_are_reported_as_dropped_by_their_sensor() -> None:
+    service, rows = _service_with_rows()
+    now = time.time_ns() // 1_000_000
+    for index in range(MAX_PENDING + 1):
+        rows.append(
+            {"source": "processes", "at": now, "kind": "start", "target": "python", "requestId": f"{index:016x}"}
+        )
+        if index == MAX_PENDING - 1:
+            service.report()  # the pending list now holds MAX_PENDING rows waiting for a route
+    dropped = {sensor["id"]: sensor["dropped"] for sensor in service.report()["sensors"]}
+    assert dropped["processes"] == 1
+    assert dropped["files"] == 0
