@@ -7,6 +7,8 @@ import os
 import platform
 import sys
 import tempfile
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -237,10 +239,11 @@ def test_unlinking_a_temp_file_without_a_request_value_leaves_an_unchanged_row()
     os.close(fd)
     try:
         sensor_with_matcher = files("v=quarterly", tmp=tempfile.gettempdir())
-        rows_with = run(sensor_with_matcher, "os.remove", path, None)
-
         sensor_without = FilesSensor(tmp=tempfile.gettempdir())
-        rows_without = [dict(r) for r in sensor_without.record("os.remove", (path, None))]
+        _SENSOR_REQUESTS[id(sensor_without)] = _SENSOR_REQUESTS[id(sensor_with_matcher)]
+        with patch("time.time_ns", return_value=1_700_000_000_000_000_000):
+            rows_with = run(sensor_with_matcher, "os.remove", path, None)
+            rows_without = run(sensor_without, "os.remove", path, None)
 
         assert rows_with == rows_without
         assert rows_with[0]["target"].startswith("$TMPDIR/")
@@ -308,12 +311,199 @@ def test_an_explicit_executable_beside_one_string_is_checked_on_its_own() -> Non
 def test_a_matcher_that_matches_nothing_leaves_every_process_row_unchanged() -> None:
     sensor_with = processes("?v=zzzzqqqq")
     sensor_without = ProcessesSensor()
+    _SENSOR_REQUESTS[id(sensor_without)] = _SENSOR_REQUESTS[id(sensor_with)]
     inputs: list[tuple[str, tuple[Any, ...]]] = [
         ("subprocess.Popen", ("/usr/bin/convert", ["/usr/bin/convert", "file.pdf"], None, None)),
         ("subprocess.Popen", ("X.exe", "python.exe -c pass", None, None)),
         ("subprocess.Popen", (None, Path("/bin/tool"), None, None)),
     ]
     for event, args in inputs:
-        rows_with = run(sensor_with, event, *args)
-        rows_without = [dict(r) for r in sensor_without.record(event, args)]
+        with patch("time.time_ns", return_value=1_700_000_000_000_000_000):
+            rows_with = run(sensor_with, event, *args)
+            rows_without = run(sensor_without, event, *args)
         assert rows_with == rows_without
+
+
+def test_a_process_row_names_its_request_time_and_call_site() -> None:
+    sensor = processes("file=report-q3")
+    req = _SENSOR_REQUESTS[id(sensor)]
+    token = REQUEST.set(req)
+    try:
+        before = time.time_ns() // 1_000_000
+        rows = [dict(r) for r in sensor.record("os.system", ("convert out.png",))]
+        matched_rows = [dict(r) for r in sensor.record("os.system", ("convert report-q3",))]
+        after = time.time_ns() // 1_000_000
+    finally:
+        REQUEST.reset(token)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.get("requestId") == req.id
+    assert row.get("callSite") == f"{__name__}:test_a_process_row_names_its_request_time_and_call_site"
+    at = row.get("at")
+    assert isinstance(at, int)
+    assert before <= at <= after
+    assert matched_rows[0].get("requestId") == req.id
+    assert matched_rows[0].get("callSite") == f"{__name__}:test_a_process_row_names_its_request_time_and_call_site"
+
+
+def test_a_file_row_names_its_request_time_and_call_site() -> None:
+    sensor = files("name=quarterly")
+    req = _SENSOR_REQUESTS[id(sensor)]
+    token = REQUEST.set(req)
+    try:
+        before = time.time_ns() // 1_000_000
+        rows = [dict(r) for r in sensor.record("open", ("reports/annual.csv", "r", 0))]
+        matched_rows = [dict(r) for r in sensor.record("open", ("reports/quarterly.csv", "r", 0))]
+        after = time.time_ns() // 1_000_000
+    finally:
+        REQUEST.reset(token)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.get("requestId") == req.id
+    assert row.get("callSite") == f"{__name__}:test_a_file_row_names_its_request_time_and_call_site"
+    at = row.get("at")
+    assert isinstance(at, int)
+    assert before <= at <= after
+    assert matched_rows[0].get("requestId") == req.id
+    assert matched_rows[0].get("callSite") == f"{__name__}:test_a_file_row_names_its_request_time_and_call_site"
+
+
+def test_a_row_outside_a_request_has_no_request_id() -> None:
+    p_rows = [dict(r) for r in ProcessesSensor().record("os.system", ("convert out.png",))]
+    f_rows = [dict(r) for r in FilesSensor(cwd="/work/app").record("open", ("/work/app/a.csv", "r", 0))]
+    assert len(p_rows) == 1
+    assert "requestId" in p_rows[0]
+    assert p_rows[0]["requestId"] is None
+    assert len(f_rows) == 1
+    assert "requestId" in f_rows[0]
+    assert f_rows[0]["requestId"] is None
+
+
+def test_a_row_of_another_install_has_no_request_id() -> None:
+    p_sensor = processes("file=report-q3")
+    f_sensor = files("name=quarterly")
+    token = REQUEST.set(info("file=report-q3&name=quarterly", request_id="b" * 16, context_id="other"))
+    try:
+        p_rows = [dict(r) for r in p_sensor.record("os.system", ("convert out.png",))]
+        f_rows = [dict(r) for r in f_sensor.record("open", ("reports/annual.csv", "r", 0))]
+    finally:
+        REQUEST.reset(token)
+    assert len(p_rows) == 1
+    assert "requestId" in p_rows[0]
+    assert p_rows[0]["requestId"] is None
+    assert len(f_rows) == 1
+    assert "requestId" in f_rows[0]
+    assert f_rows[0]["requestId"] is None
+
+
+def test_two_call_sites_of_one_pattern_share_the_first_ones() -> None:
+    # adapted from: SideEffectsService.LIMITATION_FILES
+    sensor = FilesSensor(cwd="/work/app", home="/home/ann", tmp="/tmp")  # noqa: S108
+
+    def first_helper() -> list[dict[str, Any]]:
+        return [dict(r) for r in sensor.record("open", ("/work/app/reports/report-1.csv", "r", 0))]
+
+    def second_helper() -> list[dict[str, Any]]:
+        return [dict(r) for r in sensor.record("open", ("/work/app/reports/report-2.csv", "r", 0))]
+
+    first = first_helper()
+    second = second_helper()
+    expected = f"{__name__}:test_two_call_sites_of_one_pattern_share_the_first_ones.<locals>.first_helper"
+    assert len(first) == 1
+    assert len(second) == 1
+    assert first[0].get("target") == "./reports/report-{n}.csv"
+    assert second[0].get("target") == "./reports/report-{n}.csv"
+    assert first[0].get("callSite") == expected
+    assert second[0].get("callSite") == expected
+
+
+def test_a_file_rows_origin_follows_its_frames() -> None:
+    # adapted from: SideEffectOrigins.origin
+    sensor = FilesSensor(cwd="/work/app", home="/home/ann", tmp="/tmp")  # noqa: S108
+    app_rows = [dict(r) for r in sensor.record("open", ("/work/app/from_app.csv", "r", 0))]
+    assert len(app_rows) == 1
+    assert app_rows[0].get("origin") == "application"
+    assert app_rows[0].get("callSite") == f"{__name__}:test_a_file_rows_origin_follows_its_frames"
+
+    lib_rows: list[dict[str, Any]] = []
+    lib_file = os.path.join(sys.prefix, "Lib", "site-packages", "_sharpit_test_lib_origin.py")
+    lib_ns: dict[str, Any] = {"__name__": "_sharpit_test_lib_origin", "sensor": sensor, "lib_rows": lib_rows}
+    exec(  # noqa: S102
+        compile(
+            "def lib_open():\n"
+            "    lib_rows.extend(dict(r) for r in sensor.record('open', ('/work/app/from_lib.csv', 'r', 0)))\n",
+            lib_file,
+            "exec",
+        ),
+        lib_ns,
+    )
+    lib_thread = threading.Thread(target=lib_ns["lib_open"])
+    lib_thread.start()
+    lib_thread.join()
+    assert len(lib_rows) == 1
+    assert lib_rows[0].get("origin") == "library"
+    assert lib_rows[0].get("callSite") is None
+
+    stdlib_rows: list[dict[str, Any]] = []
+    # Compile the target with a stdlib filename so no application or library frame is on the thread's stack
+    stdlib_ns: dict[str, Any] = {"__name__": "os", "sensor": sensor, "stdlib_rows": stdlib_rows}
+    exec(  # noqa: S102
+        compile(
+            "def stdlib_open():\n"
+            "    stdlib_rows.extend(dict(r) for r in sensor.record('open', ('/work/app/from_stdlib.csv', 'r', 0)))\n",
+            os.__file__,
+            "exec",
+        ),
+        stdlib_ns,
+    )
+    stdlib_thread = threading.Thread(target=stdlib_ns["stdlib_open"])
+    stdlib_thread.start()
+    stdlib_thread.join()
+    assert len(stdlib_rows) == 1
+    assert stdlib_rows[0].get("origin") == "unknown"
+    assert stdlib_rows[0].get("callSite") is None
+
+
+def test_a_process_row_has_no_origin() -> None:
+    rows = [dict(r) for r in ProcessesSensor().record("os.system", ("convert out.png",))]
+    assert len(rows) == 1
+    assert "origin" not in rows[0]
+
+
+def test_a_row_without_a_request_id_carries_its_thread_name() -> None:
+    p_rows: list[dict[str, Any]] = []
+    f_rows: list[dict[str, Any]] = []
+    p_sensor = ProcessesSensor()
+    f_sensor = FilesSensor(cwd="/work/app")
+
+    def worker() -> None:
+        p_rows.extend(dict(r) for r in p_sensor.record("os.system", ("convert out.png",)))
+        f_rows.extend(dict(r) for r in f_sensor.record("open", ("/work/app/a.csv", "r", 0)))
+
+    thread = threading.Thread(target=worker, name="pool-3-thread-12")
+    thread.start()
+    thread.join()
+    assert len(p_rows) == 1
+    assert p_rows[0].get("requestId") is None
+    assert p_rows[0].get("threadName") == "pool-3-thread-12"
+    assert len(f_rows) == 1
+    assert f_rows[0].get("requestId") is None
+    assert f_rows[0].get("threadName") == "pool-3-thread-12"
+
+
+def test_a_request_row_reads_no_thread_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    p_sensor = processes("file=report-q3")
+    f_sensor = files("name=quarterly")
+
+    def forbidden_current_thread() -> Any:
+        raise AssertionError("current_thread() was read for a request row")
+
+    monkeypatch.setattr(threading, "current_thread", forbidden_current_thread)
+    p_rows = run(p_sensor, "os.system", "convert out.png")
+    f_rows = run(f_sensor, "open", "reports/annual.csv", "r", 0)
+    assert len(p_rows) == 1
+    assert "threadName" in p_rows[0]
+    assert p_rows[0]["threadName"] is None
+    assert len(f_rows) == 1
+    assert "threadName" in f_rows[0]
+    assert f_rows[0]["threadName"] is None

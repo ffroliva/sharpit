@@ -25,7 +25,7 @@ PROCESSES_SENSOR_BUDGET = 6.0e-6  # us/event: minimise + offer, against the flag
 FILES_SENSOR_BUDGET = 6.0e-6
 
 CHILD = """
-import json, sys, time
+import json, os, sys, time
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sensors.audit import AuditHub
@@ -33,11 +33,28 @@ from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.processes import ProcessesSensor
 
 EVENTS, ROUNDS = @EVENTS@, @ROUNDS@
-journal = RuntimeJournal(sources=["processes", "files"], max_events=EVENTS * ROUNDS * 4)
+journal = RuntimeJournal(sources=["processes", "files"], max_events=EVENTS * ROUNDS * 8)
 processes, files, hub = ProcessesSensor(), FilesSensor(Masker(Exposure.MASKED, True).mask_path), AuditHub()
 hub.enable(processes, journal)  # installs the real hook once; both sides of a sensor round then pay for it alike
 hub.disable(processes)
 unsubscribed = ("sharpit.budget.unsubscribed", (1,))
+
+lib_file = os.path.join(sys.prefix, "Lib", "site-packages", "_sharpit_budget_lib.py")
+lib_ns = {"__name__": "_sharpit_budget_lib"}
+exec(
+    compile(
+        "def deep_lib(n, fn):\\n    return fn() if n <= 0 else deep_lib(n - 1, fn)\\n",
+        lib_file,
+        "exec",
+    ),
+    lib_ns,
+)
+deep_lib = lib_ns["deep_lib"]
+
+app_file = os.path.abspath("_sharpit_budget_app.py")
+app_ns = {"__name__": "_sharpit_budget_app"}
+exec(compile("def app_top(fn):\\n    return fn()\\n", app_file, "exec"), app_ns)
+app_top = app_ns["app_top"]
 
 def empty(event, args):
     return None
@@ -55,7 +72,7 @@ def audited(event, *args):
         audit(event, *args)
     return (time.perf_counter() - start) / EVENTS
 
-popen = lambda: audited("subprocess.Popen", "/usr/bin/git", ["git", "status"], None, None)
+popen = lambda: deep_lib(64, lambda: audited("subprocess.Popen", "/usr/bin/git", ["git", "status"], None, None))
 HOT = [f"reports/report-{i}/data.csv" for i in range(64)]  # a hot set of distinct files, each opened over and over
 
 def opened():
@@ -65,6 +82,12 @@ def opened():
         audit("open", hot[i & 63], "r", 0)
     return (time.perf_counter() - start) / EVENTS
 
+def reset_files():
+    files._seen.clear()
+    patterns = getattr(files, "_patterns", None)
+    if patterns is not None:
+        patterns.clear()
+
 def alternate(first, second):
     one, two = [], []
     for i in range(ROUNDS):
@@ -72,28 +95,36 @@ def alternate(first, second):
             (one, two)[side].append((first, second)[side]())
     return one, two
 
-def switched(sensor, round_):
+def switched(sensor, round_, before_on=None):
     def run(on):
         if on:
+            if before_on is not None:
+                before_on()
             hub.enable(sensor, journal)
         out = round_()
         hub.disable(sensor)
         return out
     return run
 
+def measure_rounds(sensor, round_, before_on=None):
+    off, on = [], []
+    step = switched(sensor, round_, before_on)
+    for i in range(ROUNDS):
+        for side in (("off", "on") if i % 2 == 0 else ("on", "off")):
+            (on if side == "on" else off).append(step(side == "on"))
+    return off, on
+
 resident_off, resident_on = alternate(
     lambda: direct(empty, *unsubscribed), lambda: direct(hub._dispatch, *unsubscribed)
 )
-off, on = [], []
-for i in range(ROUNDS):
-    for side in (("off", "on") if i % 2 == 0 else ("on", "off")):
-        (on if side == "on" else off).append(switched(processes, popen)(side == "on"))
-files_off, files_on = [], []
-for i in range(ROUNDS):
-    for side in (("off", "on") if i % 2 == 0 else ("on", "off")):
-        (files_on if side == "on" else files_off).append(switched(files, opened)(side == "on"))
+off, on = measure_rounds(processes, popen)
+files_no_app_off, files_no_app_on = measure_rounds(files, lambda: deep_lib(64, opened), reset_files)
+files_app_off, files_app_on = measure_rounds(files, lambda: deep_lib(64, lambda: app_top(opened)), reset_files)
+files_off, files_on = measure_rounds(files, opened)
 print(json.dumps({
     "resident_off": resident_off, "resident_on": resident_on, "off": off, "on": on,
+    "files_no_app_off": files_no_app_off, "files_no_app_on": files_no_app_on,
+    "files_app_off": files_app_off, "files_app_on": files_app_on,
     "files_off": files_off, "files_on": files_on, "recorded": journal.status()["recorded"],
 }))
 """.replace("@EVENTS@", str(EVENTS)).replace("@ROUNDS@", str(ROUNDS))
@@ -115,11 +146,29 @@ def _result(off: list[float], on: list[float]) -> Any:
 def test_the_sensors_overhead_budgets_by_event_count() -> None:
     measured = _measure()
     # one row per subscribed event, none for the rest
-    assert measured["recorded"] == {"processes": EVENTS * ROUNDS, "files": EVENTS * ROUNDS}
+    assert measured["recorded"] == {"processes": EVENTS * ROUNDS, "files": EVENTS * ROUNDS * 3}
     resident = _result(measured["resident_off"], measured["resident_on"])
     check_budget("resident audit hook", resident, RESIDENT_HOOK_BUDGET, "us/event", 1e-6)
     sensor = _result(measured["off"], measured["on"])
     check_budget("processes sensor", sensor, PROCESSES_SENSOR_BUDGET, "us/event", 1e-6)
     check_budget(
-        "files sensor", _result(measured["files_off"], measured["files_on"]), FILES_SENSOR_BUDGET, "us/event", 1e-6
+        "files sensor (new pattern, 64 frames, no app frame)",
+        _result(measured["files_no_app_off"], measured["files_no_app_on"]),
+        FILES_SENSOR_BUDGET,
+        "us/event",
+        1e-6,
+    )
+    check_budget(
+        "files sensor (new pattern, app frame near top)",
+        _result(measured["files_app_off"], measured["files_app_on"]),
+        FILES_SENSOR_BUDGET,
+        "us/event",
+        1e-6,
+    )
+    check_budget(
+        "files sensor (_seen hit)",
+        _result(measured["files_off"], measured["files_on"]),
+        FILES_SENSOR_BUDGET,
+        "us/event",
+        1e-6,
     )
