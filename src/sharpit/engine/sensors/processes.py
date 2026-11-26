@@ -135,12 +135,10 @@ def _check_joined_command(
 
 def _string_sink_rows(
     matcher: SinkMatcher,
+    command_name: str,
     program: str | None,
     command_line: str,
 ) -> tuple[Mapping[str, object], ...]:
-    command_name = _program(command_line) or (_program(program) if program else None)
-    if command_name is None:
-        return ()
     executable: str | None = None
     checking = False
     sink_rows: list[Mapping[str, object]] = []
@@ -198,12 +196,10 @@ def _check_argv_elements(
 
 def _argv_sink_rows(
     matcher: SinkMatcher,
+    command_name: str,
     program: object,
     argv: Sequence[object],
 ) -> tuple[Mapping[str, object], ...]:
-    command_name = _argv_target(program, argv)
-    if command_name is None:
-        return ()
     elements = _argv_elements(program, argv)
     executable: str | None = None
     checking = False
@@ -238,26 +234,37 @@ class ProcessesSensor:
         if self._matcher is None:
             target = self._target(event, args)
             return ({"source": SOURCE, "kind": "start", "target": target},) if target else ()
-        return self._record_matched(event, args)
+        target = self._target(event, args)
+        if target is None:
+            return ()
+        return self._record_matched(event, args, target)
 
-    def _record_matched(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+    def _record_matched(
+        self,
+        event: str,
+        args: tuple[Any, ...],
+        target: str | None = None,
+    ) -> tuple[Mapping[str, object], ...]:
         if self._matcher is None:
+            return ()
+        cmd_target = target if target is not None else self._target(event, args)
+        if cmd_target is None:
             return ()
         if event == "os.system":
             command = _text(args[0]) if args else None
-            return _string_sink_rows(self._matcher, None, command) if command else ()
+            return _string_sink_rows(self._matcher, cmd_target, None, command) if command else ()
         where = _ARGV_AT.get(event)
         if not where or len(args) <= where[1]:
             return ()
         program, argv = args[where[0]], args[where[1]]
         if isinstance(argv, (list, tuple)):
-            return _argv_sink_rows(self._matcher, program, cast("Sequence[object]", argv))
-        line = _text(cast("object", argv)) if isinstance(argv, (str, bytes, os.PathLike)) else None
+            return _argv_sink_rows(self._matcher, cmd_target, program, cast("Sequence[object]", argv))
+        line = _text(cast("object", argv)) if isinstance(argv, (str, bytes)) else None
         prog_text = _text(program) if program is not None else None
         if line is not None:
-            return _string_sink_rows(self._matcher, prog_text, line)
+            return _string_sink_rows(self._matcher, cmd_target, prog_text, line)
         if prog_text is not None:
-            return _string_sink_rows(self._matcher, None, prog_text)
+            return _string_sink_rows(self._matcher, cmd_target, None, prog_text)
         return ()
 
     @staticmethod
