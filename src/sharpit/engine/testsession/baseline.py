@@ -50,6 +50,13 @@ class Comparison:
     inconclusive: tuple[tuple[Entry, str], ...] = ()
 
 
+def _row_owner(row: dict[str, Any], fingerprint: str) -> str | None:
+    owner = row.get("owner")
+    if owner is not None and not isinstance(owner, str):
+        raise ValueError("baseline owner must be a string or null")
+    return owner if fingerprint.startswith(TEST_RUNTIME_PREFIX) else None
+
+
 def read(path: Path) -> Baseline:
     """Read and validate one stable baseline document."""
     raw = path.read_bytes()
@@ -79,11 +86,7 @@ def read(path: Path) -> Baseline:
         fingerprint = row["fingerprint"]
         if fingerprint in entries:
             raise ValueError(f"duplicate fingerprint in baseline: {fingerprint}")
-        owner = row.get("owner")
-        if owner is not None and not isinstance(owner, str):
-            raise ValueError("baseline owner must be a string or null")
-        if not fingerprint.startswith(TEST_RUNTIME_PREFIX):
-            owner = None
+        owner = _row_owner(row, fingerprint)
         entries[fingerprint] = Entry(fingerprint, row["ruleId"], row["target"], row["message"], observed, owner)
     return Baseline(entries, raw)
 
