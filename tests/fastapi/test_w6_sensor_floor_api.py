@@ -246,7 +246,7 @@ def test_read_only_panel_refuses_the_action(
     assert resp.json() == {"error": PANEL_ACCESS_DENIED, "panel": panel, "reason": read_only_reason(panel, False)}
 
 
-def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard) -> None:
+def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard, recorded_audit_hook: object) -> None:
     app = FastAPI()
     install(
         app,

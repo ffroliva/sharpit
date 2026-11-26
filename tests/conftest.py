@@ -68,6 +68,18 @@ def isolated_default_state_dir(tmp_path: Path, request: pytest.FixtureRequest) -
     )
 
 
+@pytest.fixture
+def recorded_audit_hook(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Any]]:
+    """Point the process audit hub at a recorder, so installing a sensor never arms the real hook."""
+    from sharpit.engine.sensors import audit
+
+    hooks: list[Any] = []
+    monkeypatch.setattr(audit.hub, "_add_hook", hooks.append)
+    monkeypatch.setattr(audit.hub, "_installed", False)
+    yield hooks
+    audit.hub.release()
+
+
 @pytest.fixture(autouse=True)
 def _real_audit_hook_not_armed() -> Iterator[None]:
     """Catch tests that permanently arm the process-wide audit hook."""
