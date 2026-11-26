@@ -12,6 +12,8 @@ from typing import Any, cast
 
 from starlette.endpoints import HTTPEndpoint
 
+from sharpit.engine.capture.frames import call_site_label, is_application_frame
+
 _CACHE_LIMIT = 1024
 type _CacheValue = frozenset[CodeType] | dict[str, frozenset[CodeType]]
 _CACHE: dict[int, tuple[weakref.ReferenceType[Any], _CacheValue]] = {}
@@ -156,31 +158,37 @@ def _codes_for(scope: Mapping[str, Any]) -> frozenset[CodeType]:
     return codes
 
 
-def _frame_matches(frame: FrameType | None, codes: frozenset[CodeType]) -> bool:
+def _frame_owner(
+    frame: FrameType | None, codes: frozenset[CodeType], first_app: str | None = None
+) -> tuple[str | None, str | None]:
     try:
         while frame is not None:
-            if frame.f_code in codes:
-                return True
+            code = frame.f_code
+            if first_app is None and is_application_frame(code.co_filename):
+                first_app = call_site_label(frame)
+            if code in codes:
+                return (first_app if first_app is not None else call_site_label(frame)), first_app
             frame = frame.f_back
-        return False
+        return None, first_app
     finally:
         frame = None
 
 
-def _greenlet_matches(codes: frozenset[CodeType]) -> bool:
+def _greenlet_owner(codes: frozenset[CodeType], first_app: str | None) -> str | None:
     greenlet = sys.modules.get("greenlet")
     getcurrent = getattr(greenlet, "getcurrent", None) if greenlet is not None else None
     if not callable(getcurrent):
-        return False
+        return None
     current: Any = getcurrent()
     try:
         for _ in range(8):
             current = getattr(current, "parent", None)
             if current is None:
-                return False
-            if _frame_matches(getattr(current, "gr_frame", None), codes):
-                return True
-        return False
+                return None
+            found, first_app = _frame_owner(getattr(current, "gr_frame", None), codes, first_app)
+            if found is not None:
+                return found
+        return None
     finally:
         current = None
 
@@ -188,16 +196,16 @@ def _greenlet_matches(codes: frozenset[CodeType]) -> bool:
 def owner(scope: Mapping[str, Any]) -> str | None:
     """The call site (``module:qualname``) when the current stack or a parent greenlet's stack runs the request's own
     endpoint or dependency, else None."""
-    del scope
-    return None
+    try:
+        codes = _codes_for(scope)
+        if not codes:
+            return None
+        found, first_app = _frame_owner(sys._getframe(1), codes)  # pyright: ignore[reportPrivateUsage]
+        return found if found is not None else _greenlet_owner(codes, first_app)
+    except Exception:
+        return None
 
 
 def owned(scope: Mapping[str, Any]) -> bool:
     """Whether the current stack, or a parent greenlet's stack, runs the request's own endpoint or dependency."""
-    try:
-        codes = _codes_for(scope)
-        if not codes:
-            return False
-        return _frame_matches(sys._getframe(1), codes) or _greenlet_matches(codes)  # pyright: ignore[reportPrivateUsage]
-    except Exception:
-        return False
+    return owner(scope) is not None

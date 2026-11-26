@@ -234,6 +234,12 @@ def _numeric(text: str, spans: list[tuple[int, int, int]], names: list[str], mat
     return frozenset(names[i] for i in matched if i in first and number(text, *first[i]))
 
 
+def _unreported(spans: list[tuple[int, int, int]], names: list[str], matched: list[int]) -> frozenset[str]:
+    # ported: RequestValues.reported (:801-809)
+    reported = {index for index, _, _ in spans}
+    return frozenset(names[i] for i in matched if i not in reported)
+
+
 class RequestValues:
     """The values of the requests running now, keyed by request id, bounded in entries, values and work."""
 
@@ -352,7 +358,13 @@ class RequestValues:
             return Match((), (), flags, None, frozenset(), key) if self._live(info, entry) else _EMPTY
         redacted = _redact(text, spans, names, flags)
         result = Match(
-            tuple(names[i] for i in matched), tuple(spans), flags, redacted, _numeric(text, spans, names, matched), key
+            tuple(names[i] for i in matched),
+            tuple(spans),
+            flags,
+            redacted,
+            _numeric(text, spans, names, matched),
+            key,
+            _unreported(spans, names, matched),
         )
         return result if self._live(info, entry) else _EMPTY
 

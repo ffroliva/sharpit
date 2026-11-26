@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -75,6 +76,7 @@ class SinkMatcher:
             return ()
         self._values.mark_seen(request.id, match)
         row_kind = "file-path" if kind == "file" else "command"
+        at = time.time_ns() // 1_000_000
         raw_hash = keyed_hash(text)
         redacted_hash = keyed_hash(match.redacted) if match.redacted is not None else 0
         return tuple(
@@ -86,7 +88,7 @@ class SinkMatcher:
                 "numeric": name in match.numeric,
                 "positionUnknown": name in match.unreported,
                 "callSite": call_site,
-                "at": 0,
+                "at": at,
                 "requestId": request.id,
                 "rawHash": raw_hash,
                 "redactedHash": redacted_hash,
