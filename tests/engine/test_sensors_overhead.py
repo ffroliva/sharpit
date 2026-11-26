@@ -1,5 +1,6 @@
 """W6 S3 budgets, by event count: what the resident audit hook and each sensor add per audit event.
 
+Rows are offered through the ``TeeSink`` ``build_lane`` puts in front of the journal.
 The real hook cannot be removed, so the resident hook is measured by calling ``hub._dispatch`` against an empty hook,
 the two alternating round by round (a drifting machine slows both alike), and the sensors by subscribing and
 unsubscribing between interleaved rounds. All of it runs in one child interpreter that prints its rounds; this process
@@ -32,11 +33,13 @@ from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sensors.audit import AuditHub
 from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.processes import ProcessesSensor
+from sharpit.engine.sensors.rows import SensorRows, TeeSink
 from sharpit.engine.sensors.sinks import SinkMatcher
 
 EVENTS, ROUNDS = @EVENTS@, @ROUNDS@
 mask_path = Masker(Exposure.MASKED, True).mask_path
 journal = RuntimeJournal(sources=["processes", "files"], max_events=EVENTS * ROUNDS * 12)
+sink = TeeSink(journal, SensorRows())  # as build_lane wraps the journal: every row is also rung
 matcher_off = SinkMatcher("ctx", False)
 matcher_on = SinkMatcher("ctx", True)
 processes = ProcessesSensor(context_id="ctx")
@@ -45,7 +48,7 @@ files = FilesSensor(mask_path, context_id="ctx")
 files_matcher_off = FilesSensor(mask_path, matcher=matcher_off)
 files_matcher_on = FilesSensor(mask_path, matcher=matcher_on)
 hub = AuditHub()
-hub.enable(processes, journal)  # installs the real hook once; both sides of a sensor round then pay for it alike
+hub.enable(processes, sink)  # installs the real hook once; both sides of a sensor round then pay for it alike
 hub.disable(processes)
 unsubscribed = ("sharpit.budget.unsubscribed", (1,))
 request = RequestInfo("a" * 16, "ctx", "GET", "/", None, 0, None)
@@ -123,7 +126,7 @@ def switched(sensor, round_, before_on=None):
         if on:
             if before_on is not None:
                 before_on()
-            hub.enable(sensor, journal)
+            hub.enable(sensor, sink)
         out = round_()
         hub.disable(sensor)
         return out
