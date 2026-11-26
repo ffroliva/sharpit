@@ -24,7 +24,8 @@ advisor does not count as having run for baselines: its baselined entries are ne
 
 A statement that has no text (`None`, `b""`, a number or a query object passed to a cursor class, to SQLAlchemy's
 `exec_driver_sql` or to the stdlib `sqlite3` driver, which refuses it) is counted once with empty text. It does not
-make the run `unknown`.
+make the run `unknown`. Its empty text has no shape, so the N+1 rule does not check it: a repeated statement sent as
+query objects counts toward the query total only.
 
 Pytest's exit status is preserved when pytest already returns non-zero. Sharpit changes a successful pytest exit (`0`)
 to `1` when the gate fails; it does not replace pytest's status for failing tests, interruption, an internal error, a
