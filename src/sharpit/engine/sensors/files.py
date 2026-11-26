@@ -251,8 +251,12 @@ class FilesSensor:
         text = path if type(path) is str else _text(path)
         if not text:
             return ()  # a file descriptor names no file, nor does an empty name
+        found = self._seen.get(text, _MISS)
+        if found is None:
+            self.ignored += 1
+            return ()
         if self._matcher is not None:
-            if self._is_skipped(_slashes(text)):
+            if found is _MISS and self._is_skipped(_slashes(text)):
                 self.ignored += 1
                 return ()
             try:
@@ -261,6 +265,8 @@ class FilesSensor:
                 return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id),)
             if match is not None and (match.names or unchecked(match)):
                 return self._row_matched(kind, text, match)
+        if found is not _MISS:
+            return (_file_row(kind, found[0], found[1], self._context_id),)
         return self._row_unmatched(kind, text)
 
     def _row_matched(self, kind: str, text: str, match: Match) -> tuple[Mapping[str, object], ...]:
