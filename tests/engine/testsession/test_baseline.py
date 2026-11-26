@@ -46,7 +46,9 @@ def test_baseline_rejects_duplicate_fingerprint(tmp_path) -> None:
 def test_compare_existing_new_and_fixed(tmp_path) -> None:
     path = tmp_path / "baseline.json"
     baseline.write(path, (_finding(target="seen"), _finding(target="gone")))
-    result = baseline.compare((_finding(target="seen"), _finding(target="new")), baseline.read(path), partial=False)
+    result = baseline.compare(
+        (_finding(target="seen"), _finding(target="new")), baseline.read(path), partial=False, tests=(), incomplete=()
+    )
     assert [finding.baseline_state for finding in result.findings] == ["existing", "new"]
     assert [entry.target for entry in result.fixed or ()] == ["gone"]
     assert result.fixed_reason is None
@@ -55,7 +57,7 @@ def test_compare_existing_new_and_fixed(tmp_path) -> None:
 def test_partial_unseen_is_null_with_reason(tmp_path) -> None:
     path = tmp_path / "baseline.json"
     baseline.write(path, (_finding(target="gone"),))
-    result = baseline.compare((), baseline.read(path), partial=True)
+    result = baseline.compare((), baseline.read(path), partial=True, tests=(), incomplete=())
     assert result.fixed is None
     assert result.fixed_reason == "partial run"
 
@@ -70,7 +72,7 @@ def test_baseline_write_masks_values(tmp_path) -> None:
 def test_count_gate_increase_is_new(tmp_path) -> None:
     path = tmp_path / "baseline.json"
     baseline.write(path, (_finding(observed=12),))
-    result = baseline.compare((_finding(observed=500),), baseline.read(path), partial=False)
+    result = baseline.compare((_finding(observed=500),), baseline.read(path), partial=False, tests=(), incomplete=())
     assert result.findings[0].baseline_state == "new"
 
 
@@ -107,7 +109,7 @@ def _baseline_of(tmp_path, *findings: Finding) -> baseline.Baseline:
 def test_fixed_only_for_advisors_that_ran(tmp_path) -> None:
     rest = Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m")
     old = _baseline_of(tmp_path, rest, _finding())
-    result = baseline.compare([], old, partial=False, ran={"test-runtime"})
+    result = baseline.compare([], old, partial=False, ran={"test-runtime"}, tests=(), incomplete=())
     assert result.fixed is None
     assert result.fixed_reason == "advisor did not run: rest-api"
     assert [entry.fingerprint for entry in result.carried] == [rest.fingerprint]
@@ -144,13 +146,15 @@ EMPTY = baseline.Baseline({}, b"")
 
 @pytest.mark.parametrize("advisor", ["vulnerability", "vulns", "Vulnerability"])
 def test_compare_leaves_vulnerability_advisor_findings_unannotated(advisor: str) -> None:
-    [compared] = baseline.compare([Finding("OSV-1", advisor, "HIGH", "pkg 1", "m")], EMPTY, partial=False).findings
+    [compared] = baseline.compare(
+        [Finding("OSV-1", advisor, "HIGH", "pkg 1", "m")], EMPTY, partial=False, tests=(), incomplete=()
+    ).findings
     assert compared.baseline_state is None, f"a {advisor!r} finding was compared against the baseline"
 
 
 def test_compare_leaves_vuln_rule_findings_unannotated() -> None:
     [compared] = baseline.compare(
-        [Finding("VULN-2", "dependencies", "HIGH", "pkg", "m")], EMPTY, partial=False
+        [Finding("VULN-2", "dependencies", "HIGH", "pkg", "m")], EMPTY, partial=False, tests=(), incomplete=()
     ).findings
     assert compared.baseline_state is None, "a VULN- rule finding was compared against the baseline"
 
@@ -165,7 +169,7 @@ def test_compare_never_reports_a_vuln_entry_as_fixed(tmp_path) -> None:
     }
     path = tmp_path / "baseline.json"
     path.write_text(json.dumps({"schema": "sharpit-baseline/1", "findings": [entry]}), encoding="utf-8")
-    result = baseline.compare([], baseline.read(path), partial=False)
+    result = baseline.compare([], baseline.read(path), partial=False, tests=(), incomplete=())
     assert result.fixed == (), "a hand-written VULN- baseline entry was reported as fixed"
 
 

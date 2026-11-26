@@ -252,6 +252,7 @@ class TestFacts:
     budget: Budget | None = None
     findings: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
     http: HttpFacts = field(default_factory=HttpFacts)
+    completed: bool | None = None
 
     def to_json(self) -> dict[str, Any]:
         budget = self.budget

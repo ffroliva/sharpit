@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Sequence
 from typing import Any, cast
 
 import pytest
@@ -12,7 +13,7 @@ from sharpit import __version__
 from sharpit.engine.advisors.findings import assessed_in_part
 from sharpit.engine.testsession import baseline as baseline_io
 from sharpit.engine.testsession import outcome, report, sarif
-from sharpit.engine.testsession.facts import finding_from
+from sharpit.engine.testsession.facts import TestFacts, finding_from
 from sharpit.engine.testsession.finish import GateOptions, finish
 
 
@@ -55,7 +56,7 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
             now_ms=time.time_ns() // 1_000_000,
             warnings=warnings,
         )
-        _apply_baseline(state, data)
+        _apply_baseline(state, data, [test for part in parts for test in part.tests])
         refusal = _baseline_refusal(state, data)
         if not refusal:
             _write_baseline(state, data)  # before the report, so a write failure is in it
@@ -104,7 +105,7 @@ def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
     )
 
 
-def _apply_baseline(state: Any, data: dict[str, Any]) -> None:
+def _apply_baseline(state: Any, data: dict[str, Any], tests: Sequence[TestFacts] = ()) -> None:
     if state.baseline_data is None:
         return
     ran = {"test-runtime"} | {a["advisor"] for a in data["advisors"] if _assessed_in_full(a)}
@@ -115,6 +116,8 @@ def _apply_baseline(state: Any, data: dict[str, Any]) -> None:
         partial=state.partial,
         ran=ran,
         in_part=in_part,
+        tests=tests,
+        incomplete=(),
     )
     state.baseline_carried = comparison.carried
     by_fingerprint = {finding.fingerprint: finding for finding in comparison.findings}

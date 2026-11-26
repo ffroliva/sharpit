@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.testsession.facts import TestFacts
 from sharpit.engine.testsession.report import clean_text
 
 SCHEMA = "sharpit-baseline/1"
@@ -22,6 +23,7 @@ class Entry:
     target: str
     message: str
     observed: int | None
+    owner: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class Comparison:
     fixed: tuple[Entry, ...] | None
     fixed_reason: str | None
     carried: tuple[Entry, ...] = ()
+    inconclusive: tuple[tuple[Entry, str], ...] = ()
 
 
 def read(path: Path) -> Baseline:
@@ -78,6 +81,8 @@ def compare(
     partial: bool,
     ran: Collection[str] | None = None,
     in_part: Collection[str] = (),
+    tests: Sequence[TestFacts],
+    incomplete: Collection[str],
 ) -> Comparison:
     """Annotate current findings and report baseline entries no longer seen."""
     from dataclasses import replace
