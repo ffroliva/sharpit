@@ -303,3 +303,17 @@ def test_an_explicit_executable_beside_one_string_is_checked_on_its_own() -> Non
     assert len(rows) > 1
     assert rows[1]["target"] == "(the executable)"
     assert "evil-tool" not in repr(rows)
+
+
+def test_a_matcher_that_matches_nothing_leaves_every_process_row_unchanged() -> None:
+    sensor_with = processes("?v=zzzzqqqq")
+    sensor_without = ProcessesSensor()
+    inputs: list[tuple[str, tuple[Any, ...]]] = [
+        ("subprocess.Popen", ("/usr/bin/convert", ["/usr/bin/convert", "file.pdf"], None, None)),
+        ("subprocess.Popen", ("X.exe", "python.exe -c pass", None, None)),
+        ("subprocess.Popen", (None, Path("/bin/tool"), None, None)),
+    ]
+    for event, args in inputs:
+        rows_with = run(sensor_with, event, *args)
+        rows_without = [dict(r) for r in sensor_without.record(event, args)]
+        assert rows_with == rows_without
