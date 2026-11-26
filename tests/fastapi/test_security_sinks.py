@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from starlette.staticfiles import StaticFiles
 
 from fastapi import BackgroundTasks, FastAPI
 from sharpit import install
@@ -455,3 +456,50 @@ def test_security_sinks_alone_installs_an_inert_audit_hook(tmp_path: Path, hook:
     assert _rows(handle, "files") == ()
     assert _rows(handle, "security-sinks") == ()
     handle.uninstall_capture()
+
+
+def test_a_static_files_mount_holds_no_path_value_and_publishes_no_sink(
+    tmp_path: Path, hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # scenario: plan-1 row 17: Starlette's Mount consumes {path}, so a StaticFiles request holds no path value
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "static").mkdir()
+    (tmp_path / "static" / "quarterly.css").write_text("body {}")
+    app, handle = _app(
+        tmp_path,
+        agent_sensors=("processes", "files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+
+    class Opening(StaticFiles):
+        async def get_response(self, path: str, scope: Any) -> Any:
+            hook.fire("open", f"static/{path}", "r", 0)
+            return await super().get_response(path, scope)
+
+    app.mount("/static", Opening(directory="static"), name="static")
+    with _client(app) as client:
+        assert client.get("/static/quarterly.css").status_code == 200
+    handle.uninstall_capture()
+    assert [r["target"] for r in _rows(handle, "files")] == ["./static/quarterly.css"]
+    assert _rows(handle, "security-sinks") == ()
+
+
+def test_an_spa_catch_all_route_redacts_its_path_value(tmp_path: Path, hook: Hook) -> None:
+    # scenario: plan-1 row 17: a catch-all route keeps {path}, so an owned open inside the endpoint is redacted
+    app, handle = _app(
+        tmp_path,
+        agent_sensors=("processes", "files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+
+    @app.get("/{path:path}")
+    def catch_all(path: str) -> str:
+        hook.fire("open", f"static/{path}", "r", 0)
+        return path
+
+    with _client(app) as client:
+        assert client.get("/quarterly.css").status_code == 200
+    handle.uninstall_capture()
+    sink_rows = _rows(handle, "security-sinks")
+    assert [r["target"] for r in _rows(handle, "files")] == ["./static/{path}"]
+    assert [r["parameter"] for r in sink_rows] == ["path"]
