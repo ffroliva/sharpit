@@ -45,12 +45,14 @@ SINKS_OFF_REASON = (
 
 
 def _sinks_reason(processes: bool, files: bool) -> str:
-    """JavaAgentService.securitySinksCoverage (JavaAgentService.java:289-336), adapted to the two sinks (F1)."""
-    commands = (
-        "Checks commands through the processes sensor" if processes else "; not commands: the processes sensor is off"
-    )
-    paths = "; file paths through the files sensor." if files else "; not file paths: the files sensor is off."
-    return commands + paths
+    """JavaAgentService.securitySinksCoverage (JavaAgentService.java:289-336), adapted to the two sinks (F1, F2)."""
+    if not processes and not files:
+        return "Checks no sink: the processes and files sensors are off."
+    if not processes:
+        return "Checks file paths through the files sensor; not commands: the processes sensor is off."
+    if not files:
+        return "Checks commands through the processes sensor; not file paths: the files sensor is off."
+    return "Checks commands through the processes sensor; file paths through the files sensor."
 
 
 def holder_line(holder: Mapping[str, int]) -> str:
