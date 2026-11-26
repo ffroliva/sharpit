@@ -130,7 +130,7 @@ def test_a_recorded_kind_without_an_evaluator_in_the_real_registry_is_not_applic
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset(JOURNAL_SOURCES))
-    stub = next(spec for spec in KINDS if spec.evaluate is None)
+    stub = next(spec for spec in KINDS if spec.evaluate is None and not spec.not_applicable_reason)
     journal = _journal()
     check = InsightsService(journal, [stub]).report()["checks"][0]
     assert check["kind"] == stub.kind

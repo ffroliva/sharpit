@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Runtime Insights reports the anonymous-data-reach and anonymous-success-on-restricted-route checks as not applicable, with the reason: sharpit observes no authorization decision, and a missing principal does not prove a request was anonymous. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically.
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
 - The pytest terminal summary lists all five runtime gates.
 - The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.
