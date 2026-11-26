@@ -181,8 +181,8 @@ def build_lane(
         else None
     )
     built: dict[str, Any] = {
-        "processes": lambda: ProcessesSensor(matcher=matcher),
-        "files": lambda: FilesSensor(mask_path, own=own, matcher=matcher),
+        "processes": lambda: ProcessesSensor(matcher=matcher, context_id=context_id),
+        "files": lambda: FilesSensor(mask_path, own=own, matcher=matcher, context_id=context_id),
     }
     if matcher is not None:
         built["security-sinks"] = lambda: SecuritySinksSensor(matcher)
