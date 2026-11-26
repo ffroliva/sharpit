@@ -311,7 +311,7 @@ def test_clear_recording_drops_rows() -> None:
     assert store.clears() == 1
 
 
-# ported: SecuritySinksStoreTests.theSameRequestTwiceNeverConfirms
+# adapted from: SideEffectsStore.java:592-596 (confirmed() requires two different request ids)
 def test_the_same_request_twice_never_confirms() -> None:
     rings = FakeSensorRows()
     store = SideEffectsStore(rings)
@@ -340,7 +340,7 @@ def test_the_same_request_twice_never_confirms() -> None:
     assert store.unconfirmed() == 1
 
 
-# ported: SecuritySinksStoreTests.theSameRawTextFromTwoRequestsNeverConfirms
+# adapted from: SideEffectsStore.java:575-576 (a raw text already remembered confirms nothing more)
 def test_the_same_raw_text_from_two_requests_never_confirms() -> None:
     rings = FakeSensorRows()
     store = SideEffectsStore(rings)
