@@ -72,7 +72,8 @@ def _console_get_paths(app: FastAPI) -> list[str]:
     return paths
 
 
-def test_a_seeded_value_reaches_no_route_log_or_error(tmp_path: Path, hook: Hook) -> None:
+@pytest.mark.parametrize("exposure", ("MASKED", "METADATA_ONLY", "FULL"))
+def test_a_seeded_value_reaches_no_route_log_or_error(tmp_path: Path, hook: Hook, exposure: str) -> None:
     app = FastAPI()
 
     @app.get("/work")
@@ -91,6 +92,7 @@ def test_a_seeded_value_reaches_no_route_log_or_error(tmp_path: Path, hook: Hook
         stream_max_seconds=0.05,
         agent_sensors=("processes", "files", "security-sinks"),
         agent_security_sinks_request_values=True,
+        expose_values=exposure,
     )
     paths = _console_get_paths(app)
     with TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False) as client:

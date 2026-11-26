@@ -248,7 +248,16 @@ def test_read_only_panel_refuses_the_action(
 
 def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard) -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, config_scan=False, state_dir=str(no_side_effects.state_dir))
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        state_dir=str(no_side_effects.state_dir),
+        agent_sensors=("processes", "files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+    no_side_effects.rebaseline()
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop opens a self-pipe socket pair.
     with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
         no_side_effects.block_network()
