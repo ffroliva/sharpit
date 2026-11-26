@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import gc
+import re
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
@@ -542,3 +544,13 @@ def test_ending_a_request_sweeps_the_entries_past_the_deadline() -> None:
     now[0] = DEADLINE_SECONDS + 1
     held.end("b" * 16)
     assert held.held() == 0
+
+
+def test_request_values_are_not_retained_after_end() -> None:
+    held, request = RequestValues(), info("token=SECRETVALUE123&file=reportx")
+    assert held.match(request, "/srv/in/reportx.pdf", "file").names == ("file",)
+    request.finished_ns = 1
+    held.end(request.id)
+    gc.collect()
+    cached = [str(key) for name in ("_cache", "_cache2") for key in getattr(re, name, {})]
+    assert not [key for key in cached if "SECRETVALUE123" in key]

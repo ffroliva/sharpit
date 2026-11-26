@@ -737,3 +737,17 @@ def test_a_partial_scan_that_matched_a_name_reports_the_redacted_target_not_unch
     path = "quarterly/" + "x/" * MAX_SCAN
     row = run(sensor, "open", path, "r", 0)[0]
     assert row["target"] == FROM_REQUEST_INPUT
+
+
+@pytest.mark.parametrize(
+    ("event", "args"),
+    [
+        ("os.system", ("git status",)),
+        ("subprocess.Popen", ("/usr/bin/git", ["git", "status"], None, None)),
+    ],
+)
+def test_a_command_whose_check_raised_is_not_checked_and_carries_no_sink_row(event: str, args: tuple[Any, ...]) -> None:
+    sensor = processes("file=reportx")
+    with patch.object(SinkMatcher, "check", side_effect=RuntimeError("boom")):
+        rows = run(sensor, event, *args)
+    assert [row["target"] for row in rows] == [NOT_CHECKED]
