@@ -303,7 +303,7 @@ class CaptureWiring:
             own=(ctx.settings.state_dir,),
             request_values=ctx.settings.agent_security_sinks_request_values,
             context_id=ctx.context_id,
-            owns=sink_ownership.owned,
+            owner=sink_ownership.owner,
         )
         if lane is not None:
             for hook in lane.hooks():

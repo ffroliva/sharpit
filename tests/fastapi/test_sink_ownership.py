@@ -28,9 +28,16 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fastapi import BackgroundTasks, Depends, FastAPI
 from sharpit.fastapi import sink_ownership
-from sharpit.fastapi.sink_ownership import owned
+from sharpit.fastapi.sink_ownership import owned, owner
 
 SCOPE: ContextVar[Scope | None] = ContextVar("sink_ownership_scope", default=None)
+
+
+def open_sink_path(path: str) -> None:
+    """Helper in another test module that fires an open audit event from its frame."""
+    from sharpit.engine.sensors import audit
+
+    audit.hub._dispatch("open", (path, "r", 0))  # pyright: ignore[reportPrivateUsage]
 
 
 class Recorder:
@@ -38,9 +45,12 @@ class Recorder:
 
     def __init__(self) -> None:
         self.seen: list[bool] = []
+        self.owners: list[str | None] = []
 
     def __call__(self, scope: Scope | None = None) -> None:
-        self.seen.append(owned(scope if scope is not None else SCOPE.get() or {}))
+        target = scope if scope is not None else SCOPE.get() or {}
+        self.seen.append(owned(target))
+        self.owners.append(owner(target))
 
 
 class ScopeMiddleware:
@@ -663,3 +673,18 @@ def test_two_concurrent_requests_never_match_each_others_values() -> None:
     assert results["first"] == (True, ("first",), ())
     assert results["second"] == (True, ("second",), ())
     assert values.held() == 0
+
+
+@pytest.mark.parametrize("case", _params(OWN + NOT_OWN))
+def test_owner_and_owned_agree_on_every_case(case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    probe = Recorder()
+    app = FastAPI()
+    path = CASES[case](Case(app, probe, tmp_path, monkeypatch))
+    response = serve(app, False).get(path)
+    assert response.status_code == 200
+    assert probe.owners != []
+    assert [site is not None for site in probe.owners] == probe.seen
+    assert set(probe.seen) == {case in OWN}
+    if case in OWN:
+        assert all(isinstance(site, str) for site in probe.owners)
+        assert all(":" in (site or "") for site in probe.owners)

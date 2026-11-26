@@ -144,7 +144,8 @@ def build_lane(
     *,
     request_values: bool = False,
     context_id: str = "",
-    owns: Callable[[Mapping[str, Any]], bool] = lambda scope: False,
+    owner: Callable[[Mapping[str, Any]], str | None] = lambda scope: None,
+    owns: Callable[[Mapping[str, Any]], bool] | None = None,
 ) -> SensorLane | None:
     """The lane for ``configured`` sensors, or None: nothing configured, or no journal to offer to."""
     available = BUILT if request_values else tuple(name for name in BUILT if name != "security-sinks")
@@ -155,6 +156,7 @@ def build_lane(
         SinkMatcher(
             context_id,
             on=lambda: lane is not None and lane.is_on("security-sinks"),
+            owner=owner,
             owns=owns,
         )
         if request_values

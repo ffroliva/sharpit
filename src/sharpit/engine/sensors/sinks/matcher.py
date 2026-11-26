@@ -20,18 +20,27 @@ Row = Mapping[str, object]
 _EMPTY_SCOPE: Mapping[str, Any] = {}
 
 
+def _no_owner(scope: Mapping[str, Any]) -> str | None:
+    del scope
+    return None
+
+
 class SinkMatcher:
     def __init__(
         self,
         context_id: str,
         on: Callable[[], bool],
         values: RequestValues | None = None,
-        owns: Callable[[Mapping[str, Any]], bool] = lambda scope: False,
+        owner: Callable[[Mapping[str, Any]], str | None] = _no_owner,
+        *,
+        owns: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> None:
         self._context_id = context_id
         self._on = on
         self._values = values if values is not None else RequestValues()
-        self._owns = owns
+        self._owner: Callable[[Mapping[str, Any]], str | None] = (
+            owner if owns is None else (lambda scope: "" if owns(scope) else None)
+        )
 
     def check(self, text: str, kind: Kind) -> Match | None:
         # ported: RequestValues.java:680-725, check order per spec
@@ -59,10 +68,10 @@ class SinkMatcher:
             return ()
         scope: Mapping[str, Any] = request.scope if request.scope is not None else _EMPTY_SCOPE
         try:
-            owned = self._owns(scope)
+            call_site = self._owner(scope)
         except Exception:
             return ()
-        if not owned:
+        if call_site is None:
             return ()
         self._values.mark_seen(request.id, match)
         row_kind = "file-path" if kind == "file" else "command"
@@ -75,6 +84,9 @@ class SinkMatcher:
                 "target": target,
                 "parameter": name,
                 "numeric": name in match.numeric,
+                "positionUnknown": name in match.unreported,
+                "callSite": call_site,
+                "at": 0,
                 "requestId": request.id,
                 "rawHash": raw_hash,
                 "redactedHash": redacted_hash,

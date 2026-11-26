@@ -69,6 +69,7 @@ class Match:
     redacted: str | None  # None when it may not cover every occurrence
     numeric: frozenset[str]  # names whose first span is a number
     text_hash: int = field(default=0)  # the text's repeat key, for mark_seen
+    unreported: frozenset[str] = field(default=frozenset())  # names none of whose spans is among the reported ones
 
 
 _EMPTY = Match((), (), 0, None, frozenset())

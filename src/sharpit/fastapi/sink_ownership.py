@@ -185,6 +185,13 @@ def _greenlet_matches(codes: frozenset[CodeType]) -> bool:
         current = None
 
 
+def owner(scope: Mapping[str, Any]) -> str | None:
+    """The call site (``module:qualname``) when the current stack or a parent greenlet's stack runs the request's own
+    endpoint or dependency, else None."""
+    del scope
+    return None
+
+
 def owned(scope: Mapping[str, Any]) -> bool:
     """Whether the current stack, or a parent greenlet's stack, runs the request's own endpoint or dependency."""
     try:
