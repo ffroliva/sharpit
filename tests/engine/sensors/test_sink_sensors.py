@@ -16,7 +16,10 @@ from unittest.mock import patch
 
 import pytest
 
+from sharpit.engine.capture import frames
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo
+from sharpit.engine.sensors import files as files_module
+from sharpit.engine.sensors import processes as processes_module
 from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.processes import ProcessesSensor
 from sharpit.engine.sensors.sinks import (
@@ -338,12 +341,14 @@ def test_a_process_row_names_its_request_time_and_call_site() -> None:
     assert len(rows) == 1
     row = rows[0]
     assert row.get("requestId") == req.id
-    assert row.get("callSite") == f"{__name__}:test_a_process_row_names_its_request_time_and_call_site"
+    assert "callSite" in row
+    assert row["callSite"] is None
     at = row.get("at")
     assert isinstance(at, int)
     assert before <= at <= after
     assert matched_rows[0].get("requestId") == req.id
-    assert matched_rows[0].get("callSite") == f"{__name__}:test_a_process_row_names_its_request_time_and_call_site"
+    assert "callSite" in matched_rows[0]
+    assert matched_rows[0]["callSite"] is None
 
 
 def test_a_file_row_names_its_request_time_and_call_site() -> None:
@@ -360,12 +365,16 @@ def test_a_file_row_names_its_request_time_and_call_site() -> None:
     assert len(rows) == 1
     row = rows[0]
     assert row.get("requestId") == req.id
-    assert row.get("callSite") == f"{__name__}:test_a_file_row_names_its_request_time_and_call_site"
+    assert "callSite" in row
+    assert row["callSite"] is None
+    assert row.get("origin") == "unknown"
     at = row.get("at")
     assert isinstance(at, int)
     assert before <= at <= after
     assert matched_rows[0].get("requestId") == req.id
-    assert matched_rows[0].get("callSite") == f"{__name__}:test_a_file_row_names_its_request_time_and_call_site"
+    assert "callSite" in matched_rows[0]
+    assert matched_rows[0]["callSite"] is None
+    assert matched_rows[0].get("origin") == "unknown"
 
 
 def test_a_row_outside_a_request_has_no_request_id() -> None:
@@ -408,13 +417,14 @@ def test_two_call_sites_of_one_pattern_share_the_first_ones() -> None:
 
     first = first_helper()
     second = second_helper()
-    expected = f"{__name__}:test_two_call_sites_of_one_pattern_share_the_first_ones.<locals>.first_helper"
     assert len(first) == 1
     assert len(second) == 1
     assert first[0].get("target") == "./reports/report-{n}.csv"
     assert second[0].get("target") == "./reports/report-{n}.csv"
-    assert first[0].get("callSite") == expected
-    assert second[0].get("callSite") == expected
+    assert "callSite" in first[0]
+    assert first[0]["callSite"] is None
+    assert "callSite" in second[0]
+    assert second[0]["callSite"] is None
 
 
 def test_a_file_rows_origin_follows_its_frames() -> None:
@@ -422,8 +432,8 @@ def test_a_file_rows_origin_follows_its_frames() -> None:
     sensor = FilesSensor(cwd="/work/app", home="/home/ann", tmp="/tmp")  # noqa: S108
     app_rows = [dict(r) for r in sensor.record("open", ("/work/app/from_app.csv", "r", 0))]
     assert len(app_rows) == 1
-    assert app_rows[0].get("origin") == "application"
-    assert app_rows[0].get("callSite") == f"{__name__}:test_a_file_rows_origin_follows_its_frames"
+    assert app_rows[0].get("origin") == "unknown"
+    assert app_rows[0].get("callSite") is None
 
     lib_rows: list[dict[str, Any]] = []
     lib_file = os.path.join(sys.prefix, "Lib", "site-packages", "_sharpit_test_lib_origin.py")
@@ -441,7 +451,7 @@ def test_a_file_rows_origin_follows_its_frames() -> None:
     lib_thread.start()
     lib_thread.join()
     assert len(lib_rows) == 1
-    assert lib_rows[0].get("origin") == "library"
+    assert lib_rows[0].get("origin") == "unknown"
     assert lib_rows[0].get("callSite") is None
 
     stdlib_rows: list[dict[str, Any]] = []
@@ -462,6 +472,47 @@ def test_a_file_rows_origin_follows_its_frames() -> None:
     assert len(stdlib_rows) == 1
     assert stdlib_rows[0].get("origin") == "unknown"
     assert stdlib_rows[0].get("callSite") is None
+
+
+def test_process_and_file_events_never_walk_the_stack(monkeypatch: pytest.MonkeyPatch) -> None:
+    walks = 0
+    orig_getframe = sys._getframe  # pyright: ignore[reportPrivateUsage]
+    orig_first_app = frames.first_application_frame
+
+    def counted_getframe(depth: int = 0) -> Any:
+        nonlocal walks
+        walks += 1
+        return orig_getframe(depth + 1)
+
+    def counted_first_app(frame: Any, limit: int = 64) -> Any:
+        nonlocal walks
+        walks += 1
+        return orig_first_app(frame, limit)
+
+    monkeypatch.setattr(sys, "_getframe", counted_getframe)
+    monkeypatch.setattr(frames, "first_application_frame", counted_first_app)
+    monkeypatch.setattr(processes_module, "first_application_frame", counted_first_app, raising=False)
+    orig_walk = getattr(files_module, "_walk_origin", None)
+    if orig_walk is not None:
+
+        def counted_walk(frame: Any, limit: int = 64) -> Any:
+            nonlocal walks
+            walks += 1
+            return orig_walk(frame, limit)
+
+        monkeypatch.setattr(files_module, "_walk_origin", counted_walk)
+
+    p_sensor = processes("file=report-q3")
+    f_sensor = files("name=quarterly")
+    p_rows = run(p_sensor, "os.system", "convert out.png")
+    p_matched = run(p_sensor, "os.system", "convert report-q3")
+    f_rows = run(f_sensor, "open", "reports/annual.csv", "r", 0)
+    f_matched = run(f_sensor, "open", "reports/quarterly.csv", "r", 0)
+    assert walks == 0
+    assert p_rows[0]["callSite"] is None
+    assert p_matched[0]["callSite"] is None
+    assert f_rows[0]["callSite"] is None
+    assert f_matched[0]["callSite"] is None
 
 
 def test_a_process_row_has_no_origin() -> None:
