@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (43 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (45 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -407,3 +407,5 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (43 entries):
 | not-exercised | insights:not-exercised-output-masking | adapted | BootUI v2.5.0 does not mask the notExercised list. sharpit masks each declared route label at output through the service masker because the safety model requires secrets masked before every output, including HTTP and CLI/MCP agent views. |
 | not-exercised | insights:not-exercised-lost-completions | adapted | An HTTP completion the capture fails to journal (a request-start, probe-strip or request-end failure) is counted as an http drop, and any journal drop of an unknown source (failed or reentrant offers) refuses classification. Requests passed through while capture is detached are not counted, to keep per-request work off the capture path. |
 | gate-completeness | pytest-gate:capture-completeness | adapted | BootUI counts failed events per journal source (journal:failed:<source>) and withholds completeness for that source's dimensions. sharpit's pytest gate has no journal: a failed hook of the pytest plugin or of its session sink, or capture ended before the session by a nested in-process pytest run, marks the pytest-plugin source not attached for that worker (or the xdist controller), and the whole run is unknown. |
+| anonymous-access | kind:anonymous-data-reach | n-a | BootUI decides it from its authorization layer. sharpit observes no authorization decision (FastAPI security dependencies decide inside the endpoint) and a missing principal does not prove anonymity, so the check reports NOT_APPLICABLE with that reason, ahead of any missing-source check. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically. |
+| anonymous-access | kind:anonymous-success-on-restricted-route | n-a | BootUI decides it from its authorization layer. sharpit observes no authorization decision (FastAPI security dependencies decide inside the endpoint) and a missing principal does not prove anonymity, so the check reports NOT_APPLICABLE with that reason, ahead of any missing-source check. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically. |

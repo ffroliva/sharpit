@@ -51,6 +51,11 @@ class KindSpec:
         return getattr(self.module, "not_applicable", None)
 
     @property
+    def not_applicable_reason(self) -> str | None:
+        """A kind that can never apply to this framework: its fixed reason, checked before any source."""
+        return getattr(self.module, "NOT_APPLICABLE_REASON", None)
+
+    @property
     def uses_requests(self) -> bool:
         """BootUI ``unitKinds()`` non-empty: hidden requests leave the kind nothing to examine."""
         return bool(getattr(self.module, "USES_REQUESTS", True))
