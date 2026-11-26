@@ -111,14 +111,19 @@ class _Entry:
         self.comparisons = 0
         self.stopped = False
 
-    def add(self, name: str | None, value: str) -> None:
+    def add(self, name: str | None, value: str) -> str | None:
         # ported: RequestValues.add (:523-551)
-        if not MIN_LENGTH <= len(value) <= MAX_LENGTH or value in self.values or len(self.values) >= MAX_VALUES:
-            return
+        if len(value) > MAX_LENGTH:
+            return "valuesTooLong"
+        if len(value) < MIN_LENGTH or value in self.values:
+            return None
+        if len(self.values) >= MAX_VALUES:
+            return "valuesOverCount"
         self.values.append(value)
         self.names.append(name if name is not None and valid_name(name) else fallback_name(name))
         self.value_chars += len(value)
         self.epoch += 1
+        return None
 
     def spend(self, seen: bool, scanned: int) -> bool:
         """Charges one check, unless the text was seen, and its comparisons; False once a budget is spent."""
@@ -237,6 +242,16 @@ class RequestValues:
         self._swept: dict[str, None] = {}
         self._table = threading.Lock()
         self._generation = 0
+        # shortcut: an increment racing another may be lost; the line is advisory (BootUI uses LongAdder);
+        # move to per-entry counters if an exact count is ever asserted under concurrency.
+        self._requests = 0
+        self._table_full = 0
+        self._values_too_long = 0
+        self._values_over_count = 0
+        self._checks = 0
+        self._partial = 0
+        self._stopped = 0
+        self._busy = 0
 
     def match(self, info: RequestInfo, text: str, kind: Kind) -> Match:
         """Which of ``info``'s values appear verbatim in ``text``, within the request's budgets. Never waits."""
@@ -256,6 +271,7 @@ class RequestValues:
         if not pairs:
             return _EMPTY
         if not self._table.acquire(blocking=False):
+            self._busy += 1
             return _BUSY
         try:
             if generation != self._generation:
@@ -263,12 +279,16 @@ class RequestValues:
             self._sweep()
             entry = self._entries.get(info.id)
             if entry is None:
-                if info.id in self._swept or len(self._entries) >= ENTRIES:
+                if info.id in self._swept:
+                    return _EMPTY
+                if len(self._entries) >= ENTRIES:
+                    self._table_full += 1
                     return _EMPTY
                 entry = _Entry(generation, self._clock(), path_pending)
                 for name, value in pairs:
-                    entry.add(name, value)
+                    self._count_add(entry, name, value)
                 self._entries[info.id] = entry
+                self._requests += 1
         finally:
             self._table.release()
         if info.finished_ns is not None or generation != self._generation:
@@ -300,6 +320,7 @@ class RequestValues:
         partial = len(text) > MAX_SCAN
         scanned = text[:MAX_SCAN]
         if not entry.lock.acquire(blocking=False):
+            self._busy += 1
             return _BUSY
         try:
             if not self._live(info, entry):
@@ -315,8 +336,11 @@ class RequestValues:
                 return _REPEATED
             seen = key in entry.seen
             if not entry.spend(seen, len(scanned)):
+                self._stopped += 1
                 return _STOPPED
+            self._checks += 1
             spans, matched, overflow = _scan(scanned, entry.values)
+            self._partial += int(partial)
             if not matched and not partial:
                 _remember(entry.misses, HASHES, key)
             names = list(entry.names)
@@ -331,15 +355,14 @@ class RequestValues:
         )
         return result if self._live(info, entry) else _EMPTY
 
-    @staticmethod
-    def _pull_path(entry: _Entry, scope: object) -> None:
+    def _pull_path(self, entry: _Entry, scope: object) -> None:
         """Path values routing set after the first check: added once, and remembered texts checked again."""
         # ported: RequestValues.compare (:948-957)
         path = _path_pairs(_scope_value(scope, "path_params"), MAX_VALUES)
         if path is None:
             return
         for name, value in path:
-            entry.add(name, value)
+            self._count_add(entry, name, value)
         entry.misses.clear()
         entry.seen.clear()
         entry.path_pending = False
@@ -372,7 +395,25 @@ class RequestValues:
         return len(self._entries)
 
     def status(self) -> dict[str, int]:
-        return {}
+        return {
+            "requests": self._requests,
+            "tableFull": self._table_full,
+            "valuesTooLong": self._values_too_long,
+            "valuesOverCount": self._values_over_count,
+            "checks": self._checks,
+            "partial": self._partial,
+            "stopped": self._stopped,
+            "busy": self._busy,
+            "notKept": 0,
+            "dropped": 0,
+        }
+
+    def _count_add(self, entry: _Entry, name: str | None, value: str) -> None:
+        result = entry.add(name, value)
+        if result == "valuesTooLong":
+            self._values_too_long += 1
+        elif result == "valuesOverCount":
+            self._values_over_count += 1
 
 
 def unchecked(match: Match) -> bool:
