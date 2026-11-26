@@ -14,13 +14,50 @@ import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Protocol
 
-from sharpit.engine.capture.journal import JournalSink
+from sharpit.engine.capture.journal import SCALAR_BYTES, JournalSink
+
+_PROCESS_KEYS = ("source", "kind", "target", "requestId", "at", "callSite", "threadName")
+_PROCESS_BASE = sum(map(len, _PROCESS_KEYS)) + len("processes") + len("start") + 2 * SCALAR_BYTES
+_FILE_KEYS = ("source", "kind", "target", "origin", "location", "requestId", "at", "callSite", "threadName")
+_FILE_BASE = sum(map(len, _FILE_KEYS)) + len("files") + len("unknown") + 2 * SCALAR_BYTES
+_SINK_KEYS = (
+    "source", "kind", "target", "parameter", "numeric", "positionUnknown",
+    "callSite", "at", "requestId", "rawHash", "redactedHash",
+)  # fmt: skip
+_SINK_BASE = sum(map(len, _SINK_KEYS)) + len("security-sinks") + 5 * SCALAR_BYTES
 
 
-def row_size(row: Mapping[str, object]) -> int:
-    """The byte charge ``RuntimeJournal._flat`` computes for a sensor row."""
-    del row
-    return 0
+def _sink_row_size(row: Mapping[str, Any]) -> int:
+    return (
+        _SINK_BASE
+        + len(row["kind"])
+        + (SCALAR_BYTES if (target := row["target"]) is None else len(target))
+        + len(row["parameter"])
+        + (SCALAR_BYTES if (site := row["callSite"]) is None else len(site))
+        + (SCALAR_BYTES if (req := row["requestId"]) is None else len(req))
+    )
+
+
+def row_size(row: Mapping[str, Any]) -> int:
+    """The byte charge ``RuntimeJournal._flat`` computes for a sensor row, without walking its items."""
+    source = row.get("source")
+    if source == "processes":
+        return (
+            _PROCESS_BASE
+            + len(row["target"])
+            + (SCALAR_BYTES if (req := row["requestId"]) is None else len(req))
+            + (SCALAR_BYTES if (th := row["threadName"]) is None else len(th))
+        )
+    if source == "files":
+        return (
+            _FILE_BASE
+            + len(row["kind"])
+            + len(row["target"])
+            + len(row["location"])
+            + (SCALAR_BYTES if (req := row["requestId"]) is None else len(req))
+            + (SCALAR_BYTES if (th := row["threadName"]) is None else len(th))
+        )
+    return _sink_row_size(row) if source == "security-sinks" else 0
 
 
 class Sensor(Protocol):
@@ -110,9 +147,14 @@ class AuditHub:
         if sink is None:
             return  # the context is gone: skipped here, dropped at the next release
         try:
-            offer = getattr(sink, "offer_flat", sink.offer)  # a sensor's row is flat scalars it never touches again
-            for row in sub.sensor.record(event, args):
-                offer(row)
+            offer_flat = getattr(sink, "offer_flat", None)  # a sensor's row is flat scalars it never touches again
+            if offer_flat is not None:
+                for row in sub.sensor.record(event, args):
+                    offer_flat(row, row_size(row))
+            else:
+                offer = sink.offer
+                for row in sub.sensor.record(event, args):
+                    offer(row)
         except Exception:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
             pass
 
