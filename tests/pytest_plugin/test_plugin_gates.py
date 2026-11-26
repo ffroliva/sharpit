@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from sharpit.engine.sources import sqlite as sqlite_source
 from sharpit.engine.testsession import outcome
 
 
@@ -779,9 +780,14 @@ _REPORT_ARGS = ("--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.j
 
 
 def _without_driver_modules(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An in-process run shares this process's modules: a driver another test imported would add its own reason."""
+    """An in-process run shares this process's modules: a driver another test imported would add its own reason.
+
+    So would a module holding an early ``sqlite3.connect`` alias (another test module's ``REAL_CONNECT``).
+    """
     for module in outcome.DRIVER_DIALECTS:
         monkeypatch.delitem(sys.modules, module, raising=False)
+    for alias in sqlite_source.early_aliases():
+        monkeypatch.delitem(sys.modules, alias.rpartition(".")[0], raising=False)
 
 
 def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -805,9 +811,7 @@ def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester, mon
     result = pytester.runpytest_inprocess(*_REPORT_ARGS)
 
     data = json.loads((pytester.path / "report.json").read_text())
-    # other in-process state (an early sqlite3 alias, a driver module) may add reasons of its own
-    plugin_reasons = [reason for reason in data["unknownReasons"] if "'pytest-plugin'" in reason]
-    assert plugin_reasons == ["source 'pytest-plugin' not attached in worker master"]
+    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker master"]
     assert result.ret == 1
 
 
@@ -829,12 +833,12 @@ def test_a_statement_sqlite3_refused_is_no_hook_failure(
         """
     )
 
-    pytester.runpytest_inprocess(*_REPORT_ARGS)
+    result = pytester.runpytest_inprocess(*_REPORT_ARGS)
 
     data = json.loads((pytester.path / "report.json").read_text())
     assert [warning for warning in data["warnings"] if "hook failed" in warning] == []
-    # the run's status may carry other in-process state; the plugin's own source must stay attached
-    assert [s for s in data["sources"] if s["name"] == "pytest-plugin" and not s["attached"]] == []
+    assert data["status"] == "pass"
+    assert result.ret == 0
 
 
 def test_a_nested_in_process_pytest_run_makes_the_outer_run_unknown(pytester: pytest.Pytester) -> None:
