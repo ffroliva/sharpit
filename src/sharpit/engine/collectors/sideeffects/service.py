@@ -92,49 +92,52 @@ class SideEffectsService:
 
             return side_effects_report()
         with self.lock:
-            store = self.store
-            store.drain()
-            sensors: list[dict[str, object]] = []
-            lane = self.capture.sensors
-            for sensor_id, group, label in SIDE_EFFECT_SENSORS:
-                if sensor_id in RINGED:
-                    count, occurrences = store.counts(sensor_id)
-                    state, reason = self._state(sensor_id)
-                    dropped = lane.rows.dropped(sensor_id)
-                else:
-                    state, reason, count, occurrences, dropped = (
-                        "not-available",
-                        "Not available in this version.",
-                        0,
-                        0,
-                        0,
-                    )
-                sensors.append(
-                    {
-                        "id": sensor_id,
-                        "group": group,
-                        "label": label,
-                        "state": state,
-                        "reason": reason,
-                        "rows": count,
-                        "occurrences": occurrences,
-                        "dropped": dropped,
-                        "hooks": [],
-                        "toggle": None,
-                    }
+            return self._report_locked(self.store)
+
+    def _report_locked(self, store: SideEffectsStore) -> dict[str, Any]:
+        """One drain, then the counts and limitations of that drain: the caller holds ``self.lock``."""
+        store.drain()
+        sensors: list[dict[str, object]] = []
+        lane = self.capture.sensors
+        for sensor_id, group, label in SIDE_EFFECT_SENSORS:
+            if sensor_id in RINGED:
+                count, occurrences = store.counts(sensor_id)
+                state, reason = self._state(sensor_id)
+                dropped = lane.rows.dropped(sensor_id)
+            else:
+                state, reason, count, occurrences, dropped = (
+                    "not-available",
+                    "Not available in this version.",
+                    0,
+                    0,
+                    0,
                 )
-            return {
-                "available": True,
-                "unavailableReason": None,
-                "sensors": sensors,
-                "limitations": self.limitations(
-                    folded=store.folded(),
-                    cleared=store.clears() > 0,
-                    unconfirmed=store.unconfirmed(),
-                    holder=self._holder(),
-                    routes_hidden=self._routes_hidden(),
-                ),
-            }
+            sensors.append(
+                {
+                    "id": sensor_id,
+                    "group": group,
+                    "label": label,
+                    "state": state,
+                    "reason": reason,
+                    "rows": count,
+                    "occurrences": occurrences,
+                    "dropped": dropped,
+                    "hooks": [],
+                    "toggle": None,
+                }
+            )
+        return {
+            "available": True,
+            "unavailableReason": None,
+            "sensors": sensors,
+            "limitations": self.limitations(
+                folded=store.folded(),
+                cleared=store.clears() > 0,
+                unconfirmed=store.unconfirmed(),
+                holder=self._holder(),
+                routes_hidden=self._routes_hidden(),
+            ),
+        }
 
     def sensor(self, sensor_id: str | None, offset: int | None, limit: int | None) -> dict[str, Any]:
         if self.store is None:
@@ -310,14 +313,14 @@ class SideEffectsService:
     def agent_report(self, query: str | None, limit: int | None) -> dict[str, Any]:
         """``SideEffectsService.agentReport``: every sensor's coverage, then the matching rows, most frequent first."""
         asked = (query or "").strip()
-        report = self.report()
-        sensors = report["sensors"]
-        if not report["available"]:
-            return agent_dto(False, report["unavailableReason"], asked, sensors, [], 0, [])
-        by_sensor = any(sensor["id"] == asked for sensor in sensors)
-        with self.lock:
-            store = cast("SideEffectsStore", self.store)
-            store.drain()
+        if self.store is None:
+            report = self.report()
+            return agent_dto(False, report["unavailableReason"], asked, report["sensors"], [], 0, [])
+        with self.lock:  # counts and rows of one drain, so a row arriving between them cannot disagree
+            store = self.store
+            report = self._report_locked(store)
+            sensors = report["sensors"]
+            by_sensor = any(sensor["id"] == asked for sensor in sensors)
             built = [
                 display.row_dto(row, self.masker)
                 for sensor_id, _group, _label in SIDE_EFFECT_SENSORS
