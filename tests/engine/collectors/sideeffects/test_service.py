@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
 
 from sharpit.engine.collectors.sideeffects.service import SideEffectsService
+from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sensors.floor import SensorRefusal
 from sharpit.engine.sensors.rows import SensorRows
-from sharpit.engine.masking import Exposure, Masker
 
 
 def test_every_sensor_is_listed_in_tab_order_and_those_not_shipped_say_so() -> None:
@@ -60,14 +61,17 @@ def test_limitation_lines_follow_bootuis_order() -> None:
     lines = SideEffectsService(None).limitations(
         holder_enabled=True, routes_hidden=True, cleared=True, folded=1, unconfirmed=1
     )
-    assert lines.index(
-        "HTTP Exchanges is disabled: Side Effects attributes rows to the request's route only while "
-        "HTTP Exchanges records; without it, rows are attributed to startup or their thread's family."
-    ) < lines.index("1 operation is counted in an Other row: a sensor keeps at most 500 rows and the run 2000.")
-    assert lines.index(
-        "The recording was cleared: rows recorded before then were dropped, and so is a record the agent "
-        "still held whose first occurrence came before the clear."
-    ) < lines.index("Request-value matching: 0 requests held values, 0 sink checks ran.")
+    assert lines[0] == "Side Effects records only what the sharpit agent's side-effect sensors hook."
+    assert lines[1].startswith("A process row shows the command's file name only")
+    assert lines[2] == "A network row shows a host and port, never a byte sent or received, nor a URL's path or query."
+    assert lines[3].startswith("Files: the interpreter's own files (imports)")
+    assert lines[4].startswith("Security sinks: request input is matched only while")
+    assert lines[5].startswith("A row is attributed to its request's route as HTTP Exchanges names it")
+    assert lines[6].startswith("HTTP Exchanges is disabled: Side Effects attributes rows")
+    assert lines[7] == "1 operation is counted in an Other row: a sensor keeps at most 500 rows and the run 2000."
+    assert lines[8].startswith("The recording was cleared: rows recorded before then were dropped")
+    assert lines[9] == "Request-value matching: 0 requests held values, 0 sink checks ran."
+    assert lines[10].startswith("1 security-sinks match is not shown yet: a number")
 
 
 def test_the_files_and_attribution_lines_are_the_adapted_texts() -> None:
@@ -77,17 +81,45 @@ def test_the_files_and_attribution_lines_are_the_adapted_texts() -> None:
 
 
 def test_two_reads_and_a_clear_at_once_lose_and_duplicate_nothing() -> None:
-    service = SideEffectsService(None)
-    assert service.report()["available"] is False
-    service.clear_recording()
+    service, rows = _service_with_rows()
+    appended = threading.Event()
+    completed = [threading.Event() for _ in range(3)]
+
+    service.lock.acquire()
+    try:
+        appender = threading.Thread(
+            target=lambda: (rows.append({"source": "files", "kind": "write", "target": "./report.csv"}), appended.set())
+        )
+        workers = (
+            threading.Thread(target=lambda: (service.report(), completed[0].set())),
+            threading.Thread(target=lambda: (service.sensor("files", 0, 20), completed[1].set())),
+            threading.Thread(target=lambda: (service.clear_recording(), completed[2].set())),
+        )
+        appender.start()
+        for worker in workers:
+            worker.start()
+        assert appended.wait(1)
+        assert all(not event.wait(0.05) for event in completed)
+    finally:
+        service.lock.release()
+    appender.join(1)
+    for worker in workers:
+        worker.join(1)
+    assert all(event.is_set() for event in completed)
 
 
 def test_ready_at_is_when_the_host_lifespan_startup_completed() -> None:
-    assert SideEffectsService(None).ready_at() is None
+    ready_at = 1_800_000_000_000
+    assert SideEffectsService(None, ready_at=lambda: ready_at).ready_at() == ready_at
 
 
 def test_without_a_lifespan_no_row_counts_under_startup() -> None:
-    assert SideEffectsService(None).ready_at() is None
+    service, rows = _service_with_rows()
+    _append(rows, "processes", kind="process", target="worker", threadName="worker-1")
+    result = service.sensor("processes", 0, 20)["rows"]
+    assert len(result) == 1
+    assert result[0]["attribution"] == "worker-{n}"
+    assert result[0]["scope"] == "thread"
 
 
 def test_clearing_the_recording_clears_the_side_effects_rows() -> None:
@@ -101,15 +133,32 @@ def test_clearing_the_recording_clears_the_side_effects_rows() -> None:
 
 
 def test_an_idle_or_low_footprint_suspend_keeps_the_side_effects_rows() -> None:
-    assert "RECORDING_CLEARED" not in SideEffectsService(None).limitations()
+    from sharpit.engine.capture.journal import RuntimeJournal
+    from sharpit.engine.sensors.lane import SensorHook, SensorLane
+
+    rows = SensorRows()
+    lane = SensorLane([], RuntimeJournal(), configured=(), rows=rows)
+    capture = SimpleNamespace(sensors=lane, journal=SimpleNamespace(request_routes=lambda _ids: {}))
+    service = SideEffectsService(capture, Masker(exposure=Exposure.MASKED, mask_secrets=True), ready_at=lambda: None)
+    _append(rows, "files", kind="write", target="./report.csv")
+    assert service.sensor("files", 0, 20)["page"]["total"] == 1
+
+    hook = SensorHook("files", lane)
+    hook.suspend()
+    hook.discard()
+
+    assert service.sensor("files", 0, 20)["page"]["total"] == 1
+    assert not any("recording was cleared" in line.lower() for line in service.report()["limitations"])
 
 
 def test_report_keys_follow_the_dto_order() -> None:
-    assert list(SideEffectsService(None).report()) == ["available", "unavailableReason", "sensors", "limitations"]
+    service, _rows = _service_with_rows()
+    assert list(service.report()) == ["available", "unavailableReason", "sensors", "limitations"]
 
 
 def test_sensor_report_keys_follow_the_dto_order() -> None:
-    assert list(SideEffectsService(None).sensor("files", 0, 100)) == [
+    service, _rows = _service_with_rows()
+    assert list(service.sensor("files", 0, 100)) == [
         "available",
         "unavailableReason",
         "sensor",
@@ -120,7 +169,8 @@ def test_sensor_report_keys_follow_the_dto_order() -> None:
 
 
 def test_sensor_dto_keys_follow_the_dto_order() -> None:
-    assert list(SideEffectsService(None).report()["sensors"][0]) == [
+    service, _rows = _service_with_rows()
+    assert list(service.report()["sensors"][0]) == [
         "id",
         "group",
         "label",
@@ -135,7 +185,24 @@ def test_sensor_dto_keys_follow_the_dto_order() -> None:
 
 
 def test_an_inactive_console_builds_no_ring_or_store_and_answers_404() -> None:
-    assert SideEffectsService(None).store is None
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+
+    app = FastAPI()
+    handle = install(
+        app,
+        enabled="OFF",
+        show_banner=False,
+        config_scan=False,
+        agent_sensors=("processes", "files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+    assert handle.context.capture.side_effects is None
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        assert client.get("/sharpit/api/side-effects").status_code == 404
+        assert client.get("/sharpit/api/side-effects/sensor?sensor=files").status_code == 404
 
 
 _ROUTES: dict[str, str] = {}
@@ -149,7 +216,11 @@ def _service_with_rows() -> tuple[SideEffectsService, SensorRows]:
         sensors=lane,
         journal=SimpleNamespace(request_routes=lambda ids: {key: _ROUTES[key] for key in ids if key in _ROUTES}),
     )
-    return SideEffectsService(capture, Masker(exposure=Exposure.MASKED, mask_secrets=True)), rows
+    return SideEffectsService(
+        capture,
+        Masker(exposure=Exposure.MASKED, mask_secrets=True),
+        ready_at=lambda: None,
+    ), rows
 
 
 def _append(rows: SensorRows, source: str, **values: object) -> None:
@@ -163,8 +234,17 @@ def _append(rows: SensorRows, source: str, **values: object) -> None:
 def test_a_digits_only_argument_waits_for_confirmation() -> None:
     # adapted from: SecuritySinksServiceTests.aDigitsOnlyValueInsideALiteralAlsoWaitsForConfirmation
     service, rows = _service_with_rows()
-    _append(rows, "security-sinks", kind="command", target="convert, argument 1", parameter="page", numeric=True,
-            rawHash=1, redactedHash=2, requestId="0000000000000001")
+    _append(
+        rows,
+        "security-sinks",
+        kind="command",
+        target="convert, argument 1",
+        parameter="page",
+        numeric=True,
+        rawHash=1,
+        redactedHash=2,
+        requestId="0000000000000001",
+    )
     first = service.sensor("security-sinks", 0, 20)
     assert first["rows"] == []
     assert any("not shown yet" in line for line in first["limitations"])
@@ -172,8 +252,15 @@ def test_a_digits_only_argument_waits_for_confirmation() -> None:
 
 def test_a_file_row_reads_file_path_and_its_sentence() -> None:
     service, rows = _service_with_rows()
-    _append(rows, "security-sinks", kind="file-path", target="./reports/{name}.csv", parameter="name",
-            requestId="0000000000000001", route="GET /reports")
+    _append(
+        rows,
+        "security-sinks",
+        kind="file-path",
+        target="./reports/{name}.csv",
+        parameter="name",
+        requestId="0000000000000001",
+        route="GET /reports",
+    )
     result = service.sensor("security-sinks", 0, 20)
     assert len(result["rows"]) == 1
     assert result["rows"][0]["kind"] == "file path"
@@ -181,12 +268,22 @@ def test_a_file_row_reads_file_path_and_its_sentence() -> None:
     assert "Check that it is validated and cannot leave its directory." in result["rows"][0]["detail"]
 
 
-def test_a_report_written_outside_the_temporary_directory_is_an_application_write_of_its_route_by_pattern_only() -> None:
-    # ported: SideEffectsServiceTests.aReportWrittenOutsideTheTemporaryDirectoryIsAnApplicationWriteOfItsRouteByPatternOnly
+def test_a_report_written_outside_the_temporary_directory_is_an_application_write_of_its_route_by_pattern_only() -> (
+    None
+):  # noqa: E501
+    # ported: SideEffectsServiceTests.aReportWrittenOutsideTheTemporaryDirectoryIsAnApplicationWriteOfItsRouteByPatternOnly  # noqa: E501
     service, rows = _service_with_rows()
-    _append(rows, "files", kind="write", target="/srv/exports/hunter{n}-secret-{n}-{n}-{n}.csv",
-            location="/srv/exports", route="GET /reports", requestId="0000000000000001",
-            callSite="sideeffectsapp.Launcher#writeFile", origin="application")
+    _append(
+        rows,
+        "files",
+        kind="write",
+        target="/srv/exports/hunter{n}-secret-{n}-{n}-{n}.csv",
+        location="/srv/exports",
+        route="GET /reports",
+        requestId="0000000000000001",
+        callSite="sideeffectsapp.Launcher#writeFile",
+        origin="application",
+    )
     result = service.sensor("files", 0, 20)["rows"]
     assert len(result) == 1
     assert result[0]["attribution"] == "GET /reports"
@@ -197,8 +294,16 @@ def test_a_report_written_outside_the_temporary_directory_is_an_application_writ
 def test_a_requests_failed_start_is_a_row_of_its_route_with_the_commands_file_name_only() -> None:
     # adapted from: SideEffectsServiceTests.aRequestsFailedStartIsARowOfItsRouteWithTheCommandsFileNameOnly
     service, rows = _service_with_rows()
-    _append(rows, "processes", kind="process", target="report-tool", route="GET /reports", failed=2,
-            requestId="0000000000000001", callSite="sideeffectsapp.Launcher#failedStart")
+    _append(
+        rows,
+        "processes",
+        kind="process",
+        target="report-tool",
+        route="GET /reports",
+        failed=2,
+        requestId="0000000000000001",
+        callSite="sideeffectsapp.Launcher#failedStart",
+    )
     result = service.sensor("processes", 0, 20)["rows"]
     assert len(result) == 1
     assert result[0]["attribution"] == "GET /reports"
@@ -209,9 +314,30 @@ def test_a_requests_failed_start_is_a_row_of_its_route_with_the_commands_file_na
 def test_a_second_request_with_another_value_confirms_the_row() -> None:
     # adapted from: SecuritySinksServiceTests.aSecondRequestWithAnotherValueConfirmsTheRow
     service, rows = _service_with_rows()
-    for request_id, raw_hash in (("0000000000000001", 1), ("0000000000000002", 2)):
-        _append(rows, "security-sinks", kind="file-path", target="./reports/{name}.csv", parameter="name",
-                requestId=request_id, rawHash=raw_hash, redactedHash=7)
+    _append(
+        rows,
+        "security-sinks",
+        kind="file-path",
+        target="./reports/{name}.csv",
+        parameter="name",
+        numeric=True,
+        requestId="0000000000000001",
+        rawHash=1,
+        redactedHash=7,
+    )
+    assert service.sensor("security-sinks", 0, 20)["rows"] == []
+
+    _append(
+        rows,
+        "security-sinks",
+        kind="file-path",
+        target="./reports/{name}.csv",
+        parameter="name",
+        numeric=True,
+        requestId="0000000000000002",
+        rawHash=2,
+        redactedHash=7,
+    )
     result = service.sensor("security-sinks", 0, 20)["rows"]
     assert len(result) == 1
     assert result[0]["parameter"] == "name"
@@ -221,8 +347,17 @@ def test_a_second_request_with_another_value_confirms_the_row() -> None:
 def test_a_text_with_more_matches_than_can_be_redacted_keeps_no_text() -> None:
     # adapted from: SecuritySinksServiceTests.aStatementWithMoreMatchesThanCanBeRedactedKeepsNoText
     service, rows = _service_with_rows()
-    _append(rows, "security-sinks", kind="command", target="(text not kept)", parameter="name",
-            requestId="0000000000000001", rawHash=1, redactedHash=2, matches=9)
+    _append(
+        rows,
+        "security-sinks",
+        kind="command",
+        target="(text not kept)",
+        parameter="name",
+        requestId="0000000000000001",
+        rawHash=1,
+        redactedHash=2,
+        matches=9,
+    )
     result = service.sensor("security-sinks", 0, 20)["rows"]
     assert len(result) == 1
     assert result[0]["target"] == "(text not kept)"
