@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -402,3 +403,52 @@ def test_the_sinks_line_says_hand_off_work_is_checked_only_while_the_request_is_
     assert "is checked only while the request is live" in line
     assert "work that runs after the response completes, or after 60 seconds, is not checked" in line
     assert "its rows keep the raw text" in line
+
+
+def _hidden_service(*, http_journaled: bool, exchanges_enabled: bool) -> tuple[SideEffectsService, SensorRows]:
+    rows = SensorRows()
+    lane = SimpleNamespace(rows=rows, is_on=lambda _name: True)
+    journal = SimpleNamespace(request_routes=lambda _ids: {}, accepts=lambda source: http_journaled or source != "http")
+    service = SideEffectsService(
+        SimpleNamespace(sensors=lane, journal=journal),
+        Masker(exposure=Exposure.MASKED, mask_secrets=True),
+        ready_at=lambda: None,
+        exchanges_enabled=lambda: exchanges_enabled,
+    )
+    return service, rows
+
+
+@pytest.mark.parametrize(("http_journaled", "exchanges_enabled"), [(False, True), (True, False)])
+def test_route_rows_merge_under_route_hidden_without_request_ids_when_http_is_not_recorded(
+    http_journaled: bool, exchanges_enabled: bool
+) -> None:
+    # ported: SideEffectsServiceTests.whileHttpExchangesIsHiddenRouteRowsAreMergedWithoutRequestIds
+    service, rows = _hidden_service(http_journaled=http_journaled, exchanges_enabled=exchanges_enabled)
+    for request_id in ("0000000000000001", "0000000000000002"):
+        rows.append(
+            {"source": "processes", "at": time.time_ns() // 1_000_000, "kind": "start", "target": "python"}
+            | {"requestId": request_id}
+        )
+    report = service.sensor("processes", 0, 20)
+    assert [row["attribution"] for row in report["rows"]] == ["(route hidden)"]
+    assert report["rows"][0]["count"] == 2
+    assert "requestId" not in report["rows"][0]
+    assert any(
+        line.startswith("HTTP Exchanges is disabled: Side Effects attributes rows") for line in report["limitations"]
+    )
+
+
+def test_route_rows_wait_for_their_route_while_http_is_recorded() -> None:
+    service, rows = _hidden_service(http_journaled=True, exchanges_enabled=True)
+    rows.append(
+        {
+            "source": "processes",
+            "at": time.time_ns() // 1_000_000,
+            "kind": "start",
+            "target": "python",
+            "requestId": "0000000000000001",
+        }
+    )
+    report = service.sensor("processes", 0, 20)
+    assert report["rows"] == []
+    assert not any(line.startswith("HTTP Exchanges is disabled") for line in report["limitations"])

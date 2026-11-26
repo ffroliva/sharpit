@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from sharpit.engine.collectors.sideeffects import display
@@ -60,7 +60,13 @@ def holder_line(holder: Mapping[str, int]) -> str:
 
 
 class SideEffectsService:
-    def __init__(self, capture: Any, masker: Any = None, ready_at: Any = None) -> None:
+    def __init__(
+        self,
+        capture: Any,
+        masker: Any = None,
+        ready_at: Any = None,
+        exchanges_enabled: Callable[[], bool] = lambda: True,
+    ) -> None:
         self.capture = capture
         self.masker = masker
         self.lock = threading.Lock()
