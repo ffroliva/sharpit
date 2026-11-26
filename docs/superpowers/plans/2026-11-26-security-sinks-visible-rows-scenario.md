@@ -1,9 +1,9 @@
 # Scenario: Security Sinks, Visible Rows
 
 Plan: `2026-11-26-security-sinks-visible-rows.md`. Release unit: plans 1 and 2 in 0.10.0; SQL and outbound URL sinks
-are out of 0.10.0. Decisions (a) to (e), deviation N1, the measured conditional N2, the ported O1 and O2 rows and
+are out of 0.10.0. Decisions (a) to (e), deviation N1, the measured conditional N2, the ported O1, O2, O6 and O7 rows and
 adaptations F1 to F11 are taken as given; a scenario that needs a decision they do not cover is listed in the plan under
-*Open deviations* (O5, O6, O7). Rows 28 to 33 were added when the plan's design review was folded in.
+*Open deviations* (O5, O8). Rows 28 to 33 were added when the plan's design review was folded in.
 
 Code traced: `src/sharpit/engine/sensors/`, `src/sharpit/engine/capture/`, `src/sharpit/engine/masking.py` and
 `src/sharpit/fastapi/routes/side_effects.py` at `349af364` (plan 1 Tasks 1 to 3 merged), CPython 3.13 on Windows, and
@@ -21,7 +21,7 @@ BootUI `v2.5.0` source (`SideEffectsStore.java`, `SideEffectsService.java`, `Sin
 | D5 Introspection drift | partly | Only the call-site label (`co_qualname`, greenlet parent) and plan 1's ownership walk; route labels come from the journal, not from route objects. |
 | D6 No side effects on reads | yes | Reads now drain rings and resolve owners: in-memory only, never a socket, file, logger or environment change. |
 | D7 OSV/EPSS network failures | no | The change makes no network call. |
-| D8 Host-app integration | partly | Route labels for mounted apps and untemplated paths; the host's lifespan as the readiness instant (F8); the journal's source setting (Open deviation O7). |
+| D8 Host-app integration | partly | Route labels for mounted apps and untemplated paths; the host's lifespan as the readiness instant (F8); the journal's source setting (the ported O7). |
 | D9 Scale and limits | yes | Ring capacity, store caps, 10 000 waiting observations, a file flood between reads, concurrent reads and clears under the service lock. |
 | D10 MCP and CLI parity | yes | `get_side_effects` and `sharpit side-effects` share one implementation; advertising follows the lane. |
 
@@ -68,8 +68,8 @@ appended before the clear but never drained would otherwise reach the store at t
 append a row whose event preceded the clear just after the ring was emptied. The plan ports BootUI's timestamp rule
 (`record.firstMillis() <= clearedAt`, `SideEffectsService.java:2248`; waiting observations at `:2375`): the clear
 records its time, and the store drops every drained row and waiting observation whose time is not after it (Tasks 5
-and 7). Row 10 pins both halves. What triggers a clear in sharpit (idle and low-footprint suspend only) is Open
-deviation O6.
+and 7). Row 10 pins both halves. As in BootUI, only the recording clear clears the store (the ported O6), never a suspend; sharpit has no journal
+clear to trigger it (Open deviation O8).
 
 ## Scenario table
 
@@ -106,8 +106,8 @@ deviation O6.
 | 29 | D3 | `get_side_effects` queried with a secret-looking parameter name or file segment that a row shows as `******`, as an oracle | Critical | `matched == 0` at every exposure: matching reads the built DTOs, and the store holds only masked values | Integration |
 | 30 | D3 | A canary query value read back through every console route and read tool after plan 2 adds row fields to the journal rows | Critical | Plan 1's all-routes canary stays green at `MASKED`, `METADATA_ONLY` and `FULL` | Integration |
 | 31 | D4 | A first read after a quiet period, rows older than 30 s, some `http` events still held and some evicted | Medium | Rows with a held event are named; the others count under `(unknown route)` (F6) | Unit |
-| 32 | D4 | An idle or low-footprint suspend after rows were shown | Medium | Per Open deviation O6: the rows are dropped and `RECORDING_CLEARED` is listed, or they are kept | Integration |
-| 33 | D8 | `SHARPIT_RUNTIME_JOURNAL_SOURCES` narrowed to exclude `files` | Medium | Per Open deviation O7: the sensor says why it shows no row, or the tee feeds the ring before the journal's source filter | Integration |
+| 32 | D4 | An idle or low-footprint suspend after rows were shown | Medium | The rows are kept and `RECORDING_CLEARED` is not listed (the ported O6: only the recording clear clears the store) | Integration |
+| 33 | D8 | `SHARPIT_RUNTIME_JOURNAL_SOURCES` narrowed to exclude `files` | Medium | The tee feeds the ring before the journal's source filter, so the tab still shows rows (the ported O7) | Integration |
 
 ## Must-cover before merge (Critical + High)
 
@@ -142,8 +142,9 @@ New, added to their tasks in the plan:
 File as issues after the plan merges, except: row 19, whose sentence belongs in Task 14's `SECURITY.md` paragraph;
 rows 24 and 26, which Task 10 covers with the holder-line and readiness tests; row 18, which Task 8 covers with
 `test_one_read_at_the_caps_sorts_and_resolves_in_bounded_time`; row 31, which Task 8 covers with
-`test_a_row_older_than_the_wait_is_named_while_its_http_event_is_held`; and rows 32 and 33, whose tests Task 10 names
-once Open deviations O6 and O7 are decided. Suggested test names: row 20
+`test_a_row_older_than_the_wait_is_named_while_its_http_event_is_held`; and rows 32 and 33, which Task 10 covers with
+`test_an_idle_or_low_footprint_suspend_keeps_the_side_effects_rows` and Task 5 with
+`test_a_journal_without_the_source_still_feeds_the_side_effects_rows`. Suggested test names: row 20
 `test_a_switched_off_sensor_keeps_its_drained_rows_until_a_clear`; row 22
 `test_an_oversized_query_and_limit_are_bounded`; row 23 `test_call_site_labels_for_lambdas_and_nested_functions`.
 
@@ -151,7 +152,7 @@ once Open deviations O6 and O7 are decided. Suggested test names: row 20
 
 - `KNOWN_ISSUES.md` does not exist.
 - The spec's deviation log carries no side-effects entry; the matrix fragment `0.10.0-security-sinks.tsv` (plan 1,
-  Task 6) receives N1, N2, the ported O1 and O2 rows, F1 to F11 and every decided open deviation (plan 2, Task 14). `w6-S2.tsv:8,16,17,18,37`
+  Task 6) receives N1, N2, the ported O1, O2, O6 and O7 rows, F1 to F11 and every decided open deviation (plan 2, Task 14). `w6-S2.tsv:8,16,17,18,37`
   describe today's unavailable floor and are updated in Task 11.
 
 ## Not checked
