@@ -261,6 +261,7 @@ class TestFacts:
             "worker": self.key.worker,
             "attempt": self.key.attempt,
             "outcome": self.outcome,
+            "completed": self.completed,
             "budget": None
             if budget is None
             else {
@@ -297,6 +298,7 @@ class TestFacts:
             ),
             list(data["findings"]),
             HttpFacts.from_json(data["http"]) if "http" in data else HttpFacts(),
+            data.get("completed"),
         )
 
 

@@ -56,6 +56,8 @@ def register_worker_apps(config: Any) -> None:
 
 
 def record_other_phase(test: Any, report: Any) -> None:
+    if report.when == "setup":
+        test.completed = None  # a rerun reuses the same facts
     if report.skipped:
         test.outcome = "skipped"
     elif report.failed:
@@ -63,7 +65,8 @@ def record_other_phase(test: Any, report: Any) -> None:
 
 
 def record_call_completion(test: Any, report: Any) -> None:
-    """Record whether the call phase completed (filled in by a later change)."""
+    """Sticky across a test's call reports (one per subtest); read before a sharpit gate rewrites the outcome."""
+    test.completed = report.passed and test.completed is not False
 
 
 @pytest.hookimpl(hookwrapper=True)
