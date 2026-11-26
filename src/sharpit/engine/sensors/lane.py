@@ -16,10 +16,10 @@ from sharpit.engine.sensors.audit import AuditHub, Sensor, hub
 from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.floor import DEFAULT_REASONS, SWITCHABLE_SENSORS
 from sharpit.engine.sensors.processes import ProcessesSensor
-from sharpit.engine.sensors.rows import SensorRows, TeeSink
+from sharpit.engine.sensors.rows import RINGED, SensorRows, TeeSink
 from sharpit.engine.sensors.sinks import SecuritySinksSensor, SinkMatcher
 
-BUILT = ("processes", "files", "security-sinks")  # the sensors this version builds
+BUILT = RINGED  # the sensors this version builds
 SWITCHABLE = tuple(name for name in SWITCHABLE_SENSORS if name in BUILT)  # BootUI keeps processes always on
 
 

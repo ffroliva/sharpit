@@ -146,7 +146,7 @@ def _ctx(**options: Any) -> SharpitContext:
     ctx = SharpitContext(settings, ACTIVATION, FakeIntrospector())
     if settings.agent_sensors:
         from sharpit.engine.capture.journal import RuntimeJournal
-        from sharpit.engine.sensors.arming import arm_sensors
+        from sharpit.engine.collectors.sideeffects.arming import arm_sensors
 
         journal = ctx.capture.journal = RuntimeJournal()
         arm_sensors(ctx, journal)

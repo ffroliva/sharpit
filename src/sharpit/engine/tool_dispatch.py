@@ -9,11 +9,11 @@ from collections.abc import Callable, Sequence
 from typing import Any, NoReturn, cast
 
 from sharpit import __version__
-from sharpit.engine.collectors.sideeffects.store import RINGED
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
 from sharpit.engine.sensors.floor import AGENT_SENSOR_TOOLS, ID_SOURCES, PANEL_REASONS
+from sharpit.engine.sensors.rows import RINGED
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.settings import PanelSettings
 

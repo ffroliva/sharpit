@@ -30,9 +30,9 @@ from sharpit.engine.capture.mail import HOOK as MAIL_HOOK
 from sharpit.engine.capture.mail import ensure_wrapped as ensure_mail_wrapped
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
+from sharpit.engine.collectors.sideeffects.arming import arm_sensors
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
-from sharpit.engine.sensors.arming import arm_sensors
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.fastapi.request_id_header import with_request_id_header
 
