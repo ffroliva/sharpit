@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import importlib
 import os
 import re
 import threading
@@ -57,6 +58,11 @@ _HASH_KEY = os.urandom(32)
 _BAD_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _NAME = re.compile(rf"[A-Za-z0-9_.\-\[\]]{{1,{MAX_NAME}}}")
 _PATH_TYPES = (str, int, float, uuid.UUID)
+_compile_uncached: Callable[[str, int], re.Pattern[str]] | None
+try:  # shortcut: private to ``re``, used for its cache-free compile; upgrade if a release drops it (no prefilter then)
+    _compile_uncached = cast("Callable[[str, int], re.Pattern[str]]", importlib.import_module("re._compiler").compile)
+except (ImportError, AttributeError):  # pragma: no cover
+    _compile_uncached = None
 
 type _Pair = tuple[str | None, str]
 
@@ -163,9 +169,13 @@ def _path_pairs(path_params: object, room: int) -> list[_Pair] | None:
 
 
 def _compile_pattern(values: list[str]) -> re.Pattern[str] | None:
-    if len(values) <= 1:
+    """An alternation prefilter, built outside the ``re`` module cache, which would keep the request's values alive."""
+    if len(values) <= 1 or _compile_uncached is None:
         return None
-    return re.compile("|".join(v if v.isalnum() else re.escape(v) for v in values))
+    try:
+        return _compile_uncached("|".join(v if v.isalnum() else re.escape(v) for v in values), 0)
+    except Exception:  # private API moved: no prefilter, ``_scan`` then finds each value itself
+        return None
 
 
 def _decode(text: str) -> str | None:
