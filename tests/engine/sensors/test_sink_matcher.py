@@ -49,7 +49,7 @@ def clean_context() -> Iterator[None]:
 
 def test_one_row_per_matched_parameter() -> None:
     REQUEST.set(info("a=alpha&b=bravo"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=lambda scope: True)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "")
     text = "alpha/bravo"
     match = matcher.check(text, "file")
     assert match is not None
@@ -68,7 +68,7 @@ def test_one_row_per_matched_parameter() -> None:
 
 def test_no_row_for_work_the_endpoint_does_not_own() -> None:
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=lambda scope: False)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: None)
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None
@@ -78,7 +78,7 @@ def test_no_row_for_work_the_endpoint_does_not_own() -> None:
 
 def test_a_text_seen_before_publishes_no_second_row() -> None:
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=lambda scope: True)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "")
     text = "/srv/report-q3.pdf"
     match1 = matcher.check(text, "file")
     assert match1 is not None
@@ -94,21 +94,21 @@ def test_a_text_seen_before_publishes_no_second_row() -> None:
 
 @pytest.mark.parametrize("case", ["off", "internal", "no_request", "other_context"])
 def test_nothing_is_checked_when_off_internal_outside_a_request_or_for_another_context(case: str) -> None:
-    on = (lambda: False) if case == "off" else (lambda: True)
+    on = case != "off"
     if case == "internal":
         INTERNAL.set(True)
     if case == "other_context":
         REQUEST.set(info("file=report-q3", context_id="other"))
     elif case != "no_request":
         REQUEST.set(info("file=report-q3", context_id="ctx"))
-    matcher = SinkMatcher("ctx", on=on, owns=lambda scope: True)
+    matcher = SinkMatcher("ctx", on=on, owner=lambda scope: "")
     assert matcher.check("/srv/report-q3.pdf", "file") is None
 
 
 def test_a_digits_only_value_is_flagged() -> None:
     # ported: RequestValuesSinksTests.aDigitsOnlyValueIsFlaggedSoTheEngineWaitsForConfirmation
     REQUEST.set(info("year=2024"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=lambda scope: True)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "")
     text = "/srv/archive/2024/data"
     match = matcher.check(text, "file")
     assert match is not None
@@ -119,7 +119,7 @@ def test_a_digits_only_value_is_flagged() -> None:
 
 
 def test_the_same_text_hashes_alike_and_another_value_differently() -> None:
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=lambda scope: True)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "")
 
     REQUEST.set(info("file=report-a", request_id="1" * 16))
     text1 = "/srv/report-a.pdf"
@@ -142,11 +142,11 @@ def test_the_same_text_hashes_alike_and_another_value_differently() -> None:
 
 
 def test_an_owns_that_raises_publishes_nothing() -> None:
-    def bad_owns(scope: Mapping[str, Any]) -> bool:
+    def bad_owner(scope: Mapping[str, Any]) -> str | None:
         raise RuntimeError("boom")
 
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=bad_owns)
+    matcher = SinkMatcher("ctx", on=True, owner=bad_owner)
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None
@@ -157,7 +157,7 @@ def test_an_owns_that_raises_publishes_nothing() -> None:
 def test_work_not_owned_never_hides_the_endpoints_later_row() -> None:
     owned = False
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owns=lambda scope: owned)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "" if owned else None)
     text = "/srv/report-q3.pdf"
 
     match1 = matcher.check(text, "file")
@@ -182,7 +182,7 @@ def test_a_holder_that_raises_gives_a_not_checked_match(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(values, "match", raise_match)
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, values=values, owns=lambda scope: True)
+    matcher = SinkMatcher("ctx", on=True, values=values, owner=lambda scope: "")
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None
@@ -193,7 +193,7 @@ def test_a_holder_that_raises_gives_a_not_checked_match(monkeypatch: pytest.Monk
 
 def test_the_default_owns_publishes_nothing() -> None:
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True)
+    matcher = SinkMatcher("ctx", on=True)
     sensor = SecuritySinksSensor(matcher)
     assert sensor.name == "security-sinks"
     assert sensor.events == ()
@@ -208,7 +208,7 @@ def test_the_default_owns_publishes_nothing() -> None:
 
 def test_position_unknown_past_eight_spans() -> None:
     REQUEST.set(info("a=aaaa&b=bbbb"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owner=lambda scope: "app:fn")
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "app:fn")
     text = "aaaa " * 8 + "bbbb"
     match = matcher.check(text, "file")
     assert match is not None
@@ -271,7 +271,7 @@ def test_the_call_site_comes_from_the_ownership_walk(monkeypatch: pytest.MonkeyP
     assert req.scope is not None
     req.scope["endpoint"] = endpoint
     REQUEST.set(req)
-    matcher = SinkMatcher("ctx", on=lambda: True, owner=sink_ownership.owner)
+    matcher = SinkMatcher("ctx", on=True, owner=sink_ownership.owner)
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None
@@ -296,7 +296,7 @@ def test_a_call_site_in_the_parent_greenlet_is_found_by_the_ownership_walk() -> 
     assert req.scope is not None
     req.scope["endpoint"] = endpoint
     REQUEST.set(req)
-    matcher = SinkMatcher("ctx", on=lambda: True, owner=sink_ownership.owner)
+    matcher = SinkMatcher("ctx", on=True, owner=sink_ownership.owner)
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None
@@ -308,7 +308,7 @@ def test_a_call_site_in_the_parent_greenlet_is_found_by_the_ownership_walk() -> 
 
 def test_a_row_carries_its_epoch_millisecond_time() -> None:
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owner=lambda scope: "app:fn")
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: "app:fn")
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None
@@ -327,7 +327,7 @@ def test_not_owned_work_publishes_no_row_and_takes_no_call_site(monkeypatch: pyt
 
     monkeypatch.setattr(frames, "first_application_frame", forbidden)
     REQUEST.set(info("file=report-q3"))
-    matcher = SinkMatcher("ctx", on=lambda: True, owner=lambda scope: None)
+    matcher = SinkMatcher("ctx", on=True, owner=lambda scope: None)
     text = "/srv/report-q3.pdf"
     match = matcher.check(text, "file")
     assert match is not None

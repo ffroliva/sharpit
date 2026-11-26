@@ -37,8 +37,8 @@ from sharpit.engine.sensors.sinks import SinkMatcher
 EVENTS, ROUNDS = @EVENTS@, @ROUNDS@
 mask_path = Masker(Exposure.MASKED, True).mask_path
 journal = RuntimeJournal(sources=["processes", "files"], max_events=EVENTS * ROUNDS * 12)
-matcher_off = SinkMatcher("ctx", lambda: False)
-matcher_on = SinkMatcher("ctx", lambda: True)
+matcher_off = SinkMatcher("ctx", False)
+matcher_on = SinkMatcher("ctx", True)
 processes = ProcessesSensor(context_id="ctx")
 processes_matcher_off = ProcessesSensor(matcher=matcher_off)
 files = FilesSensor(mask_path, context_id="ctx")

@@ -30,15 +30,6 @@ def _no_owner(scope: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _static_on(on: Callable[[], bool] | bool) -> tuple[bool, Callable[[], bool] | None]:
-    if isinstance(on, bool):
-        return on, None
-    code = getattr(on, "__code__", None)
-    if code is not None and not code.co_freevars and not code.co_names and code.co_argcount == 0:
-        return bool(on()), None
-    return True, on
-
-
 class SinkMatcher:
     def __init__(
         self,
@@ -46,15 +37,13 @@ class SinkMatcher:
         on: Callable[[], bool] | bool = True,
         values: RequestValues | None = None,
         owner: Callable[[Mapping[str, Any]], str | None] = _no_owner,
-        *,
-        owns: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> None:
         self._context_id = context_id
-        self.enabled, self._on = _static_on(on)
+        # a bool is a constant; a callable is asked on every check
+        self.enabled = on if isinstance(on, bool) else True
+        self._on = None if isinstance(on, bool) else on
         self._values = values if values is not None else RequestValues()
-        self._owner: Callable[[Mapping[str, Any]], str | None] = (
-            owner if owns is None else (lambda scope: "" if owns(scope) else None)
-        )
+        self._owner = owner
 
     def check(self, text: str, kind: Kind, request: RequestInfo | None = _UNSET) -> Match | None:
         # ported: RequestValues.java:680-725, check order per spec
@@ -106,6 +95,9 @@ class SinkMatcher:
             }
             for name in match.names
         )
+
+    def holder_status(self) -> dict[str, int]:
+        return self._values.status()
 
     def request_ended(self, request_id: str) -> None:
         self._values.end(request_id)

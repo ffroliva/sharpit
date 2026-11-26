@@ -234,12 +234,10 @@ class SideEffectsService:
     def _holder(self) -> dict[str, int] | None:
         """The request-value holder's counters; None while the setting is off (the lane then has no such sensor)."""
         lane = self.capture.sensors
-        # shortcut: reaches the lane's private sensor table, as the lane has no accessor yet; add one on the lane
-        sensor = getattr(lane, "_sensors", {}).get("security-sinks")
-        values = getattr(getattr(sensor, "matcher", None), "_values", None)
-        if values is None:
+        status = lane.holder_status()
+        if status is None:
             return None
-        return {**values.status(), "dropped": lane.rows.dropped("security-sinks")}
+        return {**status, "dropped": lane.rows.dropped("security-sinks")}
 
     def limitations(self, **kwargs: Any) -> list[str]:
         sinks = (

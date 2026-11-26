@@ -78,6 +78,10 @@ class SensorLane:
     def is_on(self, name: str) -> bool:
         return self.attached and name in self._sensors and name not in self._paused and name not in self._off
 
+    def holder_status(self) -> dict[str, int] | None:
+        """The request-value holder's counters; None while the setting is off (the lane then has no matcher)."""
+        return None if self._matcher is None else self._matcher.holder_status()
+
     def wipe(self, name: str) -> None:
         _wipe(self._sensors.get(name))
 
@@ -164,7 +168,6 @@ def build_lane(
     request_values: bool = False,
     context_id: str = "",
     owner: Callable[[Mapping[str, Any]], str | None] = lambda scope: None,
-    owns: Callable[[Mapping[str, Any]], bool] | None = None,
 ) -> SensorLane | None:
     """The lane for ``configured`` sensors, or None: nothing configured, or no journal to offer to."""
     available = BUILT if request_values else tuple(name for name in BUILT if name != "security-sinks")
@@ -175,7 +178,6 @@ def build_lane(
             context_id,
             on=False,
             owner=owner,
-            owns=owns,
         )
         if request_values
         else None

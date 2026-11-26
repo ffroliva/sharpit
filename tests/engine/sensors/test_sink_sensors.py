@@ -58,7 +58,7 @@ _SENSOR_REQUESTS: dict[int, RequestInfo] = {}
 def processes(query: str = "", path: dict[str, Any] | None = None, *, owns: bool = True) -> ProcessesSensor:
     req = info(query, path)
     values = RequestValues()
-    matcher = SinkMatcher("ctx", on=lambda: True, values=values, owns=lambda scope: owns)
+    matcher = SinkMatcher("ctx", on=True, values=values, owner=lambda scope: "" if owns else None)
     sensor = ProcessesSensor(matcher=matcher)
     _SENSOR_REQUESTS[id(sensor)] = req
     return sensor
@@ -75,7 +75,7 @@ def files(
 ) -> FilesSensor:
     req = info(query, path)
     values = RequestValues()
-    matcher = SinkMatcher("ctx", on=lambda: True, values=values, owns=lambda scope: owns)
+    matcher = SinkMatcher("ctx", on=True, values=values, owner=lambda scope: "" if owns else None)
     sensor = FilesSensor(cwd=cwd, home=home, tmp=tmp, matcher=matcher)
     _SENSOR_REQUESTS[id(sensor)] = req
     return sensor
