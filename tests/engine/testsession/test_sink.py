@@ -330,6 +330,31 @@ def test_a_masker_that_fails_still_marks_the_capture_lost(monkeypatch: pytest.Mo
     assert [source["reason"] for source in sink.facts.sources] == [_hook_warning("RuntimeError")]
 
 
+def test_a_repeated_hook_failure_is_masked_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hook failing on every statement pays the masker once per exception type, not once per call."""
+    sink = _sink()
+    calls: list[str | None] = []
+    real = sink.masker.mask_text
+
+    def counting(text: str | None) -> str | None:
+        calls.append(text)
+        return real(text)
+
+    monkeypatch.setattr(sink.masker, "mask_text", counting)
+    for _ in range(3):
+        sink.record_failure(RuntimeError("x"))
+    assert len(calls) == 1
+
+
+def test_a_hook_failure_returns_the_masked_text_it_recorded() -> None:
+    """The text a caller reuses for a report written later is the sink's masked one, never the raw class name."""
+    secret_class = type(f"password={SECRET}", (RuntimeError,), {})
+    sink = _sink()
+    text = sink.record_failure(secret_class())
+    assert text == sink.facts.warnings[0]
+    assert SECRET not in text
+
+
 def test_a_hook_failure_is_recorded_under_the_sink_lock() -> None:
     """Hooks fail on host threads too: the source is recorded under the sink's lock."""
     sink = _sink()

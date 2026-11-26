@@ -747,6 +747,29 @@ def test_snapshot_failure_does_not_error_the_test(pytester: pytest.Pytester) -> 
     assert any(source["name"] == "pytest-plugin" and not source["attached"] for source in data["sources"])
 
 
+def test_a_terminal_summary_failure_writes_the_masked_reason(pytester: pytest.Pytester) -> None:
+    """The report rewritten after the summary failed carries the sink's masked text, not the raw class name."""
+    secret = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
+    pytester.makeconftest(
+        f"""
+        import pytest
+        from sharpit.pytest_plugin import terminal
+        _write_summary = terminal._write_summary
+        def broken(*args, **kwargs): raise type({secret!r}, (RuntimeError,), {{}})()
+        terminal._write_summary = broken
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_unconfigure(config):
+            yield
+            terminal._write_summary = _write_summary
+        """
+    )
+    pytester.makepyfile("def test_passes(): assert True")
+
+    pytester.runpytest_inprocess("--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q")
+
+    assert secret not in (pytester.path / "report.json").read_text()
+
+
 def test_early_attach_failure_does_not_interrupt_session(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         sitecustomize="""
