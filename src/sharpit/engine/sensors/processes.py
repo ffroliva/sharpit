@@ -10,7 +10,10 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from sharpit.engine.sensors.sinks.matcher import SinkMatcher
 
 SOURCE = "processes"
 UNKNOWN = "(unknown)"  # SideEffects.commandName's marker for a command it cannot name
@@ -90,6 +93,9 @@ _ARGV_AT = {
 class ProcessesSensor:
     name = SOURCE
     events = ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn")
+
+    def __init__(self, matcher: SinkMatcher | None = None) -> None:
+        self._matcher = matcher
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
         target = self._target(event, args)

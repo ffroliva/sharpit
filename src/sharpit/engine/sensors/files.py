@@ -17,7 +17,10 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sharpit.engine.sensors.sinks.matcher import SinkMatcher
 
 SOURCE = "files"
 _RENAME = "os.rename"
@@ -135,7 +138,9 @@ class FilesSensor:
         cwd: str | None = None,
         home: str | None = None,
         tmp: str | None = None,
+        matcher: SinkMatcher | None = None,
     ) -> None:
+        self._matcher = matcher
         self._mask = mask_path
         self._cwd = _slashes(
             cwd if cwd is not None else os.getcwd()
