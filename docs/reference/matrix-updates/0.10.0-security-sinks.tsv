@@ -7,8 +7,8 @@ plan1:D6	adapted	Sharpit manually parses bounded query text, skips malformed val
 plan1:D7	adapted	Sharpit reads exact dict path_params only, accepts exact str/int/float/UUID values, and never invokes application conversion or mapping iteration.
 plan1:D8	adapted	Plan 2 adds the counters and row fields deferred from the journal-only implementation; status retains only output-facing counters. Process and file call sites are not shown in this release.
 plan2:N1	adapted	Secret-looking parameter names are masked at intake and shown as ****** in parameter and detail at every exposure; masked names on one target coalesce.
-plan2:N2	adapted	The implementation includes per-pattern file callSite; the conditional null fallback was not used. The 6 microsecond budget remains unchanged.
-plan2:O1	ported	Process and security-sinks rows have null origin; file origin follows the first outside-runtime and application frames using SideEffectOrigins rules.
+plan2:N2	adapted	Process and file rows carry no call site (callSite is null) and file rows report origin unknown: a stack walk per process or file event exceeds the 6 microsecond sensor overhead budget, as measured. Security-sinks rows keep their call site. The budget remains unchanged.
+plan2:O1	adapted	Process and security-sinks rows have null origin; file rows report origin unknown because no stack walk runs on the file event path (see plan2:N2).
 plan2:O2	ported	Unowned rows carry the hook thread name and the store normalizes it to a thread family for attribution.
 plan2:O6	ported	Clearing recording clears rings and store with a timestamp; idle and low-footprint suspension retain rows.
 plan2:O7	ported	Each ringed sensor is teed to its bounded Side Effects ring before journal source filtering; journal source selection does not hide its tab rows.
@@ -24,4 +24,4 @@ plan2:F9	adapted	The security-sinks catalogue label says request input reaching 
 plan2:F10	adapted	Origins are limited to application, library, and unknown; Python has no JDK, logging-origin, or class-path categories.
 plan2:F11	adapted	Limitations describe Python interpreter files, absent process-exit data, and route/startup/thread-family attribution instead of JVM files and class loaders.
 plan2:O5	adapted	Secret-looking placeholder names are masked at target output under every exposure, as covered by the secret-shaped path handling.
-plan2:O8	adapted	No journal-clear action is added. clear_recording remains unwired in production until a supported journal clear exists; no new action is introduced.
+plan2:O8	adapted	No journal-clear action is added. clear_recording remains unwired in production until a supported journal clear exists. The Other row text ends with 'Restart the application to see them again.' instead of naming a clear that sharpit does not offer.
