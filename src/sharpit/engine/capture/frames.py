@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import os
 import sysconfig
+from types import FrameType
 
 _STDLIB = tuple(
     dict.fromkeys(  # ordered de-duplication: stdlib and platstdlib are often the same directory
@@ -26,3 +27,11 @@ def is_application_frame(filename: str) -> bool:
     if _PACKAGE_DIRS & set(path.split(os.sep)):
         return False
     return not path.startswith((*_STDLIB, _SHARPIT))
+
+
+def first_application_frame(frame: FrameType | None, limit: int = 64) -> FrameType | None:
+    return None
+
+
+def call_site_label(frame: FrameType) -> str:
+    return ""
