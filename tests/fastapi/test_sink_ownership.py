@@ -599,3 +599,67 @@ def test_a_plain_starlette_route_caches_by_endpoint() -> None:
     assert fallback == [True, True]
     assert reads[0] > 0
     assert reads[1] == reads[0]
+
+
+def test_two_concurrent_requests_never_match_each_others_values() -> None:
+    import httpx
+
+    from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
+    from sharpit.engine.sensors.sinks.values import RequestValues
+
+    values = RequestValues()
+    barrier = asyncio.Barrier(2)
+    results: dict[str, tuple[bool, tuple[str, ...], tuple[str, ...]]] = {}
+
+    class RequestMiddleware:
+        def __init__(self, app: ASGIApp) -> None:
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            info = RequestInfo(new_request_id(), "ctx", "GET", scope["path"], None, 0, None, scope=scope)
+            token = REQUEST.set(info)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                REQUEST.reset(token)
+                info.finished_ns = 1
+                values.end(info.id)
+
+    async def check(own_path: str, other_path: str) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
+        await barrier.wait()
+        info = REQUEST.get()
+        assert info is not None
+        assert info.scope is not None
+        result = (
+            owned(info.scope),
+            values.match(info, own_path, "file").names,
+            values.match(info, other_path, "file").names,
+        )
+        await barrier.wait()
+        return result
+
+    app = FastAPI()
+    app.add_middleware(RequestMiddleware)
+
+    @app.get("/first")
+    async def first() -> None:
+        results["first"] = await check("/srv/alpha-one.txt", "/srv/bravo-two.txt")
+
+    @app.get("/second")
+    async def second() -> None:
+        results["second"] = await check("/srv/bravo-two.txt", "/srv/alpha-one.txt")
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            first_res, second_res = await asyncio.gather(
+                client.get("/first?first=alpha-one"),
+                client.get("/second?second=bravo-two"),
+            )
+            assert first_res.status_code == 200
+            assert second_res.status_code == 200
+
+    asyncio.run(run())
+    assert results["first"] == (True, ("first",), ())
+    assert results["second"] == (True, ("second",), ())
+    assert values.held() == 0
