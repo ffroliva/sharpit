@@ -532,3 +532,13 @@ def test_a_fixed_event_sequence_pins_the_holder_counters() -> None:
         "notKept": 0,
         "dropped": 0,
     }
+
+
+def test_ending_a_request_sweeps_the_entries_past_the_deadline() -> None:
+    # ported: RequestValues.end (:419), sweep before the wipe
+    now = [0.0]
+    held = RequestValues(clock=lambda: now[0])
+    held.match(info("name=alice", request_id="a" * 16), "x/alice", "file")
+    now[0] = DEADLINE_SECONDS + 1
+    held.end("b" * 16)
+    assert held.held() == 0
