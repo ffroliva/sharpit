@@ -151,6 +151,8 @@ def _process_row(target: str, context_id: str | None, req: RequestInfo | None) -
         "requestId": req_id,
         "at": time.time_ns() // 1_000_000,
         "callSite": None,
+        # shortcut: current_thread() registers a _DummyThread (a blocking lock) for a thread not started by threading, when
+        # a private _active lookup would avoid it; upgrade when the hook shows that lock in a profile
         "threadName": threading.current_thread().name if req_id is None else None,
     }
 
