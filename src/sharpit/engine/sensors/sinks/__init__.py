@@ -1,5 +1,10 @@
 """The security-sinks sensor: request values that reach a started command or a file path."""
 
+from sharpit.engine.sensors.sinks.matcher import (
+    Row,
+    SecuritySinksSensor,
+    SinkMatcher,
+)
 from sharpit.engine.sensors.sinks.values import (
     F_BUSY,
     F_OVERFLOW,
@@ -40,6 +45,9 @@ __all__ = [
     "Kind",
     "Match",
     "RequestValues",
+    "Row",
+    "SecuritySinksSensor",
+    "SinkMatcher",
     "keyed_hash",
     "unchecked",
 ]
