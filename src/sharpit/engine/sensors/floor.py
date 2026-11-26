@@ -17,10 +17,10 @@ from sharpit import __version__
 if TYPE_CHECKING:  # lane imports this module's SWITCHABLE_SENSORS
     from sharpit.engine.sensors.lane import SensorLane
 
-# JavaAgentService.NOT_ATTACHED_REASON, BootUI -> sharpit and JVM -> process; this version ships no agent to attach
+# JavaAgentService.NOT_ATTACHED_REASON: the sharpit agent is its in-process sensors, enabled by SHARPIT_AGENT_SENSORS
 NOT_ATTACHED_REASON = (
-    "This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's"
-    " sensors yet."
+    "This process runs without the sharpit agent. sharpit works without it; enable its sensors with"
+    " SHARPIT_AGENT_SENSORS to add agent-based evidence."
 )
 _SEE_PANEL = " See the Java Agent panel."
 # JavaAgentService.*_REQUIREMENT, BootUI -> sharpit
