@@ -270,7 +270,7 @@ class ProcessesSensor:
         if not target:
             return ()
         req = _REQUEST_GET()
-        if self._matcher is None or req is None:
+        if self._matcher is None or not self._matcher.enabled or req is None:
             return (_process_row(target, self._context_id, req),)
         return self._record_matched(event, args, target, req)
 

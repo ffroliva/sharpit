@@ -30,18 +30,27 @@ def _no_owner(scope: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _static_on(on: Callable[[], bool] | bool) -> tuple[bool, Callable[[], bool] | None]:
+    if isinstance(on, bool):
+        return on, None
+    code = getattr(on, "__code__", None)
+    if code is not None and not code.co_freevars and not code.co_names and code.co_argcount == 0:
+        return bool(on()), None
+    return True, on
+
+
 class SinkMatcher:
     def __init__(
         self,
         context_id: str,
-        on: Callable[[], bool],
+        on: Callable[[], bool] | bool = True,
         values: RequestValues | None = None,
         owner: Callable[[Mapping[str, Any]], str | None] = _no_owner,
         *,
         owns: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> None:
         self._context_id = context_id
-        self._on = on
+        self.enabled, self._on = _static_on(on)
         self._values = values if values is not None else RequestValues()
         self._owner: Callable[[Mapping[str, Any]], str | None] = (
             owner if owns is None else (lambda scope: "" if owns(scope) else None)
@@ -49,7 +58,7 @@ class SinkMatcher:
 
     def check(self, text: str, kind: Kind, request: RequestInfo | None = _UNSET) -> Match | None:
         # ported: RequestValues.java:680-725, check order per spec
-        if not self._on():
+        if not self.enabled or (self._on is not None and not self._on()):
             return None
         if request is _UNSET:
             request = _REQUEST_GET()

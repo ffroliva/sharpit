@@ -65,6 +65,11 @@ class SensorLane:
         self._matcher: SinkMatcher | None = getattr(self._sensors.get("security-sinks"), "matcher", None)
         self.attached = False
         self.rows = rows or SensorRows()
+        self._sync_matcher()
+
+    def _sync_matcher(self) -> None:
+        if self._matcher is not None:
+            self._matcher.enabled = self.is_on("security-sinks")
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -85,15 +90,18 @@ class SensorLane:
         for name, sensor in self._sensors.items():
             if name not in self._paused | self._off and not self._hub.is_on(sensor):
                 self._hub.enable(sensor, self._sink)
+        self._sync_matcher()
 
     def detach(self) -> None:
         self.attached = False
+        self._sync_matcher()
         for sensor in self._sensors.values():
             self._hub.release(sensor)
             _wipe(sensor)
 
     def pause(self, name: str) -> None:
         self._paused.add(name)
+        self._sync_matcher()
         if (sensor := self._sensors.get(name)) is not None:
             self._hub.disable(sensor)
             _wipe(sensor)
@@ -102,6 +110,8 @@ class SensorLane:
         self._paused.discard(name)
         if self.attached:
             self.attach()
+        else:
+            self._sync_matcher()
 
     def request_ended(self, request_id: str) -> None:
         if self._matcher is not None:
@@ -133,8 +143,11 @@ class SensorLane:
             self._off.discard(name)
             if self.attached:
                 self.attach()
+            else:
+                self._sync_matcher()
         else:
             self._off.add(name)
+            self._sync_matcher()
             sensor = self._sensors[name]
             self._hub.disable(sensor)
             _wipe(sensor)
@@ -157,11 +170,10 @@ def build_lane(
     available = BUILT if request_values else tuple(name for name in BUILT if name != "security-sinks")
     if not any(name in configured for name in available) or sink is None:
         return None
-    lane: SensorLane | None = None
     matcher = (
         SinkMatcher(
             context_id,
-            on=lambda: lane is not None and lane.is_on("security-sinks"),
+            on=False,
             owner=owner,
             owns=owns,
         )

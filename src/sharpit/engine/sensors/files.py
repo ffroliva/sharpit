@@ -257,7 +257,7 @@ class FilesSensor:
             self.ignored += 1
             return ()
         req = _REQUEST_GET()
-        if self._matcher is not None and req is not None:
+        if self._matcher is not None and self._matcher.enabled and req is not None:
             if found is _MISS and self._is_skipped(_slashes(text)):
                 self.ignored += 1
                 return ()
