@@ -20,7 +20,14 @@ _THREAD_NAME_MASKER = Masker(Exposure.MASKED, True)
 def thread_family(name: str | None) -> str | None:
     if not name:
         return None
-    safe = str(_THREAD_NAME_MASKER.mask("", name)[0])
+    safe, masked = _THREAD_NAME_MASKER.mask("", name)
+    if not masked:
+        for index in range(min(len(name), MAX_THREAD_FAMILY)):
+            _, masked = _THREAD_NAME_MASKER.mask("", name[index:])
+            if masked:
+                safe = f"{name[:index]}******"
+                break
+    safe = str(safe)
     safe = safe[:MAX_THREAD_FAMILY]
     return _SAFE_OR_DIGITS.sub(lambda match: "{n}" if match.group().isdigit() else "?", safe)
 
