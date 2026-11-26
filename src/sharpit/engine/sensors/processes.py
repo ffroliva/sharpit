@@ -280,31 +280,28 @@ class ProcessesSensor:
         self,
         event: str,
         args: tuple[Any, ...],
-        target: str | None = None,
+        target: str,
         req: RequestInfo | None = None,
     ) -> tuple[Mapping[str, object], ...]:
         if self._matcher is None:
             return ()
-        cmd_target = target if target is not None else self._target(event, args)
-        if cmd_target is None:
-            return ()
         if event == "os.system":
             command = _text(args[0]) if args else None
-            return _string_sink_rows(self._matcher, cmd_target, None, command, self._context_id, req) if command else ()
+            return _string_sink_rows(self._matcher, target, None, command, self._context_id, req) if command else ()
         where = _ARGV_AT.get(event)
         if not where or len(args) <= where[1]:
             return ()
         program, argv = args[where[0]], args[where[1]]
         if isinstance(argv, (list, tuple)):
             return _argv_sink_rows(
-                self._matcher, cmd_target, program, cast("Sequence[object]", argv), self._context_id, req
+                self._matcher, target, program, cast("Sequence[object]", argv), self._context_id, req
             )
         line = _text(cast("object", argv)) if isinstance(argv, (str, bytes)) else None
         prog_text = _text(program) if program is not None else None
         if line is not None:
-            return _string_sink_rows(self._matcher, cmd_target, prog_text, line, self._context_id, req)
+            return _string_sink_rows(self._matcher, target, prog_text, line, self._context_id, req)
         if prog_text is not None:
-            return _string_sink_rows(self._matcher, cmd_target, None, prog_text, self._context_id, req)
+            return _string_sink_rows(self._matcher, target, None, prog_text, self._context_id, req)
         return ()
 
     @staticmethod
