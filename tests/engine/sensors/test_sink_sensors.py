@@ -729,3 +729,11 @@ def test_a_lane_without_request_values_gives_another_installs_row_no_request_id(
     rows = [*lane.rows.drain("processes"), *lane.rows.drain("files")]
     assert len(rows) == 2
     assert [row["requestId"] for row in rows] == [None, None]
+
+
+def test_a_partial_scan_that_matched_a_name_reports_the_redacted_target_not_unchecked() -> None:
+    # ported: RequestValues.fileUsed (:741), the match is read before the unchecked flags
+    sensor = files("name=quarterly")
+    path = "quarterly/" + "x/" * MAX_SCAN
+    row = run(sensor, "open", path, "r", 0)[0]
+    assert row["target"] == FROM_REQUEST_INPUT
