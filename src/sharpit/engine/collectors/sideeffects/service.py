@@ -7,6 +7,11 @@ import time
 from typing import Any, cast
 
 from sharpit.engine.collectors.sideeffects import display
+from sharpit.engine.collectors.sideeffects.agent_report import (
+    LIMITATION_FILES,
+    LIMITATION_NETWORK,
+    LIMITATION_VALUES,
+)
 from sharpit.engine.collectors.sideeffects.store import RINGED, SideEffectsStore
 from sharpit.engine.sensors.floor import (
     SIDE_EFFECT_SENSORS,
@@ -149,17 +154,6 @@ class SideEffectsService:
         }
 
     def limitations(self, **kwargs: Any) -> list[str]:
-        values = (
-            "A process row shows the command's file name only, never its arguments or its environment, which can hold "
-            "secrets. A process row records the start only: its exit status and lifetime are not recorded."
-        )
-        network = "A network row shows a host and port, never a byte sent or received, nor a URL's path or query."
-        files = (
-            "Files: the interpreter's own files (imports) and sharpit's own state are counted, not recorded per route. "
-            "A call site's frames are read once per run and file pattern, so two call sites of one pattern share the "
-            "first one's. A file opened without an audit event, as native code may, is not seen. A move or a copy "
-            "records its source and its destination."
-        )
         sinks = (
             "Security sinks: request input is matched only while SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES is on, "
             "against the current request's query and path parameter values of 4 to 256 characters, at most 32 of "
@@ -178,7 +172,7 @@ class SideEffectsService:
             "thread's family. Work handed to another thread without sharpit's request context shows under its "
             "thread's family."
         )
-        lines = [SIDE_EFFECTS_LIMITATIONS[0], values, network, files, sinks, attribution]
+        lines = [SIDE_EFFECTS_LIMITATIONS[0], LIMITATION_VALUES, LIMITATION_NETWORK, LIMITATION_FILES, sinks, attribution]
         routes_hidden = kwargs.get("routes_hidden", False)
         folded = kwargs.get("folded", 0)
         cleared = kwargs.get("cleared", False) or self._clears > 0
@@ -220,3 +214,15 @@ class SideEffectsService:
                     self.capture.sensors.rows.clear(sensor, now)
                 self.store.clear(now)
             self._clears += 1
+
+    def agent_report(self, query: str | None, limit: int | None) -> dict[str, Any]:
+        return {
+            "available": False,
+            "unavailableReason": None,
+            "query": (query or "").strip(),
+            "sensors": [],
+            "matched": 0,
+            "rows": [],
+            "omitted": 0,
+            "limitations": [],
+        }
