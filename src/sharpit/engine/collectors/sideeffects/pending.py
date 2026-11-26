@@ -5,6 +5,8 @@ from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
+from sharpit.engine.masking import Exposure, Masker
+
 PENDING_MILLIS = 30_000
 MAX_PENDING = 10_000
 READ_RESOLVE_MILLIS = 250
@@ -12,16 +14,14 @@ MAX_THREAD_FAMILY = 120
 UNKNOWN_ROUTE = "(unknown route)"
 ROUTE_HIDDEN = "(route hidden)"
 _SAFE_OR_DIGITS = re.compile(r"\d+|[^a-zA-Z._:/ \[\]-]+")
-_SECRET_TOKEN = re.compile(
-    r"(?:AKIA|ASIA)[A-Z0-9]{16}|(?:gh[pousr]_|github_pat_|glpat-|xox[bpa]-|AIza|sk-(?:live|test|ant|proj)_)[A-Za-z0-9_-]{16,}"
-)
+_THREAD_NAME_MASKER = Masker(Exposure.MASKED, True)
 
 
 def thread_family(name: str | None) -> str | None:
     if not name:
         return None
-    safe = name[:MAX_THREAD_FAMILY]
-    safe = _SECRET_TOKEN.sub("******", safe)
+    safe = _THREAD_NAME_MASKER.mask_text(name) or ""
+    safe = safe[:MAX_THREAD_FAMILY]
     return _SAFE_OR_DIGITS.sub(lambda match: "{n}" if match.group().isdigit() else "?", safe)
 
 
