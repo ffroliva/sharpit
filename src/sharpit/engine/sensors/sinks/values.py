@@ -92,6 +92,7 @@ class _Entry:
         "misses",
         "names",
         "path_pending",
+        "pattern",
         "seen",
         "stopped",
         "value_chars",
@@ -105,6 +106,7 @@ class _Entry:
         self.path_pending = path_pending
         self.values: list[str] = []
         self.names: list[str] = []
+        self.pattern: re.Pattern[str] | None = None
         self.value_chars = 0
         self.epoch = 0
         self.misses: dict[int, None] = {}
@@ -193,9 +195,21 @@ def _read_values(scope: object) -> tuple[list[_Pair], bool]:
     return pairs + _query_pairs(_scope_value(scope, "query_string"), MAX_PAIRS - len(pairs)), path is None
 
 
-def _scan(scanned: str, values: list[str]) -> tuple[list[tuple[int, int, int]], list[int], bool]:
+_NO_SPANS: list[tuple[int, int, int]] = []
+_NO_MATCHED: list[int] = []
+_NO_SCAN = (_NO_SPANS, _NO_MATCHED, False)
+
+
+def _scan(
+    scanned: str, values: list[str], pattern: re.Pattern[str] | None = None
+) -> tuple[list[tuple[int, int, int]], list[int], bool]:
     """Every value's non-overlapping occurrences, in value order, at most MAX_SPANS; and whether more matched."""
     # ported: RequestValues.compare (:998-1017)
+    if len(values) == 1:
+        if scanned.find(values[0]) < 0:
+            return _NO_SCAN
+    elif pattern is not None and pattern.search(scanned) is None:
+        return _NO_SCAN
     spans: list[tuple[int, int, int]] = []
     matched: list[int] = []
     overflow = False
@@ -295,6 +309,8 @@ class RequestValues:
                 entry = _Entry(generation, self._clock(), path_pending)
                 for name, value in pairs:
                     self._count_add(entry, name, value)
+                if len(entry.values) > 1:
+                    entry.pattern = re.compile("|".join(re.escape(v) for v in entry.values))
                 self._entries[info.id] = entry
                 self._requests += 1
         finally:
@@ -348,7 +364,7 @@ class RequestValues:
                 self._stopped += 1
                 return _STOPPED
             self._checks += 1
-            spans, matched, overflow = _scan(scanned, entry.values)
+            spans, matched, overflow = _scan(scanned, entry.values, entry.pattern)
             self._partial += int(partial)
             if not matched:
                 if not partial:
@@ -379,6 +395,8 @@ class RequestValues:
             return
         for name, value in path:
             self._count_add(entry, name, value)
+        if len(entry.values) > 1:
+            entry.pattern = re.compile("|".join(re.escape(v) for v in entry.values))
         entry.misses.clear()
         entry.seen.clear()
         entry.path_pending = False
