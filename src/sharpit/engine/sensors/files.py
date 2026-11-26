@@ -274,7 +274,7 @@ class FilesSensor:
     def _row_matched(
         self, kind: str, text: str, match: Match, req: RequestInfo | None
     ) -> tuple[Mapping[str, object], ...]:
-        if unchecked(match):
+        if not match.names and unchecked(match):  # a matched name is read before the unchecked flags (BootUI fileUsed)
             target, location = NOT_CHECKED, "elsewhere"
         elif match.redacted is None:
             target, location = FROM_REQUEST_INPUT, "elsewhere"
