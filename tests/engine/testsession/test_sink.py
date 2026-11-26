@@ -393,18 +393,29 @@ def _statement(sql: object, error: BaseException | None, source: str = "sqlite3"
     return SqlEvent(source, sql, (), False, None, 0, 1000, -1, error, None, None, Dialect.SQLITE)  # type: ignore[arg-type]
 
 
-def test_a_statement_the_stdlib_driver_refused_is_not_a_hook_failure() -> None:
-    """``sqlite3`` refused a statement that is not text, in C: nothing ran, so nothing is missing."""
+def _counted_once(sink: TestSessionSink) -> None:
+    assert sink.facts.warnings == []
+    assert sink.facts.filtered == 0
+    assert sink.current_test is not None
+    phase = sink.current_test.phases.get("call")
+    assert phase is not None
+    assert phase.queries == 1
+
+
+def test_a_statement_the_stdlib_driver_refused_counts_once_with_empty_text() -> None:
+    """BootUI counts a refused statement as one statement with empty text, and so does the SQLAlchemy path."""
     sink = _sink()
     attempt = sink.begin_test(NODE)
     sink.on_sql(_statement(123, _raised_here(TypeError("bad statement"))), (NODE, attempt, "call"))
-    assert sink.facts.warnings == []
+    _counted_once(sink)
 
 
 @pytest.mark.parametrize(
     ("sql", "error", "source"),
     [
         pytest.param(123, None, "sqlite3", id="accepted"),
+        pytest.param(None, _raised_here(TypeError("x")), "sqlite3", id="none"),
+        pytest.param(b"SELECT 1", _raised_here(TypeError("x")), "sqlite3", id="bytes"),
         pytest.param(123, _raised_below(TypeError("x")), "sqlite3", id="python-frame-below"),
         pytest.param(123, _raised_here(_HostTypeError("x")), "sqlite3", id="typeerror-subclass"),
         pytest.param(123, _raised_here(ValueError("x")), "sqlite3", id="another-error"),
@@ -412,14 +423,13 @@ def test_a_statement_the_stdlib_driver_refused_is_not_a_hook_failure() -> None:
         pytest.param(123, TypeError("never raised"), "sqlite3", id="no-traceback"),
     ],
 )
-def test_a_statement_that_is_not_text_otherwise_stays_a_hook_failure(
+def test_a_statement_that_is_not_text_counts_once_with_empty_text(
     sql: object, error: BaseException | None, source: str
 ) -> None:
-    """Only the stdlib driver's own refusal proves nothing ran; any other non-text statement may have run."""
     sink = _sink()
     attempt = sink.begin_test(NODE)
     sink.on_sql(_statement(sql, error, source), (NODE, attempt, "call"))
-    assert sink.facts.warnings == [_hook_warning("TypeError")]
+    _counted_once(sink)
 
 
 def test_a_text_statement_that_failed_with_typeerror_is_counted() -> None:

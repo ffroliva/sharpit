@@ -838,10 +838,10 @@ def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester, mon
     assert result.ret == 1
 
 
-def test_a_statement_sqlite3_refused_is_no_hook_failure(
+def test_a_statement_sqlite3_refused_counts_once_with_empty_text(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The stdlib driver refuses a statement that is not text before anything runs: the run stays known."""
+    """A statement the stdlib driver refuses is one statement with empty text: no hook failure, the run stays known."""
     _without_driver_modules(monkeypatch)
     pytester.makepyfile(
         """
@@ -860,6 +860,8 @@ def test_a_statement_sqlite3_refused_is_no_hook_failure(
 
     data = json.loads((pytester.path / "report.json").read_text())
     assert [warning for warning in data["warnings"] if "hook failed" in warning] == []
+    assert data["totals"]["queries"] == 2  # the refused statement and the SELECT
+    assert data["totals"]["filtered"] == 0
     assert data["status"] == "pass"
     assert result.ret == 0
 
