@@ -83,6 +83,13 @@ def test_values_past_the_count_and_duplicates_are_skipped() -> None:
     assert match.names == tuple(f"p{i}" for i in range(MAX_VALUES))
 
 
+def test_a_float_path_value_matches_as_a_substring_of_a_longer_formatting() -> None:
+    # scenario: plan-1 row 29; ported: RequestValues.compare matches a held value as a substring (indexOf)
+    match = RequestValues().match(info(path={"n": 10.5}), "/srv/10.50.csv", "file")
+    assert match.names == ("n",)
+    assert match.redacted == "/srv/{n}0.csv"
+
+
 def test_overlapping_and_repeated_spans_are_all_redacted() -> None:
     # ported: RequestValuesTests.redactionMergesOverlappingSpansAndReplacesEveryOccurrence
     match = RequestValues().match(info(path={"a": "abcd", "b": "cdef"}), "abcdef/abcd", "file")
