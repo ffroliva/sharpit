@@ -15,20 +15,18 @@ UNKNOWN_ROUTE = "(unknown route)"
 ROUTE_HIDDEN = "(route hidden)"
 _SAFE_OR_DIGITS = re.compile(r"\d+|[^a-zA-Z._:/ \[\]-]+")
 _THREAD_NAME_MASKER = Masker(Exposure.MASKED, True)
+_SECRET_TOKEN = re.compile(
+    r"(?:AKIA|ASIA)[A-Z0-9]{16}"
+    r"|(?:sk_live_|sk_test_|rk_live_|pk_live_|ghp_|gho_|ghs_|ghu_|github_pat_|glpat-|xoxb-|xoxp-|xoxa-|AIza|sk-ant-|sk-proj-)[A-Za-z0-9_-]{16,}"
+)
 
 
 def thread_family(name: str | None) -> str | None:
     if not name:
         return None
-    safe, masked = _THREAD_NAME_MASKER.mask("", name)
-    if not masked:
-        for index in range(min(len(name), MAX_THREAD_FAMILY)):
-            _, masked = _THREAD_NAME_MASKER.mask("", name[index:])
-            if masked:
-                safe = f"{name[:index]}******"
-                break
-    safe = str(safe)
-    safe = safe[:MAX_THREAD_FAMILY]
+    safe = _SECRET_TOKEN.sub("******", name)
+    safe = _THREAD_NAME_MASKER.mask_text(safe)
+    safe = str(safe)[:MAX_THREAD_FAMILY]
     return _SAFE_OR_DIGITS.sub(lambda match: "{n}" if match.group().isdigit() else "?", safe)
 
 
