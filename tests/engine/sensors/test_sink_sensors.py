@@ -558,3 +558,65 @@ def test_a_request_row_reads_no_thread_name(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(f_rows) == 1
     assert "threadName" in f_rows[0]
     assert f_rows[0]["threadName"] is None
+
+
+def test_every_sensor_row_is_offered_with_the_exact_flat_walk_size() -> None:
+    from sharpit.engine.capture.journal import RuntimeJournal, _flat  # pyright: ignore[reportPrivateUsage]
+    from sharpit.engine.sensors.audit import AuditHub, row_size
+    from sharpit.engine.sensors.rows import SensorRows, TeeSink
+
+    offered: list[tuple[dict[str, str | int | bool | None], int | None]] = []
+    journal = RuntimeJournal(sources=["processes", "files", "security-sinks"])
+    real_offer_flat = journal.offer_flat
+
+    def record_offer_flat(
+        event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1
+    ) -> bool:
+        offered.append((event, size))
+        return real_offer_flat(event, size, started)
+
+    journal.offer_flat = record_offer_flat  # type: ignore[method-assign]
+    tee = TeeSink(journal, SensorRows())
+    hooks: list[Any] = []
+    hub = AuditHub(add_hook=hooks.append)
+    p_sensor = processes("tool=evil-tool&file=report-q3&name=quarterly")
+    f_sensor = files("tool=evil-tool&file=report-q3&name=quarterly")
+    hub.enable(p_sensor, tee)
+    hub.enable(f_sensor, tee)
+    dispatch = hooks[0]
+
+    # Outside a request: requestId is None, threadName is present
+    dispatch("subprocess.Popen", ("/usr/bin/git", ["git", "status"], None, None))
+    dispatch("open", ("reports/annual.csv", "r", 0))
+
+    # Inside a request: unmatched, file NOT_CHECKED, matched process with sink rows, matched file with sink rows
+    req = _SENSOR_REQUESTS[id(p_sensor)]
+    token = REQUEST.set(req)
+    try:
+        dispatch("subprocess.Popen", ("/usr/bin/git", ["git", "status"], None, None))
+        dispatch("open", ("reports/annual.csv", "r", 0))
+        dispatch("open", ("x/" * (MAX_SCAN // 2) + "quarterly", "r", 0))
+        dispatch("subprocess.Popen", (None, ["evil-tool", "report-q3"], None, None))
+        dispatch("open", ("reports/quarterly.csv", "r", 0))
+    finally:
+        REQUEST.reset(token)
+
+    assert len(offered) == 10
+    for row, size in offered:
+        expected = _flat(row)[1]
+        assert row_size(row) == expected
+        assert size == expected
+
+    # Synthetic process, file and sink rows with optional text fields present or absent
+    base_proc = dict(offered[0][0])
+    base_file = dict(offered[1][0])
+    base_sink = dict(offered[-1][0])
+    for req_id in (None, "req-1234567890ab"):
+        for thread_name in (None, "worker-thread-9"):
+            proc_variant = {**base_proc, "requestId": req_id, "threadName": thread_name}
+            file_variant = {**base_file, "requestId": req_id, "threadName": thread_name}
+            assert row_size(proc_variant) == _flat(proc_variant)[1]
+            assert row_size(file_variant) == _flat(file_variant)[1]
+        for target_val in (None, "./reports/{name}.csv"):
+            sink_variant = {**base_sink, "target": target_val, "callSite": req_id, "requestId": req_id}
+            assert row_size(sink_variant) == _flat(sink_variant)[1]
