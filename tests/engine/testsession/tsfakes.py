@@ -121,3 +121,22 @@ def busy_part(worker: str = "gw0") -> SessionFacts:
     facts.sources = [source(), source("exceptions")]
     facts.advisor_runs = [passed_run()]
     return facts
+
+
+def attempt_facts(
+    node_id: str,
+    *,
+    completed: bool | None = True,
+    outcome: str | None = "passed",
+    attempt: int = 1,
+    budget: Budget | None = None,
+    **phases: PhaseFacts,
+) -> TestFacts:
+    """One test attempt as the worker records it: its phases, outcome, budget and whether its call phase completed."""
+    return TestFacts(
+        TestKey(node_id, "gw0", attempt),
+        dict(phases),
+        outcome,
+        budget or Budget(100, False, 0),
+        completed=completed,
+    )

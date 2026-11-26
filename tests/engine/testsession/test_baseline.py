@@ -3,13 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from types import SimpleNamespace
 
 import pytest
 
-from engine.testsession.tsfakes import part, render_parts
+from engine.testsession.tsfakes import attempt_facts, part, render_parts
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
-from sharpit.engine.testsession import baseline
+from sharpit.engine.testsession import baseline, gates
+from sharpit.engine.testsession.facts import PhaseFacts
 from sharpit.pytest_plugin.report_io import _apply_baseline
 
 
@@ -297,3 +299,161 @@ def test_rewrite_of_own_output_is_byte_identical(tmp_path) -> None:
     again = tmp_path / "again.json"
     baseline.write(again, [], keep=list(baseline.read(first).entries.values()))
     assert again.read_bytes() == first.read_bytes()
+
+
+# --- an unseen test-runtime entry is fixed only when its owner proved it (#329) -------------------------------
+
+OWN = "tests/test_a.py::test_n1"
+OTHER = "tests/test_a.py::test_other"
+DID_NOT_RUN = "its test did not run"
+DID_NOT_COMPLETE = "its test did not complete"
+STILL_SHOWN = "its test still shows it outside the gate"
+NEW_OF_RULE = "its test has a new finding of the same rule"
+NO_OWNER = "recorded without its owner"
+INCOMPLETE = "the run's evidence is incomplete"
+
+
+def _call(selects: int = 0, queries: int | None = None, exceptions: int = 0) -> PhaseFacts:
+    return PhaseFacts(
+        queries=selects if queries is None else queries,
+        exceptions=exceptions,
+        selects=Counter({"G": selects}) if selects else Counter[str](),
+        sql_of={"G": "SELECT 1"},
+        exception_groups={"E": ("ValueError", "boom")} if exceptions else {},
+    )
+
+
+def _old_finding(rule: str, node: str = OWN) -> Finding:
+    """The one finding the gates give for ``rule`` when the test ran 30 statements and raised once."""
+    before = attempt_facts(node, call=_call(selects=30, exceptions=1), budget=gates.Budget(10, False, 0))
+    kept = [f for f in gates.evaluate_test(before, before.budget, 2, ()) if f.rule_id == rule]
+    assert len(kept) == 1, "the helper must build exactly one finding"
+    return kept[0]
+
+
+def _entry_of(tmp_path, rule: str, node: str = OWN) -> baseline.Baseline:
+    return _baseline_of(tmp_path, _old_finding(rule, node))
+
+
+def _compare(old: baseline.Baseline, *tests, current=(), incomplete=()) -> baseline.Comparison:
+    return baseline.compare(list(current), old, partial=False, tests=list(tests), incomplete=incomplete)
+
+
+def _reasons(result: baseline.Comparison) -> list[str]:
+    return [reason for _, reason in result.inconclusive]
+
+
+def _clean(node: str = OWN, **kwargs):
+    return attempt_facts(node, call=_call(selects=1), **kwargs)
+
+
+def test_entry_without_owner_is_not_fixed(tmp_path) -> None:
+    path = tmp_path / "legacy.json"
+    baseline.write(path, [_old_finding(gates.N_PLUS_ONE)])
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for row in document["findings"]:
+        del row["owner"]
+    path.write_text(json.dumps(document), encoding="utf-8")
+    result = _compare(baseline.read(path), _clean())
+    assert result.fixed == ()
+    assert _reasons(result) == [NO_OWNER]
+
+
+def test_incomplete_evidence_is_not_fixed(tmp_path) -> None:
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), _clean(), incomplete=gates.GATE_IDS)
+    assert result.fixed == ()
+    assert _reasons(result) == [INCOMPLETE]
+
+
+def test_unbounded_read_limitation_withholds_only_its_rule(tmp_path) -> None:
+    unbounded = Finding(gates.UNBOUNDED_READ, "test-runtime", "HIGH", "t", "m", OWN, identity="U", observed=1)
+    old = _baseline_of(tmp_path, unbounded, _old_finding(gates.N_PLUS_ONE))
+    result = _compare(old, _clean(), incomplete={gates.UNBOUNDED_READ})
+    assert [e.rule_id for e in result.fixed or ()] == [gates.N_PLUS_ONE]
+    assert [(e.rule_id, reason) for e, reason in result.inconclusive] == [(gates.UNBOUNDED_READ, INCOMPLETE)]
+
+
+@pytest.mark.parametrize("ran", [OTHER, "tests/test_a.py::test_n1_renamed"], ids=["deleted", "renamed"])
+def test_owner_that_is_gone_is_not_fixed(tmp_path, ran: str) -> None:
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), _clean(ran))
+    assert result.fixed == ()
+    assert _reasons(result) == [DID_NOT_RUN]
+
+
+@pytest.mark.parametrize(
+    ("completed", "outcome", "phases"),
+    [
+        (None, "skipped", {"call": _call()}),
+        (False, "skipped", {"call": _call()}),
+        (False, "failed", {"call": _call(selects=1)}),
+        (None, "error", {}),
+        (False, "passed", {"call": _call(selects=1)}),
+    ],
+    ids=["skipped", "xfailed", "failed-before-the-code", "setup-error", "failing-subtest"],
+)
+def test_owner_that_did_not_complete_is_not_fixed(tmp_path, completed, outcome, phases) -> None:
+    facts = attempt_facts(OWN, completed=completed, outcome=outcome, **phases)
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), facts)
+    assert result.fixed == ()
+    assert _reasons(result) == [DID_NOT_COMPLETE]
+
+
+def test_changed_statement_is_not_fixed(tmp_path) -> None:
+    changed = Finding(gates.N_PLUS_ONE, "test-runtime", "HIGH", "SELECT 2", "m", OWN, identity="H", observed=5)
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), _clean(), current=[changed])
+    assert result.fixed == ()
+    assert _reasons(result) == [NEW_OF_RULE]
+
+
+@pytest.mark.parametrize(
+    ("rule", "budget", "call"),
+    [
+        (gates.N_PLUS_ONE, gates.Budget(100, True, 0), _call(selects=20)),
+        (gates.N_PLUS_ONE, gates.Budget(100, False, 0), _call(selects=30)),
+        (gates.EXCEPTION, gates.Budget(100, False, 5), _call(selects=1, exceptions=1)),
+        (gates.MAX_QUERIES, gates.Budget(None, False, 0), _call(selects=1, queries=20)),
+        (gates.MAX_QUERIES, gates.Budget(100, False, 0), _call(selects=1, queries=30)),
+    ],
+    ids=["allow-n-plus-one", "raised-threshold", "raised-max-exceptions", "dropped-max-queries", "count-at-baseline"],
+)
+def test_finding_still_shown_outside_the_gate_is_not_fixed(tmp_path, rule, budget, call) -> None:
+    result = _compare(_entry_of(tmp_path, rule), attempt_facts(OWN, call=call, budget=budget))
+    assert result.fixed == ()
+    assert _reasons(result) == [STILL_SHOWN]
+
+
+def test_finding_moved_to_setup_phase_is_not_fixed(tmp_path) -> None:
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), attempt_facts(OWN, setup=_call(selects=30), call=_call()))
+    assert result.fixed == ()
+    assert _reasons(result) == [STILL_SHOWN]
+
+
+def test_finding_in_an_earlier_rerun_attempt_is_not_fixed(tmp_path) -> None:
+    first = attempt_facts(OWN, completed=False, outcome="failed", attempt=1, call=_call(selects=30))
+    second = attempt_facts(OWN, attempt=2, call=_call(selects=1))
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), first, second)
+    assert result.fixed == ()
+    assert _reasons(result) == [STILL_SHOWN]
+
+
+def test_inconclusive_entry_is_carried(tmp_path) -> None:
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), _clean(OTHER))
+    assert [e.rule_id for e in result.carried] == [gates.N_PLUS_ONE]
+
+
+def test_gone_only_where_its_owner_ran_again(tmp_path) -> None:
+    # ported: SideEffectComparisonTests.aNewHostOfARouteIsAddedAndAGoneOneRemovedOnlyWhereItsOwnerRanAgain
+    old = _baseline_of(tmp_path, _old_finding(gates.N_PLUS_ONE), _old_finding(gates.N_PLUS_ONE, OTHER))
+    new = Finding(gates.N_PLUS_ONE, "test-runtime", "HIGH", "SELECT 2", "m", OTHER, identity="H", observed=5)
+    result = _compare(old, _clean(), current=[new])
+    assert [e.owner for e in result.fixed or ()] == [baseline.owner_of(OWN)]
+    assert [e.owner for e, _ in result.inconclusive] == [baseline.owner_of(OTHER)]
+    assert [f.baseline_state for f in result.findings] == ["new"]
+
+
+def test_evidence_not_recorded_whole_withholds_and_fixes_nothing(tmp_path) -> None:
+    # ported: SideEffectComparisonTests.aSensorThatDidNotRecordEitherRunWholeIsNotComparedAndListsNothing
+    old = _baseline_of(tmp_path, _old_finding(gates.N_PLUS_ONE), _old_finding(gates.MAX_QUERIES))
+    result = _compare(old, _clean(), incomplete=gates.GATE_IDS)
+    assert result.fixed == ()
+    assert _reasons(result) == [INCOMPLETE, INCOMPLETE]
