@@ -1,16 +1,15 @@
 """The files sensor (W6 lane S3): which files the application opens, deletes, moves and copies, as path patterns.
 
-Minimisation: a row is ``{source, kind, target, origin, location, requestId, at, callSite, threadName}``. The target is
-a pattern: relative to the working directory (``./``), the temporary directory (``$TMPDIR``) or the home (``~``), with a
-secret-looking segment masked and each uuid, long hex run and number collapsed (``report-{n}.csv``). File content and
-file descriptors are never read. The call site and origin (``application``, ``library`` or ``unknown``) are read once
-per file pattern. Imports (the interpreter's own prefixes) and sharpit's own state are left out and counted in
-``ignored``.
+Minimisation: a row is ``{source, kind, target, origin, location, requestId, at, callSite, threadName}`` (no call site:
+a stack walk per event exceeds the sensor overhead budget). The target is a pattern: relative to the working directory
+(``./``), the temporary directory (``$TMPDIR``) or the home (``~``), with a secret-looking segment masked and each uuid,
+long hex run and number collapsed (``report-{n}.csv``). File content and file descriptors are never read. The origin is
+``unknown``: sharpit does not walk the stack on a file event (BootUI's frame summary has no cheap port). Imports (the
+interpreter's own prefixes) and sharpit's own state are left out and counted in ``ignored``.
 """
 
 from __future__ import annotations
 
-import functools
 import inspect
 import os
 import posixpath
@@ -21,17 +20,9 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
-from types import FrameType
 from typing import Any
 
 from sharpit.engine.capture.correlation import REQUEST
-from sharpit.engine.capture.frames import (
-    _PACKAGE_DIRS,  # pyright: ignore[reportPrivateUsage]
-    _SHARPIT,  # pyright: ignore[reportPrivateUsage]
-    _STDLIB,  # pyright: ignore[reportPrivateUsage]
-    _greenlet_parent,  # pyright: ignore[reportPrivateUsage]
-    call_site_label,
-)
 from sharpit.engine.sensors.sinks import (
     FROM_REQUEST_INPUT,
     NOT_CHECKED,
@@ -57,7 +48,9 @@ _COLLAPSIBLE = re.compile(r"\d|eyJ|[A-Za-z]{24}")  # nothing else can collapse: 
 _SEEN = 256  # distinct paths remembered per sensor, cleared when full (BootUI's Seen cache)
 _HEX_LETTERS = frozenset("abcdefABCDEF")
 _WRITE_MODE = frozenset("wax+")
-_MISS: tuple[str, str, str | None, str] = ("", "", None, "")  # a cache miss; no path resolves to it
+_WRITE_DISJOINT = _WRITE_MODE.isdisjoint
+_REQUEST_GET = REQUEST.get
+_MISS = ("", "")  # a cache miss; no path resolves to it
 _PENDING = 64  # announced copy paths remembered, cleared when full (a copy that failed before opening leaves two)
 _COPYFILE = shutil.copyfile.__code__
 _COPY_DEPTH = 12  # frames from the sensor up to the copyfile that opened the file: dispatcher, sensor, a few more
@@ -140,59 +133,20 @@ def _other_home(path: str) -> int:
     return -1
 
 
-@functools.lru_cache(maxsize=4096)
-def _frame_origin(filename: str) -> str | None:
-    """``application``, ``library``, or None for the standard library, sharpit itself and synthetic files."""
-    if not filename or filename.startswith("<"):
-        return None
-    path = os.path.normcase(os.path.abspath(filename))
-    if path.startswith(_SHARPIT):
-        return None
-    if _PACKAGE_DIRS & set(path.split(os.sep)):
-        return "library"
-    if path.startswith(_STDLIB):
-        return None
-    return "application"
-
-
-def _origin_of(outside: str | None, application: str | None) -> str:
-    """``SideEffectOrigins.origin`` (SO:92-100, F10)."""
-    if outside is None:
-        return "unknown" if application is None else "application"
-    return "application" if application is not None else "library"
-
-
-def _walk_origin(frame: FrameType | None, limit: int = 64) -> tuple[str | None, str]:
-    """(callSite, origin) from a single stack walk up to ``limit`` frames."""
-    current = frame
-    parent: Any = None
-    greenlet_checked = False
-    outside: str | None = None
-    application: str | None = None
-    try:
-        for _ in range(limit):
-            if current is None:
-                if not greenlet_checked:
-                    parent = _greenlet_parent()
-                    greenlet_checked = True
-                if parent is None:
-                    break
-                current, parent = parent.gr_frame, getattr(parent, "parent", None)
-                if current is None:
-                    break
-            kind = _frame_origin(current.f_code.co_filename)
-            if kind == "application":
-                application = call_site_label(current)
-                if outside is None:
-                    outside = application
-                break
-            if kind == "library" and outside is None:
-                outside = call_site_label(current)
-            current = current.f_back
-        return application, _origin_of(outside, application)
-    finally:
-        current = None
-        parent = None
+def _file_row(kind: str, target: str, location: str, context_id: str | None) -> dict[str, object]:
+    req = _REQUEST_GET()
+    req_id = req.id if req is not None and (context_id is None or req.context_id == context_id) else None
+    return {
+        "source": SOURCE,
+        "kind": kind,
+        "target": target,
+        "origin": "unknown",
+        "location": location,
+        "requestId": req_id,
+        "at": time.time_ns() // 1_000_000,
+        "callSite": None,
+        "threadName": threading.current_thread().name if req_id is None else None,
+    }
 
 
 class FilesSensor:
@@ -233,10 +187,7 @@ class FilesSensor:
         skipped = {sys.prefix, sys.base_prefix, sys.exec_prefix, *own}
         self._skip = tuple(_fold(_slashes(os.path.abspath(path)).rstrip("/") + "/") for path in skipped if path)
         self._system = tuple(_fold(prefix + "/") for prefix in _SYSTEM)
-        self._seen: dict[str, tuple[str, str, str | None, str] | None] = {}  # raw path -> (pattern, loc, site, origin)
-        # shortcut: a cleared map re-reads a pattern's call site; BootUI keeps one per run,
-        # bound it per run if rows ever disagree
-        self._patterns: dict[str, tuple[str | None, str]] = {}
+        self._seen: dict[str, tuple[str, str] | None] = {}  # raw path -> (pattern, location); None: left out
         self._pending: set[int] = set()  # announced copy paths remembered as hashes, cleared when full
         self.ignored = 0
 
@@ -256,7 +207,7 @@ class FilesSensor:
         if self._pending and self._is_inner_copy_open(path):
             return ()
         if type(mode) is str:
-            wrote = not _WRITE_MODE.isdisjoint(mode)
+            wrote = False if mode in ("r", "rb") else not _WRITE_DISJOINT(mode)
         else:
             wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
         return self._row("write" if wrote else "read", path)
@@ -296,38 +247,6 @@ class FilesSensor:
             frame = frame.f_back
         return False
 
-    def _site_and_origin(self, pattern: str) -> tuple[str | None, str]:
-        patterns = self._patterns
-        found = patterns.get(pattern)
-        if found is None:
-            if len(patterns) >= _SEEN:
-                patterns.clear()
-            found = patterns[pattern] = _walk_origin(sys._getframe(1))  # pyright: ignore[reportPrivateUsage]
-        return found
-
-    def _build_row(
-        self,
-        kind: str,
-        target: str,
-        origin: str,
-        location: str,
-        call_site: str | None,
-    ) -> Mapping[str, object]:
-        req = REQUEST.get()
-        context_id = self._context_id
-        req_id = req.id if req is not None and (context_id is None or req.context_id == context_id) else None
-        return {
-            "source": SOURCE,
-            "kind": kind,
-            "target": target,
-            "origin": origin,
-            "location": location,
-            "requestId": req_id,
-            "at": time.time_ns() // 1_000_000,
-            "callSite": call_site,
-            "threadName": threading.current_thread().name if req_id is None else None,
-        }
-
     def _row(self, kind: str, path: object) -> tuple[Mapping[str, object], ...]:
         text = path if type(path) is str else _text(path)
         if not text:
@@ -339,8 +258,7 @@ class FilesSensor:
             try:
                 match = self._matcher.check(text, "file")
             except Exception:
-                call_site, origin = self._site_and_origin(NOT_CHECKED)
-                return (self._build_row(kind, NOT_CHECKED, origin, "elsewhere", call_site),)
+                return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id),)
             if match is not None and (match.names or unchecked(match)):
                 return self._row_matched(kind, text, match)
         return self._row_unmatched(kind, text)
@@ -355,8 +273,7 @@ class FilesSensor:
             target, location = (
                 resolved if resolved is not None else (self._finish(_slashes(match.redacted)), "elsewhere")
             )
-        call_site, origin = self._site_and_origin(target)
-        file_row = self._build_row(kind, target, origin, location, call_site)
+        file_row = _file_row(kind, target, location, self._context_id)
         sink_rows = self._matcher.rows("file", match, text, target) if self._matcher and match.names else ()
         return (file_row, *sink_rows)
 
@@ -366,18 +283,11 @@ class FilesSensor:
         if found is _MISS:
             if len(seen) >= _SEEN:
                 seen.clear()
-            resolved = self._resolve(_slashes(text))
-            if resolved is None:
-                seen[text] = None
-                self.ignored += 1
-                return ()
-            target, location = resolved
-            call_site, origin = self._site_and_origin(target)
-            found = seen[text] = (target, location, call_site, origin)
+            found = seen[text] = self._resolve(_slashes(text))
         if found is None:
             self.ignored += 1
             return ()
-        return (self._build_row(kind, found[0], found[3], found[1], found[2]),)
+        return (_file_row(kind, found[0], found[1], self._context_id),)
 
     def _full_path(self, text: str) -> str:
         full = text if _is_absolute(text) else f"{self._cwd.rstrip('/')}/{text}"
