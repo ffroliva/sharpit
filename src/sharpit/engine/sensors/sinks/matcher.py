@@ -19,6 +19,9 @@ from sharpit.engine.sensors.sinks.values import (
 
 Row = Mapping[str, object]
 _EMPTY_SCOPE: Mapping[str, Any] = {}
+_BUSY = Match((), (), F_BUSY, None, frozenset())
+_INTERNAL_GET = INTERNAL.get
+_REQUEST_GET = REQUEST.get
 
 
 def _no_owner(scope: Mapping[str, Any]) -> str | None:
@@ -47,9 +50,9 @@ class SinkMatcher:
         # ported: RequestValues.java:680-725, check order per spec
         if not self._on():
             return None
-        if INTERNAL.get():
+        if _INTERNAL_GET():
             return None
-        request = REQUEST.get()
+        request = _REQUEST_GET()
         if request is None:
             return None
         if request.context_id != self._context_id:
@@ -59,7 +62,7 @@ class SinkMatcher:
         try:
             return self._values.match(request, text, kind)
         except Exception:
-            return Match((), (), F_BUSY, None, frozenset())
+            return _BUSY
 
     def rows(self, kind: Kind, match: Match, text: str, target: str | None) -> tuple[Row, ...]:
         if match.flags & F_SEEN or not match.names:

@@ -73,6 +73,7 @@ class Match:
 
 
 _EMPTY = Match((), (), 0, None, frozenset())
+_PARTIAL = Match((), (), F_PARTIAL, None, frozenset())
 _BUSY = Match((), (), F_BUSY, None, frozenset())
 _STOPPED = Match((), (), F_STOPPED, None, frozenset())
 _REPEATED = Match((), (), F_REPEATED, None, frozenset())
@@ -106,8 +107,8 @@ class _Entry:
         self.names: list[str] = []
         self.value_chars = 0
         self.epoch = 0
-        self.misses: list[int] = []
-        self.seen: list[int] = []
+        self.misses: dict[int, None] = {}
+        self.seen: dict[int, None] = {}
         self.checks = 0
         self.comparisons = 0
         self.stopped = False
@@ -139,11 +140,11 @@ class _Entry:
         return True
 
 
-def _remember(ring: list[int], size: int, key: int) -> None:
+def _remember(ring: dict[int, None], size: int, key: int) -> None:
     """Keeps the last ``size`` keys, as BootUI's rings (RequestValues.java:1030-1034)."""
     if len(ring) >= size:
-        del ring[0]
-    ring.append(key)
+        del ring[next(iter(ring))]
+    ring[key] = None
 
 
 def _path_pairs(path_params: object, room: int) -> list[_Pair] | None:
@@ -277,7 +278,7 @@ class RequestValues:
         pairs, path_pending = _read_values(info.scope)
         if not pairs:
             return _EMPTY
-        if not self._table.acquire(blocking=False):
+        if not self._table.acquire(False):
             self._busy += 1
             return _BUSY
         try:
@@ -324,9 +325,10 @@ class RequestValues:
 
     def _compare(self, info: RequestInfo, entry: _Entry, text: str, kind: Kind) -> Match:
         # ported: RequestValues.compare (:912-1060), same order of checks
-        partial = len(text) > MAX_SCAN
-        scanned = text[:MAX_SCAN]
-        if not entry.lock.acquire(blocking=False):
+        text_len = len(text)
+        partial = text_len > MAX_SCAN
+        scanned = text[:MAX_SCAN] if partial else text
+        if not entry.lock.acquire(False):
             self._busy += 1
             return _BUSY
         try:
@@ -338,7 +340,7 @@ class RequestValues:
                 return _EMPTY
             if entry.stopped:
                 return _STOPPED
-            key = hash((kind, len(text), scanned, entry.epoch))
+            key = hash((kind, text_len, scanned, entry.epoch))
             if key in entry.misses:
                 return _REPEATED
             seen = key in entry.seen
@@ -348,14 +350,15 @@ class RequestValues:
             self._checks += 1
             spans, matched, overflow = _scan(scanned, entry.values)
             self._partial += int(partial)
-            if not matched and not partial:
-                _remember(entry.misses, HASHES, key)
+            if not matched:
+                if not partial:
+                    _remember(entry.misses, HASHES, key)
+                    return _EMPTY
+                return _PARTIAL if self._live(info, entry) else _EMPTY
             names = list(entry.names)
         finally:
             entry.lock.release()
         flags = (F_PARTIAL if partial else 0) | (F_OVERFLOW if overflow else 0) | (F_SEEN if seen else 0)
-        if not matched:
-            return Match((), (), flags, None, frozenset(), key) if self._live(info, entry) else _EMPTY
         redacted = _redact(text, spans, names, flags)
         result = Match(
             tuple(names[i] for i in matched),
@@ -385,7 +388,7 @@ class RequestValues:
         entry = self._entries.get(request_id)
         if entry is None or not match.names or match.flags & F_SEEN or entry.generation != self._generation:
             return
-        if not entry.lock.acquire(blocking=False):
+        if not entry.lock.acquire(False):
             return
         try:
             if self._entries.get(request_id) is entry:
