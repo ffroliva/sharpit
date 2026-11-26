@@ -226,11 +226,12 @@ class SideEffectsService:
             "in case is not seen. The values are compared, never stored, and forgotten when the response completes. "
             "A command is checked where the processes sensor sees it start; a file path only with the files sensor; "
             "SQL text and outbound URLs are not checked. Work the request hands off, to a thread, a task, a "
-            "background task, or a streamed body, is checked so that its own rows are redacted, but publishes no "
-            "security-sinks row: only the request's own endpoint and its dependencies do. A row's target is the "
-            "redacted text, the value replaced by the parameter's name; when a text was scanned only in part or "
-            "held more matches than could be redacted, no text is kept. A value made of digits only, or one whose "
-            "place in the text is not known, is shown once a second request confirms the text varies with it."
+            "background task, or a streamed body, is checked only while the request is live: work that runs after "
+            "the response completes, or after 60 seconds, is not checked and its rows keep the raw text. Hand-off "
+            "work publishes no security-sinks row: only the request's own endpoint and its dependencies do. A row's "
+            "target is the redacted text, the value replaced by the parameter's name; when a text was scanned only in "
+            "part or held more matches than could be redacted, no text is kept. A value made of digits only, or one "
+            "whose place in the text is not known, is shown once a second request confirms the text varies with it."
         )
         attribution = (
             "A row is attributed to its request's route as HTTP Exchanges names it, else to startup, or to its "
