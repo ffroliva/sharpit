@@ -493,3 +493,42 @@ def test_status_keys_are_exactly_the_ones_an_output_reads() -> None:
         "notKept",
         "dropped",
     )
+
+
+def test_a_fixed_event_sequence_pins_the_holder_counters() -> None:
+    held, request = RequestValues(), info("a=needle&b=second")
+    assert held.match(request, "miss-one", "file").flags == 0
+    assert held.match(request, "miss-one", "file").flags == F_REPEATED
+    hit = held.match(request, "/srv/needle.txt", "file")
+    assert hit.names == ("a",)
+    held.mark_seen(request.id, hit)
+    seen = held.match(request, "/srv/needle.txt", "file")
+    assert seen.flags == F_SEEN
+    assert held.match(request, "z" * (MAX_SCAN + 10), "file").flags == F_PARTIAL
+    assert held.match(request, "z" * (MAX_SCAN + 10), "file").flags == F_PARTIAL
+    partial_hit = held.match(request, "needle" + "z" * MAX_SCAN, "file")
+    assert partial_hit.names == ("a",)
+    assert partial_hit.flags == F_PARTIAL
+    for i in range(31):
+        assert held.match(request, f"ring-miss-{i:02d}", "file").flags == 0
+    assert held.match(request, "miss-one", "file").flags == F_REPEATED
+    assert held.match(request, "ring-miss-31", "file").flags == 0
+    assert held.match(request, "ring-miss-00", "file").flags == F_REPEATED
+    assert held.match(request, "miss-one", "file").flags == 0
+    assert held.match(request, "ring-miss-00", "file").flags == 0
+    while held.status()["stopped"] == 0:
+        idx = held.status()["checks"]
+        held.match(request, f"exhaust-{idx:04d}", "file")
+    assert held.match(request, "after-stop", "file").flags == F_STOPPED
+    assert held.status() == {
+        "requests": 1,
+        "tableFull": 0,
+        "valuesTooLong": 0,
+        "valuesOverCount": 0,
+        "checks": MAX_CHECKS + 1,
+        "partial": 3,
+        "stopped": 1,
+        "busy": 0,
+        "notKept": 0,
+        "dropped": 0,
+    }
