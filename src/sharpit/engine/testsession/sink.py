@@ -70,19 +70,6 @@ def _finalizer_on_stack() -> bool:
         del frame
 
 
-def _refused_by_sqlite3(event: SqlEvent) -> bool:
-    """The stdlib ``sqlite3`` cursor refused a statement that is not text, in C: no frame ran below the traced call.
-
-    Only that proves nothing ran. A host cursor class, ``executemany`` rows or another driver may run the statement
-    before raising ``TypeError``, so every other non-text statement stays a hook failure.
-    """
-    error = event.error
-    if type(error) is not TypeError or event.source != "sqlite3" or isinstance(cast("object", event.sql), str):
-        return False
-    traceback = error.__traceback__
-    return traceback is not None and traceback.tb_next is None
-
-
 @dataclass
 class _Registration:
     ref: weakref.ref[object]
@@ -204,14 +191,13 @@ class TestSessionSink:
 
     def on_sql(self, event: SqlEvent, test: TestTag | None) -> None:
         try:
-            # inside the try: a guard that fails is itself a hook failure, so the run stays unknown
-            if event.error is not None and _refused_by_sqlite3(event):
-                return
-            rule = filtered_rule(event.sql)
+            # a statement without text is one statement with empty text, as the SQLAlchemy error path records it
+            sql = event.sql if isinstance(cast("object", event.sql), str) else ""
+            rule = filtered_rule(sql)
             # The test-session sink resolves with no application fallback (`lambda: None`),
             # so it does not share the recorder's fallback behavior (owner ruling, 2026-11-06).
             dialect = event_dialect(event, lambda: None)
-            shape = None if rule else self._shape(event.sql, dialect)
+            shape = None if rule else self._shape(sql, dialect)
             with self._lock:
                 self.facts.sqlite_seen |= dialect is Dialect.SQLITE
                 phase = self._phase_of(test)
@@ -231,7 +217,7 @@ class TestSessionSink:
                     self._count_unattributed(key, shape.text)
                     return
                 phase.queries += 1
-                if category_of(event.sql) == "SELECT":
+                if category_of(sql) == "SELECT":
                     phase.selects[key] += 1
                     phase.sql_of.setdefault(key, shape.text)
         except Exception as exc:  # noqa: BLE001
