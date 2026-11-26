@@ -311,6 +311,13 @@ def test_a_hook_failure_in_an_earlier_attempt_stays_recorded() -> None:
     assert [source["name"] for source in sink.facts.sources] == ["pytest-plugin"]
 
 
+def test_a_lost_capture_reason_is_masked() -> None:
+    """The reason reaches the report's warnings and sources: it is masked like every other report string."""
+    sink = _sink()
+    sink.record_lost(f"capture lost: password={SECRET}")
+    assert SECRET not in json.dumps(sink.facts.to_json())
+
+
 def test_a_hook_failure_is_recorded_under_the_sink_lock() -> None:
     """Hooks fail on host threads too: the source is recorded under the sink's lock."""
     sink = _sink()

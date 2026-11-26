@@ -69,6 +69,8 @@ def _emit(handler: logging.Handler, record: logging.LogRecord) -> BaseException 
     [
         pytest.param((ValueError, "not an exception", None), id="value-not-an-exception"),
         pytest.param(True, id="flag-not-a-tuple"),
+        pytest.param((), id="empty-tuple"),
+        pytest.param((ValueError,), id="short-tuple"),
     ],
 )
 def test_a_log_record_without_an_exception_object_is_ignored(exc_info: object) -> None:
@@ -84,6 +86,22 @@ def test_a_log_record_without_an_exception_object_is_ignored(exc_info: object) -
         TEST.reset(token)
     assert raised is None
     assert sink.facts.warnings == []
+
+
+def test_a_log_record_with_its_exception_in_a_list_is_counted() -> None:
+    """A record built by hand may hold ``exc_info`` as a list: its exception is captured as from a tuple."""
+    sink = TestSessionSink("master")
+    handler = pytest_plugin._ExceptionHandler(sink)  # pyright: ignore[reportPrivateUsage]
+    record = logging.makeLogRecord({"msg": "logged", "exc_info": [ValueError, ValueError("x"), None]})
+    attempt = sink.begin_test("test_x.py::test_logs")
+    token = TEST.set(("test_x.py::test_logs", attempt, "call"))
+    try:
+        _emit(handler, record)
+    finally:
+        TEST.reset(token)
+    assert sink.current_test is not None
+    phase = sink.current_test.phases.get("call")
+    assert (phase.exceptions if phase is not None else 0) == 1
 
 
 def test_an_adapter_hook_failure_is_recorded_under_the_sink_lock() -> None:
