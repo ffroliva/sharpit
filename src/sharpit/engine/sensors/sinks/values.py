@@ -430,7 +430,12 @@ class RequestValues:
             entry.lock.release()
 
     def end(self, request_id: str) -> None:
-        """The request ended: its values are dropped. Takes no lock (D5)."""
+        """The request ended: the expired entries are swept, then its values are dropped (RequestValues.java:419)."""
+        if self._table.acquire(False):  # a sweep never waits, as BootUI's
+            try:
+                self._sweep()
+            finally:
+                self._table.release()
         self._entries.pop(request_id, None)
         self._swept.pop(request_id, None)
 
