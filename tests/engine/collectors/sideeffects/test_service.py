@@ -452,3 +452,22 @@ def test_route_rows_wait_for_their_route_while_http_is_recorded() -> None:
     report = service.sensor("processes", 0, 20)
     assert report["rows"] == []
     assert not any(line.startswith("HTTP Exchanges is disabled") for line in report["limitations"])
+
+
+def test_the_agent_report_lists_the_rows_its_sensors_count() -> None:
+    service, rows = _service_with_rows()
+    _append(rows, "processes", kind="start", target="python")
+    store = service.store
+    assert store is not None
+    drain, arrived = store.drain, []
+
+    def drain_then_a_row_arrives() -> None:
+        drain()
+        if not arrived:
+            arrived.append(True)
+            _append(rows, "processes", kind="start", target="git")
+
+    store.drain = drain_then_a_row_arrives  # type: ignore[method-assign]
+    report = service.agent_report(None, None)
+    counted = sum(sensor["rows"] for sensor in report["sensors"])
+    assert len(report["rows"]) == counted
