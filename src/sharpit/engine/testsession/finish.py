@@ -10,7 +10,9 @@ from sharpit.engine.advisors import http_security
 from sharpit.engine.advisors.http_security import HeaderExpectation, StatusExpectation
 from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
-from sharpit.engine.testsession.sink import report_masker
+from sharpit.engine.testsession.sink import HOOK_FAILURE_WARNING, report_masker
+
+_HOOK_FAILURE_PREFIX = HOOK_FAILURE_WARNING.partition("{")[0]
 
 
 @dataclass(frozen=True)
@@ -61,7 +63,7 @@ def _add_http_security(
 
 def _add_controller_failure(merged: outcome.MergedFacts, warnings: Sequence[str]) -> None:
     """A hook failure of the process writing the report: named for the xdist controller, which is no part."""
-    failure = next((w for w in warnings if w.startswith("a sharpit session hook failed (")), None)
+    failure = next((w for w in warnings if w.startswith(_HOOK_FAILURE_PREFIX)), None)
     if failure is None:
         return
     if not any(source["name"] == "pytest-plugin" for source in merged.sources):

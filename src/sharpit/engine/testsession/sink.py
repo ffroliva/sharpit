@@ -220,8 +220,7 @@ class TestSessionSink:
                 phase.queries += 1
                 if category_of(event.sql) == "SELECT":
                     phase.selects[key] += 1
-                    if key not in phase.sql_of:
-                        phase.sql_of[key] = shape.text
+                    phase.sql_of.setdefault(key, shape.text)
         except Exception as exc:  # noqa: BLE001
             self.record_failure(exc)
 
