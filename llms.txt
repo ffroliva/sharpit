@@ -1,0 +1,68 @@
+# sharpit
+
+> sharpit is an open-source developer console and pytest plugin for FastAPI and Starlette applications, with Flask
+> supported for test gates. It is a Python port of BootUI, the Spring Boot developer console. Apache-2.0, Python 3.12+,
+> on PyPI as `sharpit`.
+
+sharpit runs inside the application it inspects. It is a development tool: it fails closed, answers only loopback
+callers unless a token is configured, and masks secret-looking names and values before any output.
+
+## Use cases
+
+- See a running FastAPI app's configuration and where each value came from, its routes, SQL, exceptions, HTTP
+  exchanges and health: `sharpit.install(app)`, then open `/sharpit`.
+- Find N+1 queries and slow SQL per route in a SQLAlchemy (sync or async) or raw `sqlite3` app.
+- Fail CI on N+1 queries, query budgets and swallowed exceptions: `pytest --sharpit`.
+- Query a running app from a terminal or script: the `sharpit` command-line client.
+- Give an AI coding agent runtime facts about the app: the MCP endpoint at `/sharpit/api/mcp`.
+- Not for: production monitoring (use an observability backend), Django apps.
+
+## Core API
+
+- `sharpit.install(app, *, settings=(), engines=(), health_checks=None, models=None, **options) -> SharpitHandle`
+  mounts the console at `/sharpit` and its JSON API at `/sharpit/api`. `options` are the settings keyword arguments
+  (for example `path`, `api_path`, `alembic_config`). Call it after adding the app's own middleware.
+- Install: `pip install "sharpit[fastapi]"`; add `fastapi[standard]` for `fastapi dev`. Extras: `fastapi`, `settings`
+  (pydantic-settings provenance).
+- Activation, first match wins: `SHARPIT_ENABLED=ON` or `OFF`; a profile in `SHARPIT_DISABLED_PROFILES` (default
+  `prod,production`) switches it off; a profile in `SHARPIT_ENABLED_PROFILES` (default `dev,local,development`, read
+  from `SHARPIT_PROFILES`, `APP_ENV`, `ENVIRONMENT`) switches it on; `fastapi dev` or `uvicorn --reload` switches it
+  on; otherwise every path under `/sharpit` answers 404.
+- Settings: `SHARPIT_*` environment variables override `install()` keyword arguments.
+- pytest: `pytest --sharpit [--sharpit-report=PATH] [--sharpit-junit=PATH] [--sharpit-app module:attr]
+  [--sharpit-report-only] [--sharpit-baseline=PATH] [--sharpit-write-baseline=PATH]`. When capture cannot judge, the
+  run is `unknown` and fails.
+- CLI: `sharpit overview`, `sharpit security scan --fail-on high`, `sharpit insights list --fail-on insufficient`,
+  `sharpit docs`. Global options `--url`, `--api-path`, `--token` (or `SHARPIT_TOKEN`), `--json`, `--timeout`. Exit
+  codes: 0 success, 1 error, 2 refused action, 3 threshold reached.
+- MCP: streamable HTTP at `http://127.0.0.1:8000/sharpit/api/mcp`, off until `SHARPIT_MCP_ENABLED=ON`.
+- GitHub Action: `uses: ffroliva/sharpit@<release tag>` runs pytest with sharpit and writes a job summary.
+
+## Architecture
+
+- `src/sharpit/engine/`: framework-free core (activation, guard chain, masking, panels, collectors).
+- `src/sharpit/fastapi/`: the FastAPI and Starlette adapter (routes, introspection, dev-server signals).
+- `src/sharpit/flask/`: the Flask adapter for test gates.
+- `src/sharpit/pytest_plugin/`: the pytest plugin.
+- `src/sharpit/cli/`: the command-line client, standard library only.
+- `src/sharpit/ui/static/`: the built web console.
+
+## Docs
+
+- [README](https://github.com/ffroliva/sharpit/blob/main/README.md): overview, quick start, features, comparison
+- [Quickstart](https://ffroliva.github.io/sharpit/quickstart/): mount and open the console
+- [Activation](https://ffroliva.github.io/sharpit/activation/): when sharpit turns on, and why it answers 404
+- [Safety model](https://ffroliva.github.io/sharpit/safety/): local access, tokens, masking, action controls
+- [Panels](https://ffroliva.github.io/sharpit/panels/): what each panel shows
+- [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
+- [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/): CI gates and baselines
+- [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
+- [CLI](https://ffroliva.github.io/sharpit/cli/): commands, output and exit codes
+- [MCP](https://ffroliva.github.io/sharpit/mcp/): MCP setup and tools
+- [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/): intentional differences
+
+## Optional
+
+- [Changelog](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md)
+- [Roadmap](https://github.com/ffroliva/sharpit/blob/main/ROADMAP.md)
+- [How sharpit works](https://ffroliva.github.io/sharpit/how-it-works/)

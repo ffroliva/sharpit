@@ -1,4 +1,6 @@
-# sharpit
+[English](https://github.com/ffroliva/sharpit/blob/main/README.md) | [简体中文](https://github.com/ffroliva/sharpit/blob/main/README.zh-CN.md)
+
+# sharpit: developer console and pytest gate for FastAPI
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=main)
@@ -16,28 +18,55 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type checked: pyright](https://img.shields.io/badge/type%20checked-pyright-blue.svg)](https://github.com/microsoft/pyright)
 
-**See inside your running FastAPI app.** One call mounts a developer console at `/sharpit`: your configuration and
-where each value came from, every route, every SQL statement with the request that ran it, exceptions, HTTP exchanges
-and health. It is a Python port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0), the
-Spring Boot developer console: the same design goals, JSON contract and test cases, with a new UI.
+**sharpit is an open-source developer console and pytest plugin for FastAPI and Starlette applications, with Flask
+supported for test gates.** One call, `sharpit.install(app)`, mounts a local web console at `/sharpit` that shows your
+configuration and where each value came from, every route, every SQL statement with the request that ran it, N+1
+queries, exceptions, HTTP exchanges and health. `pytest --sharpit` turns the same capture into CI gates for N+1
+queries, query budgets and swallowed exceptions. A command-line client and an MCP endpoint let scripts and AI coding
+agents query the running app.
 
-```bash
-pip install "sharpit[fastapi]"      # or: uv add "sharpit[fastapi]"
-```
+sharpit is a Python port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0), the Spring
+Boot developer console: the same design goals, JSON contract and test cases, with a new UI. If you have used Spring
+Boot Actuator or BootUI, sharpit gives a FastAPI app the same kind of runtime view.
 
-```python
-from fastapi import FastAPI
-import sharpit
+## Quick start
 
-app = FastAPI()
+1. Install sharpit and the FastAPI development server:
 
-# Register your application middleware first, then mount sharpit:
-sharpit.install(app)  # mounts /sharpit and /sharpit/api
-```
+   ```bash
+   pip install "sharpit[fastapi]" "fastapi[standard]"   # or: uv add "sharpit[fastapi]" "fastapi[standard]"
+   ```
 
-```bash
-fastapi dev app.py          # or: uvicorn app:app --reload; then open http://127.0.0.1:8000/sharpit/
-```
+   `fastapi[standard]` provides `fastapi dev` and uvicorn. Leave it out if your project already has a server.
+
+2. Save this as `app.py`:
+
+   ```python
+   from fastapi import FastAPI
+
+   import sharpit
+
+   app = FastAPI()
+
+
+   @app.get("/hello")
+   def hello() -> dict[str, str]:
+       return {"message": "hello"}
+
+
+   # Register your application middleware first, then mount sharpit:
+   sharpit.install(app)  # mounts /sharpit and /sharpit/api
+   ```
+
+3. Run it with a dev signal and open <http://127.0.0.1:8000/sharpit/>:
+
+   ```bash
+   fastapi dev app.py          # or: uvicorn app:app --reload
+   ```
+
+sharpit is off unless a dev signal turns it on: `fastapi dev`, `uvicorn --reload`, a dev profile such as `APP_ENV=dev`,
+or `SHARPIT_ENABLED=ON`. A plain `uvicorn app:app`, or `uvicorn.run(..., reload=True)` called from a script, answers
+404 under `/sharpit`. See [Activation](https://ffroliva.github.io/sharpit/activation/).
 
 ![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/overview-light.png)
 
@@ -59,6 +88,29 @@ swallows an exception, and runs the REST API advisor over your routes. When capt
 run fails closed.
 
 > **Status: alpha (0.9.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+
+## Features
+
+| Area | What sharpit shows or checks |
+|---|---|
+| Configuration | Every setting and the source it came from (pydantic-settings), with secrets masked |
+| Routes | Every route with its handler and dependency providers; the REST API advisor |
+| SQL | Every statement from SQLAlchemy (sync and async) or raw `sqlite3`, with the request that ran it; N+1 candidates per route and the slowest statement |
+| Databases | PostgreSQL and MySQL panels read on request, Alembic migrations, SQLAlchemy models |
+| Requests and errors | HTTP exchanges, unhandled exceptions and swallowed exceptions |
+| Runtime | Health checks, connection pools, and loggers whose level you can change while the app runs |
+| Security | A vulnerability scan of the installed packages when you ask for it; HTTP security headers |
+| CI | `pytest --sharpit`: query budgets, N+1 queries, swallowed exceptions, baselines, JSON and JUnit reports, a GitHub Action |
+| Automation | The `sharpit` command-line client with exit codes for scripts; an MCP endpoint for AI coding agents, off by default |
+
+## When to use sharpit
+
+| Tool | Built for | Choose it when |
+|---|---|---|
+| **sharpit** | A local console and pytest gates inside a FastAPI or Starlette app, in development and CI | You want to see the configuration, routes, SQL and errors of the app on your machine, and fail CI on N+1 queries, query budgets or swallowed exceptions |
+| [fastapi-debug-toolbar](https://github.com/mongkok/fastapi-debug-toolbar) | A FastAPI debug toolbar based on django-debug-toolbar | You want per-request panels in the browser and do not need CI gates |
+| [nplusone](https://github.com/jmcarp/nplusone) | N+1 detection for SQLAlchemy, Peewee and the Django ORM, by logging or raising | You need N+1 detection only, or you use Django |
+| Logfire, Sentry, OpenTelemetry | Traces, errors and metrics from deployed services, sent to a backend | You observe production; sharpit is a development tool and stays off without a dev signal |
 
 ## Gate CI on findings
 
@@ -101,7 +153,8 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
 - A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
   reason, which fails the run. Own the baseline file in CODEOWNERS, or a PR can baseline its own findings.
 
-See [The safety gate](docs/pytest-safety-gate.md) for exit-status behavior and the baseline workflow.
+See [The safety gate](https://github.com/ffroliva/sharpit/blob/main/docs/pytest-safety-gate.md) for exit-status
+behavior and the baseline workflow.
 
 ### GitHub Action
 
@@ -135,30 +188,9 @@ sharpit ran across **6,804** tests in 3 min 21 s with `-n 4` (4 failed by sharpi
   telemetry database without logging it; 114 more are reported as INFO;
 - No production code was changed to get these numbers.
 
-## How close to BootUI
-
-sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0; 0.9.0 stays on BootUI 2.5.0 and closes recorded gaps.
-
-| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | sharpit 0.9.0 | sharpit 0.10.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
-|---|---|---|---|---|---|---|---|---|---|
-| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | 73 | 116 | 116 | 116 |
-| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | 64 | - | - | - |
-| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
-| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
-| Applicable BootUI GET fixture cases served | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 across 38 routes (5 shape-identical, 36 partial) | 65 | not captured | 56 |
-
-The increase from 33 to 41 reflects an inventory correction for existing routes. Most cases marked `n-a` are
-served with fixtures that cannot establish parity.
-
-How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
-
 ## Installation and extras
 
 Python 3.12+. Runtime dependencies are only `starlette>=0.44` and `packaging>=23`.
-
-```bash
-pip install "sharpit[fastapi]"
-```
 
 Optional extras:
 
@@ -166,6 +198,8 @@ Optional extras:
 |---|---|---|
 | `sharpit[fastapi]` | `fastapi>=0.115` | the supported host |
 | `sharpit[settings]` | `pydantic-settings>=2.4` | the Config panel shows which source each value came from |
+
+The `fastapi` extra does not install a server. Add `fastapi[standard]` for `fastapi dev`, or `uvicorn`.
 
 ## Configuration and activation
 
@@ -211,10 +245,11 @@ Global options configure the connection and output format:
 - `--api-path <path>`: sharpit API path (default `/sharpit/api`, env `SHARPIT_API_PATH`).
 - `--token <token>`: bearer authentication token. `--token` overrides the `SHARPIT_TOKEN` environment variable; using `SHARPIT_TOKEN` is recommended so credentials are not exposed in host process listings.
 - `--timeout <seconds>`: request timeout in seconds (default `60`).
-- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety.
+- `--json`: emit raw JSON instead of human-readable text, preserving server bytes except where the token is redacted for safety. Output piped to another program is JSON without the flag.
 - `--no-color`: disable ANSI colors in terminal output (also honours `NO_COLOR`).
 - `-v`, `--verbose`: print verbose error details.
-- `--fail-on <severity>`: gate command completion against findings or evidence sufficiency.
+
+Commands that produce findings or evidence also take `--fail-on <severity>`, which gates the exit code on them.
 
 Examples:
 
@@ -250,7 +285,47 @@ connection in one step:
 The same `plugins/sharpit` directory is listed for Cursor (`.cursor-plugin/marketplace.json`) and Codex
 (`.agents/plugins/marketplace.json`). The plugin points at `http://127.0.0.1:8000/sharpit/api/mcp`; if your app listens on
 another port, set `SHARPIT_MCP_URL` (Claude Code). Other clients, and what was tested, are in
-[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/). For guided investigations, see the application-improvement playbooks in [`skills/sharpit/references/playbooks/`](skills/sharpit/references/playbooks/README.md) and the [AI agents guide](https://ffroliva.github.io/sharpit/ai-agents/).
+[MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/). For guided investigations, see the application-improvement playbooks in [`skills/sharpit/references/playbooks/`](https://github.com/ffroliva/sharpit/blob/main/skills/sharpit/references/playbooks/README.md) and the [AI agents guide](https://ffroliva.github.io/sharpit/ai-agents/).
+
+## How close to BootUI
+
+sharpit ports BootUI feature by feature: 0.6.0 targets BootUI 2.3.0, 0.7.0 targets BootUI 2.4.0, and 0.8.0 targets BootUI 2.5.0; 0.9.0 stays on BootUI 2.5.0 and closes recorded gaps.
+
+| | sharpit 0.5.0 | sharpit 0.6.0 | sharpit 0.7.0 | sharpit 0.8.0 | sharpit 0.9.0 | sharpit 0.10.0 | BootUI 2.3.0 | BootUI 2.4.0 | BootUI 2.5.0 |
+|---|---|---|---|---|---|---|---|---|---|
+| MCP/CLI tools | 54 | 71 | 71 | 73 | 73 | 73 | 116 | 116 | 116 |
+| Tools under BootUI's exact names | 45 | 62 | 62 | 64 | 64 | 64 | - | - | - |
+| Panels | 31 | 48 (46 listed in the console) | 48 (46 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 49 (47 listed in the console) | 65 (Spring) | 65 (Spring) | 65 (Spring) |
+| Runtime insight kinds that evaluate | none | 8 of 28 registered | 10 of 28 registered | 11 of 29 registered | 11 of 29 registered | 11 of 29 registered | 28 | 28 | 29 |
+| Applicable BootUI GET fixture cases served | not measured | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 33 (5 shape-identical, 28 partial) | 41 across 38 routes (5 shape-identical, 36 partial) | 65 | not captured | 56 |
+
+The sharpit 0.10.0 column describes the unreleased `main` branch. The increase from 33 to 41 reflects an inventory
+correction for existing routes. Most cases marked `n-a` are served with fixtures that cannot establish parity.
+
+How each row is counted, the insight kinds that evaluate, and what comes next: [ROADMAP.md](ROADMAP.md).
+
+## FAQ
+
+**Why does `/sharpit` answer 404?** sharpit fails closed. It turns on only for `fastapi dev`, `uvicorn --reload`, a dev
+profile (`APP_ENV=dev`) or `SHARPIT_ENABLED=ON`. See [Activation](https://ffroliva.github.io/sharpit/activation/).
+
+**Can it stay installed when the app is deployed?** It is a development tool. Without a dev signal every path under
+`/sharpit` answers 404, and a `prod` or `production` profile switches it off unless `SHARPIT_ENABLED=ON` is set
+explicitly. Callers are limited to loopback unless a token is configured. See the
+[Safety model](https://ffroliva.github.io/sharpit/safety/).
+
+**Which frameworks are supported?** The console runs in FastAPI and Starlette apps. The pytest gates also run against
+Flask apps. Django is not supported.
+
+**Which databases does it trace?** SQLAlchemy 2.0 (sync and async engines) and raw `sqlite3`. PostgreSQL and MySQL
+engines get their own panels. See [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/).
+
+**Does it work with AI coding agents?** Yes. The MCP endpoint at `/sharpit/api/mcp` is off until
+`SHARPIT_MCP_ENABLED=ON`; the `sharpit` CLI works from any agent that can run a shell command.
+
+**How does it relate to BootUI?** sharpit is a Python port of BootUI, the Spring Boot developer console. It follows
+BootUI's JSON contract and, where it has the same tool, BootUI's tool name. The intentional differences are listed in
+[Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/).
 
 ## Documentation
 

@@ -1,6 +1,7 @@
 # sharpit
 
-> sharpit is a local developer console and pytest gate for FastAPI applications. It is a Python port of BootUI.
+> sharpit is an open-source developer console and pytest plugin for FastAPI and Starlette applications, with Flask
+> supported for test gates. It is a Python port of BootUI, the Spring Boot developer console.
 
 `sharpit.install(app)` mounts the console at `/sharpit` and its JSON API at `/sharpit/api` by default. The console
 fails closed, defaults to local access, and masks secrets in diagnostics. The CLI can inspect a running console,
