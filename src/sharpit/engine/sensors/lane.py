@@ -16,6 +16,7 @@ from sharpit.engine.sensors.audit import AuditHub, Sensor, hub
 from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.floor import DEFAULT_REASONS, SWITCHABLE_SENSORS
 from sharpit.engine.sensors.processes import ProcessesSensor
+from sharpit.engine.sensors.rows import SensorRows
 from sharpit.engine.sensors.sinks import SecuritySinksSensor, SinkMatcher
 
 BUILT = ("processes", "files", "security-sinks")  # the sensors this version builds
@@ -59,6 +60,7 @@ class SensorLane:
         self._off = {name for name in self._sensors if name in SWITCHABLE and name not in self._configured}
         self._matcher: SinkMatcher | None = getattr(self._sensors.get("security-sinks"), "matcher", None)
         self.attached = False
+        self.rows = SensorRows()
 
     @property
     def names(self) -> tuple[str, ...]:
