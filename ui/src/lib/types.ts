@@ -329,3 +329,69 @@ export interface AdvisorReport {
   violationDetails?: { scanId: string | null };
 }
 export interface ViolationsPage { violations: string[]; fingerprints?: string[]; page: { offset: number; returned: number; hasMore: boolean } }
+
+export interface SideEffectsHook {
+  id: string;
+  type: string;
+  transformed?: boolean | null;
+  selfTest?: boolean | null;
+  recorded?: number | null;
+}
+
+export interface SideEffectsSensor {
+  id: string;
+  group: string;
+  label: string;
+  state: string;
+  reason: string | null;
+  rows: number;
+  occurrences: number;
+  dropped: number;
+  hooks: SideEffectsHook[];
+  toggle?: { id: string; state: string; overridden: boolean } | null;
+}
+
+export interface SideEffectsReport {
+  available: boolean;
+  unavailableReason: string | null;
+  sensors: SideEffectsSensor[];
+  limitations: string[];
+}
+
+export interface SideEffectsRow {
+  scope: string;
+  attribution: string | null;
+  sensor: string;
+  kind: string | null;
+  target: string | null;
+  callSite: string | null;
+  insideMethod: string | null;
+  origin: string | null;
+  location: string | null;
+  count: number;
+  failed: number;
+  completed: number;
+  nonZeroExits: number;
+  lastExitStatus: number | null;
+  totalMillis: number;
+  maxMillis: number;
+  firstSeen: number;
+  lastSeen: number;
+  exemplarRequestIds: string[];
+  client: string | null;
+  capture: string | null;
+  capturedBy: string | null;
+  leftRunning: number;
+  requests: number;
+  parameter: string | null;
+  detail: string | null;
+}
+
+export interface SideEffectsSensorReport {
+  available: boolean;
+  unavailableReason: string | null;
+  sensor: SideEffectsSensor | null;
+  rows: SideEffectsRow[];
+  page: { total: number; matched: number; offset: number; limit: number; returned: number; hasMore: boolean };
+  limitations: string[];
+}
