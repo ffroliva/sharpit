@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Collection, Sequence
@@ -14,6 +15,14 @@ from sharpit.engine.testsession.facts import TestFacts
 from sharpit.engine.testsession.report import clean_text
 
 SCHEMA = "sharpit-baseline/1"
+TEST_RUNTIME_PREFIX = "test-runtime:"
+
+
+def owner_of(node_id: str | None) -> str | None:
+    """A 16-hex digest of the owning test's node id; the baseline never stores the id itself."""
+    if node_id is None:
+        return None
+    return hashlib.sha256(node_id.encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -70,7 +79,12 @@ def read(path: Path) -> Baseline:
         fingerprint = row["fingerprint"]
         if fingerprint in entries:
             raise ValueError(f"duplicate fingerprint in baseline: {fingerprint}")
-        entries[fingerprint] = Entry(fingerprint, row["ruleId"], row["target"], row["message"], observed)
+        owner = row.get("owner")
+        if owner is not None and not isinstance(owner, str):
+            raise ValueError("baseline owner must be a string or null")
+        if not fingerprint.startswith(TEST_RUNTIME_PREFIX):
+            owner = None
+        entries[fingerprint] = Entry(fingerprint, row["ruleId"], row["target"], row["message"], observed, owner)
     return Baseline(entries, raw)
 
 
@@ -129,6 +143,7 @@ def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -
             "ruleId": e.rule_id,
             "message": e.message,
             "observed": e.observed,
+            "owner": e.owner,
         }
         for e in keep
     }
@@ -143,6 +158,7 @@ def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -
             "ruleId": finding.rule_id,
             "message": finding.message,
             "observed": finding.observed,
+            "owner": owner_of(finding.test_node_id),
         }
     payload = {"schema": SCHEMA, "findings": [rows[key] for key in sorted(rows)]}
     text = clean_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")  # same cleaning as the report

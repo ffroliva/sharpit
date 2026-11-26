@@ -275,3 +275,25 @@ def test_advisor_entry_is_written_without_owner(tmp_path) -> None:
     [row] = _written_rows(tmp_path, Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m"))
     assert "owner" in row
     assert row["owner"] is None
+
+
+def test_legacy_entry_reads_without_owner(tmp_path) -> None:
+    path = tmp_path / "baseline.json"
+    row = {
+        "fingerprint": "test-runtime:r:0123456789abcdef",
+        "ruleId": "r",
+        "target": "t",
+        "message": "m",
+        "observed": 1,
+    }
+    path.write_text(json.dumps({"schema": "sharpit-baseline/1", "findings": [row]}), encoding="utf-8")
+    [entry] = baseline.read(path).entries.values()
+    assert entry.owner is None
+
+
+def test_rewrite_of_own_output_is_byte_identical(tmp_path) -> None:
+    first = tmp_path / "first.json"
+    baseline.write(first, [_test_runtime_finding("tests/test_a.py::test_n1")])
+    again = tmp_path / "again.json"
+    baseline.write(again, [], keep=list(baseline.read(first).entries.values()))
+    assert again.read_bytes() == first.read_bytes()
