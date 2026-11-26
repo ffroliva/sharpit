@@ -129,8 +129,8 @@
     },
     {
       "name": "bootui.agent.security-sinks.request-values",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for agent_security_sinks_request_values"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.agent.sensors",
@@ -794,7 +794,7 @@
     {
       "name": "bootui.runtime-journal.sources",
       "status": "partial",
-      "difference": "default differs: BootUI=None; sharpit=('http', 'sql', 'transaction', 'connection', 'exception', 'security', 'authorization', 'rest-client', 'cache', 'messaging', 'scheduled', 'log', 'mail', 'fault-tolerance', 'ai', 'lifecycle', 'gc', 'resources', 'app-event', 'websocket', 'orm', 'agent.executors', 'agent.caught-exceptions', 'processes', 'files')"
+      "difference": "default differs: BootUI=None; sharpit=('http', 'sql', 'transaction', 'connection', 'exception', 'security', 'authorization', 'rest-client', 'cache', 'messaging', 'scheduled', 'log', 'mail', 'fault-tolerance', 'ai', 'lifecycle', 'gc', 'resources', 'app-event', 'websocket', 'orm', 'agent.executors', 'agent.caught-exceptions', 'processes', 'files', 'security-sinks')"
     },
     {
       "name": "bootui.security-logs.max-logs",
