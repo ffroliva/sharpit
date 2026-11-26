@@ -68,6 +68,21 @@ def isolated_default_state_dir(tmp_path: Path, request: pytest.FixtureRequest) -
     )
 
 
+@pytest.fixture(autouse=True)
+def _real_audit_hook_not_armed() -> Iterator[None]:
+    """Catch tests that permanently arm the process-wide audit hook."""
+    from sharpit.engine.sensors import audit
+
+    was_installed = audit.hub._installed
+    uses_real_hook = audit.hub._add_hook is None
+    yield
+    if uses_real_hook and not was_installed and audit.hub._installed:
+        pytest.fail(
+            "test armed the process-wide real audit hook; use the hook fixture pattern "
+            "(replace audit.hub._add_hook with a recorder and call audit.hub.release() on teardown)"
+        )
+
+
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
 _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")
