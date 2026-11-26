@@ -380,6 +380,7 @@ def test_the_security_sinks_limitation_names_only_commands_and_file_paths() -> N
 
 
 def test_while_http_exchanges_is_hidden_route_rows_are_merged_without_request_ids() -> None:
+    # ported: SideEffectsServiceTests.whileHttpExchangesIsHiddenRouteRowsAreMergedWithoutRequestIds
     service, rows = _service_with_rows()
     for request_id in ("0000000000000001", "0000000000000002"):
         _append(rows, "processes", kind="start", target="python", requestId=request_id)
