@@ -8,6 +8,9 @@ drops its oldest row, counted.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Mapping
+from contextlib import suppress
+from typing import cast
 
 from sharpit.engine.capture.journal import Event, JournalSink
 
@@ -18,17 +21,16 @@ RINGED = ("processes", "files", "security-sinks")
 class SensorRows:
     def __init__(self) -> None:
         self._rings: dict[str, deque[dict[str, object]]] = {name: deque(maxlen=RING_CAPACITY) for name in RINGED}
-        self._dropped = dict.fromkeys(RINGED, 0)
-        self._cleared = dict.fromkeys(RINGED, 0)
+        self._dropped: dict[str, int] = dict.fromkeys(RINGED, 0)
+        self._cleared: dict[str, int] = dict.fromkeys(RINGED, 0)
 
     def append(self, row: dict[str, object]) -> None:
         source = row.get("source")
-        ring = self._rings.get(source) if isinstance(source, str) else None
-        if ring is None:
+        if not isinstance(source, str) or (ring := self._rings.get(source)) is None:
             return
         if len(ring) == RING_CAPACITY:
             # shortcut: two racing appends may count one drop twice or not at all; the count is advisory
-            self._dropped[source] += 1  # type: ignore[index]  # source is a ringed name here
+            self._dropped[source] += 1
         ring.append(row)
 
     def drain(self, sensor: str) -> list[dict[str, object]]:
@@ -66,9 +68,7 @@ class TeeSink:
         self._ring(dict(event))
         return self._journal.offer(event)
 
-    def offer_flat(
-        self, event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1
-    ) -> bool:
+    def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1) -> bool:
         self._ring(event)
         flat = getattr(self._journal, "offer_flat", None)
         return flat(event, size, started) if flat else self._journal.offer(event)
@@ -82,8 +82,6 @@ class TeeSink:
     def count_dropped(self, key: str) -> None:
         self._journal.count_dropped(key)
 
-    def _ring(self, row: dict[str, object]) -> None:
-        try:
-            self._rows.append(row)
-        except Exception:  # noqa: BLE001, S110 - publishing never raises into the host
-            pass
+    def _ring(self, row: Mapping[str, object]) -> None:
+        with suppress(Exception):  # publishing never raises into the host
+            self._rows.append(cast("dict[str, object]", row))
