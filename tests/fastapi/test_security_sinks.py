@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -29,11 +30,8 @@ SECURITY_SINKS_OPT_IN_REASON = (
 
 
 class Hook:
-    def __init__(self) -> None:
-        self.hooks: list[Any] = []
-
-    def __call__(self, hook: Any) -> None:
-        self.hooks.append(hook)
+    def __init__(self, hooks: list[Any]) -> None:
+        self.hooks = hooks
 
     def fire(self, event: str, *args: Any) -> None:
         for hook in self.hooks:
@@ -41,12 +39,8 @@ class Hook:
 
 
 @pytest.fixture
-def hook(monkeypatch: pytest.MonkeyPatch) -> Iterator[Hook]:
-    recorder = Hook()
-    monkeypatch.setattr(audit.hub, "_add_hook", recorder)
-    monkeypatch.setattr(audit.hub, "_installed", False)
-    yield recorder
-    audit.hub.release()
+def hook(recorded_audit_hook: list[Any]) -> Iterator[Hook]:
+    yield Hook(recorded_audit_hook)
 
 
 def _app(tmp_path: Path, **options: Any) -> tuple[FastAPI, SharpitHandle]:
@@ -354,3 +348,110 @@ def test_a_middleware_that_copies_the_scope_degrades_without_error(tmp_path: Pat
     assert [r["target"] for r in _rows(handle, "files")] == ["./reports/{q}.csv"]
     assert _rows(handle, "security-sinks") == ()
     assert _held(handle) == 0
+
+
+def test_a_second_install_records_a_path_its_matcher_does_not_own(tmp_path: Path, hook: Hook) -> None:
+    # scenario: plan-1 row 14
+    app_a = FastAPI()
+    app_b = FastAPI()
+    handle_a = install(
+        app_a,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        state_dir=str(tmp_path / "a"),
+        agent_sensors=("files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+    handle_b = install(
+        app_b,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        state_dir=str(tmp_path / "b"),
+        agent_sensors=("files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+
+    @app_a.get("/read/{name}")
+    def read_path(name: str) -> str:
+        hook.fire("open", f"reports/{name}.csv", "r", 0)
+        return name
+
+    with _client(app_a) as client:
+        assert client.get("/read/quarterly").status_code == 200
+    lane_a = handle_a.context.capture.sensors
+    lane_b = handle_b.context.capture.sensors
+    assert lane_a is not None
+    assert lane_b is not None
+    assert _rows(handle_a, "files")[0]["target"] == "./reports/{name}.csv"
+    assert _rows(handle_b, "files")[0]["target"] == "./reports/quarterly.csv"
+    assert "reports/quarterly.csv" in lane_b._sensors["files"]._seen
+    handle_a.uninstall_capture()
+    handle_b.uninstall_capture()
+
+
+def test_executor_and_raw_thread_file_events_are_recorded_without_redaction(tmp_path: Path, hook: Hook) -> None:
+    # scenario: plan-1 row 15
+    app, handle = _app(
+        tmp_path,
+        agent_sensors=("files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+
+    @app.get("/work")
+    async def work(q: str) -> str:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, hook.fire, "open", f"reports/{q}-executor.csv", "r", 0)
+        thread = threading.Thread(target=hook.fire, args=("open", f"reports/{q}-thread.csv", "r", 0))
+        thread.start()
+        thread.join()
+        return "ok"
+
+    with _client(app) as client:
+        assert client.get("/work?q=quarterly").status_code == 200
+    handle.uninstall_capture()
+    assert [row["target"] for row in _rows(handle, "files")] == [
+        "./reports/quarterly-executor.csv",
+        "./reports/quarterly-thread.csv",
+    ]
+    assert _rows(handle, "security-sinks") == ()
+
+
+def test_enabling_security_sinks_without_request_value_setting_keeps_the_existing_refusal(
+    tmp_path: Path, hook: Hook
+) -> None:
+    # scenario: plan-1 row 22
+    app, handle = _app(tmp_path, agent_sensors=("files",))
+    with _client(app) as client:
+        response = client.post(
+            f"{API}/cli/tools/enable_agent_sensor",
+            json={"id": "security-sinks"},
+        )
+    handle.uninstall_capture()
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": "The sharpit agent is not armed for this application, so its sensors cannot be switched: "
+        "This process runs without the sharpit agent. sharpit works without it; enable its sensors with"
+        " SHARPIT_AGENT_SENSORS to add agent-based evidence."
+    }
+
+
+def test_security_sinks_alone_installs_an_inert_audit_hook(tmp_path: Path, hook: Hook) -> None:
+    # scenario: plan-1 row 30
+    app, handle = _app(
+        tmp_path,
+        agent_sensors=("security-sinks",),
+        agent_security_sinks_request_values=True,
+    )
+    lane = handle.context.capture.sensors
+    assert lane is not None
+    assert lane.names == ("files", "security-sinks")
+    assert lane.is_on("files") is False
+    assert lane.is_on("security-sinks") is True
+    assert audit.hub.installed is True
+    assert len(hook.hooks) == 1
+    hook.fire("open", "reports/quarterly.csv", "r", 0)
+    assert _rows(handle, "files") == ()
+    assert _rows(handle, "security-sinks") == ()
+    handle.uninstall_capture()

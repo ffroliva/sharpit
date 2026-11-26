@@ -333,6 +333,23 @@ def test_raw_query_bytes_are_read_as_starlette_reads_them() -> None:
     assert match.names == ("q",)
 
 
+def test_a_non_bytes_query_string_is_skipped_but_path_values_are_read() -> None:
+    # scenario: plan-1 row 20
+    request = info(path={"name": "quarterly"})
+    assert request.scope is not None
+    request.scope["query_string"] = "q=needle"
+    match = RequestValues().match(request, "/reports/quarterly.csv/needle", "file")
+    assert match.names == ("name",)
+    assert match.flags == 0
+
+
+def test_a_request_without_query_or_path_values_inserts_no_entry() -> None:
+    # scenario: plan-1 row 21
+    held = RequestValues()
+    assert held.match(info(), "/reports/annual.csv", "file").names == ()
+    assert held.held() == 0
+
+
 @pytest.mark.parametrize("stage", ["_read_values", "_scan", "_redact"])
 @pytest.mark.parametrize("action", ["end", "clear"])
 def test_a_check_after_end_or_clear_publishes_and_inserts_nothing(

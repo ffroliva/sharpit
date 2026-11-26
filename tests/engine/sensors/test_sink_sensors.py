@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -165,6 +165,40 @@ def test_a_path_opened_300_times_publishes_one_sink_row_and_redacts_every_file_r
     assert {r["target"] for r in rows} == {"./reports/{name}.csv"}
 
 
+def test_common_four_character_query_values_redact_owned_file_rows() -> None:
+    # scenario: plan-1 row 18
+    rows = run(files("format=json&sort=name"), "open", "reports/json-name", "r", 0)
+    assert rows[0]["target"] == "./reports/{format}-{sort}"
+    assert [row["parameter"] for row in rows[1:]] == ["format", "sort"]
+
+
+def test_paths_past_the_check_budget_are_recorded_as_not_checked() -> None:
+    # scenario: plan-1 row 19
+    sensor = files("name=needle")
+    for index in range(256):
+        run(sensor, "open", f"reports/template-{index}.txt", "r", 0)
+    rows = run(sensor, "open", "reports/needle.csv", "r", 0)
+    assert rows[0]["target"] == NOT_CHECKED
+    assert len(rows) == 1
+
+
+def test_a_file_row_for_the_129th_request_is_recorded_without_a_match() -> None:
+    # scenario: plan-1 row 25
+    sensor = files("name=needle")
+    values = sensor_values(sensor)
+    for index in range(128):
+        request = info(f"name=value{index:02d}", request_id=f"{index + 1:016x}")
+        values.match(request, f"reports/value{index:02d}.csv", "file")
+    request = info("name=needle", request_id="f" * 16)
+    token = REQUEST.set(request)
+    try:
+        rows = [dict(row) for row in sensor.record("open", ("reports/needle.csv", "r", 0))]
+    finally:
+        REQUEST.reset(token)
+    assert len(rows) == 1
+    assert rows[0]["target"] == "./reports/needle.csv"
+
+
 def test_an_import_path_holding_a_value_is_left_out_and_spends_no_check() -> None:
     sensor = files("q=python")
     assert run(sensor, "open", os.path.join(sys.prefix, "python", "x.py"), "r", 0) == []
@@ -309,6 +343,55 @@ def test_an_explicit_executable_beside_one_string_is_checked_on_its_own() -> Non
     assert len(rows) > 1
     assert rows[1]["target"] == "(the executable)"
     assert "evil-tool" not in repr(rows)
+
+
+def test_an_explicit_executable_does_not_check_a_different_argv_zero_name() -> None:
+    # scenario: plan-1 row 26
+    rows = run(
+        processes("name=display-name"),
+        "subprocess.Popen",
+        "/usr/bin/actual",
+        ["display-name", "--version"],
+        None,
+        None,
+    )
+    assert len(rows) == 1
+    assert rows[0]["target"] == "actual"
+
+
+def test_an_os_system_assignment_value_counts_as_holding_the_program() -> None:
+    # scenario: plan-1 row 27
+    rows = run(processes("secret=shhh-value"), "os.system", "TOKEN=shhh-value app")
+    assert rows[0]["target"] == FROM_REQUEST_INPUT
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [("file1", "./reports/{file{n}}.csv")],
+)
+def test_collapsed_parameter_names_remain_intact_on_sink_rows(name: str, expected: str) -> None:
+    # scenario: plan-1 row 28
+    rows = run(files(f"{name}=quarterly"), "open", "reports/quarterly.csv", "r", 0)
+    assert rows[0]["target"] == expected
+    assert rows[1]["parameter"] == name
+
+
+def test_a_windows_joined_path_does_not_match_the_original_slash_value() -> None:
+    # scenario: plan-1 row 23
+    path = PureWindowsPath("reports") / "quarterly/report.csv"
+    rows = run(files("folder=quarterly/report"), "open", path, "r", 0)
+    assert len(rows) == 1
+    assert rows[0]["target"] == "./reports/quarterly/report.csv"
+
+
+def test_a_case_folded_file_system_does_not_case_fold_request_value_matching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # scenario: plan-1 row 31
+    monkeypatch.setattr(files_module, "_FOLD", True)
+    rows = run(files("name=Quarterly"), "open", "reports/quarterly.csv", "r", 0)
+    assert len(rows) == 1
+    assert rows[0]["target"] == "./reports/quarterly.csv"
 
 
 def test_a_matcher_that_matches_nothing_leaves_every_process_row_unchanged() -> None:
