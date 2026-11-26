@@ -1,0 +1,27 @@
+plan1:D1	adapted	BootUI uses owner slots and scopes; sharpit uses endpoint and dependency code objects on the current stack or parent greenlet. Work after endpoint return is outside ownership; eager child task first steps may count as owned.
+plan1:D2	adapted	BootUI checks ownership before value matching; sharpit matches first and walks frames only for a match. Unowned work emits no sink row but its checks consume request budgets and matching rows remain redacted.
+plan1:D3	adapted	BootUI reports command arguments uniformly; sharpit distinguishes argv elements, joined command strings, and explicit executables to avoid naming a program when a matched value belongs to it.
+plan1:D4	adapted	BootUI pushes path values before query values at handler time; sharpit reads scope values at first sink check, path parameters first.
+plan1:D5	adapted	Sharpit uses a per-process keyed blake2b only for emitted rows, non-blocking locks, and generation checks; request end and clear drop references without waiting.
+plan1:D6	adapted	Sharpit manually parses bounded query text, skips malformed value escapes, retains undecodable names by position, and replaces invalid decoded UTF-8.
+plan1:D7	adapted	Sharpit reads exact dict path_params only, accepts exact str/int/float/UUID values, and never invokes application conversion or mapping iteration.
+plan1:D8	adapted	Plan 2 adds the counters and row fields deferred from the journal-only implementation; status retains only output-facing counters. Process and file call sites are not shown in this release.
+plan2:N1	adapted	Secret-looking parameter names are masked at intake and shown as ****** in parameter and detail at every exposure; masked names on one target coalesce.
+plan2:N2	adapted	The implementation includes per-pattern file callSite; the conditional null fallback was not used. The 6 microsecond budget remains unchanged.
+plan2:O1	ported	Process and security-sinks rows have null origin; file origin follows the first outside-runtime and application frames using SideEffectOrigins rules.
+plan2:O2	ported	Unowned rows carry the hook thread name and the store normalizes it to a thread family for attribution.
+plan2:O6	ported	Clearing recording clears rings and store with a timestamp; idle and low-footprint suspension retain rows.
+plan2:O7	ported	Each ringed sensor is teed to its bounded Side Effects ring before journal source filtering; journal source selection does not hide its tab rows.
+plan2:F1	adapted	Coverage wording names command and file path sinks and SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES; SQL and outbound URL sinks are excluded.
+plan2:F2	adapted	The SQL-literal clause is omitted because this release has no SQL sink.
+plan2:F3	adapted	Call-site labels use Python module:qualname rather than Java Class#method.
+plan2:F4	adapted	Holder counters describe requests reaching a sink check; dropped is per sensor ring overflow; notKept stays zero because sharpit has no intern table. Plan 1 D8 is updated accordingly.
+plan2:F5	adapted	Process exit and lifetime fields remain zero or null because the audit hook has no process-exit event.
+plan2:F6	adapted	Rows drain and route resolution occurs on reads from bounded per-sensor rings; a row whose HTTP event was evicted resolves to (unknown route) after the wait.
+plan2:F7	adapted	Attribution is masked per path segment at output; an untemplated request uses the capture-reduced request path.
+plan2:F8	adapted	Startup readiness is the completion of host lifespan startup; without a lifespan rows are not assigned to startup.
+plan2:F9	adapted	The security-sinks catalogue label says request input reaching commands and file paths only.
+plan2:F10	adapted	Origins are limited to application, library, and unknown; Python has no JDK, logging-origin, or class-path categories.
+plan2:F11	adapted	Limitations describe Python interpreter files, absent process-exit data, and route/startup/thread-family attribution instead of JVM files and class loaders.
+plan2:O5	adapted	Secret-looking placeholder names are masked at target output under every exposure, as covered by the secret-shaped path handling.
+plan2:O8	adapted	No journal-clear action is added. clear_recording remains unwired in production until a supported journal clear exists; no new action is introduced.

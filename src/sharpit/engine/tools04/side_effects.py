@@ -34,13 +34,14 @@ TOOLS = (
         "only while a side-effects sensor records. Every sensor first, with its coverage (recording, disabled, "
         "not-available in this version), without its hooks or, when none of its rows is listed, its fixed limitations "
         "unless query names that sensor, then at most limit (20) rows, most frequent first, matching query: a sensor "
-        "id such as processes, files, or security-sinks, or part of a route, target, parameter, or call site. A row "
-        "is attributed to a request's route, startup, or a thread family, with the call site, counts, failures, "
+        "id such as processes, files, or security-sinks, or part of a route, target, or parameter. A row "
+        "is attributed to a request's route, startup, or a thread family, with counts, failures, "
         "times, and up to three request ids. A process row names the command's file name only, never its arguments "
         "or environment; a file row a path pattern with its kind, location, and origin, never contents; a "
         "security-sinks row the command and argument index, or the file path pattern, that a request parameter's "
         "value reached unchanged, with that value redacted to {name}, the parameter's name, and a sentence stating "
-        "the fact, a check to perform in the code and never a vulnerability verdict.",
+        "the fact, a check to perform in the code and never a vulnerability verdict. Request-value matching is off "
+        "by default and checks commands and file paths only; SQL statements and outbound URLs are not checked.",
         _QUERY_LIMIT_20,
         "side-effects",
         False,

@@ -32,6 +32,11 @@ TOPICS = {
         "WSGI request target validation",
         "Validation of original request targets and the WSGI Host header",
     ),
+    "decision-003-request-values-in-memory": (
+        "docs/decisions/003-request-values-in-memory.md",
+        "Request values in memory",
+        "Bounded request-lifetime matching for command and file path sinks",
+    ),
 }
 
 
