@@ -91,7 +91,7 @@ def test_the_agent_report_filters_rows_and_clear_recording_drops_them() -> None:
 
     assert service.sensor("processes", None, None)["rows"] == []
     assert any(line.startswith("The recording was cleared") for line in service.limitations(cleared=True))
-    time.sleep(0.005)
+    time.sleep(0.3)  # the pending rows read their routes at most every 250 ms
     _process(rows, "git", at=time.time_ns() // 1_000_000)
     assert [row["target"] for row in service.sensor("processes", None, None)["rows"]] == ["git"]
 
@@ -192,7 +192,9 @@ def test_a_query_by_parameter_name_finds_its_row() -> None:
 def test_a_query_holding_a_masked_parameter_name_or_segment_matches_no_row(exposure: Exposure) -> None:
     service, rows = _service(exposure)
     _sink(rows, parameter=SECRET_NAME, target=f"./reports/{{{SECRET_NAME}}}.csv")
-    _sink(rows, requestId="fedcba9876543210", parameter=SECRET_NAME, target=f"./reports/{{{SECRET_NAME}}}.csv", rawHash=1)
+    _sink(
+        rows, requestId="fedcba9876543210", parameter=SECRET_NAME, target=f"./reports/{{{SECRET_NAME}}}.csv", rawHash=1
+    )
     _append(rows, "files", kind="write", target=f"/srv/{SECRET_NAME}/report.csv", location="/srv", origin="application")
 
     shown = service.agent_report(None, None)
