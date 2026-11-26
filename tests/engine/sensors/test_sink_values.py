@@ -411,3 +411,61 @@ def test_the_keyed_hash_reads_only_the_scanned_prefix_and_is_positive() -> None:
     assert keyed_hash(prefix + "x") == keyed_hash(prefix + "y")
     assert keyed_hash("a") != keyed_hash("b")
     assert 0 < keyed_hash("") < 2**63
+
+
+def test_counters_feed_the_holder_line() -> None:
+    held = RequestValues()
+    request = info("".join(f"p{i}=value-{i:02d}&" for i in range(33)) + f"long={'x' * 257}")
+    held.match(request, "z" * 300, "file")
+    held.match(request, "z" * 300 + "y", "command")
+    status = held.status()
+    assert status.get("requests", 0) == 1
+    assert status.get("checks", 0) == 2
+    assert status.get("valuesTooLong", 0) == 1
+    assert status.get("valuesOverCount", 0) == 1
+
+
+def test_a_full_table_counts_table_full() -> None:
+    held = RequestValues()
+    for i in range(ENTRIES + 1):
+        held.match(info(f"name=value{i}", request_id=f"{i + 1:016x}"), f"x/value{i}", "file")
+    assert held.status().get("tableFull", 0) == 1
+
+
+def test_stopped_partial_and_busy_are_counted() -> None:
+    held, request = RequestValues(), info("v=needle")
+    partial = held.match(request, "needle" + "x" * MAX_SCAN, "file")
+    assert partial.flags & F_PARTIAL
+    entry = held._entries[request.id]
+    with entry.lock:
+        busy = held.match(request, "needle", "file")
+    assert busy.flags == F_BUSY
+    for i in range(MAX_CHECKS + 1):
+        held.match(request, f"text {i}", "file")
+    assert held.status().get("partial", 0) == 1
+    assert held.status().get("busy", 0) == 1
+    assert held.status().get("stopped", 0) == 1
+
+
+def test_holder_counters_never_hold_a_value_or_name() -> None:
+    held = RequestValues()
+    held.match(info("secretname=needle1234"), "path/needle1234", "file")
+    status = held.status()
+    assert status.get("requests", 0) == 1
+    assert "secretname" not in repr(status)
+    assert "needle1234" not in repr(status)
+
+
+def test_status_keys_are_exactly_the_ones_an_output_reads() -> None:
+    assert tuple(RequestValues().status()) == (
+        "requests",
+        "tableFull",
+        "valuesTooLong",
+        "valuesOverCount",
+        "checks",
+        "partial",
+        "stopped",
+        "busy",
+        "notKept",
+        "dropped",
+    )

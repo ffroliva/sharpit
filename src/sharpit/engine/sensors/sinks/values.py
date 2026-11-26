@@ -371,6 +371,9 @@ class RequestValues:
     def held(self) -> int:
         return len(self._entries)
 
+    def status(self) -> dict[str, int]:
+        return {}
+
 
 def unchecked(match: Match) -> bool:
     """Whether a check that matched nothing compared nothing, or not the whole text (RequestValues.java:730)."""
