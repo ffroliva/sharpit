@@ -330,7 +330,7 @@ warning that names what was not read and says no finding is not proof there is n
 `--sharpit-app` (expected an app, a router or a zero-argument factory), no usable routes plus a limitation, a router or
 exception handler sharpit could not read, an errored scan or a rule that threw. An app with no routes and no limitation
 is confirmed empty and passes. These cases of lost capture stay `unknown`: no SQL source, a missing worker, a failed
-hook of the pytest plugin or of its session sink, and capture ended before the session did (a nested in-process
+hook of the pytest plugin or of its session sink that fails before the report is written, and capture ended before the session did (a nested in-process
 pytest run).
 
 ### Report-only mode and baselines
