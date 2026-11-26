@@ -99,3 +99,22 @@ def test_a_thread_name_holding_a_secret_never_reaches_its_family() -> None:
     from sharpit.engine.collectors.sideeffects.pending import thread_family
 
     assert "AKIAIOSFODNN7EXAMPLE" not in str(thread_family("worker-AKIAIOSFODNN7EXAMPLE"))
+
+
+def test_resolved_requests_leave_no_route_behind() -> None:
+    pending = Pending(lambda ids: {request_id: "GET /items" for request_id in ids}, lambda: 0)
+    request_ids = {f"r{index}" for index in range(20)}
+    for request_id in request_ids:
+        pending.add({"at": 1000}, request_id)
+
+    pending.resolve(1001)
+
+    assert pending._routes.keys().isdisjoint(request_ids)
+
+
+def test_a_secret_straddling_the_thread_family_cut_never_shows() -> None:
+    from sharpit.engine.collectors.sideeffects.pending import thread_family
+
+    family = thread_family("x" * 110 + "AKIAIOSFODNN7EXAMPLE")
+
+    assert "AKIA" not in str(family)
