@@ -21,7 +21,7 @@ from typing import Any, NamedTuple, cast
 
 from sharpit.engine import sqltext
 from sharpit.engine.capture.errortext import mask_error
-from sharpit.engine.capture.frames import is_application_frame
+from sharpit.engine.capture.frames import first_application_frame
 from sharpit.engine.capture.sqlscan import Normalized, normalize, normalize_sql
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
@@ -105,35 +105,16 @@ def _starting_call_site_frame() -> FrameType | None:
             return None
 
 
-def _greenlet_parent() -> Any:
-    """The current greenlet's parent, or None when greenlet is not loaded or the current greenlet has none."""
-    greenlet_module = sys.modules.get("greenlet")
-    if greenlet_module is None:
-        return None
-    return getattr(greenlet_module.getcurrent(), "parent", None)
-
-
 def call_site(frame: FrameType | None) -> str | None:
     """The first application frame as ``module:function:line``, walking at most 64 frames; an ``AsyncSession``
     statement runs in a greenlet holding only SQLAlchemy frames, so the walk continues into its parent."""
-    current = frame if frame is not None else _starting_call_site_frame()
-    parent: Any = None
-    greenlet_checked = False
-    for _ in range(MAX_CALL_SITE_FRAMES):
-        if current is None:
-            if not greenlet_checked:
-                parent = _greenlet_parent()
-                greenlet_checked = True
-            if parent is None:
-                return None
-            current, parent = parent.gr_frame, getattr(parent, "parent", None)
-            if current is None:
-                return None
-        code = current.f_code
-        if is_application_frame(code.co_filename):
-            return f"{current.f_globals.get('__name__', '?')}:{code.co_name}:{current.f_lineno}"
-        current = current.f_back
-    return None
+    app_frame = first_application_frame(
+        frame if frame is not None else _starting_call_site_frame(),
+        limit=MAX_CALL_SITE_FRAMES,
+    )
+    if app_frame is None:
+        return None
+    return f"{app_frame.f_globals.get('__name__', '?')}:{app_frame.f_code.co_name}:{app_frame.f_lineno}"
 
 
 # --- SqlTraceRecorder -----------------------------------------------------------------------------------------------
