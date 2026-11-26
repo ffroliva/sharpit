@@ -494,21 +494,17 @@ class RuntimeJournal:
         if not ids:
             return {}
         with self._lock:
-            events = tuple(
-                dict(event)
-                for event, _, _, _ in self._events
-                if event.get("source") == "http"
-                and event.get("requestId") in ids
-                and isinstance(event.get("route"), str)
-            )
-        return self._request_routes(events, ids)
+            events = tuple(self._events)
+        return self._request_routes(
+            (event for event, _, _, _ in events if event.get("source") == "http"), ids
+        )
 
     def _request_routes(self, events: Iterable[dict[str, object]], ids: AbstractSet[str]) -> dict[str, str]:
         routes: dict[str, str] = {}
         for event in events:
             request_id = event.get("requestId")
             route = event.get("route")
-            if isinstance(request_id, str) and isinstance(route, str):
+            if isinstance(request_id, str) and request_id in ids and isinstance(route, str):
                 routes[request_id] = route
                 if len(routes) == len(ids):
                     break
