@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.fastapi.adapter import SharpitHandle
 
+API = "/sharpit/api"
 SINKS = ("processes", "files", "security-sinks")
 HOLDER = "Request-value matching: "
 
@@ -100,3 +102,15 @@ def test_the_security_sinks_sensor_names_a_sink_whose_sensor_is_off(
     )
     reason = _sink_sensor(handle)["reason"]
     assert reason == "Checks commands through the processes sensor; not file paths: the files sensor is off."
+
+
+def test_the_lifespan_startup_does_not_move_the_overview_start_time(
+    tmp_path: Path, recorded_audit_hook: list[Any]
+) -> None:
+    app, handle = _app(tmp_path)
+    before = handle.context.started_at_ms
+    time.sleep(0.02)
+    with _client(app) as client:
+        started_at = client.get(f"{API}/overview").json()["run"]["startedAt"]
+    assert started_at == before
+    assert handle.context.capture.ready_at_ms is not None
