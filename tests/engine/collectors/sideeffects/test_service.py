@@ -389,3 +389,16 @@ def test_while_http_exchanges_is_hidden_route_rows_are_merged_without_request_id
     assert result[0]["attribution"] == "(unknown route)"
     assert result[0]["count"] == 2
     assert "requestId" not in result[0]
+
+
+def test_the_files_line_says_process_and_file_rows_carry_no_call_site() -> None:
+    line = next(line for line in SideEffectsService(None).limitations() if line.startswith("Files:"))
+    assert "Process and file rows carry no call site, and file rows report their origin as unknown." in line
+    assert "call site's frames" not in line
+
+
+def test_the_sinks_line_says_hand_off_work_is_checked_only_while_the_request_is_live() -> None:
+    line = next(line for line in SideEffectsService(None).limitations() if line.startswith("Security sinks:"))
+    assert "is checked only while the request is live" in line
+    assert "work that runs after the response completes, or after 60 seconds, is not checked" in line
+    assert "its rows keep the raw text" in line
