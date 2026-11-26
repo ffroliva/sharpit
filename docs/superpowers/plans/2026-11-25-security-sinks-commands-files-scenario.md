@@ -108,7 +108,7 @@ the cache's own property, that the code set is built once per route.
 | 26 | D3 | Explicit `executable` with a different `argv[0]` display name on POSIX | Low | `argv[0]` is not checked; it reaches no row | Unit |
 | 27 | D3 | A `NAME=value` prefix in `os.system` holding a value | Low | The span starts before the program ends, so the executable counts as holding a value: over-redaction, safe | Unit |
 | 28 | D3 | A placeholder whose parameter name has digits or is a 24-letter mixed-case word | Low | Collapsed by `_collapse` (`files.py:93-97`) to `{file{n}}` or `{id}` in the file row; the sink row's `parameter` keeps the name | Unit |
-| 29 | D4 | A float path parameter formatted differently by `str()` than in the URL (`10.50` against `10.5`) | Low | Not matched | Unit |
+| 29 | D4 | A float path parameter formatted differently by `str()` than in the URL (`10.50` against `10.5`) | Low | Matched as a substring, as BootUI's compare: the held text is str(value) (10.5) and it matches inside 10.50; over-redaction, the safe side | Unit |
 | 30 | D1 | Only `security-sinks` switched on, `files` off, `processes` not configured | Low | `attach` enables a sensor with no events: the hook is installed and inert (`lane.py:61-66`, `audit.py:49-55`) | Integration |
 | 31 | D3 | Case-folding file systems: a value differing in case from the path | Low | Not matched (verbatim) | Unit |
 
