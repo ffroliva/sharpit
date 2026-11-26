@@ -48,7 +48,17 @@ def test_an_unknown_kind_takes_the_generic_sentence() -> None:
 
 def test_wording_constants_match_bootui() -> None:
     assert SEEN_ONCE == " Seen in one request so far."
+
+
+# adapted from: SinkWording.java OTHER (first sentence verbatim; sharpit has no recording clear, deviation plan2:O8)
+def test_the_other_row_keeps_bootuis_first_sentence() -> None:
+    assert OTHER.startswith(
+        "Request input reached more sinks than this table keeps apart; their parameters and sinks are counted here. "
+    )
+
+
+def test_the_other_row_tells_the_user_to_restart() -> None:
     assert OTHER == (
         "Request input reached more sinks than this table keeps apart; their parameters and"
-        " sinks are counted here. Clear the recording to see them again."
+        " sinks are counted here. Restart the application to see them again."
     )
