@@ -15,7 +15,7 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from sharpit.engine.capture.correlation import REQUEST
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo
 from sharpit.engine.sensors.sinks import (
     F_OVERFLOW,
     FROM_REQUEST_INPUT,
@@ -106,12 +106,13 @@ def _check_explicit_executable(
     matcher: SinkMatcher,
     program: str,
     sink_rows: list[Mapping[str, object]],
+    req: RequestInfo | None,
 ) -> str | None:
-    match = matcher.check(program, "command")
+    match = matcher.check(program, "command", req)
     if match is None:
         return None
     if match.names:
-        sink_rows.extend(matcher.rows("command", match, program, "(the executable)"))
+        sink_rows.extend(matcher.rows("command", match, program, "(the executable)", req))
         return FROM_REQUEST_INPUT
     return NOT_CHECKED if unchecked(match) else None
 
@@ -122,8 +123,9 @@ def _check_joined_command(
     command_name: str,
     executable: str | None,
     sink_rows: list[Mapping[str, object]],
+    req: RequestInfo | None,
 ) -> str | None:
-    match = matcher.check(command_line, "command")
+    match = matcher.check(command_line, "command", req)
     if match is None:
         return executable
     if match.names:
@@ -133,15 +135,14 @@ def _check_joined_command(
         if held:
             executable = FROM_REQUEST_INPUT
         target = "(the executable)" if executable is not None else command_name
-        sink_rows.extend(matcher.rows("command", match, command_line, target))
+        sink_rows.extend(matcher.rows("command", match, command_line, target, req))
         return executable
     if unchecked(match) and executable is None:
         return NOT_CHECKED
     return executable
 
 
-def _process_row(target: str, context_id: str | None) -> dict[str, object]:
-    req = _REQUEST_GET()
+def _process_row(target: str, context_id: str | None, req: RequestInfo | None) -> dict[str, object]:
     req_id = req.id if req is not None and (context_id is None or req.context_id == context_id) else None
     return {
         "source": SOURCE,
@@ -160,6 +161,7 @@ def _string_sink_rows(
     program: str | None,
     command_line: str,
     context_id: str | None = None,
+    req: RequestInfo | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     executable: str | None = None
     checking = False
@@ -167,14 +169,14 @@ def _string_sink_rows(
     try:
         checking = True
         if program is not None:
-            executable = _check_explicit_executable(matcher, program, sink_rows)
-        executable = _check_joined_command(matcher, command_line, command_name, executable, sink_rows)
+            executable = _check_explicit_executable(matcher, program, sink_rows, req)
+        executable = _check_joined_command(matcher, command_line, command_name, executable, sink_rows, req)
     except Exception:
         if checking and executable is None:
             executable = NOT_CHECKED
         sink_rows.clear()
     proc_target = executable if executable is not None else command_name
-    return (_process_row(proc_target, context_id), *sink_rows)
+    return (_process_row(proc_target, context_id, req), *sink_rows)
 
 
 def _argv_elements(program: object, argv: Sequence[object]) -> list[str]:
@@ -192,13 +194,14 @@ def _check_argv_elements(
     matcher: SinkMatcher,
     elements: list[str],
     command_name: str,
+    req: RequestInfo | None,
 ) -> tuple[str | None, list[Mapping[str, object]]]:
     executable: str | None = None
     sink_rows: list[Mapping[str, object]] = []
     size = min(len(elements), MAX_ARGUMENTS)
     for i in range(size):
         argument = elements[i]
-        match = matcher.check(argument, "command")
+        match = matcher.check(argument, "command", req)
         if match is None:
             if len(argument) >= MIN_LENGTH:
                 break
@@ -216,7 +219,7 @@ def _check_argv_elements(
             if executable is not None
             else f"{command_name}, argument {i}"
         )
-        sink_rows.extend(matcher.rows("command", match, argument, target))
+        sink_rows.extend(matcher.rows("command", match, argument, target, req))
     return executable, sink_rows
 
 
@@ -226,6 +229,7 @@ def _argv_sink_rows(
     program: object,
     argv: Sequence[object],
     context_id: str | None = None,
+    req: RequestInfo | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     elements = _argv_elements(program, argv)
     executable: str | None = None
@@ -233,13 +237,13 @@ def _argv_sink_rows(
     sink_rows: list[Mapping[str, object]] = []
     try:
         checking = True
-        executable, sink_rows = _check_argv_elements(matcher, elements, command_name)
+        executable, sink_rows = _check_argv_elements(matcher, elements, command_name, req)
     except Exception:
         if checking and executable is None:
             executable = NOT_CHECKED
         sink_rows.clear()
     proc_target = executable if executable is not None else command_name
-    row = _process_row(proc_target, context_id)
+    row = _process_row(proc_target, context_id, req)
     return (row, *sink_rows) if sink_rows else (row,)
 
 
@@ -262,19 +266,20 @@ class ProcessesSensor:
         )
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
-        if self._matcher is None:
-            target = self._target(event, args)
-            return (_process_row(target, self._context_id),) if target else ()
         target = self._target(event, args)
-        if target is None:
+        if not target:
             return ()
-        return self._record_matched(event, args, target)
+        req = _REQUEST_GET()
+        if self._matcher is None or req is None:
+            return (_process_row(target, self._context_id, req),)
+        return self._record_matched(event, args, target, req)
 
     def _record_matched(
         self,
         event: str,
         args: tuple[Any, ...],
         target: str | None = None,
+        req: RequestInfo | None = None,
     ) -> tuple[Mapping[str, object], ...]:
         if self._matcher is None:
             return ()
@@ -283,19 +288,21 @@ class ProcessesSensor:
             return ()
         if event == "os.system":
             command = _text(args[0]) if args else None
-            return _string_sink_rows(self._matcher, cmd_target, None, command, self._context_id) if command else ()
+            return _string_sink_rows(self._matcher, cmd_target, None, command, self._context_id, req) if command else ()
         where = _ARGV_AT.get(event)
         if not where or len(args) <= where[1]:
             return ()
         program, argv = args[where[0]], args[where[1]]
         if isinstance(argv, (list, tuple)):
-            return _argv_sink_rows(self._matcher, cmd_target, program, cast("Sequence[object]", argv), self._context_id)
+            return _argv_sink_rows(
+                self._matcher, cmd_target, program, cast("Sequence[object]", argv), self._context_id, req
+            )
         line = _text(cast("object", argv)) if isinstance(argv, (str, bytes)) else None
         prog_text = _text(program) if program is not None else None
         if line is not None:
-            return _string_sink_rows(self._matcher, cmd_target, prog_text, line, self._context_id)
+            return _string_sink_rows(self._matcher, cmd_target, prog_text, line, self._context_id, req)
         if prog_text is not None:
-            return _string_sink_rows(self._matcher, cmd_target, None, prog_text, self._context_id)
+            return _string_sink_rows(self._matcher, cmd_target, None, prog_text, self._context_id, req)
         return ()
 
     @staticmethod

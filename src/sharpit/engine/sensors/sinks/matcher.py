@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from sharpit.engine.capture.correlation import INTERNAL, REQUEST
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, RequestInfo
 from sharpit.engine.sensors.sinks.values import (
     F_BUSY,
     F_SEEN,
@@ -22,6 +22,7 @@ _EMPTY_SCOPE: Mapping[str, Any] = {}
 _BUSY = Match((), (), F_BUSY, None, frozenset())
 _INTERNAL_GET = INTERNAL.get
 _REQUEST_GET = REQUEST.get
+_UNSET: Any = object()
 
 
 def _no_owner(scope: Mapping[str, Any]) -> str | None:
@@ -46,28 +47,26 @@ class SinkMatcher:
             owner if owns is None else (lambda scope: "" if owns(scope) else None)
         )
 
-    def check(self, text: str, kind: Kind) -> Match | None:
+    def check(self, text: str, kind: Kind, request: RequestInfo | None = _UNSET) -> Match | None:
         # ported: RequestValues.java:680-725, check order per spec
         if not self._on():
             return None
-        if _INTERNAL_GET():
-            return None
-        request = _REQUEST_GET()
-        if request is None:
-            return None
-        if request.context_id != self._context_id:
-            return None
-        if len(text) < MIN_LENGTH:
+        if request is _UNSET:
+            request = _REQUEST_GET()
+        if request is None or request.context_id != self._context_id or len(text) < MIN_LENGTH or _INTERNAL_GET():
             return None
         try:
             return self._values.match(request, text, kind)
         except Exception:
             return _BUSY
 
-    def rows(self, kind: Kind, match: Match, text: str, target: str | None) -> tuple[Row, ...]:
+    def rows(
+        self, kind: Kind, match: Match, text: str, target: str | None, request: RequestInfo | None = _UNSET
+    ) -> tuple[Row, ...]:
         if match.flags & F_SEEN or not match.names:
             return ()
-        request = REQUEST.get()
+        if request is _UNSET:
+            request = _REQUEST_GET()
         if request is None or request.context_id != self._context_id:
             return ()
         scope: Mapping[str, Any] = request.scope if request.scope is not None else _EMPTY_SCOPE

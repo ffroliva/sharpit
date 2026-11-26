@@ -22,7 +22,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from sharpit.engine.capture.correlation import REQUEST
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo
 from sharpit.engine.sensors.sinks import (
     FROM_REQUEST_INPUT,
     NOT_CHECKED,
@@ -133,8 +133,9 @@ def _other_home(path: str) -> int:
     return -1
 
 
-def _file_row(kind: str, target: str, location: str, context_id: str | None) -> dict[str, object]:
-    req = _REQUEST_GET()
+def _file_row(
+    kind: str, target: str, location: str, context_id: str | None, req: RequestInfo | None
+) -> dict[str, object]:
     req_id = req.id if req is not None and (context_id is None or req.context_id == context_id) else None
     return {
         "source": SOURCE,
@@ -255,21 +256,24 @@ class FilesSensor:
         if found is None:
             self.ignored += 1
             return ()
-        if self._matcher is not None:
+        req = _REQUEST_GET()
+        if self._matcher is not None and req is not None:
             if found is _MISS and self._is_skipped(_slashes(text)):
                 self.ignored += 1
                 return ()
             try:
-                match = self._matcher.check(text, "file")
+                match = self._matcher.check(text, "file", req)
             except Exception:
-                return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id),)
+                return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id, req),)
             if match is not None and (match.names or (match.flags and unchecked(match))):
-                return self._row_matched(kind, text, match)
+                return self._row_matched(kind, text, match, req)
         if found is not _MISS:
-            return (_file_row(kind, found[0], found[1], self._context_id),)
-        return self._row_unmatched(kind, text)
+            return (_file_row(kind, found[0], found[1], self._context_id, req),)
+        return self._row_unmatched(kind, text, req)
 
-    def _row_matched(self, kind: str, text: str, match: Match) -> tuple[Mapping[str, object], ...]:
+    def _row_matched(
+        self, kind: str, text: str, match: Match, req: RequestInfo | None
+    ) -> tuple[Mapping[str, object], ...]:
         if unchecked(match):
             target, location = NOT_CHECKED, "elsewhere"
         elif match.redacted is None:
@@ -279,11 +283,11 @@ class FilesSensor:
             target, location = (
                 resolved if resolved is not None else (self._finish(_slashes(match.redacted)), "elsewhere")
             )
-        file_row = _file_row(kind, target, location, self._context_id)
-        sink_rows = self._matcher.rows("file", match, text, target) if self._matcher and match.names else ()
+        file_row = _file_row(kind, target, location, self._context_id, req)
+        sink_rows = self._matcher.rows("file", match, text, target, req) if self._matcher and match.names else ()
         return (file_row, *sink_rows)
 
-    def _row_unmatched(self, kind: str, text: str) -> tuple[Mapping[str, object], ...]:
+    def _row_unmatched(self, kind: str, text: str, req: RequestInfo | None) -> tuple[Mapping[str, object], ...]:
         seen = self._seen
         found = seen.get(text, _MISS)  # one lookup: another thread may clear the cache between two
         if found is _MISS:
@@ -293,7 +297,7 @@ class FilesSensor:
         if found is None:
             self.ignored += 1
             return ()
-        return (_file_row(kind, found[0], found[1], self._context_id),)
+        return (_file_row(kind, found[0], found[1], self._context_id, req),)
 
     def _full_path(self, text: str) -> str:
         full = text if _is_absolute(text) else f"{self._cwd.rstrip('/')}/{text}"
