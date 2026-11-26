@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, NoReturn, cast
 
 from sharpit import __version__
+from sharpit.engine.collectors.sideeffects.store import RINGED
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
@@ -164,15 +165,25 @@ def _raise_unlisted_tool(settings: Any, name: str, contracts: Any) -> NoReturn:
     raise contracts.RpcError(contracts.INVALID_PARAMS, message)
 
 
-def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any, settings: Any) -> Tool:
+def advertised(ctx: SharpitContext, tool: Tool, via: Via = "mcp") -> bool:
+    """Whether ``via`` lists and serves ``tool``: an agent-sensor tool only while a side-effects sensor records.
+
+    ``JavaAgentPresence``: BootUI advertises those tools, and their CLI commands, only while the agent's sensor records.
+    """
+    if via == "mcp" and not tool.on_mcp:
+        return False
+    if tool.name not in AGENT_SENSOR_TOOLS:
+        return True
+    lane = getattr(ctx.capture, "sensors", None)
+    return lane is not None and any(lane.is_on(sensor) for sensor in RINGED)
+
+
+def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any, ctx: SharpitContext) -> Tool:
     if not isinstance(name, str) or not name:
         raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing tool name")
-    tool = next(
-        (t for t in catalogue if t.name == name and (via == "cli" or t.on_mcp)),
-        None,
-    )
+    tool = next((t for t in catalogue if t.name == name and advertised(ctx, t, via)), None)
     if tool is None:
-        _raise_unlisted_tool(settings, name, contracts)
+        _raise_unlisted_tool(ctx.settings, name, contracts)
     return tool
 
 
@@ -208,7 +219,7 @@ def call_tool(
     """The tool's payload, or ``RpcError`` (protocol error) / ``ToolCallError`` (in-band refusal)."""
     contracts = _contracts()
     catalogue = contracts.TOOLS if tools is None else tools
-    tool = _find_tool(catalogue, name, via, contracts, call.ctx.settings)
+    tool = _find_tool(catalogue, name, via, contracts, call.ctx)
     checked = _checked_tool_arguments(tool, args, contracts)
     settings = call.ctx.settings
     flags = settings.panels.get(tool.panel, PanelSettings())
@@ -246,6 +257,8 @@ def cli_status(ctx: SharpitContext, api_path: str | None = None) -> dict[str, An
     settings = ctx.settings
     infos: list[dict[str, Any]] = []
     for tool in contracts.TOOLS if settings.cli_enabled else ():
+        if not advertised(ctx, tool, "cli"):
+            continue
         arguments = list(tool.input_schema["properties"])
         info = tool_info(ctx, tool)
         infos.append(  # field by field: BootUI's CliToolInfo key order, which test_cli_status_shape pins

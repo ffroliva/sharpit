@@ -11,6 +11,11 @@ from sharpit.engine.collectors.sideeffects.agent_report import (
     LIMITATION_FILES,
     LIMITATION_NETWORK,
     LIMITATION_VALUES,
+    agent_dto,
+    agent_limitations,
+    clamp,
+    matching,
+    no_match_line,
 )
 from sharpit.engine.collectors.sideeffects.store import RINGED, SideEffectsStore
 from sharpit.engine.sensors.floor import (
@@ -172,7 +177,14 @@ class SideEffectsService:
             "thread's family. Work handed to another thread without sharpit's request context shows under its "
             "thread's family."
         )
-        lines = [SIDE_EFFECTS_LIMITATIONS[0], LIMITATION_VALUES, LIMITATION_NETWORK, LIMITATION_FILES, sinks, attribution]
+        lines = [
+            SIDE_EFFECTS_LIMITATIONS[0],
+            LIMITATION_VALUES,
+            LIMITATION_NETWORK,
+            LIMITATION_FILES,
+            sinks,
+            attribution,
+        ]
         routes_hidden = kwargs.get("routes_hidden", False)
         folded = kwargs.get("folded", 0)
         cleared = kwargs.get("cleared", False) or self._clears > 0
@@ -216,13 +228,28 @@ class SideEffectsService:
             self._clears += 1
 
     def agent_report(self, query: str | None, limit: int | None) -> dict[str, Any]:
-        return {
-            "available": False,
-            "unavailableReason": "",
-            "query": (query or "").strip(),
-            "sensors": [],
-            "matched": 0,
-            "rows": [],
-            "omitted": 0,
-            "limitations": [],
-        }
+        """``SideEffectsService.agentReport``: every sensor's coverage, then the matching rows, most frequent first."""
+        asked = (query or "").strip()
+        report = self.report()
+        sensors = report["sensors"]
+        if not report["available"]:
+            return agent_dto(False, report["unavailableReason"], asked, sensors, [], 0, [])
+        by_sensor = any(sensor["id"] == asked for sensor in sensors)
+        with self.lock:
+            store = cast("SideEffectsStore", self.store)
+            store.drain()
+            built = [
+                display.row_dto(row, self.masker)
+                for sensor_id, _group, _label in SIDE_EFFECT_SENSORS
+                if sensor_id in RINGED and (not by_sensor or sensor_id == asked)
+                for row in store.rows_of(sensor_id)
+            ]
+        found = matching(built, asked, by_sensor)
+        listed = found[: clamp(limit)]
+        shown: set[str] = {str(row["sensor"]) for row in listed}
+        if by_sensor:
+            shown.add(asked)
+        limitations = agent_limitations(report["limitations"], shown)
+        if asked and not found:
+            limitations.append(no_match_line(asked))
+        return agent_dto(True, None, asked, sensors, listed, len(found), limitations)

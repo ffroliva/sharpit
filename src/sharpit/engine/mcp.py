@@ -34,6 +34,7 @@ from sharpit.engine.tools import (
     RpcError,
     Tool,
     ToolCallError,
+    advertised,
     call_tool,
     tool_gate,
     tool_info,
@@ -152,6 +153,10 @@ database scan contacts the configured database for metadata. Sharpit has no memo
 penetration probe, or method probe. Native-image and CRaC readiness are outside sharpit's observed
 capabilities. Do not generate traffic, install integrations, or loosen disabled/read-only policy to
 improve coverage.
+The sharpit agent's security-sinks sensor is opt-in: SHARPIT_AGENT_SENSORS lists security-sinks to record
+request input reaching commands and file paths, which also needs
+SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true. Read each sensor's coverage and reason; mark an unrecorded
+check unavailable rather than clean. Suggest the needed settings, but do not change them yourself.
 
 Discover and collect
 Confirm the application URL/API mount, framework, Python version, and profiles when available.
@@ -230,9 +235,13 @@ PROMPTS: tuple[Prompt, ...] = (
         "for get_exception_detail. Source none means neither retains it. Inspect get_live_activity for the relevant "
         "time window only when needed. For a slow or failing request whose entry is profileable, call "
         "get_request_profile with its id. If an exception appears, call get_exception_detail with its id or "
-        "exceptionGroupId. Correlate get_traces, get_sql_traces, and get_log_tail when relevant. Sharpit does not "
-        "record code-path or request-input-in-sink observations; mark those checks unavailable rather than "
-        "inferring safety. Treat advisor findings as checks to verify against source and effective configuration, "
+        "exceptionGroupId. Correlate get_traces, get_sql_traces, and get_log_tail when relevant. Sharpit records no "
+        "code-path observations, and request-input-in-sink observations only for commands and file paths, only while "
+        "the security-sinks sensor and request-value matching (SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true, off "
+        "by default) are on: a get_side_effects security-sinks row (request-input-in-sink) is a check to perform, "
+        "never a vulnerability verdict; a row seen in one request so far is weaker evidence, and an absent row is not "
+        "evidence of safety. SQL text and outbound URLs are not checked: mark an unrecorded check unavailable "
+        "rather than clean. Treat advisor findings as checks to verify against source and effective configuration, "
         "never as vulnerability verdicts. Correlate trace ids, request paths, SQL timings, and log timestamps. "
         "Separate observed evidence from hypotheses, note missing telemetry, and propose the smallest fix plus a "
         "verification step. Do not expose sensitive runtime data.",
@@ -428,7 +437,7 @@ class McpServer:
         ``api_path`` is the API prefix as the client reached it (root path included); the setting by default.
         """
         settings = self.ctx.settings
-        infos = [tool_info(self.ctx, t) for t in self.tools if t.on_mcp]
+        infos = [tool_info(self.ctx, t) for t in self.tools if advertised(self.ctx, t)]
         return {
             "enabled": self.enabled,
             "configuredMode": settings.mcp_enabled,
@@ -512,7 +521,9 @@ class McpServer:
             "initialize": self._initialize,
             "ping": lambda _params, _scope: {},
             "notifications/cancelled": self._cancelled,
-            "tools/list": lambda _params, _scope: {"tools": [_describe(t) for t in self.tools if t.on_mcp]},
+            "tools/list": lambda _params, _scope: {
+                "tools": [_describe(t) for t in self.tools if advertised(self.ctx, t)]
+            },
             "tools/call": lambda params, scope: self._call_tool(params, scope, host_loop_provider),
             "prompts/list": lambda _params, _scope: {
                 "prompts": [

@@ -89,7 +89,7 @@ tool.
 
 - `get_agent_status`: the sharpit agent's status; `NOT_ATTACHED` with its reason in this version, which ships no agent sensors. Never claims, installs or changes anything. CLI alias `agent status`.
 
-The sensor tools (`get_code_inventory`, `get_code_paths`, `start_method_probe`, `get_method_probe`, `get_side_effects`) are advertised only while the agent's sensor records, so never in this version: a call answers "Tool not available in this application: <tool>." with the panel's reason.
+The sensor tools (`get_code_inventory`, `get_code_paths`, `start_method_probe`, `get_method_probe`, `get_side_effects`) are advertised only while the agent's sensor records. `get_side_effects` is listed, over MCP and by `sharpit side-effects`, while a processes, files or security-sinks sensor records; the others are never listed in this version. A call to an unlisted tool answers "Tool not available in this application: <tool>." with the panel's reason.
 
 ### Advisors and security
 
