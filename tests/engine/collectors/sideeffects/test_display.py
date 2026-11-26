@@ -340,3 +340,17 @@ def test_no_row_key_holds_a_hash(exposure: Exposure) -> None:
     assert "redactedHash" not in dto
     for key in dto:
         assert "hash" not in key.lower()
+
+
+def test_display_asks_the_masker_through_its_public_method(monkeypatch: pytest.MonkeyPatch) -> None:
+    # display must not read the masker's private state: a renamed attribute would silently show the token
+    monkeypatch.setattr(Masker, "holds_never_shown", lambda self, text: True, raising=False)
+    masker = Masker(exposure=Exposure.MASKED, mask_secrets=False, token="console-token-secret-999")
+    assert display_parameter("harmless", masker) == "******"
+
+
+@pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.FULL])
+def test_a_parameter_name_holding_the_console_token_is_masked(exposure: Exposure) -> None:
+    token = "console-token-secret-999"
+    masker = Masker(exposure=exposure, mask_secrets=False, token=token)
+    assert display_parameter(f"x{token}y", masker) == "******"
