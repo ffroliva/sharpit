@@ -16,7 +16,7 @@ from sharpit.engine.sensors.rows import SensorRows
 def test_every_sensor_is_listed_in_tab_order_and_those_not_shipped_say_so() -> None:
     # ported: SideEffectsServiceTests.everySensorIsListedInTabOrderAndThoseNotShippedSaySo
     capture = SimpleNamespace(
-        sensors=SimpleNamespace(rows=SensorRows(), is_on=lambda _name: True),
+        sensors=SimpleNamespace(rows=SensorRows(), is_on=lambda _name: True, holder_status=lambda: None),
         journal=SimpleNamespace(request_routes=lambda _ids: {}),
     )
     report = SideEffectsService(capture, object()).report()
@@ -213,7 +213,7 @@ _ROUTES: dict[str, str] = {}
 def _service_with_rows() -> tuple[SideEffectsService, SensorRows]:
     _ROUTES.clear()
     rows = SensorRows()
-    lane = SimpleNamespace(rows=rows, is_on=lambda _name: True)
+    lane = SimpleNamespace(rows=rows, is_on=lambda _name: True, holder_status=lambda: None)
     capture = SimpleNamespace(
         sensors=lane,
         journal=SimpleNamespace(request_routes=lambda ids: {key: _ROUTES[key] for key in ids if key in _ROUTES}),
@@ -408,7 +408,7 @@ def test_the_sinks_line_says_hand_off_work_is_checked_only_while_the_request_is_
 
 def _hidden_service(*, http_journaled: bool, exchanges_enabled: bool) -> tuple[SideEffectsService, SensorRows]:
     rows = SensorRows()
-    lane = SimpleNamespace(rows=rows, is_on=lambda _name: True)
+    lane = SimpleNamespace(rows=rows, is_on=lambda _name: True, holder_status=lambda: None)
     journal = SimpleNamespace(request_routes=lambda _ids: {}, accepts=lambda source: http_journaled or source != "http")
     service = SideEffectsService(
         SimpleNamespace(sensors=lane, journal=journal),

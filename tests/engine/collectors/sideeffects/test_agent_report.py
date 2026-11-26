@@ -30,7 +30,7 @@ def _service(exposure: Exposure = Exposure.MASKED) -> tuple[SideEffectsService, 
     _ROUTES.clear()
     rows = SensorRows()
     capture = SimpleNamespace(
-        sensors=SimpleNamespace(rows=rows, is_on=lambda _name: True),
+        sensors=SimpleNamespace(rows=rows, is_on=lambda _name: True, holder_status=lambda: None),
         journal=SimpleNamespace(request_routes=lambda ids: {key: _ROUTES[key] for key in ids if key in _ROUTES}),
     )
     return SideEffectsService(capture, Masker(exposure=exposure, mask_secrets=True), ready_at=lambda: None), rows
