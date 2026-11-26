@@ -89,7 +89,7 @@
     'thread-locals': 'No thread local has been left set by a request or a job yet in this run.',
     resources: 'No resource has been left open after its request or reclaimed without close() in this run.',
     'security-sinks':
-      'No deserialization without a filter, weak algorithm, or trust manager seen, and no request input has reached SQL text, a command, a file path, or an outbound URL in this run.',
+      'No request input has reached a command or a file path in this run.',
   };
 
   const SCOPE_LABELS: Record<string, string> = {
