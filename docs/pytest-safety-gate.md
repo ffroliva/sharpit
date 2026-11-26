@@ -24,7 +24,8 @@ advisor does not count as having run for baselines: its baselined entries are ne
 
 A statement that the stdlib `sqlite3` driver refuses because it is not text did not run and is not counted. Any other
 statement that is not text (a query object passed to a cursor class or to SQLAlchemy's `exec_driver_sql`) cannot be
-read, and the run is `unknown`: pass the statement as text, or use `--sharpit-allow-unknown`.
+read, and the run is `unknown`: pass the statement as text, or use `--sharpit-allow-unknown`. SQLAlchemy reports
+`None`, `b""` and `0` as empty text, so such a call counts as one statement and does not make the run `unknown`.
 
 Pytest's exit status is preserved when pytest already returns non-zero. Sharpit changes a successful pytest exit (`0`)
 to `1` when the gate fails; it does not replace pytest's status for failing tests, interruption, an internal error, a
