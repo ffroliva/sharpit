@@ -74,6 +74,8 @@ class Pending:
             else:
                 waiting.append(item)
         self._waiting = waiting
+        waiting_ids = {item.request_id for item in waiting}
+        self._routes = {request_id: route for request_id, route in self._routes.items() if request_id in waiting_ids}
         return resolved
 
     def clear(self, cleared_at: int) -> None:
