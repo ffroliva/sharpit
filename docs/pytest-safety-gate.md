@@ -15,7 +15,7 @@ that names what was not read and says that having no finding at or above `--shar
 none, and a finding at or above the threshold still fails. Everything else stays `UNKNOWN`: an advisor with no usable
 routes and a limitation, a router or exception handler sharpit could not read, an errored scan or a rule that threw.
 An app with no routes and no limitation is confirmed empty and passes, as it has since 0.3.0. These cases of lost
-capture stay `unknown` whatever the advisors report: no SQL source, a missing worker, a failed hook of the
+capture stay `unknown` whatever the advisors report: no SQL source, a missing worker, a hook of the
 pytest plugin or of its session sink that fails before the report is written (the report lists the `pytest-plugin` source as not attached, for the worker or the `controller`), and
 capture ended before the session did, as a nested in-process pytest run (`pytest.main`,
 `pytester.runpytest_inprocess`) does; start such a run with `-p no:sharpit` or in a subprocess. A failed hook in one
