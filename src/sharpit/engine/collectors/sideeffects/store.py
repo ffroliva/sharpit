@@ -426,6 +426,10 @@ class SideEffectsStore:
                 hidden += 1
         return hidden
 
+    def dropped(self, sensor: str) -> int:
+        """Return the observations of sensor the pending list had no room for (SideEffectsStore.dropped)."""
+        return self.pending.dropped_by_sensor.get(sensor, 0) if self.pending is not None else 0
+
     def folded(self) -> int:
         """Return operations counted in Other rows."""
         return self._folded

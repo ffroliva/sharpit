@@ -103,7 +103,7 @@ class SideEffectsService:
             if sensor_id in RINGED:
                 count, occurrences = store.counts(sensor_id)
                 state, reason = self._state(sensor_id)
-                dropped = lane.rows.dropped(sensor_id)
+                dropped = lane.rows.dropped(sensor_id) + store.dropped(sensor_id)
             else:
                 state, reason, count, occurrences, dropped = (
                     "not-available",
@@ -198,7 +198,7 @@ class SideEffectsService:
             store = cast("SideEffectsStore", self.store)
             count, occurrences = store.counts(wanted)
             state, reason = self._state(wanted)
-            dropped = lane.rows.dropped(wanted)
+            dropped = lane.rows.dropped(wanted) + store.dropped(wanted)
         else:
             state, reason, count, occurrences, dropped = "not-available", "Not available in this version.", 0, 0, 0
         return {

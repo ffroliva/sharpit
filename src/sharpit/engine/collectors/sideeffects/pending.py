@@ -50,6 +50,7 @@ class Pending:
         self.ready_at = ready_at
         self._waiting: list[_Waiting] = []
         self.dropped = 0
+        self.dropped_by_sensor: dict[str, int] = {}
         self._last_read = 0
         self._routes: dict[str, str] = {}
 
@@ -60,6 +61,8 @@ class Pending:
     def add(self, observation: Mapping[str, object], request_id: str | None) -> None:
         if len(self._waiting) >= MAX_PENDING:
             self.dropped += 1
+            sensor = str(observation.get("sensor") or observation.get("source") or "")
+            self.dropped_by_sensor[sensor] = self.dropped_by_sensor.get(sensor, 0) + 1
             return
         self._waiting.append(_Waiting(dict(observation), request_id))
 
