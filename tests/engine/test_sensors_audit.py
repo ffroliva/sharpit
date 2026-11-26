@@ -556,7 +556,7 @@ def test_a_failed_copy_does_not_hide_the_applications_next_open(tmp_path: Path) 
 # --- scenario 4: the journal takes both sensors' sources -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("source", ["processes", "files"])
+@pytest.mark.parametrize("source", ["processes", "files", "security-sinks"])
 def test_the_journal_accepts_each_sensors_source(source: str) -> None:
     assert source in JOURNAL_SOURCES
     journal = RuntimeJournal(sources=JOURNAL_SOURCES)

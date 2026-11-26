@@ -111,6 +111,7 @@ class SharpitSettings:
     runtime_journal_queue_capacity: int = 10_000
     runtime_journal_sources: tuple[str, ...] = _JOURNAL_SOURCES
     agent_sensors: tuple[str, ...] = ()  # none: BootUI's default set would leave a hook that cannot be removed (W6 S3)
+    agent_security_sinks_request_values: bool = False
     runtime_insights_ai_token_threshold: int = 8000  # tokens of one model call (AiUsageByRoute.java:35)
     resources_jfr_max_duration: float = 30.0  # 1s..600s; read by the resource-profile floor (W5c I2)
     # 0.4.0 panels: pre-created by lane F, inert until the owning lane reads them (F-foundation.md interface table)

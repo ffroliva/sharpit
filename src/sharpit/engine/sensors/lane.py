@@ -8,7 +8,7 @@ unbinds it, leaving the resident hook inert.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from sharpit.engine.capture.journal import JournalSink
@@ -72,12 +72,16 @@ class SensorLane:
 
     def pause(self, name: str) -> None:
         self._paused.add(name)
-        self._hub.disable(self._sensors[name])
+        if (sensor := self._sensors.get(name)) is not None:
+            self._hub.disable(sensor)
 
     def unpause(self, name: str) -> None:
         self._paused.discard(name)
         if self.attached:
             self.attach()
+
+    def request_ended(self, request_id: str) -> None:
+        del request_id
 
     def toggles(self) -> list[dict[str, Any]]:
         """``JavaAgentSensorToggleDto`` for each sensor this lane switches at run time."""
@@ -117,8 +121,13 @@ def build_lane(
     mask_path: Callable[[str], str],
     own: tuple[str, ...] = (),
     audit: AuditHub = hub,
+    *,
+    request_values: bool = False,
+    context_id: str = "",
+    owns: Callable[[Mapping[str, Any]], bool] = lambda scope: False,
 ) -> SensorLane | None:
     """The lane for ``configured`` sensors, or None: nothing configured, or no journal to offer to."""
+    del request_values, context_id, owns
     if not any(name in configured for name in BUILT) or sink is None:
         return None
     built: dict[str, Any] = {"processes": ProcessesSensor, "files": lambda: FilesSensor(mask_path, own=own)}
