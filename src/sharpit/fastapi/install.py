@@ -233,8 +233,7 @@ async def _lifespan(
         _lifespan_phase(ctx, "STARTUP")
         async with original(host_app) as state:
             _lifespan_phase(ctx, None)
-            ctx.started_at_ms = time.time_ns() // 1_000_000
-            ctx.capture.ready_at_ms = ctx.started_at_ms
+            ctx.capture.ready_at_ms = time.time_ns() // 1_000_000
             if ctx.startup_time_ms is None:
                 ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
                 ctx.startup.record("asgi.lifespan.startup", round((time.monotonic() - startup_started_at) * 1000))
