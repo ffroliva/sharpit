@@ -292,7 +292,7 @@ def _hook_warning(name: str) -> str:
 
 
 def test_a_hook_failure_marks_the_plugin_source_unattached_once() -> None:
-    """A failed hook lost facts: the plugin's own source is unattached, so the run cannot pass."""
+    """A failed hook lost facts: the plugin's own source is unattached, so the run is `unknown`."""
     sink = _sink()
     sink.begin_test(NODE)
     sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
@@ -384,6 +384,7 @@ def test_a_statement_the_stdlib_driver_refused_is_not_a_hook_failure() -> None:
         pytest.param(123, _raised_here(_HostTypeError("x")), "sqlite3", id="typeerror-subclass"),
         pytest.param(123, _raised_here(ValueError("x")), "sqlite3", id="another-error"),
         pytest.param(123, _raised_here(TypeError("x")), "sqlalchemy", id="another-source"),
+        pytest.param(123, TypeError("never raised"), "sqlite3", id="no-traceback"),
     ],
 )
 def test_a_statement_that_is_not_text_otherwise_stays_a_hook_failure(

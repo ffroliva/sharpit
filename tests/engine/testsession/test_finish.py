@@ -43,9 +43,11 @@ def _unknown_reasons(parts: list[SessionFacts], warnings: list[str]) -> list[str
 
 def test_a_serial_hook_failure_gives_one_reason() -> None:
     """In a serial run the controller is the only part: its failure is named once, for its own worker."""
-    assert _unknown_reasons([_failed_part("master")], [HOOK]) == [
-        "source 'pytest-plugin' not attached in worker master"
-    ]
+    data, _status, _reasons = finish(
+        [_failed_part("master")], [], options=OPTIONS, version="0.3.0", now_ms=1, warnings=[HOOK]
+    )
+    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker master"]
+    assert [source["name"] for source in data["sources"]].count("pytest-plugin") == 1
 
 
 def test_a_controller_hook_failure_makes_an_xdist_run_unknown() -> None:

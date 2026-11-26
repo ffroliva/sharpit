@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from importlib import util
 from pathlib import Path
 
 import pytest
+
+from sharpit.engine.testsession import outcome
 
 
 def _f5_app_source(player_count: int) -> str:
@@ -775,8 +778,15 @@ def test_n_plus_one():
 _REPORT_ARGS = ("--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q")
 
 
-def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester) -> None:
-    """The sink's own SQL hook fails on every statement: the N+1 is never seen, so the run cannot pass."""
+def _without_driver_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An in-process run shares this process's modules: a driver another test imported would add its own reason."""
+    for module in outcome.DRIVER_DIALECTS:
+        monkeypatch.delitem(sys.modules, module, raising=False)
+
+
+def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The sink's own SQL hook fails on every statement: the N+1 is not counted, so the run is `unknown`."""
+    _without_driver_modules(monkeypatch)
     pytester.makeconftest(
         """
         import pytest
@@ -795,14 +805,15 @@ def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester) -> 
     result = pytester.runpytest_inprocess(*_REPORT_ARGS)
 
     data = json.loads((pytester.path / "report.json").read_text())
-    # in process, drivers other tests imported add their own reasons: only the plugin's are this test's
-    plugin = [reason for reason in data["unknownReasons"] if "'pytest-plugin'" in reason]
-    assert plugin == ["source 'pytest-plugin' not attached in worker master"]
+    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker master"]
     assert result.ret == 1
 
 
-def test_a_statement_sqlite3_refused_is_no_hook_failure(pytester: pytest.Pytester) -> None:
+def test_a_statement_sqlite3_refused_is_no_hook_failure(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The stdlib driver refuses a statement that is not text before anything runs: the run stays known."""
+    _without_driver_modules(monkeypatch)
     pytester.makepyfile(
         """
         import sqlite3
@@ -816,15 +827,16 @@ def test_a_statement_sqlite3_refused_is_no_hook_failure(pytester: pytest.Pyteste
         """
     )
 
-    pytester.runpytest_inprocess(*_REPORT_ARGS)
+    result = pytester.runpytest_inprocess(*_REPORT_ARGS)
 
     data = json.loads((pytester.path / "report.json").read_text())
     assert [warning for warning in data["warnings"] if "hook failed" in warning] == []
-    assert [source for source in data["sources"] if source["name"] == "pytest-plugin"] == []
+    assert data["status"] == "pass"
+    assert result.ret == 0
 
 
 def test_a_nested_in_process_pytest_run_makes_the_outer_run_unknown(pytester: pytest.Pytester) -> None:
-    """An inner ``pytest.main`` detaches the outer session's capture; the N+1 after it is lost, so it cannot pass."""
+    """An inner ``pytest.main`` detaches the outer session's capture; the N+1 after it is lost, so it is `unknown`."""
     (pytester.path / "inner_check.py").write_text("def test_inner():\n    pass\n")
     nested = (
         "import pathlib\nimport pytest\n\n"

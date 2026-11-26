@@ -248,12 +248,15 @@ def test_xdist_snapshot_suppresses_worker_autodetect(pytester: pytest.Pytester) 
 
 
 def test_a_failed_sink_hook_in_a_worker_makes_the_run_unknown(pytester: pytest.Pytester) -> None:
-    """The worker's SQL hook fails on every statement: its part names the lost source, so the run cannot pass."""
+    """A worker's SQL hook and the controller's final snapshot fail: each is named, so the run is `unknown`."""
     pytester.makeconftest(
         """
         from sharpit.engine.testsession import sink
         def broken(*args, **kwargs): raise RuntimeError('injected')
         sink.filtered_rule = broken
+        def pytest_configure(config):
+            if not hasattr(config, "workerinput"):  # the controller only: its report keeps every worker part
+                sink.TestSessionSink.snapshot_apps = broken
         """
     )
     pytester.makepyfile(
@@ -273,5 +276,8 @@ def test_a_failed_sink_hook_in_a_worker_makes_the_run_unknown(pytester: pytest.P
     )
 
     data = json.loads((pytester.path / "report.json").read_text())
-    assert data["unknownReasons"] == ["source 'pytest-plugin' not attached in worker gw0"]
+    assert data["unknownReasons"] == [
+        "source 'pytest-plugin' not attached in worker gw0",
+        "source 'pytest-plugin' not attached in worker controller",
+    ]
     assert result.ret == 1

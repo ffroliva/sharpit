@@ -33,11 +33,12 @@ def _plugin_reasons(sink: TestSessionSink) -> list[str | None]:
     return [source["reason"] for source in sink.facts.sources if source["name"] == "pytest-plugin"]
 
 
-def test_capture_detached_before_the_session_ended_makes_the_run_unknown() -> None:
-    """A nested in-process pytest run detaches the outer session's capture: the outer run cannot pass."""
+@pytest.mark.parametrize("another_sink", [False, True], ids=["detached", "another-sink"])
+def test_capture_detached_before_the_session_ended_makes_the_run_unknown(another_sink: bool) -> None:
+    """A nested in-process pytest run detaches or replaces the outer session's capture: the run is `unknown`."""
     state = SimpleNamespace(sink=TestSessionSink("master"), sqlite_attached=False)
     previous = dispatch.session_sink()
-    dispatch.set_session_sink(None)
+    dispatch.set_session_sink(TestSessionSink("master") if another_sink else None)
     try:
         pytest_plugin._final_facts(state)  # type: ignore[arg-type]
     finally:
