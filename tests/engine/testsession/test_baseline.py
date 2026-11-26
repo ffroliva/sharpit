@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -204,3 +206,72 @@ def test_baseline_entry_in_an_unread_mount_is_neither_fixed_nor_dropped(tmp_path
     assert result["fixed"] is None
     assert result["fixedReason"] == "advisor assessed part of the app: rest-api"
     assert [entry.fingerprint for entry in carried] == [in_mount.fingerprint]
+
+
+# --- the entry names its owner (#329) -------------------------------------------------------------------------------
+
+
+def _test_runtime_finding(node_id: str) -> Finding:
+    return Finding(
+        "sharpit.n-plus-one", "test-runtime", "HIGH", "SELECT 1", "masked message", test_node_id=node_id, observed=30
+    )
+
+
+def _written_rows(tmp_path, *findings: Finding) -> list[dict]:
+    path = tmp_path / "baseline.json"
+    baseline.write(path, findings)
+    return json.loads(path.read_text(encoding="utf-8"))["findings"]
+
+
+def test_written_entry_names_its_owner(tmp_path) -> None:
+    [row] = _written_rows(tmp_path, _test_runtime_finding("tests/test_a.py::test_n1"))
+    assert row.get("owner") == hashlib.sha256(b"tests/test_a.py::test_n1").hexdigest()[:16]
+
+
+def test_read_keeps_the_owner(tmp_path) -> None:
+    path = tmp_path / "baseline.json"
+    row = {
+        "fingerprint": "test-runtime:r:0123456789abcdef",
+        "ruleId": "r",
+        "target": "t",
+        "message": "m",
+        "observed": 1,
+        "owner": "0123456789abcdef",
+    }
+    path.write_text(json.dumps({"schema": "sharpit-baseline/1", "findings": [row]}), encoding="utf-8")
+    [entry] = baseline.read(path).entries.values()
+    assert entry.owner == "0123456789abcdef"
+
+
+@pytest.mark.parametrize("owner", [1, True, []], ids=["int", "bool", "list"])
+def test_read_rejects_an_owner_that_is_not_a_string(tmp_path, owner: object) -> None:
+    path = tmp_path / "baseline.json"
+    row = {
+        "fingerprint": "test-runtime:r:0123456789abcdef",
+        "ruleId": "r",
+        "target": "t",
+        "message": "m",
+        "observed": 1,
+        "owner": owner,
+    }
+    path.write_text(json.dumps({"schema": "sharpit-baseline/1", "findings": [row]}), encoding="utf-8")
+    caught: ValueError | None = None
+    try:
+        baseline.read(path)
+    except ValueError as exc:
+        caught = exc
+    assert caught is not None
+    assert str(caught) == "baseline owner must be a string or null"
+
+
+def test_written_owner_has_no_node_id_text(tmp_path) -> None:
+    [row] = _written_rows(tmp_path, _test_runtime_finding("tests/test_a.py::test_login[password=hunter2secret]"))
+    owner = str(row.get("owner"))
+    assert re.fullmatch(r"[0-9a-f]{16}", owner)
+    assert "hunter2secret" not in owner
+
+
+def test_advisor_entry_is_written_without_owner(tmp_path) -> None:
+    [row] = _written_rows(tmp_path, Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m"))
+    assert "owner" in row
+    assert row["owner"] is None
