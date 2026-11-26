@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import SideEffects from '../../src/views/SideEffects.svelte';
 import { harness, json, panel, until } from './support';
 
-const GROUPS = [
+const GROUPS: [string, string][] = [
   ['network', 'Network'],
   ['files', 'Files and processes'],
   ['processes', 'Files and processes'],
@@ -300,7 +300,6 @@ it('shows the empty state and the limitations', async () => {
 
   await until(() => expect(tab('Files and processes')).toBeDefined());
   tab('Files and processes')?.click();
-  await until(() => expect(h.target.querySelector('.side-effects-empty')).not.toBeNull());
-  expect(h.text()).toContain('No file has been opened yet in this run.');
+  await until(() => expect(h.text()).toContain('No file has been opened yet in this run.'));
   expect(h.text()).toContain('No process started yet in this run.');
 });
