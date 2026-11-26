@@ -22,10 +22,26 @@ class SensorRows:
         self._cleared = dict.fromkeys(RINGED, 0)
 
     def append(self, row: dict[str, object]) -> None:
-        pass
+        source = row.get("source")
+        ring = self._rings.get(source) if isinstance(source, str) else None
+        if ring is None:
+            return
+        if len(ring) == RING_CAPACITY:
+            # shortcut: two racing appends may count one drop twice or not at all; the count is advisory
+            self._dropped[source] += 1  # type: ignore[index]  # source is a ringed name here
+        ring.append(row)
 
     def drain(self, sensor: str) -> list[dict[str, object]]:
-        return []
+        ring = self._rings.get(sensor)
+        if ring is None:
+            return []
+        taken: list[dict[str, object]] = []
+        for _ in range(len(ring)):
+            try:
+                taken.append(ring.popleft())
+            except IndexError:  # another reader emptied it
+                break
+        return taken
 
     def dropped(self, sensor: str) -> int:
         return self._dropped.get(sensor, 0)
@@ -34,7 +50,9 @@ class SensorRows:
         return self._cleared.get(sensor, 0)
 
     def clear(self, sensor: str, now: int) -> None:
-        pass
+        if (ring := self._rings.get(sensor)) is not None:
+            ring.clear()
+            self._cleared[sensor] = now
 
 
 class TeeSink:
@@ -45,19 +63,27 @@ class TeeSink:
         self._rows = rows
 
     def offer(self, event: Event) -> bool:
+        self._ring(dict(event))
         return self._journal.offer(event)
 
     def offer_flat(
         self, event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1
     ) -> bool:
+        self._ring(event)
         flat = getattr(self._journal, "offer_flat", None)
         return flat(event, size, started) if flat else self._journal.offer(event)
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
-        return ()
+        return self._journal.records(source)
 
     def accepts(self, source: str) -> bool:
-        return False
+        return self._journal.accepts(source)
 
     def count_dropped(self, key: str) -> None:
-        pass
+        self._journal.count_dropped(key)
+
+    def _ring(self, row: dict[str, object]) -> None:
+        try:
+            self._rows.append(row)
+        except Exception:  # noqa: BLE001, S110 - publishing never raises into the host
+            pass

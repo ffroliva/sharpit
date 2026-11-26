@@ -16,7 +16,7 @@ from sharpit.engine.sensors.audit import AuditHub, Sensor, hub
 from sharpit.engine.sensors.files import FilesSensor
 from sharpit.engine.sensors.floor import DEFAULT_REASONS, SWITCHABLE_SENSORS
 from sharpit.engine.sensors.processes import ProcessesSensor
-from sharpit.engine.sensors.rows import SensorRows
+from sharpit.engine.sensors.rows import SensorRows, TeeSink
 from sharpit.engine.sensors.sinks import SecuritySinksSensor, SinkMatcher
 
 BUILT = ("processes", "files", "security-sinks")  # the sensors this version builds
@@ -49,7 +49,12 @@ class SensorHook:
 
 class SensorLane:
     def __init__(
-        self, sensors: list[Sensor], sink: JournalSink, audit: AuditHub = hub, configured: tuple[str, ...] | None = None
+        self,
+        sensors: list[Sensor],
+        sink: JournalSink,
+        audit: AuditHub = hub,
+        configured: tuple[str, ...] | None = None,
+        rows: SensorRows | None = None,
     ) -> None:
         self._sensors = {sensor.name: sensor for sensor in sensors}
         self._configured = frozenset(self._sensors if configured is None else configured)
@@ -60,7 +65,7 @@ class SensorLane:
         self._off = {name for name in self._sensors if name in SWITCHABLE and name not in self._configured}
         self._matcher: SinkMatcher | None = getattr(self._sensors.get("security-sinks"), "matcher", None)
         self.attached = False
-        self.rows = SensorRows()
+        self.rows = rows or SensorRows()
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -172,5 +177,6 @@ def build_lane(
         built["security-sinks"] = lambda: SecuritySinksSensor(matcher)
     # a switchable sensor is built even when not configured, off: the action may switch it on (BootUI's toggle)
     wanted = [name for name in available if name in configured or name in SWITCHABLE]
-    lane = SensorLane([built[name]() for name in wanted], sink, audit, configured)
+    rows = SensorRows()
+    lane = SensorLane([built[name]() for name in wanted], TeeSink(sink, rows), audit, configured, rows)
     return lane
