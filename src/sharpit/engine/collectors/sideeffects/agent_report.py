@@ -14,9 +14,9 @@ LIMITATION_VALUES = (
 LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a URL's path or query."
 LIMITATION_FILES = (
     "Files: the interpreter's own files (imports) and sharpit's own state are counted, not recorded per route. "
-    "A call site's frames are read once per run and file pattern, so two call sites of one pattern share the "
-    "first one's. A file opened without an audit event, as native code may, is not seen. A move or a copy "
-    "records its source and its destination."
+    "Process and file rows carry no call site, and file rows report their origin as unknown. A file opened "
+    "without an audit event, as native code may, is not seen. A move or a copy records its source and its "
+    "destination."
 )
 LIMITATION_AGENT_OMITTED = "What the rows of a sensor without listed rows cannot see is left out: query its id for it."
 # SideEffectsService.LIMITATION_SENSORS: the sensors whose rows each fixed limitation describes; the others apply to all
