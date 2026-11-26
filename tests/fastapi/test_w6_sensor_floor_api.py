@@ -117,6 +117,16 @@ def test_java_agent_report_is_not_attached_with_bootui_keys(client: TestClient) 
     assert list(body["setup"]) == ["jarPath", "jarFound", "buildTool", "snippets"]
 
 
+def test_not_attached_reason_names_the_setting_that_enables_the_sensors(client: TestClient) -> None:
+    # adapted from: JavaAgentService.NOT_ATTACHED_REASON
+    resp = client.get(f"{API}/java-agent")
+    assert resp.status_code == 200
+    assert resp.json()["reason"] == (
+        "This process runs without the sharpit agent. sharpit works without it; enable its sensors with"
+        " SHARPIT_AGENT_SENSORS to add agent-based evidence."
+    )
+
+
 def test_side_effects_lists_every_sensor_unavailable(client: TestClient) -> None:
     # ported: AbstractBootUiApiConformanceTest.sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
     resp = client.get(f"{API}/side-effects")
