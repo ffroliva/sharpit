@@ -11,8 +11,8 @@ def _test() -> TestFacts:
     return TestFacts(TestKey(NODE, "gw0", 1))
 
 
-def _report(*, passed: bool = True, failed: bool = False, skipped: bool = False) -> SimpleNamespace:
-    return SimpleNamespace(passed=passed, failed=failed, skipped=skipped)
+def _report(*, when: str = "call", passed: bool = True, failed: bool = False, skipped: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(when=when, passed=passed, failed=failed, skipped=skipped)
 
 
 def test_a_failing_report_keeps_completed_false() -> None:
@@ -25,7 +25,7 @@ def test_a_failing_report_keeps_completed_false() -> None:
 def test_setup_report_resets_completed() -> None:
     test = _test()
     test.completed = False
-    record_other_phase(test, _report())
+    record_other_phase(test, _report(when="setup"))
     record_call_completion(test, _report())
     assert test.completed is True
 
