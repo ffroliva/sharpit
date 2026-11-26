@@ -22,11 +22,9 @@ capture ended before the session did, as a nested in-process pytest run (`pytest
 attempt of a rerun test keeps the run `unknown`, also when a later attempt is clean. A partly assessed
 advisor does not count as having run for baselines: its baselined entries are neither reported fixed nor dropped.
 
-A statement that the stdlib `sqlite3` driver refuses because it is not text did not run and is skipped. Through
-SQLAlchemy, sharpit counts a refused `None`, `b""` or `0` statement as one statement with empty text, so it does not
-make the run `unknown`. Any other statement that is not text (a query object passed to a cursor class or to
-SQLAlchemy's `exec_driver_sql`) cannot be read, and the run is `unknown`: pass the statement as text, or use
-`--sharpit-allow-unknown`.
+A statement that has no text (`None`, `b""`, a number or a query object passed to a cursor class, to SQLAlchemy's
+`exec_driver_sql` or to the stdlib `sqlite3` driver, which refuses it) is counted once with empty text. It does not
+make the run `unknown`.
 
 Pytest's exit status is preserved when pytest already returns non-zero. Sharpit changes a successful pytest exit (`0`)
 to `1` when the gate fails; it does not replace pytest's status for failing tests, interruption, an internal error, a
