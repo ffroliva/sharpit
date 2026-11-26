@@ -9,11 +9,17 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from sharpit.engine.sensors.sinks.matcher import SinkMatcher
+from sharpit.engine.sensors.sinks import (
+    F_OVERFLOW,
+    FROM_REQUEST_INPUT,
+    MAX_ARGUMENTS,
+    NOT_CHECKED,
+    SinkMatcher,
+    unchecked,
+)
 
 SOURCE = "processes"
 UNKNOWN = "(unknown)"  # SideEffects.commandName's marker for a command it cannot name
@@ -82,6 +88,137 @@ def _argv_target(program: object, argv: object) -> str | None:
     return _program(line) if line else None
 
 
+def _program_first_end(command: str, program_name: str | None) -> int:
+    if not program_name or program_name == UNKNOWN:
+        return 0
+    pos = command.find(program_name)
+    return pos + len(program_name) if pos >= 0 else 0
+
+
+def _check_explicit_executable(
+    matcher: SinkMatcher,
+    program: str,
+    sink_rows: list[Mapping[str, object]],
+) -> str | None:
+    match = matcher.check(program, "command")
+    if match is None:
+        return None
+    if match.names:
+        sink_rows.extend(matcher.rows("command", match, program, "(the executable)"))
+        return FROM_REQUEST_INPUT
+    return NOT_CHECKED if unchecked(match) else None
+
+
+def _check_joined_command(
+    matcher: SinkMatcher,
+    command_line: str,
+    command_name: str,
+    executable: str | None,
+    sink_rows: list[Mapping[str, object]],
+) -> str | None:
+    match = matcher.check(command_line, "command")
+    if match is None:
+        return executable
+    if match.names:
+        prog_end = _program_first_end(command_line, command_name)
+        overflow = bool(match.flags & F_OVERFLOW)
+        held = overflow or (prog_end > 0 and any(s[1] < prog_end for s in match.spans))
+        if held:
+            executable = FROM_REQUEST_INPUT
+        target = "(the executable)" if executable is not None else command_name
+        sink_rows.extend(matcher.rows("command", match, command_line, target))
+        return executable
+    if unchecked(match) and executable is None:
+        return NOT_CHECKED
+    return executable
+
+
+def _string_sink_rows(
+    matcher: SinkMatcher,
+    program: str | None,
+    command_line: str,
+) -> tuple[Mapping[str, object], ...]:
+    command_name = _program(command_line) or (_program(program) if program else None)
+    if command_name is None:
+        return ()
+    executable: str | None = None
+    checking = False
+    sink_rows: list[Mapping[str, object]] = []
+    try:
+        checking = True
+        if program is not None:
+            executable = _check_explicit_executable(matcher, program, sink_rows)
+        executable = _check_joined_command(matcher, command_line, command_name, executable, sink_rows)
+    except Exception:
+        if checking and executable is None:
+            executable = NOT_CHECKED
+        sink_rows.clear()
+    proc_target = executable if executable is not None else command_name
+    return ({"source": SOURCE, "kind": "start", "target": proc_target}, *sink_rows)
+
+
+def _argv_elements(program: object, argv: Sequence[object]) -> list[str]:
+    prog_text = _text(program)
+    if argv:
+        first = prog_text or _text(argv[0]) or ""
+        rest = [_text(arg) or "" for arg in argv[1:MAX_ARGUMENTS]]
+        return [first, *rest]
+    return [prog_text or ""] if prog_text else []
+
+
+def _check_argv_elements(
+    matcher: SinkMatcher,
+    elements: list[str],
+    command_name: str,
+) -> tuple[str | None, list[Mapping[str, object]]]:
+    executable: str | None = None
+    sink_rows: list[Mapping[str, object]] = []
+    size = min(len(elements), MAX_ARGUMENTS)
+    for i in range(size):
+        argument = elements[i]
+        match = matcher.check(argument, "command")
+        if match is None:
+            continue
+        if not match.names:
+            if i == 0 and unchecked(match):
+                executable = NOT_CHECKED
+            continue
+        if i == 0:
+            executable = FROM_REQUEST_INPUT
+        target = (
+            "(the executable)"
+            if i == 0
+            else f"(the executable), argument {i}"
+            if executable is not None
+            else f"{command_name}, argument {i}"
+        )
+        sink_rows.extend(matcher.rows("command", match, argument, target))
+    return executable, sink_rows
+
+
+def _argv_sink_rows(
+    matcher: SinkMatcher,
+    program: object,
+    argv: Sequence[object],
+) -> tuple[Mapping[str, object], ...]:
+    command_name = _argv_target(program, argv)
+    if command_name is None:
+        return ()
+    elements = _argv_elements(program, argv)
+    executable: str | None = None
+    checking = False
+    sink_rows: list[Mapping[str, object]] = []
+    try:
+        checking = True
+        executable, sink_rows = _check_argv_elements(matcher, elements, command_name)
+    except Exception:
+        if checking and executable is None:
+            executable = NOT_CHECKED
+        sink_rows.clear()
+    proc_target = executable if executable is not None else command_name
+    return ({"source": SOURCE, "kind": "start", "target": proc_target}, *sink_rows)
+
+
 _ARGV_AT = {
     "subprocess.Popen": (0, 1),
     "os.exec": (0, 1),
@@ -98,8 +235,30 @@ class ProcessesSensor:
         self._matcher = matcher
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
-        target = self._target(event, args)
-        return ({"source": SOURCE, "kind": "start", "target": target},) if target else ()
+        if self._matcher is None:
+            target = self._target(event, args)
+            return ({"source": SOURCE, "kind": "start", "target": target},) if target else ()
+        return self._record_matched(event, args)
+
+    def _record_matched(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+        if self._matcher is None:
+            return ()
+        if event == "os.system":
+            command = _text(args[0]) if args else None
+            return _string_sink_rows(self._matcher, None, command) if command else ()
+        where = _ARGV_AT.get(event)
+        if not where or len(args) <= where[1]:
+            return ()
+        program, argv = args[where[0]], args[where[1]]
+        if isinstance(argv, (list, tuple)):
+            return _argv_sink_rows(self._matcher, program, cast("Sequence[object]", argv))
+        line = _text(cast("object", argv)) if isinstance(argv, (str, bytes, os.PathLike)) else None
+        prog_text = _text(program) if program is not None else None
+        if line is not None:
+            return _string_sink_rows(self._matcher, prog_text, line)
+        if prog_text is not None:
+            return _string_sink_rows(self._matcher, None, prog_text)
+        return ()
 
     @staticmethod
     def _target(event: str, args: tuple[Any, ...]) -> str | None:

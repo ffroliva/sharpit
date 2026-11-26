@@ -47,12 +47,15 @@ def clean_context() -> Iterator[None]:
         REQUEST.reset(req_token)
 
 
+_SENSOR_REQUESTS: dict[int, RequestInfo] = {}
+
+
 def processes(query: str = "", path: dict[str, Any] | None = None, *, owns: bool = True) -> ProcessesSensor:
     req = info(query, path)
     values = RequestValues()
     matcher = SinkMatcher("ctx", on=lambda: True, values=values, owns=lambda scope: owns)
     sensor = ProcessesSensor(matcher=matcher)
-    cast(Any, sensor)._test_request = req
+    _SENSOR_REQUESTS[id(sensor)] = req
     return sensor
 
 
@@ -69,12 +72,12 @@ def files(
     values = RequestValues()
     matcher = SinkMatcher("ctx", on=lambda: True, values=values, owns=lambda scope: owns)
     sensor = FilesSensor(cwd=cwd, home=home, tmp=tmp, matcher=matcher)
-    cast(Any, sensor)._test_request = req
+    _SENSOR_REQUESTS[id(sensor)] = req
     return sensor
 
 
 def run(sensor: ProcessesSensor | FilesSensor, event: str, *args: Any) -> list[dict[str, Any]]:
-    req = getattr(sensor, "_test_request", None)
+    req = _SENSOR_REQUESTS.get(id(sensor))
     token = REQUEST.set(req)
     try:
         return [dict(r) for r in sensor.record(event, args)]
@@ -89,7 +92,7 @@ def sensor_values(sensor: ProcessesSensor | FilesSensor) -> RequestValues:
 
 
 def end_request(sensor: ProcessesSensor | FilesSensor) -> None:
-    req = getattr(sensor, "_test_request", None)
+    req = _SENSOR_REQUESTS.get(id(sensor))
     matcher = cast(Any, sensor)._matcher
     if matcher is not None and req is not None:
         matcher.request_ended(req.id)

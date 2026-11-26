@@ -17,10 +17,15 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from sharpit.engine.sensors.sinks.matcher import SinkMatcher
+from sharpit.engine.sensors.sinks import (
+    FROM_REQUEST_INPUT,
+    NOT_CHECKED,
+    Match,
+    SinkMatcher,
+    unchecked,
+)
 
 SOURCE = "files"
 _RENAME = "os.rename"
@@ -68,10 +73,6 @@ def _text(path: object) -> str | None:
         return None
     raw: str | bytes = os.fspath(path)  # pyright: ignore[reportUnknownVariableType]
     return raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
-
-
-def _rows(*rows: Mapping[str, object] | None) -> tuple[Mapping[str, object], ...]:
-    return tuple(row for row in rows if row is not None)
 
 
 def _is_absolute(path: str) -> bool:
@@ -161,7 +162,7 @@ class FilesSensor:
         self._skip = tuple(_fold(_slashes(os.path.abspath(path)).rstrip("/") + "/") for path in skipped if path)
         self._system = tuple(_fold(prefix + "/") for prefix in _SYSTEM)
         self._seen: dict[str, tuple[str, str] | None] = {}  # raw path -> (pattern, location); None: left out
-        self._pending: set[str | None] = set()  # paths a copyfile announced and has not opened yet
+        self._pending: set[int] = set()  # announced copy paths remembered as hashes, cleared when full
         self.ignored = 0
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -170,7 +171,7 @@ class FilesSensor:
         if event in (_RENAME, "shutil.copyfile"):
             return self._pair(event, args)
         if event == "os.remove":
-            return _rows(self._row("delete", args[0] if args else None))
+            return self._row("delete", args[0] if args else None)
         return ()
 
     def _open(self, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
@@ -183,7 +184,7 @@ class FilesSensor:
             wrote = not _WRITE_MODE.isdisjoint(mode)
         else:
             wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
-        return _rows(self._row("write" if wrote else "read", path))
+        return self._row("write" if wrote else "read", path)
 
     def _pair(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
         verb = "move" if event == _RENAME else "copy"
@@ -192,8 +193,11 @@ class FilesSensor:
         if verb == "copy":
             if len(self._pending) >= _PENDING:
                 self._pending.clear()
-            self._pending.update((_text(args[0]), _text(args[1])))
-        return _rows(self._row(f"{verb} from", args[0]), self._row(f"{verb} to", args[1]))
+            for arg in (args[0], args[1]):
+                t = _text(arg)
+                if t is not None:
+                    self._pending.add(hash(t))
+        return (*self._row(f"{verb} from", args[0]), *self._row(f"{verb} to", args[1]))
 
     def _is_inner_copy_open(self, path: object) -> bool:
         """The open ``shutil.copyfile`` makes of a path it announced is the copy's own: BootUI records it once.
@@ -202,9 +206,12 @@ class FilesSensor:
         nothing, so the application's next open of that path is its own and is recorded.
         """
         text = _text(path)
-        if text not in self._pending:
+        if text is None:
             return False
-        self._pending.discard(text)
+        h = hash(text)
+        if h not in self._pending:
+            return False
+        self._pending.discard(h)
         frame = inspect.currentframe()
         for _ in range(_COPY_DEPTH):
             if frame is None:
@@ -214,10 +221,51 @@ class FilesSensor:
             frame = frame.f_back
         return False
 
-    def _row(self, kind: str, path: object) -> Mapping[str, object] | None:
+    def _row(self, kind: str, path: object) -> tuple[Mapping[str, object], ...]:
         text = path if type(path) is str else _text(path)
         if not text:
-            return None  # a file descriptor names no file, nor does an empty name
+            return ()  # a file descriptor names no file, nor does an empty name
+        if self._matcher is not None:
+            if self._is_skipped(_slashes(text)):
+                self.ignored += 1
+                return ()
+            try:
+                match = self._matcher.check(text, "file")
+            except Exception:
+                return (
+                    {
+                        "source": SOURCE,
+                        "kind": kind,
+                        "target": NOT_CHECKED,
+                        "origin": "unknown",
+                        "location": "elsewhere",
+                    },
+                )
+            if match is not None and (match.names or unchecked(match)):
+                return self._row_matched(kind, text, match)
+        return self._row_unmatched(kind, text)
+
+    def _row_matched(self, kind: str, text: str, match: Match) -> tuple[Mapping[str, object], ...]:
+        if unchecked(match):
+            target, location = NOT_CHECKED, "elsewhere"
+        elif match.redacted is None:
+            target, location = FROM_REQUEST_INPUT, "elsewhere"
+        else:
+            resolved = self._resolve(_slashes(match.redacted))
+            target, location = (
+                resolved if resolved is not None else (self._finish(_slashes(match.redacted)), "elsewhere")
+            )
+        file_row: Mapping[str, object] = {
+            "source": SOURCE,
+            "kind": kind,
+            "target": target,
+            "origin": "unknown",
+            "location": location,
+        }
+        sink_rows = self._matcher.rows("file", match, text, target) if self._matcher and match.names else ()
+        return (file_row, *sink_rows)
+
+    def _row_unmatched(self, kind: str, text: str) -> tuple[Mapping[str, object], ...]:
         seen = self._seen
         found = seen.get(text, _MISS)  # one lookup: another thread may clear the cache between two
         if found is _MISS:
@@ -226,19 +274,28 @@ class FilesSensor:
             found = seen[text] = self._resolve(_slashes(text))
         if found is None:
             self.ignored += 1
-            return None
-        return {"source": SOURCE, "kind": kind, "target": found[0], "origin": "unknown", "location": found[1]}
+            return ()
+        return ({"source": SOURCE, "kind": kind, "target": found[0], "origin": "unknown", "location": found[1]},)
 
-    def _resolve(self, text: str) -> tuple[str, str] | None:
-        """The pattern and place of ``text``, or None for an import or sharpit's own state."""
+    def _full_path(self, text: str) -> str:
         full = text if _is_absolute(text) else f"{self._cwd.rstrip('/')}/{text}"
         if "/." in full or "//" in full or full.endswith("/"):
             full = posixpath.normpath(full)
             if full.startswith("//"):
                 full = "/" + full.lstrip("/")  # normpath keeps a leading pair; BootUI's clean() does not
+        return full
+
+    def _is_skipped(self, text: str) -> bool:
+        full = self._full_path(text)
         probe = _fold(full) + "/"  # a trailing slash, so the directory itself is under itself
-        if probe.startswith(self._skip):
+        return probe.startswith(self._skip)
+
+    def _resolve(self, text: str) -> tuple[str, str] | None:
+        """The pattern and place of ``text``, or None for an import or sharpit's own state."""
+        if self._is_skipped(text):
             return None
+        full = self._full_path(text)
+        probe = _fold(full) + "/"  # a trailing slash, so the directory itself is under itself
         for base, lead, location in self._places:
             if probe.startswith(base):
                 return self._finish(lead + full[len(base) :]), location
