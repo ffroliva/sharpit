@@ -20,9 +20,8 @@ def mask_segments(path: str, masker: Masker) -> str:
     """Mask path segments that look like secrets or contain console tokens."""
     if not path:
         return path
-    never_shown = getattr(masker, "_never_shown", ())
-    if never_shown:
-        path = "/".join(MASK if any(secret in seg for secret in never_shown) else seg for seg in path.split("/"))
+    if masker.holds_never_shown(path):
+        path = "/".join(MASK if masker.holds_never_shown(seg) else seg for seg in path.split("/"))
     segments = path.split("/")
     masked = False
     for i, seg in enumerate(segments):
@@ -36,8 +35,7 @@ def display_parameter(name: str | None, masker: Masker) -> str:
     """Format and mask parameter name."""
     if name is None:
         return NAME_NOT_KEPT
-    never_shown = getattr(masker, "_never_shown", ())
-    if never_shown and any(secret in name for secret in never_shown):
+    if masker.holds_never_shown(name):
         return MASK
     if is_secret_value(name):
         return MASK
@@ -46,7 +44,6 @@ def display_parameter(name: str | None, masker: Masker) -> str:
 
 def intake(masker: Masker) -> Callable[[Mapping[str, object]], dict[str, object]]:
     """Store intake function: masks targets and parameter names at intake."""
-    never_shown = getattr(masker, "_never_shown", ())
 
     def _intake_row(row: Mapping[str, object]) -> dict[str, object]:
         out = dict(row)
@@ -58,7 +55,7 @@ def intake(masker: Masker) -> Callable[[Mapping[str, object]], dict[str, object]
             target_str = str(target)
             if sensor == "files" or kind in ("file-path", "file path", "file"):
                 out["target"] = mask_segments(target_str, masker)
-            elif never_shown and any(secret in target_str for secret in never_shown):
+            elif masker.holds_never_shown(target_str):
                 out["target"] = MASK
             else:
                 out["target"] = target_str
@@ -74,7 +71,6 @@ def intake(masker: Masker) -> Callable[[Mapping[str, object]], dict[str, object]
 
 def row_dto(row: StoreRow, masker: Masker) -> dict[str, object]:
     """Build the SideEffectsRowDto dict with exactly 26 keys in contract order."""
-    never_shown = getattr(masker, "_never_shown", ())
     is_sinks = row.sensor == "security-sinks"
     is_files = row.sensor == "files"
 
@@ -83,7 +79,7 @@ def row_dto(row: StoreRow, masker: Masker) -> dict[str, object]:
 
     if is_files or mapped_kind == "file path":
         target = mask_segments(row.target, masker) if row.target else row.target
-    elif never_shown and row.target and any(s in row.target for s in never_shown):
+    elif row.target and masker.holds_never_shown(row.target):
         target = MASK
     else:
         target = row.target
