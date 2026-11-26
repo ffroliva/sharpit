@@ -150,7 +150,8 @@ class TestSessionSink:
         """Capture lost facts: say so once, and mark the plugin's own source unattached so the run is `unknown`."""
         try:
             reason = self._mask(reason)
-        except Exception as exc:  # noqa: BLE001 - a failing masker must not reach the host, and the reason stays unread
+        # a failing masker must not reach the host, and the unmasked reason is never kept
+        except Exception as exc:  # noqa: BLE001
             reason = HOOK_FAILURE_WARNING.format(type(exc).__name__)
         with self._lock:
             if reason not in self.facts.warnings:
