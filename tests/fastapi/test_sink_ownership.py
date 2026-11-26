@@ -675,6 +675,31 @@ def test_two_concurrent_requests_never_match_each_others_values() -> None:
     assert values.held() == 0
 
 
+def test_a_dependency_override_set_after_the_first_request_is_owned() -> None:
+    # scenario: plan-1 row 16: the cached code set follows app.dependency_overrides
+    probe = Recorder()
+
+    def dep() -> None:
+        probe()
+
+    def fake() -> None:
+        probe()
+
+    app = FastAPI()
+
+    @app.get("/case")
+    def endpoint(_: None = Depends(dep)) -> None:
+        return None
+
+    client = serve(app, False)
+    assert client.get("/case").status_code == 200
+    app.dependency_overrides[dep] = fake
+    assert client.get("/case").status_code == 200
+    app.dependency_overrides.clear()
+    assert client.get("/case").status_code == 200
+    assert probe.seen == [True, True, True]
+
+
 @pytest.mark.parametrize("case", _params(OWN + NOT_OWN))
 def test_owner_and_owned_agree_on_every_case(case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     probe = Recorder()
