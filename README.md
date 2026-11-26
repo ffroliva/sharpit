@@ -1,6 +1,6 @@
 [English](https://github.com/ffroliva/sharpit/blob/main/README.md) | [简体中文](https://github.com/ffroliva/sharpit/blob/main/README.zh-CN.md)
 
-# sharpit: developer console and pytest gate for FastAPI
+# sharpit: secure-by-default developer console and pytest gate for FastAPI
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=main)
@@ -24,6 +24,12 @@ configuration and where each value came from, every route, every SQL statement w
 queries, exceptions, HTTP exchanges and health. `pytest --sharpit` turns the same capture into CI gates for N+1
 queries, query budgets and swallowed exceptions. A command-line client and an MCP endpoint let scripts and AI coding
 agents query the running app.
+
+**Security is built in, both ways.** sharpit is safe to run inside your app: it fails closed, answers loopback callers
+only, refuses cross-site requests and masks secrets in every output. It also finds security problems in your app: a
+security advisor ported from BootUI reviews authentication, sessions, CORS, OAuth2/JWT and transport settings; an
+in-process probe checks HTTP security headers and CORS preflight responses; and an on-demand scan checks installed
+packages against OSV with EPSS exploit scores.
 
 sharpit is a Python port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0), the Spring
 Boot developer console: the same design goals, JSON contract and test cases, with a new UI. If you have used Spring
@@ -74,20 +80,43 @@ or `SHARPIT_ENABLED=ON`. A plain `uvicorn app:app`, or `uvicorn.run(..., reload=
 installed packages for known vulnerabilities when you ask for it. Every panel in light and dark:
 [screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
 
-**Safe to leave in your dev setup:**
-
-- Off unless a dev signal turns it on (`fastapi dev`, `uvicorn --reload`, or a dev profile). Otherwise every path under
-  `/sharpit` answers 404.
-- Loopback callers only. A forwarding header never grants trust, and remote access needs a token.
-- Secret-looking names and values are masked by default. Showing them takes an explicit switch
-  (`SHARPIT_EXPOSE_VALUES=FULL`, or SQL parameter capture), and sharpit warns at startup when one is on.
-- Reading a panel makes no network call, writes no file and changes no logger level.
-
 **Then gate CI on it:** `pytest --sharpit` fails a test that goes over its query budget, triggers an N+1 query or
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
 run fails closed.
 
 > **Status: alpha (0.9.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+
+## Security
+
+### Safe to leave in your dev setup
+
+- Off unless a dev signal turns it on (`fastapi dev`, `uvicorn --reload`, or a dev profile). Otherwise every path under
+  `/sharpit` answers 404.
+- Loopback callers only. A forwarding header never grants trust, and remote access needs a token.
+- Cross-site requests are refused on every method (`Sec-Fetch-Site: cross-site`, or a mismatched `Origin`), even when
+  the app allows any origin through `CORSMiddleware`.
+- A browser trades the token for an `HttpOnly; SameSite=Strict` session cookie. Without `SHARPIT_AUTHENTICATION_TOKEN`,
+  a token is generated per process.
+- Secret-looking names and values are masked by default. Showing them takes an explicit switch
+  (`SHARPIT_EXPOSE_VALUES=FULL`, or SQL parameter capture), and sharpit warns at startup when one is on. URLs that
+  carry userinfo, such as DSN keys, are masked too.
+- Reading a panel makes no network call, writes no file and changes no logger level. Network calls happen only in
+  actions you trigger, such as the vulnerability scan.
+- If an app ships with `sharpit.install(app)` still in it, a `prod` or `production` profile, or no dev signal, makes
+  sharpit inert: every path under `/sharpit` answers 404 and no listener is attached. A test pins this behaviour.
+
+See the [Safety model](https://ffroliva.github.io/sharpit/safety/) and the
+[security policy](https://github.com/ffroliva/sharpit/blob/main/SECURITY.md), which has a private reporting route.
+
+### Security checks for your app
+
+| Panel or gate | What it checks |
+|---|---|
+| Security advisor | A ruleset ported from BootUI's Security advisor: password hashing (passlib, bcrypt work factor), HTTP Basic without HTTPS, session cookies and secret length, CORS, CSRF, OAuth2 and OpenID Connect URLs, PyJWT decoding without audience checks, trusted hosts and proxy headers, `FastAPI(debug=True)` and hard-coded secrets in the source. It reads middleware, route security schemes and the app's source without running any of it. [Rules](https://github.com/ffroliva/sharpit/blob/main/docs/security-advisor-checks.md) |
+| FastAPI Security | The middleware stack and each route's `fastapi.security` schemes |
+| Pentesting | An in-process probe of HTTP security headers (HSTS, CSP, framing, MIME sniffing) and CORS preflight responses, without opening sockets |
+| Vulnerabilities | Installed distributions checked against [OSV](https://osv.dev) and scored with EPSS, on explicit request |
+| `pytest --sharpit-http-security` | Fails a test run when a route's responses lack the configured security headers or answer an unexpected status |
 
 ## Features
 
@@ -99,7 +128,7 @@ run fails closed.
 | Databases | PostgreSQL and MySQL panels read on request, Alembic migrations, SQLAlchemy models |
 | Requests and errors | HTTP exchanges, unhandled exceptions and swallowed exceptions |
 | Runtime | Health checks, connection pools, and loggers whose level you can change while the app runs |
-| Security | A vulnerability scan of the installed packages when you ask for it; HTTP security headers |
+| Security | The security advisor, per-route authentication schemes, an HTTP security header and CORS probe, and an OSV/EPSS vulnerability scan (see [Security](#security)) |
 | CI | `pytest --sharpit`: query budgets, N+1 queries, swallowed exceptions, baselines, JSON and JUnit reports, a GitHub Action |
 | Automation | The `sharpit` command-line client with exit codes for scripts; an MCP endpoint for AI coding agents, off by default |
 
@@ -110,6 +139,8 @@ run fails closed.
 | **sharpit** | A local console and pytest gates inside a FastAPI or Starlette app, in development and CI | You want to see the configuration, routes, SQL and errors of the app on your machine, and fail CI on N+1 queries, query budgets or swallowed exceptions |
 | [fastapi-debug-toolbar](https://github.com/mongkok/fastapi-debug-toolbar) | A FastAPI debug toolbar based on django-debug-toolbar | You want per-request panels in the browser and do not need CI gates |
 | [nplusone](https://github.com/jmcarp/nplusone) | N+1 detection for SQLAlchemy, Peewee and the Django ORM, by logging or raising | You need N+1 detection only, or you use Django |
+| Bandit, Semgrep | Static analysis of the source code | You want source-wide security linting; sharpit's advisor adds what only the running app knows (its middleware stack and each route's security schemes) and flags a project that declares no static analyzer |
+| pip-audit | Checking dependencies against vulnerability databases from the command line | You want a dependency audit in CI; sharpit scans the distributions installed in the running app and adds EPSS exploit scores |
 | Logfire, Sentry, OpenTelemetry | Traces, errors and metrics from deployed services, sent to a backend | You observe production; sharpit is a development tool and stays off without a dev signal |
 
 ## Gate CI on findings
@@ -311,8 +342,15 @@ profile (`APP_ENV=dev`) or `SHARPIT_ENABLED=ON`. See [Activation](https://ffroli
 
 **Can it stay installed when the app is deployed?** It is a development tool. Without a dev signal every path under
 `/sharpit` answers 404, and a `prod` or `production` profile switches it off unless `SHARPIT_ENABLED=ON` is set
-explicitly. Callers are limited to loopback unless a token is configured. See the
+explicitly. Even then it answers loopback callers only; remote callers need an explicit opt-in and a token. See the
 [Safety model](https://ffroliva.github.io/sharpit/safety/).
+
+**What security problems does it find in my app?** The security advisor flags weak or plain-text password hashing,
+HTTP Basic or session cookies without HTTPS, short session secrets, permissive CORS, missing CSRF protection on
+cookie-authenticated routes, OAuth2 and OpenID Connect URLs over plain HTTP, PyJWT decoding without an audience,
+`FastAPI(debug=True)`, missing `TrustedHostMiddleware` and hard-coded secrets. The Pentesting panel checks the
+security headers your responses actually carry, and the vulnerability scan checks installed packages. See the
+[security advisor rules](https://github.com/ffroliva/sharpit/blob/main/docs/security-advisor-checks.md).
 
 **Which frameworks are supported?** The console runs in FastAPI and Starlette apps. The pytest gates also run against
 Flask apps. Django is not supported.

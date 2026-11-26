@@ -4,13 +4,21 @@
 > supported for test gates. It is a Python port of BootUI, the Spring Boot developer console. Apache-2.0, Python 3.12+,
 > on PyPI as `sharpit`.
 
-sharpit runs inside the application it inspects. It is a development tool: it fails closed, answers only loopback
-callers unless a token is configured, and masks secret-looking names and values before any output.
+sharpit runs inside the application it inspects. It is a development tool and is secure by default: it fails closed
+(every path under `/sharpit` answers 404 without a dev signal or in a `prod` profile), answers only loopback callers
+(remote callers need an explicit opt-in and a bearer token), refuses cross-site requests on every method, masks secret-looking names and values before
+any output, and makes no network call, file write or logger change on a read.
 
 ## Use cases
 
 - See a running FastAPI app's configuration and where each value came from, its routes, SQL, exceptions, HTTP
   exchanges and health: `sharpit.install(app)`, then open `/sharpit`.
+- Find security problems in a FastAPI app: the security advisor (a ruleset ported from BootUI covering password
+  hashing, HTTP Basic and session cookies without HTTPS, session secret length, CORS, CSRF, OAuth2/OpenID Connect URLs,
+  PyJWT audience checks, `FastAPI(debug=True)`, `TrustedHostMiddleware`, proxy headers and hard-coded secrets), the
+  Pentesting panel (an in-process probe of HTTP security headers and CORS preflight responses), the Vulnerabilities
+  panel (installed distributions against OSV, scored with EPSS, on explicit request) and `pytest --sharpit-http-security`.
+  Rules: https://github.com/ffroliva/sharpit/blob/main/docs/security-advisor-checks.md
 - Find N+1 queries and slow SQL per route in a SQLAlchemy (sync or async) or raw `sqlite3` app.
 - Fail CI on N+1 queries, query budgets and swallowed exceptions: `pytest --sharpit`.
 - Query a running app from a terminal or script: the `sharpit` command-line client.

@@ -1,6 +1,6 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-# sharpit：FastAPI 开发控制台与 pytest 质量门禁
+# sharpit：默认安全的 FastAPI 开发控制台与 pytest 质量门禁
 
 [![PyPI version](https://img.shields.io/pypi/v/sharpit.svg)](https://pypi.org/project/sharpit/)
 [![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](pyproject.toml)
@@ -11,6 +11,10 @@
 只需调用一次 `sharpit.install(app)`，就会在应用内挂载一个本地 Web 控制台（`/sharpit`），集中展示：每个配置项及其来源、全部路由、每条
 SQL 语句以及触发它的请求、N+1 查询、异常、HTTP 请求记录和健康状态。`pytest --sharpit` 把同样的运行时采集结果变成 CI
 门禁：出现 N+1 查询、超出查询预算或异常被吞掉时，构建失败。命令行客户端和 MCP 端点则让脚本和 AI 编程助手也能查询正在运行的应用。
+
+**安全是 sharpit 的核心，体现在两个方面。** 一方面，它本身可以放心地运行在你的应用里：默认关闭、只接受本机请求、拒绝跨站请求，
+并在所有输出中对密钥脱敏。另一方面，它帮你发现应用自身的安全问题：移植自 BootUI 的安全顾问会检查认证、会话、CORS、OAuth2/JWT
+和传输层配置；进程内探测会检查 HTTP 安全响应头和 CORS 预检响应；按需触发的依赖扫描会对照 OSV 漏洞库，并给出 EPSS 可利用性评分。
 
 sharpit 是 [BootUI](https://github.com/jdubois/boot-ui)（作者 Julien Dubois，Apache-2.0）的 Python 移植版。BootUI 是
 Spring Boot 的开发控制台；sharpit 沿用它的设计目标、JSON 接口约定和测试用例，界面重新实现。用过 Spring Boot Actuator
@@ -68,15 +72,34 @@ sharpit 默认关闭，只有检测到开发模式时才会启用：`fastapi dev
 **功能概览：** 共 47 个面板。可以在应用运行时调整日志级别、按路由发现 N+1 查询，并按需扫描已安装依赖包中的已知漏洞。
 全部面板的浅色和深色截图见 [截图目录](docs/screenshots.md)。
 
-**为什么可以放心留在开发环境里：**
+> **状态：alpha（0.9.0；控制台支持 FastAPI 与 Starlette，Flask 支持测试门禁）。** 不支持 Django。更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 安全
+
+### 为什么可以放心留在开发环境里
 
 - 默认关闭：没有开发模式信号（`fastapi dev`、`uvicorn --reload` 或开发环境配置）时，`/sharpit` 下的所有路径都返回 404。
 - 只接受本机回环地址的请求。转发类请求头（如 `X-Forwarded-For`）不会被当作可信来源；远程访问必须提供令牌。
+- 所有请求方法都会拒绝跨站请求（`Sec-Fetch-Site: cross-site` 或 `Origin` 不匹配），即使应用通过 `CORSMiddleware`
+  允许任意来源也一样。
+- 浏览器用令牌换取 `HttpOnly; SameSite=Strict` 的会话 Cookie。未设置 `SHARPIT_AUTHENTICATION_TOKEN` 时，每个进程会自动生成一个令牌。
 - 看起来像密钥的配置名和值默认脱敏。要显示原值必须显式开启（`SHARPIT_EXPOSE_VALUES=FULL`，或开启 SQL 参数采集），
-  开启后 sharpit 会在启动时给出警告。
-- 读取面板不会发起网络请求、不会写文件，也不会修改日志级别。
+  开启后 sharpit 会在启动时给出警告。带用户信息的 URL（例如 DSN 里的密钥）同样会被脱敏。
+- 读取面板不会发起网络请求、不会写文件，也不会修改日志级别。只有你主动触发的操作（如漏洞扫描）才会联网。
+- 即使上线时忘了删掉 `sharpit.install(app)`：只要环境配置是 `prod` 或 `production`，或者没有开发模式信号，sharpit
+  就完全不起作用，`/sharpit` 下所有路径返回 404，也不会挂载任何监听器。这一行为有专门的测试保证。
 
-> **状态：alpha（0.9.0；控制台支持 FastAPI 与 Starlette，Flask 支持测试门禁）。** 不支持 Django。更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+详见 [安全模型](https://ffroliva.github.io/sharpit/safety/) 和 [安全策略](SECURITY.md)（包含私下报告漏洞的渠道）。
+
+### 帮你检查应用的安全问题
+
+| 面板或门禁 | 检查内容 |
+|---|---|
+| 安全顾问（Security advisor） | 移植自 BootUI 安全顾问的规则集：密码哈希（passlib、bcrypt 工作因子）、未启用 HTTPS 的 HTTP Basic、会话 Cookie 与密钥长度、CORS、CSRF、OAuth2 与 OpenID Connect 地址、未校验 audience 的 PyJWT 解码、可信主机与代理头、`FastAPI(debug=True)`、源码中硬编码的密钥。它只读取中间件、路由的安全方案和应用源码，不会执行其中任何代码。[规则列表](docs/security-advisor-checks.md) |
+| FastAPI Security | 中间件栈以及每条路由的 `fastapi.security` 认证方案 |
+| 渗透探测（Pentesting） | 在进程内探测 HTTP 安全响应头（HSTS、CSP、防嵌套、MIME 嗅探）和 CORS 预检响应，不打开任何网络连接 |
+| 依赖漏洞（Vulnerabilities） | 按需将已安装的依赖包与 [OSV](https://osv.dev) 漏洞库比对，并给出 EPSS 评分 |
+| `pytest --sharpit-http-security` | 路由响应缺少配置的安全响应头，或返回了预期之外的状态码时，测试失败 |
 
 ## 功能一览
 
@@ -88,7 +111,7 @@ sharpit 默认关闭，只有检测到开发模式时才会启用：`fastapi dev
 | 数据库 | 按需读取的 PostgreSQL 与 MySQL 面板、Alembic 迁移、SQLAlchemy 模型 |
 | 请求与异常 | HTTP 请求记录、未处理异常和被吞掉的异常 |
 | 运行时 | 健康检查、连接池、可在运行时调整级别的日志器 |
-| 安全 | 按需对已安装依赖做漏洞扫描；HTTP 安全响应头 |
+| 安全 | 安全顾问、按路由展示的认证方案、HTTP 安全响应头与 CORS 探测、OSV/EPSS 依赖漏洞扫描（见 [安全](#安全)） |
 | CI | `pytest --sharpit`：查询预算、N+1 查询、被吞异常、基线、JSON 与 JUnit 报告、GitHub Action |
 | 自动化 | 带退出码的 `sharpit` 命令行客户端；面向 AI 编程助手的 MCP 端点（默认关闭） |
 
@@ -99,6 +122,8 @@ sharpit 默认关闭，只有检测到开发模式时才会启用：`fastapi dev
 | **sharpit** | 运行在 FastAPI / Starlette 应用内部的本地控制台和 pytest 门禁，用于开发和 CI | 想在本机看清应用的配置、路由、SQL 和异常，并让 CI 在出现 N+1 查询、超出查询预算或异常被吞时失败 |
 | [fastapi-debug-toolbar](https://github.com/mongkok/fastapi-debug-toolbar) | 基于 django-debug-toolbar 的 FastAPI 调试工具栏 | 只需要在浏览器里查看单个请求的调试面板，不需要 CI 门禁 |
 | [nplusone](https://github.com/jmcarp/nplusone) | 针对 SQLAlchemy、Peewee 和 Django ORM 的 N+1 检测，以日志或抛异常的方式提示 | 只需要 N+1 检测，或者项目使用 Django |
+| Bandit、Semgrep | 对源代码做静态分析 | 需要覆盖整个代码库的安全扫描；sharpit 的安全顾问补充的是只有运行中的应用才知道的信息（中间件栈、每条路由的认证方案），并会提示项目没有配置静态分析工具 |
+| pip-audit | 在命令行中对照漏洞数据库检查依赖 | 需要在 CI 里审计依赖；sharpit 扫描的是运行中应用实际安装的依赖，并附带 EPSS 可利用性评分 |
 | Logfire、Sentry、OpenTelemetry | 采集线上服务的链路追踪、错误和指标，发送到后端系统 | 需要观测生产环境；sharpit 是开发工具，没有开发模式信号时不会启用 |
 
 ## 在 CI 中设置门禁
@@ -166,8 +191,13 @@ http://127.0.0.1:8000/sharpit/api/mcp
 （`APP_ENV=dev`）或 `SHARPIT_ENABLED=ON` 时启用。
 
 **部署上线后还能保留吗？** sharpit 是开发工具。没有开发模式信号时，`/sharpit` 下所有路径都返回 404；环境配置为 `prod`
-或 `production` 时也会关闭，除非显式设置 `SHARPIT_ENABLED=ON`。未配置令牌时只接受本机请求。详见
+或 `production` 时也会关闭，除非显式设置 `SHARPIT_ENABLED=ON`。即便启用，也只接受本机请求；远程访问需要显式开启并携带令牌。详见
 [安全模型](https://ffroliva.github.io/sharpit/safety/)。
+
+**它能发现应用里的哪些安全问题？** 安全顾问会标记：弱密码哈希或明文存储、未启用 HTTPS 的 HTTP Basic 或会话 Cookie、
+过短的会话密钥、过于宽松的 CORS、基于 Cookie 认证的路由缺少 CSRF 防护、使用明文 HTTP 的 OAuth2 和 OpenID Connect
+地址、未校验 audience 的 PyJWT 解码、`FastAPI(debug=True)`、缺少 `TrustedHostMiddleware` 以及硬编码的密钥。渗透探测面板检查响应实际携带的安全响应头，
+依赖漏洞扫描检查已安装的依赖包。详见 [安全顾问规则](docs/security-advisor-checks.md)。
 
 **支持哪些框架？** 控制台支持 FastAPI 和 Starlette；pytest 门禁还支持 Flask。不支持 Django。
 
