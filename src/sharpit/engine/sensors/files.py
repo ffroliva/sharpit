@@ -263,7 +263,7 @@ class FilesSensor:
                 match = self._matcher.check(text, "file")
             except Exception:
                 return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id),)
-            if match is not None and (match.names or unchecked(match)):
+            if match is not None and (match.names or (match.flags and unchecked(match))):
                 return self._row_matched(kind, text, match)
         if found is not _MISS:
             return (_file_row(kind, found[0], found[1], self._context_id),)

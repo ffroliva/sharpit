@@ -162,8 +162,16 @@ def _path_pairs(path_params: object, room: int) -> list[_Pair] | None:
     return pairs
 
 
+def _compile_pattern(values: list[str]) -> re.Pattern[str] | None:
+    if len(values) <= 1:
+        return None
+    return re.compile("|".join(v if v.isalnum() else re.escape(v) for v in values))
+
+
 def _decode(text: str) -> str | None:
     # ported: AgentRequestValues.Values.decode (:312-318); invalid UTF-8 becomes U+FFFD, as URLDecoder does (D6)
+    if "%" not in text:
+        return text.replace("+", " ") if "+" in text else text
     return None if _BAD_ESCAPE.search(text) else unquote_plus(text, errors="replace")
 
 
@@ -172,8 +180,17 @@ def _query_pairs(query_string: object, room: int) -> list[_Pair]:
     # ported: AgentRequestValues.Values.addQuery (:267-292); latin-1, as Starlette reads query_string
     if type(query_string) is not bytes or not query_string:
         return []
+    raw = query_string[:MAX_QUERY].decode("latin-1")
     pairs: list[_Pair] = []
-    for part in query_string[:MAX_QUERY].decode("latin-1").split("&"):
+    if "%" not in raw and "+" not in raw:
+        for part in raw.split("&"):
+            if len(pairs) >= room:
+                break
+            name, equals, value = part.partition("=")
+            if equals:
+                pairs.append((name, value))
+        return pairs
+    for part in raw.split("&"):
         if len(pairs) >= room:
             break
         name, equals, value = part.partition("=")
@@ -309,8 +326,7 @@ class RequestValues:
                 entry = _Entry(generation, self._clock(), path_pending)
                 for name, value in pairs:
                     self._count_add(entry, name, value)
-                if len(entry.values) > 1:
-                    entry.pattern = re.compile("|".join(re.escape(v) for v in entry.values))
+                entry.pattern = _compile_pattern(entry.values)
                 self._entries[info.id] = entry
                 self._requests += 1
         finally:
@@ -395,8 +411,7 @@ class RequestValues:
             return
         for name, value in path:
             self._count_add(entry, name, value)
-        if len(entry.values) > 1:
-            entry.pattern = re.compile("|".join(re.escape(v) for v in entry.values))
+        entry.pattern = _compile_pattern(entry.values)
         entry.misses.clear()
         entry.seen.clear()
         entry.path_pending = False
@@ -463,6 +478,8 @@ def keyed_hash(text: str) -> int:
 
 def valid_name(name: str) -> bool:
     """1 to MAX_NAME characters of ``[A-Za-z0-9_.\\-\\[\\]]`` (RequestValues.validName, :565)."""
+    if 0 < len(name) <= MAX_NAME and name.isascii() and name.isalnum():
+        return True
     return _NAME.fullmatch(name) is not None
 
 

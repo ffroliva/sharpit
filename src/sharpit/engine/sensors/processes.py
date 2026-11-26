@@ -20,6 +20,7 @@ from sharpit.engine.sensors.sinks import (
     F_OVERFLOW,
     FROM_REQUEST_INPUT,
     MAX_ARGUMENTS,
+    MIN_LENGTH,
     NOT_CHECKED,
     SinkMatcher,
     unchecked,
@@ -180,6 +181,8 @@ def _argv_elements(program: object, argv: Sequence[object]) -> list[str]:
     prog_text = _text(program)
     if argv:
         first = prog_text or _text(argv[0]) or ""
+        if len(argv) == 2:
+            return [first, _text(argv[1]) or ""]
         rest = [_text(arg) or "" for arg in argv[1:MAX_ARGUMENTS]]
         return [first, *rest]
     return [prog_text or ""] if prog_text else []
@@ -197,6 +200,8 @@ def _check_argv_elements(
         argument = elements[i]
         match = matcher.check(argument, "command")
         if match is None:
+            if len(argument) >= MIN_LENGTH:
+                break
             continue
         if not match.names:
             if i == 0 and unchecked(match):
@@ -234,7 +239,8 @@ def _argv_sink_rows(
             executable = NOT_CHECKED
         sink_rows.clear()
     proc_target = executable if executable is not None else command_name
-    return (_process_row(proc_target, context_id), *sink_rows)
+    row = _process_row(proc_target, context_id)
+    return (row, *sink_rows) if sink_rows else (row,)
 
 
 _ARGV_AT = {
