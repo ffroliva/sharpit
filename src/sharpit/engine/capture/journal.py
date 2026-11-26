@@ -27,7 +27,7 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set as AbstractSet
 from typing import Any, Protocol, cast
 
 from sharpit.engine import sqltext
@@ -487,3 +487,9 @@ class RuntimeJournal:
             "previousRunsUnavailable": None,
             "agentEvidence": None,
         }
+
+    def request_routes(self, ids: AbstractSet[str]) -> dict[str, str]:
+        """Route labels for the requested HTTP events still retained in the journal."""
+        del ids
+        return {}
+

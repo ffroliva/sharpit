@@ -550,3 +550,25 @@ def test_registering_the_same_aggregate_again_neither_counts_twice_nor_repairs_m
     registry.register(journal)
     registry.register(journal)
     assert registry.hooks() == (journal,)
+
+
+def test_request_routes_copies_only_http_events_under_the_lock() -> None:
+    journal = _journal_module().RuntimeJournal()
+    journal.offer({"source": "http", "requestId": "r1", "route": "GET /items"})
+    journal.offer({"source": "other", "requestId": "r2", "route": "GET /ignored"})
+    assert journal.request_routes({"r1", "r2"}) == {"r1": "GET /items"}
+
+
+def test_request_routes_does_not_hold_the_lock_while_mapping() -> None:
+    journal = _journal_module().RuntimeJournal()
+    journal.offer({"source": "http", "requestId": "r1", "route": "GET /items"})
+    observed: list[bool] = []
+    original = journal._masked
+
+    def inspect_lock(source: str, events: object, memo: object = None) -> object:
+        observed.append(journal._owned())
+        return original(source, events, memo)
+
+    journal._masked = inspect_lock  # type: ignore[method-assign]
+    journal.request_routes({"r1"})
+    assert observed == [False]
