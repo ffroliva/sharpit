@@ -34,20 +34,18 @@ class SinkMatcher:
     def __init__(
         self,
         context_id: str,
-        on: Callable[[], bool] | bool = True,
+        on: bool = True,
         values: RequestValues | None = None,
         owner: Callable[[Mapping[str, Any]], str | None] = _no_owner,
     ) -> None:
         self._context_id = context_id
-        # a bool is a constant; a callable is asked on every check
-        self.enabled = on if isinstance(on, bool) else True
-        self._on = None if isinstance(on, bool) else on
+        self.enabled = on
         self._values = values if values is not None else RequestValues()
         self._owner = owner
 
     def check(self, text: str, kind: Kind, request: RequestInfo | None = _UNSET) -> Match | None:
         # ported: RequestValues.java:680-725, check order per spec
-        if not self.enabled or (self._on is not None and not self._on()):
+        if not self.enabled:
             return None
         if request is _UNSET:
             request = _REQUEST_GET()

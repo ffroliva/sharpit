@@ -316,10 +316,10 @@ class FilesSensor:
 
     def _resolve(self, text: str) -> tuple[str, str] | None:
         """The pattern and place of ``text``, or None for an import or sharpit's own state."""
-        if self._is_skipped(text):
-            return None
         full = self._full_path(text)
         probe = _fold(full) + "/"  # a trailing slash, so the directory itself is under itself
+        if probe.startswith(self._skip):
+            return None
         for base, lead, location in self._places:
             if probe.startswith(base):
                 return self._finish(lead + full[len(base) :]), location

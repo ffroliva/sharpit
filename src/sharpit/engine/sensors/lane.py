@@ -82,9 +82,6 @@ class SensorLane:
         """The request-value holder's counters; None while the setting is off (the lane then has no matcher)."""
         return None if self._matcher is None else self._matcher.holder_status()
 
-    def wipe(self, name: str) -> None:
-        _wipe(self._sensors.get(name))
-
     def hooks(self) -> list[SensorHook]:
         return [SensorHook(name, self) for name in self._sensors]
 

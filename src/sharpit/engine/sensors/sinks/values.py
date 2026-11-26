@@ -456,6 +456,7 @@ class RequestValues:
         self._swept.clear()
 
     def held(self) -> int:
+        """The number of requests whose values are held: a status and test helper, never read on a request path."""
         return len(self._entries)
 
     def status(self) -> dict[str, int]:
