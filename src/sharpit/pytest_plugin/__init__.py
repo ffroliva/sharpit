@@ -31,7 +31,7 @@ from sharpit.engine.sqltext import load_key
 from sharpit.engine.testsession import gates as gates
 from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
-from sharpit.engine.testsession.sink import HOOK_FAILURE_WARNING, TestSessionSink, report_masker_warnings
+from sharpit.engine.testsession.sink import TestSessionSink, report_masker_warnings
 from sharpit.pytest_plugin.apps import (
     load_app as _load_app,
 )
@@ -86,8 +86,8 @@ __all__ = [
 ]
 
 
-def _record_hook_failure(sink: TestSessionSink, exc: BaseException) -> None:
-    sink.record_failure(exc)
+def _record_hook_failure(sink: TestSessionSink, exc: BaseException) -> str:
+    return sink.record_failure(exc)
 
 
 def _record_config_hook_failure(config: Any, exc: BaseException) -> None:
@@ -570,11 +570,11 @@ def _xdist_controller(config: Any, state: _State) -> bool:
     return has_dsession or bool(state.parts or state.missing_workers)
 
 
-def _refresh_report_after_hook_failure(state: _State, config: Any, exc: BaseException) -> None:
+def _refresh_report_after_hook_failure(state: _State, config: Any, warning: str) -> None:
+    """``warning`` is the masked text the sink recorded for the failure (``_record_hook_failure``)."""
     data = cast("dict[str, Any] | None", getattr(config, "_sharpit_report", None))
     if not isinstance(data, dict):
         return
-    warning = HOOK_FAILURE_WARNING.format(type(exc).__name__)
     data["status"] = "unknown"
     source: dict[str, Any] = {"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []}
     if not any(item.get("name") == "pytest-plugin" for item in data["sources"]):

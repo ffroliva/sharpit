@@ -112,6 +112,7 @@ class TestSessionSink:
         self._models_by_signature: dict[tuple[str, tuple[tuple[object, ...], ...]], ApiModel] = {}
         self._http_keys: frozenset[tuple[str, str]] = frozenset()
         self._http_headers: frozenset[str] = frozenset()
+        self._failure_texts: dict[str, str] = {}  # exception class name -> the masked warning recorded for it
 
     def configure_http(self, headers: Iterable[HeaderExpectation], statuses: Iterable[StatusExpectation]) -> None:
         """Name the only routes and headers the observer keeps (the configured expectations)."""
@@ -142,11 +143,21 @@ class TestSessionSink:
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
 
-    def record_failure(self, exc: BaseException) -> None:
-        """A broken hook costs missing facts and a known run, never the host's query or the session."""
-        self.record_lost(HOOK_FAILURE_WARNING.format(type(exc).__name__))
+    def record_failure(self, exc: BaseException) -> str:
+        """A broken hook costs missing facts and a known run, never the host's query or the session.
 
-    def record_lost(self, reason: str) -> None:
+        Returns the masked text recorded; a repeated exception type returns it without masking again.
+        """
+        name = type(exc).__name__
+        with self._lock:
+            known = self._failure_texts.get(name)
+        if known is not None:
+            return known
+        text = self.record_lost(HOOK_FAILURE_WARNING.format(name))
+        with self._lock:
+            return self._failure_texts.setdefault(name, text)
+
+    def record_lost(self, reason: str) -> str:
         """Capture lost facts: say so once, and mark the plugin's own source unattached so the run is `unknown`."""
         try:
             reason = self._mask(reason)
@@ -160,6 +171,7 @@ class TestSessionSink:
                 self.facts.sources.append(
                     {"name": "pytest-plugin", "attached": False, "reason": reason, "limitations": []}
                 )
+        return reason
 
     def begin_test(self, node_id: str) -> int:
         with self._lock:
