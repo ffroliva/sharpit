@@ -16,7 +16,18 @@ from sharpit.engine.capture.frames import call_site_label, is_application_frame
 
 _CACHE_LIMIT = 1024
 type _CacheValue = frozenset[CodeType] | dict[str, frozenset[CodeType]]
-_CACHE: dict[int, tuple[weakref.ReferenceType[Any], _CacheValue]] = {}
+_CACHE: dict[int, tuple[weakref.ReferenceType[Any], tuple[int, ...], _CacheValue]] = {}
+
+
+def _overrides_snapshot(scope: Mapping[str, Any]) -> tuple[int, ...]:
+    """The identities of the app's dependency overrides: a cached code set is valid only for the set that built it."""
+    try:
+        overrides = getattr(scope.get("app"), "dependency_overrides", None)
+        if not isinstance(overrides, Mapping) or not overrides:
+            return ()
+        return tuple(id(part) for pair in tuple(cast("Mapping[Any, Any]", overrides).items()) for part in pair)
+    except Exception:  # noqa: BLE001 - this module never raises; an odd app gives the uncached-overrides answer
+        return ()
 
 
 def _method_name(scope: Mapping[str, Any]) -> str:
@@ -119,7 +130,9 @@ def _build_codes(scope: Mapping[str, Any], route: Any, endpoint: Any) -> tuple[f
     return frozenset(codes), used_method
 
 
-def _store_cached(key: Any, method: str, codes: frozenset[CodeType], *, used_method: bool) -> None:
+def _store_cached(
+    key: Any, method: str, codes: frozenset[CodeType], snapshot: tuple[int, ...], *, used_method: bool
+) -> None:
     try:
         ref = weakref.ref(key)
     except TypeError:
@@ -127,16 +140,16 @@ def _store_cached(key: Any, method: str, codes: frozenset[CodeType], *, used_met
     key_id = id(key)
     if used_method:
         existing = _CACHE.get(key_id)
-        if existing is not None and existing[0]() is key and isinstance(existing[1], dict):
-            existing[1][method] = codes
+        if existing is not None and existing[0]() is key and existing[1] == snapshot and isinstance(existing[2], dict):
+            existing[2][method] = codes
             return
         if len(_CACHE) >= _CACHE_LIMIT:
             _CACHE.clear()
-        _CACHE[key_id] = (ref, {method: codes})
+        _CACHE[key_id] = (ref, snapshot, {method: codes})
         return
     if len(_CACHE) >= _CACHE_LIMIT:
         _CACHE.clear()
-    _CACHE[key_id] = (ref, codes)
+    _CACHE[key_id] = (ref, snapshot, codes)
 
 
 def _codes_for(scope: Mapping[str, Any]) -> frozenset[CodeType]:
@@ -146,15 +159,16 @@ def _codes_for(scope: Mapping[str, Any]) -> frozenset[CodeType]:
     if key is None:
         return frozenset()
     method = _method_name(scope)
+    snapshot = _overrides_snapshot(scope)
     cached = _CACHE.get(id(key))
-    if cached is not None and cached[0]() is key:
-        value = cached[1]
+    if cached is not None and cached[0]() is key and cached[1] == snapshot:
+        value = cached[2]
         if isinstance(value, frozenset):
             return value
         if method in value:
             return value[method]
     codes, used_method = _build_codes(scope, route, endpoint)
-    _store_cached(key, method, codes, used_method=used_method)
+    _store_cached(key, method, codes, snapshot, used_method=used_method)
     return codes
 
 
