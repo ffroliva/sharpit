@@ -146,23 +146,10 @@ def _ctx(**options: Any) -> SharpitContext:
     ctx = SharpitContext(settings, ACTIVATION, FakeIntrospector())
     if settings.agent_sensors:
         from sharpit.engine.capture.journal import RuntimeJournal
-        from sharpit.engine.collectors.sideeffects.service import SideEffectsService
-        from sharpit.engine.sensors.lane import build_lane
+        from sharpit.engine.sensors.arming import arm_sensors
 
         journal = ctx.capture.journal = RuntimeJournal()
-        lane = ctx.capture.sensors = build_lane(
-            settings.agent_sensors,
-            journal,
-            ctx.masker.mask_path,
-            own=(settings.state_dir,),
-            request_values=settings.agent_security_sinks_request_values,
-            context_id=ctx.context_id,
-        )
-        if lane is not None:
-            ctx.capture.side_effects = SideEffectsService(ctx.capture, ctx.masker, lambda: ctx.capture.ready_at_ms)
-            for hook in lane.hooks():
-                ctx.capture.hooks.register(hook)
-            lane.attach()
+        arm_sensors(ctx, journal)
     return ctx
 
 

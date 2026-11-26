@@ -30,10 +30,9 @@ from sharpit.engine.capture.mail import HOOK as MAIL_HOOK
 from sharpit.engine.capture.mail import ensure_wrapped as ensure_mail_wrapped
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
-from sharpit.engine.collectors.sideeffects.service import SideEffectsService
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
-from sharpit.engine.sensors.lane import build_lane
+from sharpit.engine.sensors.arming import arm_sensors
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.fastapi.request_id_header import with_request_id_header
 
@@ -297,25 +296,12 @@ class CaptureWiring:
         self._register(ctx, HOOK_CAPTURE_MIDDLEWARE, exchanges.clear if exchanges is not None else _nothing)
 
     def _arm_sensors(self, ctx: SharpitContext, journal: RuntimeJournal) -> None:
-        lane = ctx.capture.sensors = build_lane(
-            ctx.settings.agent_sensors,
+        arm_sensors(
+            ctx,
             journal,
-            ctx.masker.mask_path,
-            own=(ctx.settings.state_dir,),
-            request_values=ctx.settings.agent_security_sinks_request_values,
-            context_id=ctx.context_id,
             owner=sink_ownership.owner,
+            exchanges_enabled=lambda: _panel_enabled(ctx, "http-exchanges"),
         )
-        if lane is not None:
-            ctx.capture.side_effects = SideEffectsService(
-                ctx.capture,
-                ctx.masker,
-                lambda: ctx.capture.ready_at_ms,
-                exchanges_enabled=lambda: _panel_enabled(ctx, "http-exchanges"),
-            )
-            for hook in lane.hooks():
-                ctx.capture.hooks.register(hook)
-            lane.attach()
 
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions
