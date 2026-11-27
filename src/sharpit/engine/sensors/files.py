@@ -196,24 +196,21 @@ class FilesSensor:
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
         if event == "open":
-            return self._open(args)
+            if len(args) < 3:
+                return ()
+            path, mode, flags = args[0], args[1], args[2]
+            if self._pending and self._is_inner_copy_open(path):
+                return ()
+            if type(mode) is str:
+                wrote = False if mode in ("r", "rb") else not _WRITE_DISJOINT(mode)
+            else:
+                wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
+            return self._row("write" if wrote else "read", path)
         if event in (_RENAME, "shutil.copyfile"):
             return self._pair(event, args)
         if event == "os.remove":
             return self._row("delete", args[0] if args else None)
         return ()
-
-    def _open(self, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
-        if len(args) < 3:
-            return ()
-        path, mode, flags = args[0], args[1], args[2]
-        if self._pending and self._is_inner_copy_open(path):
-            return ()
-        if type(mode) is str:
-            wrote = False if mode in ("r", "rb") else not _WRITE_DISJOINT(mode)
-        else:
-            wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
-        return self._row("write" if wrote else "read", path)
 
     def _pair(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
         verb = "move" if event == _RENAME else "copy"
@@ -259,18 +256,34 @@ class FilesSensor:
             self.ignored += 1
             return ()
         req = _REQUEST_GET()
-        if self._matcher is not None and self._matcher.enabled and req is not None:
+        matcher = self._matcher
+        if matcher is not None and matcher.enabled and req is not None:
             if found is _MISS and self._is_skipped(_slashes(text)):
                 self.ignored += 1
                 return ()
             try:
-                match = self._matcher.check(text, "file", req)
+                match = matcher.check(text, "file", req)
             except Exception:
                 return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id, req),)
             if match is not None and (match.names or (match.flags and unchecked(match))):
                 return self._row_matched(kind, text, match, req)
         if found is not _MISS:
-            return (_file_row(kind, found[0], found[1], self._context_id, req),)
+            req_id = (
+                req.id if req is not None and (self._context_id is None or req.context_id == self._context_id) else None
+            )
+            return (
+                {
+                    "source": SOURCE,
+                    "kind": kind,
+                    "target": found[0],
+                    "origin": "unknown",
+                    "location": found[1],
+                    "requestId": req_id,
+                    "at": time.time_ns() // 1_000_000,
+                    "callSite": None,
+                    "threadName": threading.current_thread().name if req_id is None else None,
+                },
+            )
         return self._row_unmatched(kind, text, req)
 
     def _row_matched(

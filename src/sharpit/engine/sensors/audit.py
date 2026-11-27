@@ -41,19 +41,19 @@ def _sink_row_size(row: Mapping[str, Any]) -> int:
 def row_size(row: Mapping[str, Any]) -> int:
     """The byte charge ``RuntimeJournal._flat`` computes for a sensor row, without walking its items."""
     source = row.get("source")
-    if source == "processes":
-        return (
-            _PROCESS_BASE
-            + len(row["target"])
-            + (SCALAR_BYTES if (req := row["requestId"]) is None else len(req))
-            + (SCALAR_BYTES if (th := row["threadName"]) is None else len(th))
-        )
     if source == "files":
         return (
             _FILE_BASE
             + len(row["kind"])
             + len(row["target"])
             + len(row["location"])
+            + (SCALAR_BYTES if (req := row["requestId"]) is None else len(req))
+            + (SCALAR_BYTES if (th := row["threadName"]) is None else len(th))
+        )
+    if source == "processes":
+        return (
+            _PROCESS_BASE
+            + len(row["target"])
             + (SCALAR_BYTES if (req := row["requestId"]) is None else len(req))
             + (SCALAR_BYTES if (th := row["threadName"]) is None else len(th))
         )
@@ -67,12 +67,17 @@ class Sensor(Protocol):
     def record(self, event: str, args: tuple[Any, ...]) -> Iterable[Mapping[str, object]]: ...
 
 
+class _Busy(threading.local):
+    active = False
+
+
 class _Subscription:
-    __slots__ = ("on", "sensor", "sink")
+    __slots__ = ("flat", "on", "sensor", "sink")
 
     def __init__(self, sensor: Sensor, sink: JournalSink) -> None:
         self.sensor = sensor
-        self.sink = weakref.ref(sink)
+        self.sink: weakref.ReferenceType[Any] = weakref.ref(sink)
+        self.flat = hasattr(sink, "offer_flat")
         self.on = True
 
 
@@ -83,7 +88,7 @@ class AuditHub:
         self._subs: dict[int, _Subscription] = {}  # by id(sensor): a sensor is subscribed once
         self._by_event: dict[str, tuple[_Subscription, ...]] = {}  # rebuilt on change; the hook only reads it
         self._lock = threading.Lock()
-        self._busy = threading.local()
+        self._busy = _Busy()
 
     @property
     def installed(self) -> bool:
@@ -130,7 +135,7 @@ class AuditHub:
             if subs is None:
                 return
             busy = self._busy
-            if getattr(busy, "active", False):
+            if busy.active:
                 return
             busy.active = True
             try:
@@ -147,14 +152,12 @@ class AuditHub:
         if sink is None:
             return  # the context is gone: skipped here, dropped at the next release
         try:
-            offer_flat = getattr(sink, "offer_flat", None)  # a sensor's row is flat scalars it never touches again
-            if offer_flat is not None:
+            if sub.flat:  # a sensor's row is flat scalars it never touches again
                 for row in sub.sensor.record(event, args):
-                    offer_flat(row, row_size(row))
+                    sink.offer_flat(row, row_size(row), 0 if row.get("requestId") is None else row["at"])
             else:
-                offer = sink.offer
                 for row in sub.sensor.record(event, args):
-                    offer(row)
+                    sink.offer(row)
         except Exception:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
             pass
 
