@@ -116,6 +116,7 @@ class SecuritySinksSensor:
         self.matcher = matcher
 
     def record(self, event: str, args: tuple[Any, ...]) -> tuple[Row, ...]:
+        del event, args
         return ()
 
     def wipe(self) -> None:

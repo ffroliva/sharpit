@@ -40,8 +40,8 @@ class Hook:
 
 
 @pytest.fixture
-def hook(recorded_audit_hook: list[Any]) -> Iterator[Hook]:
-    yield Hook(recorded_audit_hook)
+def hook(recorded_audit_hook: list[Any]) -> Hook:
+    return Hook(recorded_audit_hook)
 
 
 def _app(tmp_path: Path, **options: Any) -> tuple[FastAPI, SharpitHandle]:

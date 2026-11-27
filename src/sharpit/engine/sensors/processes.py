@@ -28,6 +28,8 @@ from sharpit.engine.sensors.sinks import (
 
 SOURCE = "processes"
 UNKNOWN = "(unknown)"  # SideEffects.commandName's marker for a command it cannot name
+_EXECUTABLE = "(the executable)"
+_SYSTEM = "os.system"
 _MAX = 128
 # a shell word's quoted run or escaped character; an assignment's value also takes an unnested $(...) or `...`
 _PIECE = r"""'[^']*'|"(?:[^"\\]|\\.)*"|\\."""
@@ -112,7 +114,7 @@ def _check_explicit_executable(
     if match is None:
         return None
     if match.names:
-        sink_rows.extend(matcher.rows("command", match, program, "(the executable)", req))
+        sink_rows.extend(matcher.rows("command", match, program, _EXECUTABLE, req))
         return FROM_REQUEST_INPUT
     return NOT_CHECKED if unchecked(match) else None
 
@@ -134,7 +136,7 @@ def _check_joined_command(
         held = overflow or (prog_end > 0 and any(s[1] < prog_end for s in match.spans))
         if held:
             executable = FROM_REQUEST_INPUT
-        target = "(the executable)" if executable is not None else command_name
+        target = _EXECUTABLE if executable is not None else command_name
         sink_rows.extend(matcher.rows("command", match, command_line, target, req))
         return executable
     if unchecked(match) and executable is None:
@@ -188,6 +190,13 @@ def _argv_elements(program: object, argv: Sequence[object]) -> list[str]:
     return [prog_text or ""] if prog_text else []
 
 
+def _argv_sink_target(index: int, command_name: str, executable: str | None) -> str:
+    if index == 0:
+        return _EXECUTABLE
+    head = _EXECUTABLE if executable is not None else command_name
+    return f"{head}, argument {index}"
+
+
 def _check_argv_elements(
     matcher: SinkMatcher,
     elements: list[str],
@@ -196,9 +205,7 @@ def _check_argv_elements(
 ) -> tuple[str | None, list[Mapping[str, object]]]:
     executable: str | None = None
     sink_rows: list[Mapping[str, object]] = []
-    size = min(len(elements), MAX_ARGUMENTS)
-    for i in range(size):
-        argument = elements[i]
+    for i, argument in enumerate(elements[:MAX_ARGUMENTS]):
         match = matcher.check(argument, "command", req)
         if match is None:
             if len(argument) >= MIN_LENGTH:
@@ -210,13 +217,7 @@ def _check_argv_elements(
             continue
         if i == 0:
             executable = FROM_REQUEST_INPUT
-        target = (
-            "(the executable)"
-            if i == 0
-            else f"(the executable), argument {i}"
-            if executable is not None
-            else f"{command_name}, argument {i}"
-        )
+        target = _argv_sink_target(i, command_name, executable)
         sink_rows.extend(matcher.rows("command", match, argument, target, req))
     return executable, sink_rows
 
@@ -253,22 +254,23 @@ _ARGV_AT = {
 
 class ProcessesSensor:
     name = SOURCE
-    events = ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn")
+    events = ("subprocess.Popen", _SYSTEM, "os.exec", "os.spawn", "os.posix_spawn")
 
     def __init__(self, matcher: SinkMatcher | None = None, *, context_id: str | None = None) -> None:
         self._matcher = matcher
-        self._context_id = (
-            context_id if context_id is not None else (matcher._context_id if matcher is not None else None)  # pyright: ignore[reportPrivateUsage]
-        )
+        if context_id is not None:
+            self._context_id: str | None = context_id
+        else:
+            self._context_id = matcher._context_id if matcher is not None else None  # pyright: ignore[reportPrivateUsage]
 
-    def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+    def record(self, event: str, args: tuple[Any, ...]) -> Sequence[Mapping[str, object]]:
         target = self._target(event, args)
         if not target:
             return ()
         req = _REQUEST_GET()
         matcher = self._matcher
         if matcher is None or not matcher.enabled or req is None:
-            return (_process_row(target, self._context_id, req),)
+            return [_process_row(target, self._context_id, req)]
         return self._record_matched(matcher, event, args, target, req)
 
     def _record_matched(
@@ -278,8 +280,8 @@ class ProcessesSensor:
         args: tuple[Any, ...],
         target: str,
         req: RequestInfo | None = None,
-    ) -> tuple[Mapping[str, object], ...]:
-        if event == "os.system":
+    ) -> Sequence[Mapping[str, object]]:
+        if event == _SYSTEM:
             command = _text(args[0]) if args else None
             return _string_sink_rows(matcher, target, None, command, self._context_id, req) if command else ()
         where = _ARGV_AT.get(event)
@@ -298,7 +300,7 @@ class ProcessesSensor:
 
     @staticmethod
     def _target(event: str, args: tuple[Any, ...]) -> str | None:
-        if event == "os.system":
+        if event == _SYSTEM:
             command = _text(args[0]) if args else None
             return _program(command) if command else None
         where = _ARGV_AT.get(event)

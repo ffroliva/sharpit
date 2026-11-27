@@ -19,7 +19,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo
@@ -30,6 +30,7 @@ from sharpit.engine.sensors.sinks import (
     SinkMatcher,
     unchecked,
 )
+from sharpit.engine.sensors.sinks.values import _EMPTY, _REPEATED  # pyright: ignore[reportPrivateUsage]
 
 SOURCE = "files"
 _RENAME = "os.rename"
@@ -63,6 +64,24 @@ _SYSTEM = (
 _WRITE_FLAGS = (
     os.O_WRONLY | os.O_RDWR | getattr(os, "O_APPEND", 0) | getattr(os, "O_CREAT", 0) | getattr(os, "O_TRUNC", 0)
 )
+_OPEN_KINDS: dict[object, str] = {
+    "r": "read",
+    "rb": "read",
+    "rt": "read",
+    "w": "write",
+    "wb": "write",
+    "wt": "write",
+    "a": "write",
+    "ab": "write",
+    "x": "write",
+    "xb": "write",
+}
+
+
+def _open_kind(mode: object, flags: object) -> str:
+    if isinstance(mode, str):
+        return "read" if _WRITE_DISJOINT(mode) else "write"
+    return "write" if isinstance(flags, int) and (flags & _WRITE_FLAGS) else "read"
 
 
 def _slashes(path: str) -> str:
@@ -168,9 +187,10 @@ class FilesSensor:
         context_id: str | None = None,
     ) -> None:
         self._matcher = matcher
-        self._context_id = (
-            context_id if context_id is not None else (matcher._context_id if matcher is not None else None)  # pyright: ignore[reportPrivateUsage]
-        )
+        if context_id is not None:
+            self._context_id: str | None = context_id
+        else:
+            self._context_id = matcher._context_id if matcher is not None else None  # pyright: ignore[reportPrivateUsage]
         self._mask = mask_path
         self._cwd = _slashes(
             cwd if cwd is not None else os.getcwd()
@@ -194,25 +214,22 @@ class FilesSensor:
         self._pending: set[int] = set()  # announced copy paths remembered as hashes, cleared when full
         self.ignored = 0
 
-    def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+    def record(self, event: str, args: tuple[Any, ...]) -> Sequence[Mapping[str, object]]:
         if event == "open":
             if len(args) < 3:
                 return ()
             path, mode, flags = args[0], args[1], args[2]
             if self._pending and self._is_inner_copy_open(path):
                 return ()
-            if type(mode) is str:
-                wrote = False if mode in ("r", "rb") else not _WRITE_DISJOINT(mode)
-            else:
-                wrote = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
-            return self._row("write" if wrote else "read", path)
+            kind = _OPEN_KINDS.get(mode) or _open_kind(mode, flags)
+            return self._row(kind, path)
         if event in (_RENAME, "shutil.copyfile"):
             return self._pair(event, args)
         if event == "os.remove":
             return self._row("delete", args[0] if args else None)
         return ()
 
-    def _pair(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+    def _pair(self, event: str, args: tuple[Any, ...]) -> Sequence[Mapping[str, object]]:
         verb = "move" if event == _RENAME else "copy"
         if len(args) < 2:
             return ()
@@ -247,48 +264,59 @@ class FilesSensor:
             frame = frame.f_back
         return False
 
-    def _row(self, kind: str, path: object) -> tuple[Mapping[str, object], ...]:
+    def _row(self, kind: str, path: object) -> Sequence[Mapping[str, object]]:
         text = path if type(path) is str else _text(path)
         if not text:
             return ()  # a file descriptor names no file, nor does an empty name
         found = self._seen.get(text, _MISS)
+        if found is _MISS:
+            return self._row_miss(kind, text)
         if found is None:
             self.ignored += 1
             return ()
         req = _REQUEST_GET()
         matcher = self._matcher
         if matcher is not None and matcher.enabled and req is not None:
-            if found is _MISS and self._is_skipped(_slashes(text)):
+            try:
+                match = matcher.check(text, "file", req)
+            except Exception:
+                return [_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id, req)]
+            if match is not _EMPTY and match is not _REPEATED and match is not None:
+                return self._row_matched(kind, text, match, req)
+        req_id = req.id if req is not None and self._context_id in (None, req.context_id) else None
+        # inlined _file_row: one call per event over budget
+        return [
+            {
+                "source": SOURCE,
+                "kind": kind,
+                "target": found[0],
+                "origin": "unknown",
+                "location": found[1],
+                "requestId": req_id,
+                "at": time.time_ns() // 1_000_000,
+                "callSite": None,
+                "threadName": threading.current_thread().name if req_id is None else None,
+            }
+        ]
+
+    def _row_miss(self, kind: str, text: str) -> Sequence[Mapping[str, object]]:
+        req = _REQUEST_GET()
+        matcher = self._matcher
+        if matcher is not None and matcher.enabled and req is not None:
+            if self._is_skipped(_slashes(text)):
                 self.ignored += 1
                 return ()
             try:
                 match = matcher.check(text, "file", req)
             except Exception:
-                return (_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id, req),)
-            if match is not None and (match.names or (match.flags and unchecked(match))):
+                return [_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id, req)]
+            if match is not _EMPTY and match is not _REPEATED and match is not None:
                 return self._row_matched(kind, text, match, req)
-        if found is not _MISS:
-            req_id = (
-                req.id if req is not None and (self._context_id is None or req.context_id == self._context_id) else None
-            )
-            return (
-                {
-                    "source": SOURCE,
-                    "kind": kind,
-                    "target": found[0],
-                    "origin": "unknown",
-                    "location": found[1],
-                    "requestId": req_id,
-                    "at": time.time_ns() // 1_000_000,
-                    "callSite": None,
-                    "threadName": threading.current_thread().name if req_id is None else None,
-                },
-            )
         return self._row_unmatched(kind, text, req)
 
     def _row_matched(
         self, kind: str, text: str, match: Match, req: RequestInfo | None
-    ) -> tuple[Mapping[str, object], ...]:
+    ) -> Sequence[Mapping[str, object]]:
         if not match.names and unchecked(match):  # a matched name is read before the unchecked flags (BootUI fileUsed)
             target, location = NOT_CHECKED, "elsewhere"
         elif match.redacted is None:
@@ -302,7 +330,7 @@ class FilesSensor:
         sink_rows = self._matcher.rows("file", match, text, target, req) if self._matcher and match.names else ()
         return (file_row, *sink_rows)
 
-    def _row_unmatched(self, kind: str, text: str, req: RequestInfo | None) -> tuple[Mapping[str, object], ...]:
+    def _row_unmatched(self, kind: str, text: str, req: RequestInfo | None) -> Sequence[Mapping[str, object]]:
         seen = self._seen
         found = seen.get(text, _MISS)  # one lookup: another thread may clear the cache between two
         if found is _MISS:
@@ -312,7 +340,7 @@ class FilesSensor:
         if found is None:
             self.ignored += 1
             return ()
-        return (_file_row(kind, found[0], found[1], self._context_id, req),)
+        return [_file_row(kind, found[0], found[1], self._context_id, req)]
 
     def _full_path(self, text: str) -> str:
         full = text if _is_absolute(text) else f"{self._cwd.rstrip('/')}/{text}"

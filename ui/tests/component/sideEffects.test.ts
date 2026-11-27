@@ -159,7 +159,7 @@ it('renders the sensor tabs and not-available sensors without sensor fetches', a
 
   h.mount(SideEffects, { panel: panel('side-effects', { title: 'Side Effects' }) });
 
-  await until(() => expect(h.target.querySelectorAll('[role="tab"]').length).toBe(6));
+  await until(() => expect(h.target.querySelectorAll('[role="tab"]')).toHaveLength(6));
   const tabTexts = [...h.target.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => t.textContent?.trim());
   expect(tabTexts).toEqual([
     'Network',

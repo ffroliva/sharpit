@@ -95,13 +95,12 @@ _EMPTY_MISSES: tuple[None, ...] = (None,) * HASHES
 
 
 class _Entry:
-    """One request's values; every field but ``lock`` is written only under ``lock``. No ``repr``, by design."""
+    """One request's values; written under ``lock`` except ``lock`` itself and a retiring ``generation = -1``."""
 
     __slots__ = (
         "begun",
         "checks",
         "comparisons",
-        "epoch",
         "generation",
         "lock",
         "misses",
@@ -126,7 +125,6 @@ class _Entry:
         self.prefix = ""
         self.pattern: re.Pattern[str] | None = None
         self.value_chars = 0
-        self.epoch = 0
         self.misses: set[object] = set()
         self.misses_order: deque[object] = deque(_EMPTY_MISSES, maxlen=HASHES)
         self.seen: dict[int, None] = {}
@@ -146,7 +144,6 @@ class _Entry:
         self.values.append(value)
         self.names.append(name if name is not None and valid_name(name) else fallback_name(name))
         self.value_chars += vlen
-        self.epoch += 1
         return None
 
 
@@ -170,24 +167,18 @@ def _path_pairs(path_params: object, room: int) -> list[_Pair] | None:
     return pairs
 
 
-def _compile_pattern(values: list[str], prefix: str | None = None) -> re.Pattern[str] | None:
+def _compile_pattern(values: list[str], prefix: str) -> re.Pattern[str] | None:
     """An alternation prefilter, built outside the ``re`` module cache, which would keep the request's values alive."""
-    if len(values) <= 1 or _compile_uncached is None:
-        return None
-    if prefix is None:
-        prefix = os.path.commonprefix(values)
-    if len(prefix) >= MIN_LENGTH:
+    if len(values) <= 1 or _compile_uncached is None or len(prefix) >= MIN_LENGTH:
         return None
     try:
-        if _sub_pattern is not None:
-            plen = len(prefix)
-            data: list[Any] = [(_literal_op, c) for c in map(ord, prefix)]
-            data.append((_branch_op, (None, [[(_literal_op, c) for c in map(ord, v[plen:])] for v in values])))
-            sub = _sub_pattern(_parser_state, data)
-            lengths = [len(v) for v in values]
-            sub.width = (min(lengths), max(lengths))
-            return _compile_uncached(sub, 0)
-        return _compile_uncached("|".join(v if v.isalnum() else re.escape(v) for v in values), 0)
+        plen = len(prefix)
+        data: list[Any] = [(_literal_op, c) for c in map(ord, prefix)]
+        data.append((_branch_op, (None, [[(_literal_op, c) for c in map(ord, v[plen:])] for v in values])))
+        sub = _sub_pattern(_parser_state, data)
+        lengths = [len(v) for v in values]
+        sub.width = (min(lengths), max(lengths))
+        return _compile_uncached(sub, 0)
     except Exception:  # private API moved: no prefilter, ``_scan`` then finds each value itself
         return None
 
@@ -199,21 +190,8 @@ def _decode(text: str) -> str | None:
     return None if _BAD_ESCAPE.search(text) else unquote_plus(text, errors="replace")
 
 
-def _query_pairs(query_string: object, room: int) -> list[_Pair]:
-    """The query's pairs, cut to MAX_QUERY characters, split by hand; a value that does not decode is skipped (D6)."""
-    # ported: AgentRequestValues.Values.addQuery (:267-292); latin-1, as Starlette reads query_string
-    if type(query_string) is not bytes or not query_string:
-        return []
-    raw = query_string[:MAX_QUERY].decode("latin-1")
+def _decoded_query_pairs(raw: str, room: int) -> list[_Pair]:
     pairs: list[_Pair] = []
-    if "%" not in raw and "+" not in raw:
-        for part in raw.split("&"):
-            if len(pairs) >= room:
-                break
-            name, equals, value = part.partition("=")
-            if equals:
-                pairs.append((name, value))
-        return pairs
     for part in raw.split("&"):
         if len(pairs) >= room:
             break
@@ -221,6 +199,24 @@ def _query_pairs(query_string: object, room: int) -> list[_Pair]:
         decoded = _decode(value) if equals else None
         if decoded is not None:
             pairs.append((_decode(name), decoded))
+    return pairs
+
+
+def _query_pairs(query_string: object, room: int) -> list[_Pair]:
+    """The query's pairs, cut to MAX_QUERY characters, split by hand; a value that does not decode is skipped (D6)."""
+    # ported: AgentRequestValues.Values.addQuery (:267-292); latin-1, as Starlette reads query_string
+    if type(query_string) is not bytes or not query_string:
+        return []
+    raw = query_string[:MAX_QUERY].decode("latin-1")
+    if "%" in raw or "+" in raw:
+        return _decoded_query_pairs(raw, room)
+    pairs: list[_Pair] = []
+    for part in raw.split("&"):
+        if len(pairs) >= room:
+            break
+        name, equals, value = part.partition("=")
+        if equals:
+            pairs.append((name, value))
     return pairs
 
 
@@ -246,10 +242,7 @@ def _scan(
 ) -> tuple[list[tuple[int, int, int]], list[int], bool]:
     """Every value's non-overlapping occurrences, in value order, at most MAX_SPANS; and whether more matched."""
     # ported: RequestValues.compare (:998-1017)
-    if pattern is not None:
-        if pattern.search(scanned) is None:
-            return _NO_SCAN
-    elif len(values) == 1 and values[0] not in scanned:
+    if pattern is not None and pattern.search(scanned) is None:
         return _NO_SCAN
     spans: list[tuple[int, int, int]] = []
     matched: list[int] = []
@@ -322,54 +315,71 @@ class RequestValues:
         if (entry := self._entries.get(info.id)) is None and not isinstance(entry := self._insert(info), _Entry):
             return entry
         text_len = len(text)
-        partial = text_len > MAX_SCAN
-        scanned = text[:MAX_SCAN] if partial else text
+        if text_len > MAX_SCAN:
+            return self._match_partial(info, entry, text, kind)
         if not entry.lock.acquire(False):
             self._busy += 1
             return _BUSY
         try:
-            if (
-                entry.generation != self._generation
-                or info.finished_ns is not None
-                or (entry.path_pending and self._pull_path(entry, info.scope))
-                or not entry.values
-            ):
+            if entry.path_pending:
+                self._pull_path(entry, info.scope)
+            if entry.generation != self._generation or info.finished_ns is not None or not entry.values:
                 return _EMPTY
             if entry.stopped:
                 return _STOPPED
-            key = (
-                (hash(scanned) if kind == "file" else ~hash(scanned))
-                if not partial
-                else hash((kind, text_len, scanned))
-            )
+            key = hash(text) if kind == "file" else ~hash(text)
             misses = entry.misses
             if key in misses:
                 return _REPEATED
-            seen = bool(entry.seen and key in entry.seen)
+            seen = key in entry.seen
             entry.checks += not seen
-            entry.comparisons += (MAX_SCAN if partial else text_len) * entry.value_chars
+            entry.comparisons += text_len * entry.value_chars
             if entry.checks > MAX_CHECKS or entry.comparisons > MAX_COMPARISONS:
                 entry.stopped = True
                 self._stopped += 1
                 return _STOPPED
             self._checks += 1
-            if entry.prefix in scanned and (matched := (scan := _scan(scanned, entry.values, entry.pattern))[1]):
-                if partial:
-                    self._partial += 1
-                spans, overflow = scan[0], scan[2]
-                names = list(entry.names)
-            else:
-                if not partial:
-                    order = entry.misses_order
-                    misses.discard(order[0])
-                    order.append(key)
-                    misses.add(key)
-                    return _EMPTY
-                self._partial += 1
-                return _PARTIAL if self._live(info, entry) else _EMPTY
+            if entry.prefix not in text or not (matched := (scan := _scan(text, entry.values, entry.pattern))[1]):
+                order = entry.misses_order
+                misses.discard(order[0])
+                order.append(key)
+                misses.add(key)
+                return _EMPTY
+            spans, overflow = scan[0], scan[2]
+            names = list(entry.names)
         finally:
             entry.lock.release()
-        return self._matched(info, entry, text, spans, matched, names, key, partial, overflow, seen)
+        return self._matched(info, entry, text, spans, matched, names, key, False, overflow, seen)
+
+    def _match_partial(self, info: RequestInfo, entry: _Entry, text: str, kind: Kind) -> Match:
+        scanned = text[:MAX_SCAN]
+        if not entry.lock.acquire(False):
+            self._busy += 1
+            return _BUSY
+        try:
+            if entry.path_pending:
+                self._pull_path(entry, info.scope)
+            if entry.generation != self._generation or info.finished_ns is not None or not entry.values:
+                return _EMPTY
+            if entry.stopped:
+                return _STOPPED
+            key = hash((kind, len(text), scanned))
+            seen = key in entry.seen
+            entry.checks += not seen
+            entry.comparisons += MAX_SCAN * entry.value_chars
+            if entry.checks > MAX_CHECKS or entry.comparisons > MAX_COMPARISONS:
+                entry.stopped = True
+                self._stopped += 1
+                return _STOPPED
+            self._checks += 1
+            self._partial += 1
+            if entry.prefix not in scanned or not (matched := (scan := _scan(scanned, entry.values, entry.pattern))[1]):
+                return _PARTIAL if self._live(info, entry) else _EMPTY
+            spans, overflow = scan[0], scan[2]
+            names = list(entry.names)
+        finally:
+            entry.lock.release()
+        return self._matched(info, entry, text, spans, matched, names, key, True, overflow, seen)
 
     def _insert(self, info: RequestInfo) -> _Entry | Match:
         generation = self._generation
@@ -384,7 +394,7 @@ class RequestValues:
         try:
             if generation != self._generation:
                 return _EMPTY
-            now = self._sweep()
+            self._sweep()
             entry = self._entries.get(info.id)
             if entry is None:
                 if info.id in self._swept:
@@ -392,12 +402,8 @@ class RequestValues:
                 if len(self._entries) >= ENTRIES:
                     self._table_full += 1
                     return _EMPTY
-                entry = _Entry(generation, now, path_pending)
-                for name, value in pairs:
-                    self._count_add(entry, name, value)
-                prefix = entry.values[0] if len(entry.values) == 1 else os.path.commonprefix(entry.values)
-                entry.prefix = prefix
-                entry.pattern = _compile_pattern(entry.values, prefix)
+                entry = _Entry(generation, self._clock(), path_pending)
+                self._add_pairs(entry, pairs)
                 self._entries[info.id] = entry
                 self._requests += 1
         finally:
@@ -407,11 +413,18 @@ class RequestValues:
             return _EMPTY
         return entry
 
-    def _sweep(self) -> float:
+    def _add_pairs(self, entry: _Entry, pairs: list[_Pair]) -> None:
+        for name, value in pairs:
+            self._count_add(entry, name, value)
+        prefix = entry.values[0] if len(entry.values) == 1 else os.path.commonprefix(entry.values)
+        entry.prefix = prefix
+        entry.pattern = _compile_pattern(entry.values, prefix)
+
+    def _sweep(self) -> None:
         """Pops the entries past the deadline; their requests hold no values again (RequestValues.java:438)."""
-        now = self._clock()
         if not self._entries:
-            return now
+            return
+        now = self._clock()
         for request_id, current in list(self._entries.items()):
             if now - current.begun <= DEADLINE_SECONDS:
                 continue
@@ -422,7 +435,6 @@ class RequestValues:
                 with contextlib.suppress(RuntimeError, StopIteration):
                     self._swept.pop(next(iter(self._swept)), None)
             self._swept[request_id] = None
-        return now
 
     def _drop(self, request_id: str, entry: _Entry) -> None:
         if self._entries.get(request_id) is entry:
@@ -458,22 +470,17 @@ class RequestValues:
         )
         return result if self._live(info, entry) else _EMPTY
 
-    def _pull_path(self, entry: _Entry, scope: object) -> bool:
+    def _pull_path(self, entry: _Entry, scope: object) -> None:
         """Path values routing set after the first check: added once, and remembered texts checked again."""
         # ported: RequestValues.compare (:948-957)
         path = _path_pairs(_scope_value(scope, "path_params"), MAX_VALUES)
         if path is None:
-            return False
-        for name, value in path:
-            self._count_add(entry, name, value)
-        prefix = entry.values[0] if len(entry.values) == 1 else os.path.commonprefix(entry.values)
-        entry.prefix = prefix
-        entry.pattern = _compile_pattern(entry.values, prefix)
+            return
+        self._add_pairs(entry, path)
         entry.misses.clear()
         entry.misses_order.extend(_EMPTY_MISSES)
         entry.seen.clear()
         entry.path_pending = False
-        return False
 
     def mark_seen(self, request_id: str, match: Match) -> None:
         """Remembers an owned match's text, so the request's next check of it reports ``F_SEEN`` (D2)."""

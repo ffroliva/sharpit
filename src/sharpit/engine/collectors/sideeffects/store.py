@@ -104,6 +104,11 @@ def _attribution_and_scope(row: Mapping[str, object], request_id: str | None) ->
 
 _SUMMED = ("count", "failed", "completed", "non_zero_exits", "total_millis", "left_running", "requests")
 _FIRST = ("origin", "client", "capture", "captured_by")
+_DEFAULT_KIND = {"processes": "process", "files": "read"}
+
+
+def _opt_str(value: object) -> str | None:
+    return cast("str | None", value)
 
 
 class Row:
@@ -172,6 +177,10 @@ class Row:
     def shown(self) -> bool:
         return self.standalone or self.confirmed()
 
+    def _add_exemplar(self, request_id: str | None) -> None:
+        if request_id is not None and len(self.exemplars) < EXEMPLARS and request_id not in self.exemplars:
+            self.exemplars.append(request_id)
+
     def add(self, row: Mapping[str, object], request_id: str | None, clock: Callable[[], int]) -> None:
         count = _as_int(row.get("count"), 1)
         self.count += count
@@ -180,8 +189,7 @@ class Row:
         self.last_seen = max(self.last_seen, at)
         if self.origin is None and (o := row.get("origin")):
             self.origin = str(o)
-        if request_id is not None and len(self.exemplars) < EXEMPLARS and request_id not in self.exemplars:
-            self.exemplars.append(request_id)
+        self._add_exemplar(request_id)
         if self.key.sensor == "security-sinks":
             self.standalone |= _stands_alone(row)
             raw_hash = _as_int(row.get("rawHash"))
@@ -207,8 +215,7 @@ class Row:
                 setattr(self, name, getattr(other, name))
         if with_exemplars:
             for request_id in other.exemplars:
-                if len(self.exemplars) < EXEMPLARS and request_id not in self.exemplars:
-                    self.exemplars.append(request_id)
+                self._add_exemplar(request_id)
 
     def detail(self) -> str | None:
         if self.key.sensor != "security-sinks":
@@ -335,7 +342,7 @@ class SideEffectsStore:
 
     def _aggregate(self, row: Mapping[str, object]) -> None:
         sensor = str(row.get("sensor") or row.get("source") or "processes")
-        default_kind = "process" if sensor == "processes" else "read" if sensor == "files" else "command"
+        default_kind = _DEFAULT_KIND.get(sensor, "command")
         kind = str(row.get("kind") or default_kind)
         count = _as_int(row.get("count"), 1)
         request_id = row.get("requestId")
@@ -348,9 +355,9 @@ class SideEffectsStore:
             sensor=sensor,
             kind=kind,
             target=str(row.get("target") or ""),
-            call_site=cast("str | None", row.get("callSite") or row.get("call_site")),
-            location=cast("str | None", row.get("location")),
-            parameter=cast("str | None", row.get("parameter")),
+            call_site=_opt_str(row.get("callSite") or row.get("call_site")),
+            location=_opt_str(row.get("location")),
+            parameter=_opt_str(row.get("parameter")),
         )
 
         existing = self._store_rows.get(key)

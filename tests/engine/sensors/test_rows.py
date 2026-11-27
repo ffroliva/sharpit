@@ -40,6 +40,15 @@ def test_a_full_ring_keeps_the_newest_rows_and_counts_dropped() -> None:
     assert rows.dropped("files") == 5
 
 
+def test_a_full_ring_fed_through_the_tee_counts_dropped() -> None:
+    rows = SensorRows()
+    tee = TeeSink(RuntimeJournal(sources=["files"]), rows)
+    for n in range(RING_CAPACITY + 3):
+        tee.offer_flat(_row("files", n))
+    assert len(rows.drain("files")) == RING_CAPACITY
+    assert rows.dropped("files") == 3
+
+
 def test_a_file_flood_never_drops_a_security_sinks_row() -> None:
     rows = SensorRows()
     for n in range(RING_CAPACITY + 1):
