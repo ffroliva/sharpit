@@ -420,9 +420,10 @@ class SideEffectGuard:
 
 
 def reset_sqlite_source() -> bool:
-    """Detach the sqlite3 source between tests, keeping the scan cache; True when the test left it attached."""
+    """Detach the sqlite3 source between tests, keeping a clean scan cache; True when the test left it attached."""
     leaked = sqlite.is_attached()
-    sqlite.detach_all(keep_scan=True)
+    # a scan that counted a connection (a test's own early one) would make the next in-process run look incomplete
+    sqlite.detach_all(keep_scan=sqlite.preexisting_connections() == 0)
     return leaked
 
 
