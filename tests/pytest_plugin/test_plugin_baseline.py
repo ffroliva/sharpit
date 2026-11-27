@@ -3,6 +3,13 @@ from __future__ import annotations
 import json
 
 import pytest
+from tests.pytest_plugin.inprocess import without_driver_modules
+
+
+@pytest.fixture(autouse=True)
+def _isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The in-process runs below share this process's modules."""
+    without_driver_modules(monkeypatch)
 
 
 def test_write_baseline_refused_on_partial_xdist_run(pytester: pytest.Pytester) -> None:
@@ -31,16 +38,16 @@ def test_write_baseline_is_only_writer(pytester: pytest.Pytester) -> None:
         " for _ in range(5): c.execute('SELECT 1').fetchone()"
     )
     args = ["--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"]
-    pytester.runpytest_subprocess(*args)
+    pytester.runpytest_inprocess(*args)
     unbased = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert unbased["baseline"] is None
     assert unbased["findings"][0]["baselineState"] is None
     assert unbased["findings"][0]["observed"] is not None
     path = pytester.path / "baseline.json"
     assert path.exists() is False
-    pytester.runpytest_subprocess(*args, "--sharpit-write-baseline=baseline.json")
+    pytester.runpytest_inprocess(*args, "--sharpit-write-baseline=baseline.json")
     assert path.exists() is True
-    loaded = pytester.runpytest_subprocess(*args, "--sharpit-baseline=baseline.json")
+    loaded = pytester.runpytest_inprocess(*args, "--sharpit-baseline=baseline.json")
     assert loaded.ret == 0
     report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert report["baseline"]["existing"] == 1
@@ -239,18 +246,22 @@ INCOMPLETE = "the run's evidence is incomplete"
 def _write_first_baseline(pytester: pytest.Pytester) -> str:
     """Run the suite once with the finding present; return the fingerprint written for it."""
     pytester.makepyfile(test_a=_N1_TEST)
-    pytester.runpytest_subprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
+    pytester.runpytest_inprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
     rows = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
     assert len(rows) == 1, "the first run must baseline exactly the one N+1 finding"
     return rows[0]["fingerprint"]
 
 
-def _changed_run(pytester: pytest.Pytester, source: str, *extra: str, workers: bool = False) -> dict:
+def _changed_run(
+    pytester: pytest.Pytester, source: str, *extra: str, workers: bool = False, own_process: bool = False
+) -> dict:
+    """Run against the baseline; ``-n 2`` and a conftest that patches sharpit itself need their own process."""
     pytester.makepyfile(test_a=source)
-    args = ["-n", "2"] if workers else []
-    pytester.runpytest_subprocess(
-        *args, *_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra
-    )
+    args = [*_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra]
+    if workers or own_process:
+        pytester.runpytest_subprocess(*(["-n", "2"] if workers else []), *args)
+    else:
+        pytester.runpytest_inprocess(*args)
     return json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))["baseline"]
 
 
@@ -284,7 +295,7 @@ def test_dropped_sql_events_are_not_fixed(pytester: pytest.Pytester) -> None:
         "def broken(*args, **kwargs): raise RuntimeError('injected')\n"
         "TestSessionSink.begin_test = broken\n"
     )
-    _only_reason(_changed_run(pytester, _N1_TEST), fingerprint, INCOMPLETE)
+    _only_reason(_changed_run(pytester, _N1_TEST, own_process=True), fingerprint, INCOMPLETE)
 
 
 def test_request_moved_to_a_fixture_is_not_fixed(pytester: pytest.Pytester) -> None:
