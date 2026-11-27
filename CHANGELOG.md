@@ -7,7 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`. Inconclusive entries are listed and kept on rewrite also while an advisor entry is carried. A max-queries entry whose queries moved into a fixture is inconclusive, not fixed, and so are max-queries, N+1 and unbounded-read entries when SQL ran through a driver outside SQLAlchemy.
+- Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`. Inconclusive entries are listed and kept on rewrite also while an advisor entry is carried. A max-queries entry is checked against the queries of all phases of its test summed, so queries moved into or split across fixtures are inconclusive, not fixed; a fixture that seeds rows keeps a fixed max-queries entry inconclusive until it is cleared. Max-queries, N+1 and unbounded-read entries are inconclusive when the run used a sqlite3 connection factory or cursor class that sharpit does not trace. Known limits: SQL sent through a raw driver cursor beside SQLAlchemy is not traced, and unbounded reads are recorded only in the call phase, so such a change can read fixed.
 - Runtime Insights lists declared HTTP routes not exercised during the run, with report and agent limits and explicit limitations when recording loss, suspension, exposure, or missing templates prevent classification.
 
 ### Changed

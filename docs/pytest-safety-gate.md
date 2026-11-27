@@ -65,14 +65,23 @@ lists it in `baseline.inconclusiveFindings` with the first reason that applies:
 
 1. `recorded without its owner`: the entry was written before baselines recorded owners.
 2. `the run's evidence is incomplete`: the run has an unknown reason or a failed session hook; or, for a max-queries,
-   N+1 or unbounded-read entry, the `sqlalchemy` source lists `<driver> calls outside SQLAlchemy are not traced`; or,
-   for an unbounded-read entry, the unbounded-read source lists a limitation.
+   N+1 or unbounded-read entry, the `sqlite3` source lists `a connection factory or cursor class that does not
+   subclass sqlite3.Connection / sqlite3.Cursor is not traced`, which it lists only when the run used such a factory
+   or class; or, for an unbounded-read entry, the unbounded-read source lists a limitation.
 3. `its test did not run`: no test of the run has the entry's owner (deleted, renamed or not collected).
 4. `its test did not complete`: a call phase of its deciding attempt did not pass, or it never reached its call phase
    (skipped, a setup error).
 5. `its test has a new finding of the same rule`: the finding's identity may have changed.
 6. `its test still shows it outside the gate`: a marker, a fixture phase or a raised budget hides it from the gate. A
-   `sharpit.max-queries` entry counts the queries of every phase here, although the gate counts only the call phase.
+   `sharpit.max-queries` entry compares the queries of all phases of the attempt, summed, with its observed count here,
+   although the gate counts only the call phase. A fixture that runs queries, such as one that seeds rows, therefore
+   keeps a fixed max-queries entry inconclusive; clear it as described below.
+
+Limits of this check: SQL a test sends through a driver beside SQLAlchemy (a raw `sqlite3`, `aiosqlite`, `psycopg`,
+`asyncpg` or `pymysql` cursor) is not traced, so an N+1 or query count moved onto such a cursor reads as fixed. The
+`sqlalchemy` source note `<driver> calls outside SQLAlchemy are not traced` is listed whenever the driver module is
+loaded, so it does not by itself make the evidence incomplete. Unbounded reads are recorded only in the call phase, so
+an unbounded read moved into a fixture is not seen and its entry reads as fixed.
 
 An advisor finding not seen counts as `fixed` when its advisor assessed the whole app, as before.
 `--sharpit-write-baseline` combined with `--sharpit-baseline` keeps every inconclusive entry, so an entry is never

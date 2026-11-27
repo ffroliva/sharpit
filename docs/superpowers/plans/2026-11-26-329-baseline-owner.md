@@ -44,12 +44,18 @@ sharpit gate rewrites the report; `False` when one did not; `None` when no call 
 setup, setup error, `--setup-only`, `--setup-plan`, a worker that sent no value).
 
 **Incomplete rules** (per run): every rule in `gates.GATE_IDS` when the run has an unknown reason or a session hook
-failure warning; `sharpit.unbounded-read` alone when the `unbounded-read` source lists a limitation; otherwise none.
+failure warning; `sharpit.max-queries`, `sharpit.n-plus-one` and `sharpit.unbounded-read` when the `sqlite3` source
+lists `FACTORY_PASSED_THROUGH`, which it does only when the run used a connection factory or cursor class it could not
+trace; `sharpit.unbounded-read` alone when the `unbounded-read` source lists a limitation; otherwise none. Only evidence
+of this run counts: the `sqlalchemy` note `<driver> calls outside SQLAlchemy are not traced`, listed whenever the
+driver module is loaded, is a documented limitation and makes no rule incomplete.
 
 **Still shown** (per attempt): the entry's fingerprint is among the findings that `gates.evaluate_test` gives for any
 phase of the attempt with an unrelaxed budget (`Budget(0, False, 0)`, N+1 threshold 2, nothing dismissed; the
-max-queries rule only for the call phase), with an observed count at or above the entry's `observed`, or at any count
-when the owner's own gate is off (`allow_n_plus_one`, `allow_unbounded_read`, no max-queries budget).
+max-queries rule once, for the queries of all phases summed), with an observed count at or above the entry's
+`observed`, or at any count when the owner's own gate is off (`allow_n_plus_one`, `allow_unbounded_read`, no
+max-queries budget). A fixture that runs queries therefore keeps a fixed max-queries entry inconclusive until it is
+cleared; that cost is accepted over a false fixed.
 
 **Reasons**, checked in this order; the first that applies is the entry's reason, and an entry with none is `fixed`:
 
@@ -69,8 +75,9 @@ These follow from the design and the fail-closed rule; each is pinned by a test.
 1. **`compare()` requires test facts.** `tests` and `incomplete` are keyword-only and have no default, so a caller
    cannot reach the current "unseen means fixed" result for a test-runtime entry by omission. An empty `tests` makes
    every unseen test-runtime entry `its test did not run`.
-2. **`inconclusiveFindings` is `null` when `fixed` is `null`** (a partial run, an advisor that did not run). An empty
-   list would claim that nothing was withheld. When `fixed` is an integer, it is a list sorted by fingerprint.
+2. **`inconclusive` and `inconclusiveFindings` are `null` only on a partial run.** An empty list there would claim
+   that nothing was withheld. Otherwise `inconclusiveFindings` is a list sorted by fingerprint, also when `fixed` is
+   `null` because an advisor entry is carried, and the rewrite keeps those entries.
 3. **An `owner` that is present but not a string or null is a malformed baseline** (`ValueError`), which is already an
    unknown reason that fails the run. A string of any form is accepted; one that matches no test yields reason 3.
 4. **An advisor entry's `owner` is ignored** on read and written as `null`: advisor entries keep the current rule.
@@ -349,8 +356,8 @@ existing `keep=` path.
 - [ ] **Step 4:** `red_check` on every red id; commit `test: the report lists inconclusive baseline entries`.
 - [ ] **Step 5:** Minimal code. `finish.py` gains `HOOK_FAILURE_PREFIX` and uses it at lines 81 and 84.
   `report_io._incomplete_rules(data)` returns `gates.GATE_IDS` when `data["unknownReasons"]` is non-empty or a warning
-  starts with `HOOK_FAILURE_PREFIX`, `{gates.UNBOUNDED_READ}` when the `unbounded-read` source lists a limitation, and
-  `()` otherwise. `_apply_baseline` passes it and writes the two keys. Both schema copies gain
+  starts with `HOOK_FAILURE_PREFIX`, the three SQL rules when the `sqlite3` source lists `FACTORY_PASSED_THROUGH`,
+  `{gates.UNBOUNDED_READ}` when the `unbounded-read` source lists a limitation, and `()` otherwise. `_apply_baseline` passes it and writes the two keys. Both schema copies gain
   `"inconclusive": {"type": ["integer", "null"], "minimum": 0}` and `"inconclusiveFindings"` (array or null of objects
   with required string `fingerprint` and `reason`, no other keys); `required` is unchanged.
 - [ ] **Step 6:** Guards: `test_hook_failure_warnings_start_with_the_prefix` (the warning text built in

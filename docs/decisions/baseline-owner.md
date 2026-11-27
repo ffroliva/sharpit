@@ -20,9 +20,12 @@ The reasons are checked in this order; the first that applies is the entry's rea
 1. `recorded without its owner`: the entry has no `owner`.
 2. `the run's evidence is incomplete`: the entry's rule is incomplete for this run. Every runtime gate is incomplete
    when the run has an unknown reason or a session hook failure warning; `sharpit.max-queries`, `sharpit.n-plus-one`
-   and `sharpit.unbounded-read`, the rules fed by SQL capture, are incomplete when the `sqlalchemy` source lists
-   `<driver> calls outside SQLAlchemy are not traced`; `sharpit.unbounded-read` alone is incomplete when the
-   `unbounded-read` source lists a limitation.
+   and `sharpit.unbounded-read`, the rules fed by SQL capture, are incomplete when the `sqlite3` source lists `a
+   connection factory or cursor class that does not subclass sqlite3.Connection / sqlite3.Cursor is not traced`, which
+   it lists only when the run used such a factory or class; `sharpit.unbounded-read` alone is incomplete when the
+   `unbounded-read` source lists a limitation. Only evidence that this run lost capture counts: a note listed whenever
+   a module is loaded, such as the `sqlalchemy` source's `<driver> calls outside SQLAlchemy are not traced`, is a
+   documented limitation, not evidence.
 3. `its test did not run`: no test of the run has the entry's owner.
 4. `its test did not complete`: a deciding attempt of the owner has a call-phase report that did not pass, or no
    call-phase report.
@@ -30,8 +33,9 @@ The reasons are checked in this order; the first that applies is the entry's rea
    has the entry's owner.
 6. `its test still shows it outside the gate`: an attempt of the owner still shows the entry when every phase is
    evaluated with no gate relaxed, at or above the entry's observed count, or at any count when the owner's own gate is
-   off. For this check a `sharpit.max-queries` entry counts every phase, although the gate itself counts only the call
-   phase, so queries moved into a fixture do not read as fixed.
+   off. For this check a `sharpit.max-queries` entry compares the queries of all phases of the attempt, summed, with
+   its observed count, although the gate itself counts only the call phase, so queries moved into or split across
+   fixtures do not read as fixed. The other rules are checked phase by phase.
 
 The report's `baseline` object gains `inconclusive`, a count, and `inconclusiveFindings`, a list of `fingerprint` and
 `reason` sorted by fingerprint. Both are `null` on a partial run; they are listed, and the rewrite keeps the entries,
@@ -55,7 +59,13 @@ findings are still seen. An older sharpit that rewrites a baseline drops `owner`
 drops advisor entries carried for an advisor that did not run in full, or by deleting its row. After a rewrite, a
 finding whose identity drifted is baselined under its new fingerprint and stays gated; its old entry then reads fixed.
 
-Accepted limits: a test whose body no longer reaches the code reads as proof; SQL on a thread no test owns is not
+Because max-queries sums every phase, a fixture that runs queries, such as one that seeds rows, keeps a fixed
+max-queries entry inconclusive until the entry is cleared; a false inconclusive is accepted over a false fixed.
+
+Accepted limits: a test whose body no longer reaches the code reads as proof; SQL sent through a driver beside
+SQLAlchemy (a raw `sqlite3`, `aiosqlite`, `psycopg`, `asyncpg` or `pymysql` cursor) is not traced, so an N+1 or query
+count moved onto such a cursor reads as fixed; unbounded reads are recorded only in the call phase, so an unbounded read
+moved into a fixture is not seen and reads as fixed; SQL on a thread no test owns is not
 attributed to the owner; facts above a raised `unbounded_read_factor` are not kept, so such a read cannot be
 re-evaluated; a loosened gate whose count falls but stays above the old limit can read as fixed; and a statement that
 loses its identity without leaving a new finding of the same rule in its test, such as one sent without text, which the
