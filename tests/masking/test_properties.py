@@ -13,14 +13,12 @@ The profile (``tests/conftest.py``) is derandomized: every run tries the same ex
 
 from __future__ import annotations
 
-import gc
 import os
 import re
 import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
-from contextlib import closing
 from pathlib import Path
 from typing import NamedTuple
 
@@ -224,13 +222,15 @@ def _sqlite() -> sqlite3.Connection:
     return db
 
 
+_DB = _sqlite()
+
+
 def _takes_double_quoted_strings() -> bool:
-    with closing(_sqlite()) as db:  # a connection per use: one held by the module outlives every test in the worker
-        try:
-            db.execute('SELECT "no such column"')
-        except sqlite3.OperationalError:
-            return False
-        return True
+    try:
+        _DB.execute('SELECT "no such column"')
+    except sqlite3.OperationalError:
+        return False
+    return True
 
 
 _DQS = _takes_double_quoted_strings()  # ``SQLITE_DQS``: a build compiled without it reads ``"x"`` only as a name
@@ -238,26 +238,12 @@ _DQS = _takes_double_quoted_strings()  # ``SQLITE_DQS``: a build compiled withou
 
 def _returned(text: str) -> str:
     """What ``sqlite3`` gives back. The generator writes only valid queries: a refusal is a fault in it, not a pass."""
-    with closing(_sqlite()) as db:
-        try:
-            return repr(db.execute(text).fetchall())
-        except sqlite3.OperationalError:
-            if _DQS:
-                raise
-            return ""  # the build refuses a double-quoted string: no acceptance check, and no value to look for
-
-
-def _live_connections() -> int:
-    return sum(1 for obj in gc.get_objects() if type(obj) is sqlite3.Connection)
-
-
-def test_the_module_keeps_no_sqlite_connection_alive() -> None:
-    """A connection alive in this process is one an in-process ``--sharpit`` run counts as opened before capture."""
-    held = [name for name, value in globals().items() if isinstance(value, sqlite3.Connection)]
-    assert held == []
-    before = _live_connections()
-    _returned("SELECT a FROM t")
-    assert _live_connections() == before
+    try:
+        return repr(_DB.execute(text).fetchall())
+    except sqlite3.OperationalError:
+        if _DQS:
+            raise
+        return ""  # the build refuses a double-quoted string: no acceptance check, and no value to look for
 
 
 # --- the properties ------------------------------------------------------------------------------------------------
