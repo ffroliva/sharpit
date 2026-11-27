@@ -16,6 +16,7 @@ import re
 import threading
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
@@ -90,6 +91,7 @@ _PARTIAL = Match((), (), F_PARTIAL, None, frozenset())
 _BUSY = Match((), (), F_BUSY, None, frozenset())
 _STOPPED = Match((), (), F_STOPPED, None, frozenset())
 _REPEATED = Match((), (), F_REPEATED, None, frozenset())
+_EMPTY_MISSES: tuple[None, ...] = (None,) * HASHES
 
 
 class _Entry:
@@ -103,9 +105,11 @@ class _Entry:
         "generation",
         "lock",
         "misses",
+        "misses_order",
         "names",
         "path_pending",
         "pattern",
+        "prefix",
         "seen",
         "stopped",
         "value_chars",
@@ -119,10 +123,12 @@ class _Entry:
         self.path_pending = path_pending
         self.values: list[str] = []
         self.names: list[str] = []
+        self.prefix = ""
         self.pattern: re.Pattern[str] | None = None
         self.value_chars = 0
         self.epoch = 0
-        self.misses: dict[int, None] = {}
+        self.misses: set[object] = set()
+        self.misses_order: deque[object] = deque(_EMPTY_MISSES, maxlen=HASHES)
         self.seen: dict[int, None] = {}
         self.checks = 0
         self.comparisons = 0
@@ -130,29 +136,18 @@ class _Entry:
 
     def add(self, name: str | None, value: str) -> str | None:
         # ported: RequestValues.add (:523-551)
-        if len(value) > MAX_LENGTH:
+        vlen = len(value)
+        if vlen > MAX_LENGTH:
             return "valuesTooLong"
-        if len(value) < MIN_LENGTH or value in self.values:
+        if vlen < MIN_LENGTH or value in self.values:
             return None
         if len(self.values) >= MAX_VALUES:
             return "valuesOverCount"
         self.values.append(value)
         self.names.append(name if name is not None and valid_name(name) else fallback_name(name))
-        self.value_chars += len(value)
+        self.value_chars += vlen
         self.epoch += 1
         return None
-
-    def spend(self, seen: bool, scanned: int) -> bool:
-        """Charges one check, unless the text was seen, and its comparisons; False once a budget is spent."""
-        # ported: RequestValues.compare (:981-993): scanned length times the held values' total length
-        if not seen:
-            self.checks += 1
-        cost = scanned * self.value_chars
-        if self.checks > MAX_CHECKS or self.comparisons + cost > MAX_COMPARISONS:
-            self.stopped = True
-            return False
-        self.comparisons += cost
-        return True
 
 
 def _remember(ring: dict[int, None], size: int, key: int) -> None:
@@ -175,17 +170,19 @@ def _path_pairs(path_params: object, room: int) -> list[_Pair] | None:
     return pairs
 
 
-def _compile_pattern(values: list[str]) -> re.Pattern[str] | None:
+def _compile_pattern(values: list[str], prefix: str | None = None) -> re.Pattern[str] | None:
     """An alternation prefilter, built outside the ``re`` module cache, which would keep the request's values alive."""
     if len(values) <= 1 or _compile_uncached is None:
         return None
+    if prefix is None:
+        prefix = os.path.commonprefix(values)
+    if len(prefix) >= MIN_LENGTH:
+        return None
     try:
         if _sub_pattern is not None:
-            prefix = os.path.commonprefix(values)
             plen = len(prefix)
             data: list[Any] = [(_literal_op, c) for c in map(ord, prefix)]
-            if any(len(v) > plen for v in values):
-                data.append((_branch_op, (None, [[(_literal_op, c) for c in map(ord, v[plen:])] for v in values])))
+            data.append((_branch_op, (None, [[(_literal_op, c) for c in map(ord, v[plen:])] for v in values])))
             sub = _sub_pattern(_parser_state, data)
             lengths = [len(v) for v in values]
             sub.width = (min(lengths), max(lengths))
@@ -252,7 +249,7 @@ def _scan(
     if pattern is not None:
         if pattern.search(scanned) is None:
             return _NO_SCAN
-    elif len(values) == 1 and scanned.find(values[0]) < 0:
+    elif len(values) == 1 and values[0] not in scanned:
         return _NO_SCAN
     spans: list[tuple[int, int, int]] = []
     matched: list[int] = []
@@ -321,18 +318,63 @@ class RequestValues:
 
     def match(self, info: RequestInfo, text: str, kind: Kind) -> Match:
         """Which of ``info``'s values appear verbatim in ``text``, within the request's budgets. Never waits."""
+        # ported: RequestValues.compare (:912-1060), same order of checks
+        if (entry := self._entries.get(info.id)) is None and not isinstance(entry := self._insert(info), _Entry):
+            return entry
+        text_len = len(text)
+        partial = text_len > MAX_SCAN
+        scanned = text[:MAX_SCAN] if partial else text
+        if not entry.lock.acquire(False):
+            self._busy += 1
+            return _BUSY
+        try:
+            if (
+                entry.generation != self._generation
+                or info.finished_ns is not None
+                or (entry.path_pending and self._pull_path(entry, info.scope))
+                or not entry.values
+            ):
+                return _EMPTY
+            if entry.stopped:
+                return _STOPPED
+            key = (
+                (hash(scanned) if kind == "file" else ~hash(scanned))
+                if not partial
+                else hash((kind, text_len, scanned))
+            )
+            misses = entry.misses
+            if key in misses:
+                return _REPEATED
+            seen = bool(entry.seen and key in entry.seen)
+            entry.checks += not seen
+            entry.comparisons += (MAX_SCAN if partial else text_len) * entry.value_chars
+            if entry.checks > MAX_CHECKS or entry.comparisons > MAX_COMPARISONS:
+                entry.stopped = True
+                self._stopped += 1
+                return _STOPPED
+            self._checks += 1
+            if entry.prefix in scanned and (matched := (scan := _scan(scanned, entry.values, entry.pattern))[1]):
+                if partial:
+                    self._partial += 1
+                spans, overflow = scan[0], scan[2]
+                names = list(entry.names)
+            else:
+                if not partial:
+                    order = entry.misses_order
+                    misses.discard(order[0])
+                    order.append(key)
+                    misses.add(key)
+                    return _EMPTY
+                self._partial += 1
+                return _PARTIAL if self._live(info, entry) else _EMPTY
+        finally:
+            entry.lock.release()
+        return self._matched(info, entry, text, spans, matched, names, key, partial, overflow, seen)
+
+    def _insert(self, info: RequestInfo) -> _Entry | Match:
         generation = self._generation
         if info.finished_ns is not None or info.id in self._swept:
             return _EMPTY
-        entry = self._entries.get(info.id)
-        if entry is None:
-            inserted = self._insert(info, generation)
-            if not isinstance(inserted, _Entry):
-                return inserted
-            entry = inserted
-        return self._compare(info, entry, text, kind)
-
-    def _insert(self, info: RequestInfo, generation: int) -> _Entry | Match:
         pairs, path_pending = _read_values(info.scope)
         if not pairs:
             return _EMPTY
@@ -342,7 +384,7 @@ class RequestValues:
         try:
             if generation != self._generation:
                 return _EMPTY
-            self._sweep()
+            now = self._sweep()
             entry = self._entries.get(info.id)
             if entry is None:
                 if info.id in self._swept:
@@ -350,10 +392,12 @@ class RequestValues:
                 if len(self._entries) >= ENTRIES:
                     self._table_full += 1
                     return _EMPTY
-                entry = _Entry(generation, self._clock(), path_pending)
+                entry = _Entry(generation, now, path_pending)
                 for name, value in pairs:
                     self._count_add(entry, name, value)
-                entry.pattern = _compile_pattern(entry.values)
+                prefix = entry.values[0] if len(entry.values) == 1 else os.path.commonprefix(entry.values)
+                entry.prefix = prefix
+                entry.pattern = _compile_pattern(entry.values, prefix)
                 self._entries[info.id] = entry
                 self._requests += 1
         finally:
@@ -363,61 +407,28 @@ class RequestValues:
             return _EMPTY
         return entry
 
-    def _sweep(self) -> None:
+    def _sweep(self) -> float:
         """Pops the entries past the deadline; their requests hold no values again (RequestValues.java:438)."""
         now = self._clock()
-        for request_id, entry in list(self._entries.items()):
-            if now - entry.begun > DEADLINE_SECONDS:
-                self._entries.pop(request_id, None)
-                if len(self._swept) >= ENTRIES:
-                    # end and clear change the dict without the table lock: an eviction they race is skipped
-                    with contextlib.suppress(RuntimeError, StopIteration):
-                        self._swept.pop(next(iter(self._swept)), None)
-                self._swept[request_id] = None
+        if not self._entries:
+            return now
+        for request_id in [rid for rid, entry in self._entries.items() if now - entry.begun > DEADLINE_SECONDS]:
+            if (entry := self._entries.pop(request_id, None)) is not None:
+                entry.generation = -1
+            if len(self._swept) >= ENTRIES:
+                # end and clear change the dict without the table lock: an eviction they race is skipped
+                with contextlib.suppress(RuntimeError, StopIteration):
+                    self._swept.pop(next(iter(self._swept)), None)
+            self._swept[request_id] = None
+        return now
 
     def _drop(self, request_id: str, entry: _Entry) -> None:
         if self._entries.get(request_id) is entry:
             self._entries.pop(request_id, None)
+            entry.generation = -1
 
     def _live(self, info: RequestInfo, entry: _Entry) -> bool:
-        return self._entries.get(info.id) is entry and entry.generation == self._generation and info.finished_ns is None
-
-    def _compare(self, info: RequestInfo, entry: _Entry, text: str, kind: Kind) -> Match:
-        # ported: RequestValues.compare (:912-1060), same order of checks
-        text_len = len(text)
-        partial = text_len > MAX_SCAN
-        scanned = text[:MAX_SCAN] if partial else text
-        if not entry.lock.acquire(False):
-            self._busy += 1
-            return _BUSY
-        try:
-            if not self._live(info, entry):
-                return _EMPTY
-            if entry.path_pending:
-                self._pull_path(entry, info.scope)
-            if not entry.values:
-                return _EMPTY
-            if entry.stopped:
-                return _STOPPED
-            key = hash((kind, text_len, scanned, entry.epoch))
-            if key in entry.misses:
-                return _REPEATED
-            seen = key in entry.seen
-            if not entry.spend(seen, len(scanned)):
-                self._stopped += 1
-                return _STOPPED
-            self._checks += 1
-            spans, matched, overflow = _scan(scanned, entry.values, entry.pattern)
-            self._partial += partial
-            if not matched:
-                if not partial:
-                    _remember(entry.misses, HASHES, key)
-                    return _EMPTY
-                return _PARTIAL if self._live(info, entry) else _EMPTY
-            names = list(entry.names)
-        finally:
-            entry.lock.release()
-        return self._matched(info, entry, text, spans, matched, names, key, partial, overflow, seen)
+        return entry.generation == self._generation and info.finished_ns is None
 
     def _matched(
         self,
@@ -445,18 +456,22 @@ class RequestValues:
         )
         return result if self._live(info, entry) else _EMPTY
 
-    def _pull_path(self, entry: _Entry, scope: object) -> None:
+    def _pull_path(self, entry: _Entry, scope: object) -> bool:
         """Path values routing set after the first check: added once, and remembered texts checked again."""
         # ported: RequestValues.compare (:948-957)
         path = _path_pairs(_scope_value(scope, "path_params"), MAX_VALUES)
         if path is None:
-            return
+            return False
         for name, value in path:
             self._count_add(entry, name, value)
-        entry.pattern = _compile_pattern(entry.values)
+        prefix = entry.values[0] if len(entry.values) == 1 else os.path.commonprefix(entry.values)
+        entry.prefix = prefix
+        entry.pattern = _compile_pattern(entry.values, prefix)
         entry.misses.clear()
+        entry.misses_order.extend(_EMPTY_MISSES)
         entry.seen.clear()
         entry.path_pending = False
+        return False
 
     def mark_seen(self, request_id: str, match: Match) -> None:
         """Remembers an owned match's text, so the request's next check of it reports ``F_SEEN`` (D2)."""
@@ -466,7 +481,7 @@ class RequestValues:
         if not entry.lock.acquire(False):
             return
         try:
-            if self._entries.get(request_id) is entry:
+            if entry.generation == self._generation:
                 _remember(entry.seen, MATCHED_HASHES, match.text_hash)
         finally:
             entry.lock.release()
@@ -478,7 +493,8 @@ class RequestValues:
                 self._sweep()
             finally:
                 self._table.release()
-        self._entries.pop(request_id, None)
+        if (entry := self._entries.pop(request_id, None)) is not None:
+            entry.generation = -1
         self._swept.pop(request_id, None)
 
     def clear(self) -> None:
@@ -506,11 +522,11 @@ class RequestValues:
         }
 
     def _count_add(self, entry: _Entry, name: str | None, value: str) -> None:
-        result = entry.add(name, value)
-        if result == "valuesTooLong":
-            self._values_too_long += 1
-        elif result == "valuesOverCount":
-            self._values_over_count += 1
+        if (result := entry.add(name, value)) is not None:
+            if result == "valuesTooLong":
+                self._values_too_long += 1
+            else:
+                self._values_over_count += 1
 
 
 def unchecked(match: Match) -> bool:
