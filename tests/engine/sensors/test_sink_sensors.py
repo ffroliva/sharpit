@@ -732,7 +732,7 @@ def test_a_lane_without_request_values_gives_another_installs_row_no_request_id(
 
 
 def test_a_partial_scan_that_matched_a_name_reports_the_redacted_target_not_unchecked() -> None:
-    # ported: RequestValues.fileUsed (:741), the match is read before the unchecked flags
+    # adapted from: RequestValues.java:741 (fileUsed), the match is read before the unchecked flags
     sensor = files("name=quarterly")
     path = "quarterly/" + "x/" * MAX_SCAN
     row = run(sensor, "open", path, "r", 0)[0]
