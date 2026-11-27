@@ -108,6 +108,7 @@ def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
 
 # the rules fed by SQL capture: a statement on a connection sharpit did not trace reaches none of them
 _SQL_RULES = (gates.MAX_QUERIES, gates.N_PLUS_ONE, gates.UNBOUNDED_READ)
+_SQLITE_EVIDENCE = (sqlite.FACTORY_PASSED_THROUGH, sqlite.EARLY_CONNECTIONS, sqlite.COUNT_FAILED)
 
 
 def _limited(data: dict[str, Any], name: str, suffix: str = "") -> bool:
@@ -117,14 +118,14 @@ def _limited(data: dict[str, Any], name: str, suffix: str = "") -> bool:
 
 def _incomplete_rules(data: dict[str, Any]) -> tuple[str, ...]:
     """The rules whose silence proves nothing in this run: all when capture was lost, the SQL ones when the sqlite3
-    source saw a connection or cursor it could not trace.
+    source recorded evidence of untraced SQL in this run.
 
     Only evidence counts: the sqlalchemy note on driver calls outside SQLAlchemy is listed whenever the driver module
     is loaded, so it is a documented limitation, not a sign that this run lost a statement.
     """
     if data["unknownReasons"] or any(w.startswith(HOOK_FAILURE_PREFIX) for w in data["warnings"]):
         return gates.GATE_IDS
-    if _limited(data, "sqlite3", sqlite.FACTORY_PASSED_THROUGH):
+    if any(_limited(data, "sqlite3", note) for note in _SQLITE_EVIDENCE):
         return _SQL_RULES
     return (gates.UNBOUNDED_READ,) if _limited(data, "unbounded-read") else ()
 

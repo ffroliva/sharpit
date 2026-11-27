@@ -16,8 +16,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from tests.conftest import reset_sqlite_source
 
+from conftest import reset_sqlite_source
 from sharpit.engine.sources import sqlite
 
 TESTS = Path(__file__).resolve().parents[1]

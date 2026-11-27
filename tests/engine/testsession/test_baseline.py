@@ -655,13 +655,19 @@ def test_sql_outside_sqlalchemy_leaves_the_exception_rule_provable(tmp_path) -> 
     assert result["fixed"] == 1
 
 
-def _untraced_sqlite_factory() -> dict:
-    return tsfakes.source("sqlite3", limitations=[sqlite_source.FACTORY_PASSED_THROUGH])
+def _untraced_sqlite_factory(limitation: str = sqlite_source.FACTORY_PASSED_THROUGH) -> dict:
+    return tsfakes.source("sqlite3", limitations=[limitation])
 
 
+# each is written only from what this run observed: an untraced factory, a connection or alias that existed at attach,
+# a heap count that failed
+_SQLITE_EVIDENCE = [sqlite_source.FACTORY_PASSED_THROUGH, sqlite_source.EARLY_CONNECTIONS, sqlite_source.COUNT_FAILED]
+
+
+@pytest.mark.parametrize("limitation", _SQLITE_EVIDENCE, ids=["factory", "early", "count-failed"])
 @pytest.mark.parametrize("rule", [gates.MAX_QUERIES, gates.N_PLUS_ONE, gates.UNBOUNDED_READ])
-def test_an_untraced_sqlite3_factory_marks_the_sql_rules_incomplete(tmp_path, rule: str) -> None:
-    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(), _untraced_sqlite_factory()]))
+def test_sqlite3_evidence_of_untraced_sql_marks_the_sql_rules_incomplete(tmp_path, rule: str, limitation: str) -> None:
+    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(), _untraced_sqlite_factory(limitation)]))
     entry = _ENTRY_OF_RULE[rule]()
     result = _apply_run(tmp_path, data, entry)
     assert result["inconclusiveFindings"] == [{"fingerprint": entry.fingerprint, "reason": INCOMPLETE}]

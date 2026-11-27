@@ -354,16 +354,34 @@ _UNTRACED_FACTORY = {
 @pytest.mark.parametrize("moved", list(_UNTRACED_FACTORY))
 def test_n_plus_one_moved_to_an_untraced_sqlite3_factory_is_not_fixed(pytester: pytest.Pytester, moved: str) -> None:
     fingerprint = _write_first_baseline(pytester)
-    _only_reason(_changed_run(pytester, _UNTRACED_FACTORY[moved]), fingerprint, INCOMPLETE)
+    _only_reason(_changed_run(pytester, _UNTRACED_FACTORY[moved], own_process=True), fingerprint, INCOMPLETE)
+
+
+_EARLY_PLUGIN = "import sqlite3\nCONN = sqlite3.connect(':memory:', check_same_thread=False)\n"
+_ON_EARLY = (
+    "import earlyplug, sqlite3\n"
+    "def test_n1():\n for _ in range(30): earlyplug.CONN.execute('SELECT 1').fetchone()\n"
+    "def test_other(): sqlite3.connect(':memory:').execute('SELECT 1').fetchone()\n"
+)
+
+
+def test_n_plus_one_moved_onto_a_connection_opened_before_capture_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    pytester.makepyfile(earlyplug=_EARLY_PLUGIN)
+    # own process: the plugin's connection must exist before capture starts, and no other connection may
+    _only_reason(_changed_run(pytester, _ON_EARLY, "-p", "earlyplug", own_process=True), fingerprint, INCOMPLETE)
 
 
 _ASYNC_APP = (
     "from sqlalchemy import text\nfrom sqlalchemy.ext.asyncio import create_async_engine\n"
-    "engine = create_async_engine('sqlite+aiosqlite:///:memory:')\n"
     "async def run(n):\n"
-    "    async with engine.connect() as c:\n"
-    "        for _ in range(n):\n"
-    "            await c.execute(text('SELECT 1'))\n"
+    "    engine = create_async_engine('sqlite+aiosqlite:///:memory:')\n"
+    "    try:\n"
+    "        async with engine.connect() as c:\n"
+    "            for _ in range(n):\n"
+    "                await c.execute(text('SELECT 1'))\n"
+    "    finally:\n"
+    "        await engine.dispose()\n"
 )
 
 
