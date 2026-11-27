@@ -748,3 +748,12 @@ def test_a_command_whose_check_raised_is_not_checked_and_carries_no_sink_row(eve
     with patch.object(SinkMatcher, "check", side_effect=RuntimeError("boom")):
         rows = run(sensor, event, *args)
     assert [row["target"] for row in rows] == [NOT_CHECKED]
+
+
+@pytest.mark.parametrize("sink", ["os.system", "subprocess.Popen"])
+def test_a_value_in_the_program_path_hides_it_even_when_an_earlier_folder_shares_its_name(sink: str) -> None:
+    sensor = processes("p=bin/tool")
+    command = "/usr/local/tool/bin/tool -x"
+    rows = run(sensor, sink, command) if sink == "os.system" else run(sensor, sink, None, command, None, None)
+    assert rows[0]["target"] == FROM_REQUEST_INPUT
+    assert "tool" not in repr(rows[0])
