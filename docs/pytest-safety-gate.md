@@ -70,7 +70,8 @@ lists it in `baseline.inconclusiveFindings` with the first reason that applies:
 4. `its test did not complete`: a call phase of its deciding attempt did not pass, or it never reached its call phase
    (skipped, a setup error).
 5. `its test has a new finding of the same rule`: the finding's identity may have changed.
-6. `its test still shows it outside the gate`: a marker, a fixture phase or a raised budget hides it from the gate.
+6. `its test still shows it outside the gate`: a marker, a fixture phase or a raised budget hides it from the gate. A
+   `sharpit.max-queries` entry counts the queries of every phase here, although the gate counts only the call phase.
 
 An advisor finding not seen counts as `fixed` when its advisor assessed the whole app, as before.
 `--sharpit-write-baseline` combined with `--sharpit-baseline` keeps every inconclusive entry, so an entry is never

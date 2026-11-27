@@ -28,7 +28,8 @@ The reasons are checked in this order; the first that applies is the entry's rea
    has the entry's owner.
 6. `its test still shows it outside the gate`: an attempt of the owner still shows the entry when every phase is
    evaluated with no gate relaxed, at or above the entry's observed count, or at any count when the owner's own gate is
-   off.
+   off. For this check a `sharpit.max-queries` entry counts every phase, although the gate itself counts only the call
+   phase, so queries moved into a fixture do not read as fixed.
 
 The report's `baseline` object gains `inconclusive`, a count, and `inconclusiveFindings`, a list of `fingerprint` and
 `reason` sorted by fingerprint. Both are `null` on a partial run; they are listed, and the rewrite keeps the entries,

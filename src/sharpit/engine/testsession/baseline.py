@@ -105,11 +105,14 @@ _UNPROVED = {
 
 
 def _shown(facts: TestFacts) -> list[Finding]:
-    """What every phase of one attempt shows under an unrelaxed budget, so no budget or marker hides a finding."""
+    """What every phase of one attempt shows under an unrelaxed budget, so no budget or marker hides a finding.
+
+    Every phase counts for every rule, max-queries included, although that gate evaluates only the call phase: queries
+    moved into a fixture are not proof of a fix.
+    """
     shown: list[Finding] = []
-    for name, phase in facts.phases.items():
-        found = gates.evaluate_test(replace(facts, phases={"call": phase}), _UNRELAXED, 2, ())
-        shown.extend(f for f in found if name == "call" or f.rule_id != gates.MAX_QUERIES)
+    for phase in facts.phases.values():
+        shown.extend(gates.evaluate_test(replace(facts, phases={"call": phase}), _UNRELAXED, 2, ()))
     return shown
 
 
