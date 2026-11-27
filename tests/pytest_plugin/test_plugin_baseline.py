@@ -257,8 +257,8 @@ def _changed_run(
 ) -> dict:
     """Run against the baseline; ``-n 2`` and a conftest that patches sharpit itself need their own process.
 
-    So does a changed run that executes no SQL: it is complete only when the process held no earlier connection, which an
-    in-process run on a shared test worker cannot promise.
+    So does a changed run that executes no SQL: it is complete only when the process held no earlier connection, which
+    an in-process run on a shared test worker cannot promise.
     """
     pytester.makepyfile(test_a=source)
     args = [*_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra]
