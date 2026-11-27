@@ -51,7 +51,7 @@ _HEX_LETTERS = frozenset("abcdefABCDEF")
 _WRITE_MODE = frozenset("wax+")
 _WRITE_DISJOINT = _WRITE_MODE.isdisjoint
 _REQUEST_GET = REQUEST.get
-_MISS = ("", "")  # a cache miss; no path resolves to it
+_MISS: Any = ()  # a cache miss; no path resolves to it
 _PENDING = 64  # announced copy paths remembered, cleared when full (a copy that failed before opening leaves two)
 _COPYFILE = shutil.copyfile.__code__
 _COPY_DEPTH = 12  # frames from the sensor up to the copyfile that opened the file: dispatcher, sensor, a few more
@@ -269,11 +269,8 @@ class FilesSensor:
         if not text:
             return ()  # a file descriptor names no file, nor does an empty name
         found = self._seen.get(text, _MISS)
-        if found is _MISS:
-            return self._row_miss(kind, text)
-        if found is None:
-            self.ignored += 1
-            return ()
+        if not found:
+            return self._row_miss(kind, text, found)
         req = _REQUEST_GET()
         matcher = self._matcher
         if matcher is not None and matcher.enabled and req is not None:
@@ -283,7 +280,8 @@ class FilesSensor:
                 return [_file_row(kind, NOT_CHECKED, "elsewhere", self._context_id, req)]
             if match is not _EMPTY and match is not _REPEATED and match is not None:
                 return self._row_matched(kind, text, match, req)
-        req_id = req.id if req is not None and self._context_id in (None, req.context_id) else None
+        ctx = self._context_id
+        req_id = req.id if req is not None and (ctx is None or req.context_id == ctx) else None
         # inlined _file_row: one call per event over budget
         return [
             {
@@ -299,7 +297,10 @@ class FilesSensor:
             }
         ]
 
-    def _row_miss(self, kind: str, text: str) -> Sequence[Mapping[str, object]]:
+    def _row_miss(self, kind: str, text: str, found: tuple[str, str] | None) -> Sequence[Mapping[str, object]]:
+        if found is None:
+            self.ignored += 1
+            return ()
         req = _REQUEST_GET()
         matcher = self._matcher
         if matcher is not None and matcher.enabled and req is not None:

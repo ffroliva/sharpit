@@ -72,10 +72,11 @@ class _Busy(threading.local):
 
 
 class _Subscription:
-    __slots__ = ("flat", "on", "sensor", "sink")
+    __slots__ = ("flat", "on", "record", "sensor", "sink")
 
     def __init__(self, sensor: Sensor, sink: JournalSink) -> None:
         self.sensor = sensor
+        self.record = sensor.record
         self.sink: weakref.ReferenceType[Any] = weakref.ref(sink)
         self.flat = hasattr(sink, "offer_flat")
         self.on = True
@@ -153,10 +154,10 @@ class AuditHub:
             return  # the context is gone: skipped here, dropped at the next release
         try:
             if sub.flat:  # a sensor's row is flat scalars it never touches again
-                for row in sub.sensor.record(event, args):
+                for row in sub.record(event, args):
                     sink.offer_flat(row, row_size(row), 0 if row.get("requestId") is None else row["at"])
             else:
-                for row in sub.sensor.record(event, args):
+                for row in sub.record(event, args):
                     sink.offer(row)
         except Exception:  # noqa: BLE001, S110 - an audit hook must never raise into the host's call
             pass

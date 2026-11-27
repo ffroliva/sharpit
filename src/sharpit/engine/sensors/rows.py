@@ -8,7 +8,6 @@ drops its oldest row, counted.
 from __future__ import annotations
 
 from collections import deque
-from contextlib import suppress
 
 from sharpit.engine.capture.journal import Event, JournalSink
 
@@ -62,18 +61,20 @@ class TeeSink:
         self._journal = journal
         self._rows = rows
         self._rings = rows._rings  # pyright: ignore[reportPrivateUsage]
+        self._rings_get = rows._rings.get  # pyright: ignore[reportPrivateUsage]
         self._dropped = rows._dropped  # pyright: ignore[reportPrivateUsage]
         self._flat = hasattr(journal, "offer_flat")
 
     def offer(self, event: Event) -> bool:
-        with suppress(Exception):  # publishing never raises into the host
+        try:  # noqa: SIM105 - publishing never raises into the host
             self._rows.append(dict(event))
+        except Exception:  # noqa: BLE001, S110
+            pass
         return self._journal.offer(event)
 
     def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1) -> bool:
         try:  # publishing never raises into the host
-            source = event.get("source")
-            if (ring := self._rings.get(source)) is not None:
+            if (ring := self._rings_get(source := event["source"])) is not None:
                 if len(ring) == RING_CAPACITY:
                     self._dropped[source] += 1
                 ring.append(event)  # type: ignore[arg-type]

@@ -158,6 +158,8 @@ def _path_pairs(path_params: object, room: int) -> list[_Pair] | None:
     """A plain dict's values of exact str, int, float or UUID type, never another type converted (D7)."""
     if type(path_params) is not dict:
         return None
+    if not path_params:
+        return []
     pairs: list[_Pair] = []
     for key, value in path_params.items():  # pyright: ignore[reportUnknownVariableType]
         if len(pairs) >= room:
@@ -228,8 +230,9 @@ def _scope_value(scope: object, key: str) -> object:
 def _read_values(scope: object) -> tuple[list[_Pair], bool]:
     """Path values before query values (D4), and whether the path values are still to come."""
     path = _path_pairs(_scope_value(scope, "path_params"), MAX_PAIRS)
-    pairs = path or []
-    return pairs + _query_pairs(_scope_value(scope, "query_string"), MAX_PAIRS - len(pairs)), path is None
+    if not path:
+        return _query_pairs(_scope_value(scope, "query_string"), MAX_PAIRS), path is None
+    return path + _query_pairs(_scope_value(scope, "query_string"), MAX_PAIRS - len(path)), False
 
 
 _NO_SPANS: list[tuple[int, int, int]] = []
