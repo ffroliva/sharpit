@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
+from typing import Any
 
 import pytest
 
@@ -22,6 +24,12 @@ from sharpit.engine.sqltext.rules import (
 )
 
 MASKER = Masker(Exposure.MASKED, True)
+
+
+def _rows(sql: str, params: dict[str, Any] | None = None) -> list[Any]:
+    """What sqlite3 returns for ``sql``; the connection is closed, so no test leaves one open for a later gate."""
+    with closing(sqlite3.connect(":memory:")) as connection:
+        return connection.execute(sql, params or {}).fetchall()
 
 
 def test_sqlite_rules_match_tokenize_c() -> None:
@@ -125,7 +133,7 @@ def test_a_suffix_holding_a_value_reads_the_same_on_both_outputs() -> None:
 def test_a_dollar_after_a_name_character_hides_from_there(between: str) -> None:
     name = f"x{between}$a"
     sql = f"WITH {name}(')x,') AS (SELECT 'ZQKK') SELECT * FROM {name}"
-    returned = sqlite3.connect(":memory:").execute(sql).fetchall()
+    returned = _rows(sql)
     assert returned == [("ZQKK",)]
     assert normalize(sql, Dialect.SQLITE).sql == f"WITH x{between.replace(chr(0xFEFF) * 2, chr(0xFEFF))} ?"
     assert "ZQKK" not in (statement_text(MASKER, sql, Dialect.SQLITE) or "")
@@ -200,7 +208,7 @@ def test_a_block_closer_past_a_variable_cut_is_a_guess() -> None:
     ids=["dollar_in_name", "colon_in_bracket", "at_in_bracket"],
 )
 def test_sqlite_never_shows_a_returned_tcl_name_value(sql: str, marker: str, expected: str) -> None:
-    returned = sqlite3.connect(":memory:").execute(sql).fetchall()
+    returned = _rows(sql)
     assert marker in repr(returned)
     shown = normalize(sql, Dialect.SQLITE).sql
     assert marker not in shown
@@ -230,13 +238,13 @@ def test_sqlite_tcl_suffix_boundaries(sql: str, expected: str) -> None:
 
 def test_sqlite_bom_is_space_at_a_token_start() -> None:
     sql = "SELECT ﻿1, 'ZQTAIL'"
-    returned = sqlite3.connect(":memory:").execute(sql).fetchall()
+    returned = _rows(sql)
     assert returned == [(1, "ZQTAIL")]
     assert normalize(sql, Dialect.SQLITE).sql == "SELECT ?, ?"
 
 
 def test_sqlite_bom_continues_an_identifier_before_dollar_variable() -> None:
     sql = "WITH x﻿$a(')') AS (SELECT 'SECRET') SELECT * FROM x﻿$a"
-    returned = sqlite3.connect(":memory:").execute(sql, {"a(')')": "ZQBOUND"}).fetchall()
+    returned = _rows(sql, {"a(')')": "ZQBOUND"})
     assert returned == [("SECRET",)]
     assert "SECRET" not in normalize(sql, Dialect.SQLITE).sql
