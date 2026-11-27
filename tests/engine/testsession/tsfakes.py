@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections import Counter
 from typing import Any
 
@@ -34,6 +35,30 @@ def event(
         None,
         Dialect.POSTGRESQL,  # Task 29: a database sharpit reads; an UNSUPPORTED event has no identity
     )
+
+
+class LockProbe(list[object]):
+    """A list that notes, on each append, whether another thread could take ``lock`` at that moment."""
+
+    def __init__(self, lock: threading.RLock) -> None:
+        super().__init__()
+        self.lock = lock
+        self.held: list[bool] = []
+
+    def append(self, item: object) -> None:
+        taken: list[bool] = []
+
+        def other() -> None:
+            got = self.lock.acquire(blocking=False)
+            if got:
+                self.lock.release()
+            taken.append(got)
+
+        thread = threading.Thread(target=other)
+        thread.start()
+        thread.join()
+        self.held.append(not taken[0])
+        super().append(item)
 
 
 def run_phase(sink: TestSessionSink, node_id: str, attempt: int, phase: str, *sql: str) -> None:
