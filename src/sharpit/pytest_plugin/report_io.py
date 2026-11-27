@@ -11,6 +11,7 @@ import pytest
 
 from sharpit import __version__
 from sharpit.engine.advisors.findings import assessed_in_part
+from sharpit.engine.sources import sqlite
 from sharpit.engine.testsession import baseline as baseline_io
 from sharpit.engine.testsession import gates, outcome, report, sarif
 from sharpit.engine.testsession.facts import TestFacts, finding_from
@@ -105,7 +106,7 @@ def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
     )
 
 
-# the rules fed by SQLAlchemy capture: a driver call outside SQLAlchemy reaches none of them
+# the rules fed by SQL capture: a statement on a connection sharpit did not trace reaches none of them
 _SQL_RULES = (gates.MAX_QUERIES, gates.N_PLUS_ONE, gates.UNBOUNDED_READ)
 
 
@@ -115,10 +116,15 @@ def _limited(data: dict[str, Any], name: str, suffix: str = "") -> bool:
 
 
 def _incomplete_rules(data: dict[str, Any]) -> tuple[str, ...]:
-    """The rules whose silence proves nothing: all when capture was lost, the SQL ones when SQL ran untraced."""
+    """The rules whose silence proves nothing in this run: all when capture was lost, the SQL ones when the sqlite3
+    source saw a connection or cursor it could not trace.
+
+    Only evidence counts: the sqlalchemy note on driver calls outside SQLAlchemy is listed whenever the driver module
+    is loaded, so it is a documented limitation, not a sign that this run lost a statement.
+    """
     if data["unknownReasons"] or any(w.startswith(HOOK_FAILURE_PREFIX) for w in data["warnings"]):
         return gates.GATE_IDS
-    if _limited(data, "sqlalchemy", outcome.OUTSIDE_SQLALCHEMY):
+    if _limited(data, "sqlite3", sqlite.FACTORY_PASSED_THROUGH):
         return _SQL_RULES
     return (gates.UNBOUNDED_READ,) if _limited(data, "unbounded-read") else ()
 
