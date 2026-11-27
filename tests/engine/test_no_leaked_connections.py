@@ -71,10 +71,14 @@ def test_a_scan_that_counted_a_test_connection_does_not_outlive_the_test(factory
     incomplete (the baseline owner tests failed on CI's last Linux shard).
     """
     sqlite.detach_all()  # a fresh scan, the way the first attach of a worker sees the heap
+    sqlite.attach("leak-guard")
+    before = sqlite.preexisting_connections()  # another test on this worker may still hold a live connection
+    reset_sqlite_source()
     early = sqlite3.dbapi2.connect(":memory:", factory=factory)
+    sqlite.detach_all()
     sqlite.attach("leak-guard")
     try:
-        assert sqlite.preexisting_connections() >= 1, "precondition: the scan counted the early connection"
+        assert sqlite.preexisting_connections() == before + 1, "precondition: the scan counted the early connection"
     finally:
         early.close()
         del early
@@ -82,7 +86,7 @@ def test_a_scan_that_counted_a_test_connection_does_not_outlive_the_test(factory
         reset_sqlite_source()
     sqlite.attach("leak-guard")
     try:
-        assert sqlite.preexisting_connections() == 0
+        assert sqlite.preexisting_connections() == before
     finally:
         reset_sqlite_source()
 
