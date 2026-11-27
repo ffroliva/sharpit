@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import gc
 import re
+import sys
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
@@ -554,3 +555,35 @@ def test_request_values_are_not_retained_after_end() -> None:
     gc.collect()
     cached = [str(key) for name in ("_cache", "_cache2") for key in getattr(re, name, {})]
     assert not [key for key in cached if "SECRETVALUE123" in key]
+
+
+def test_concurrent_match_and_end_during_sweep_raise_nothing_and_leave_no_ended_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(values_module, "DEADLINE_SECONDS", 0.0005)
+    held = RequestValues()
+    barrier = threading.Barrier(8)
+    errors: list[Exception] = []
+
+    def worker(tid: int) -> None:
+        barrier.wait()
+        for step in range(500):
+            rid = f"{tid:02x}-{step:04x}"
+            try:
+                held.match(info("name=alice", request_id=rid), "x/alice", "file")
+                held.end(rid)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(old_interval)
+    assert errors == []
+    assert held.held() == 0
