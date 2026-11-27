@@ -569,3 +569,76 @@ def test_partial_run_keeps_inconclusive_null(tmp_path) -> None:
     assert "inconclusive" in result
     assert result["inconclusive"] is None
     assert result["inconclusiveFindings"] is None
+
+
+# --- review fixes (#329) ------------------------------------------------------------------------------------------
+
+
+def test_inconclusive_entry_is_listed_while_an_advisor_entry_is_carried(tmp_path) -> None:
+    rest = Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m")
+    old = _baseline_of(tmp_path, rest, _old_finding(gates.N_PLUS_ONE))
+    result = baseline.compare([], old, partial=False, ran={"test-runtime"}, tests=[_clean(OTHER)], incomplete=())
+    assert _reasons(result) == [DID_NOT_RUN]
+
+
+def test_inconclusive_entry_is_kept_while_an_advisor_entry_is_carried(tmp_path) -> None:
+    rest = Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m")
+    old = _baseline_of(tmp_path, rest, _old_finding(gates.N_PLUS_ONE))
+    result = baseline.compare([], old, partial=False, ran={"test-runtime"}, tests=[_clean(OTHER)], incomplete=())
+    assert sorted(e.rule_id for e in result.carried) == sorted(["RAPI-1", gates.N_PLUS_ONE])
+
+
+def test_report_lists_inconclusive_while_an_advisor_entry_is_carried(tmp_path) -> None:
+    runtime = _old_finding(gates.N_PLUS_ONE)
+    old = _baseline_of(tmp_path, Finding("RAPI-1", "rest-api", "HIGH", "GET /m/x", "m"), runtime)
+    data = render_parts(part(advisor_runs=[AdvisorRun.of("rest-api", [], _GAP, app="A#1")]))
+    state = SimpleNamespace(
+        baseline_data=old, partial=False, options=SimpleNamespace(baseline="old.json"), baseline_carried=()
+    )
+    _apply_baseline(state, data, [_clean(OTHER)])
+    assert data["baseline"]["inconclusiveFindings"] == [{"fingerprint": runtime.fingerprint, "reason": DID_NOT_RUN}]
+
+
+def test_max_queries_moved_to_a_setup_fixture_is_not_fixed(tmp_path) -> None:
+    facts = attempt_facts(OWN, setup=_call(selects=1, queries=30), call=_call(selects=1))
+    result = _compare(_entry_of(tmp_path, gates.MAX_QUERIES), facts)
+    assert result.fixed == ()
+    assert _reasons(result) == [STILL_SHOWN]
+
+
+def test_owner_digest_is_computed_once_per_node(tmp_path, monkeypatch) -> None:
+    old = _baseline_of(tmp_path, *(_old_finding(gates.N_PLUS_ONE, f"tests/test_a.py::test_{i}") for i in range(5)))
+    tests = [_clean(f"tests/test_b.py::test_{i}") for i in range(20)]
+    calls: Counter[str | None] = Counter()
+    real = baseline.owner_of
+
+    def counting(node_id: str | None) -> str | None:
+        calls[node_id] += 1
+        return real(node_id)
+
+    monkeypatch.setattr(baseline, "owner_of", counting)
+    _compare(old, *tests)
+    assert max(calls.values()) == 1
+
+
+_OUTSIDE_SQLALCHEMY = "sqlite3 calls outside SQLAlchemy are not traced"
+
+
+@pytest.mark.parametrize("rule", [gates.MAX_QUERIES, gates.N_PLUS_ONE])
+def test_sql_outside_sqlalchemy_marks_the_sql_rules_incomplete(tmp_path, rule: str) -> None:
+    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(limitations=[_OUTSIDE_SQLALCHEMY])]))
+    entry = _old_finding(rule)
+    result = _apply_run(tmp_path, data, entry)
+    assert result["inconclusiveFindings"] == [{"fingerprint": entry.fingerprint, "reason": INCOMPLETE}]
+
+
+def test_sql_outside_sqlalchemy_marks_unbounded_read_incomplete(tmp_path) -> None:
+    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(limitations=[_OUTSIDE_SQLALCHEMY])]))
+    result = _apply_run(tmp_path, data, _unbounded_entry())
+    assert result["inconclusiveFindings"] == [{"fingerprint": _unbounded_entry().fingerprint, "reason": INCOMPLETE}]
+
+
+def test_sql_outside_sqlalchemy_leaves_the_exception_rule_provable(tmp_path) -> None:
+    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(limitations=[_OUTSIDE_SQLALCHEMY])]))
+    result = _apply_run(tmp_path, data, _old_finding(gates.EXCEPTION))
+    assert result["fixed"] == 1
