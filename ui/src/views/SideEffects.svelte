@@ -531,11 +531,11 @@
       <p>{summary.unavailableReason}</p>
     </div>
   {:else if summary}
-    <section class="card mb-4" aria-labelledby="side-effects-headline">
-      <h3 id="side-effects-headline">
+    <section class="side-effects-summary" aria-labelledby="side-effects-headline">
+      <h2 id="side-effects-headline">
         {formatNumber(recordingSensors)}
         {recordingSensors === 1 ? 'sensor is' : 'sensors are'} recording side effects
-      </h3>
+      </h2>
       <p class="muted sm">
         sharpit groups observations by route, thread family, target, and call site. Process rows show only the
         executable name, network rows a host and port, file rows a path pattern, and environment rows a name:
@@ -579,7 +579,7 @@
         <section class="side-effects-sensor" aria-labelledby={`side-effects-sensor-${sensor.id}`}>
           <header class="sensor-head">
             <div>
-              <h3 id={`side-effects-sensor-${sensor.id}`}>{sensor.label}</h3>
+              <h2 id={`side-effects-sensor-${sensor.id}`}>{sensor.label}</h2>
               {#if sensor.reason && sensor.state !== 'not-available'}
                 <p class="sm muted">{sensor.reason}</p>
               {/if}
@@ -661,14 +661,12 @@
     color: var(--accent);
     font-weight: 600;
   }
-  .card {
+  .side-effects-summary {
     padding: var(--s4);
     border-bottom: 1px solid var(--line);
   }
-  .card h3 {
+  .side-effects-summary h2 {
     margin: 0 0 var(--s1);
-    font-size: 14px;
-    font-weight: 600;
   }
   .side-effects-sensor {
     padding: var(--s4);
@@ -680,10 +678,8 @@
     align-items: flex-start;
     margin-bottom: var(--s2);
   }
-  .sensor-head h3 {
+  .sensor-head h2 {
     margin: 0;
-    font-size: 13.5px;
-    font-weight: 600;
   }
   .side-effects-limitations {
     margin-top: var(--s3);
@@ -712,9 +708,6 @@
   }
   .mt-1 {
     margin-top: var(--s1);
-  }
-  .mb-4 {
-    margin-bottom: var(--s4);
   }
   .table-responsive {
     overflow-x: auto;
