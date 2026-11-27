@@ -12,9 +12,9 @@ import pytest
 from sharpit import __version__
 from sharpit.engine.advisors.findings import assessed_in_part
 from sharpit.engine.testsession import baseline as baseline_io
-from sharpit.engine.testsession import outcome, report, sarif
+from sharpit.engine.testsession import gates, outcome, report, sarif
 from sharpit.engine.testsession.facts import TestFacts, finding_from
-from sharpit.engine.testsession.finish import GateOptions, finish
+from sharpit.engine.testsession.finish import HOOK_FAILURE_PREFIX, GateOptions, finish
 
 
 def write_report(state: Any, session: Any, exitstatus: int) -> None:
@@ -105,6 +105,14 @@ def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
     )
 
 
+def _incomplete_rules(data: dict[str, Any]) -> tuple[str, ...]:
+    """The rules whose silence proves nothing: all of them when capture was lost, one when the read was unbounded."""
+    if data["unknownReasons"] or any(w.startswith(HOOK_FAILURE_PREFIX) for w in data["warnings"]):
+        return gates.GATE_IDS
+    unbounded = next((s for s in data["sources"] if s["name"] == "unbounded-read"), None)
+    return (gates.UNBOUNDED_READ,) if unbounded and unbounded["limitations"] else ()
+
+
 def _apply_baseline(state: Any, data: dict[str, Any], tests: Sequence[TestFacts] = ()) -> None:
     if state.baseline_data is None:
         return
@@ -117,7 +125,7 @@ def _apply_baseline(state: Any, data: dict[str, Any], tests: Sequence[TestFacts]
         ran=ran,
         in_part=in_part,
         tests=tests,
-        incomplete=(),
+        incomplete=_incomplete_rules(data),
     )
     state.baseline_carried = comparison.carried
     by_fingerprint = {finding.fingerprint: finding for finding in comparison.findings}
@@ -137,6 +145,10 @@ def _apply_baseline(state: Any, data: dict[str, Any], tests: Sequence[TestFacts]
         "new": sum(f.baseline_state == "new" for f in comparison.findings),
         "fixed": None if comparison.fixed is None else len(comparison.fixed),
         "fixedReason": comparison.fixed_reason,
+        "inconclusive": None if comparison.fixed is None else len(comparison.inconclusive),
+        "inconclusiveFindings": None
+        if comparison.fixed is None
+        else [{"fingerprint": entry.fingerprint, "reason": reason} for entry, reason in comparison.inconclusive],
     }
 
 

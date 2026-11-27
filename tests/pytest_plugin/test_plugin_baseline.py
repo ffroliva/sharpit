@@ -248,7 +248,9 @@ def _write_first_baseline(pytester: pytest.Pytester) -> str:
 def _changed_run(pytester: pytest.Pytester, source: str, *extra: str, workers: bool = False) -> dict:
     pytester.makepyfile(test_a=source)
     args = ["-n", "2"] if workers else []
-    pytester.runpytest_subprocess(*args, *_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra)
+    pytester.runpytest_subprocess(
+        *args, *_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra
+    )
     return json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))["baseline"]
 
 
@@ -308,3 +310,13 @@ def test_report_lists_inconclusive_with_reason(pytester: pytest.Pytester) -> Non
     result = _changed_run(pytester, "def test_other(): pass\n")
     assert result.get("inconclusive") == 1
     assert result.get("inconclusiveFindings") == [{"fingerprint": fingerprint, "reason": DID_NOT_RUN}]
+
+
+@pytest.mark.parametrize("workers", [False, True], ids=["serial", "xdist"])
+def test_fixed_for_a_real_fix_serial_and_xdist(pytester: pytest.Pytester, workers: bool) -> None:
+    _write_first_baseline(pytester)
+    fixed = "import sqlite3\ndef test_n1():\n c=sqlite3.connect(':memory:')\n c.execute('SELECT 1').fetchone()\n"
+    fixed += "def test_other(): pass\n"
+    result = _changed_run(pytester, fixed, workers=workers)
+    assert result["fixed"] == 1
+    assert result["inconclusive"] == 0
