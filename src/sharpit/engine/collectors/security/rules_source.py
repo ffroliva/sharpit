@@ -5,7 +5,16 @@ from __future__ import annotations
 import ast
 from collections.abc import Callable, Iterator
 
-from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule, source_file, source_modules
+from sharpit.engine.collectors.security import (
+    Inputs,
+    SecurityRule,
+    Violation,
+    is_plain,
+    located,
+    rule,
+    source_file,
+    source_modules,
+)
 from sharpit.engine.masking import is_secret_value, is_sensitive_key
 
 _PASSLIB = "https://passlib.readthedocs.io/en/stable/narr/context-tutorial.html"
@@ -50,13 +59,13 @@ def _calls(inputs: Inputs) -> Iterator[tuple[str, ast.Call]]:
         where = source_file(module)
         for node in ast.walk(module.tree):
             if isinstance(node, ast.Call):
-                yield f"{where}:{node.lineno}", node
+                yield where, node
 
 
 def _contexts(test: Callable[[ast.Call], bool], message: str) -> Callable[[Inputs], list[Violation]]:
     def check(inputs: Inputs) -> list[Violation]:
-        found = [(at, node) for at, node in _calls(inputs) if _called(node, "CryptContext") and test(node)]
-        return [Violation(at, f"{at}: {message}") for at, _ in found]
+        found = [(where, node) for where, node in _calls(inputs) if _called(node, "CryptContext") and test(node)]
+        return [Violation(f"{where}:{node.lineno}", located(where, node.lineno, message)) for where, node in found]
 
     return check
 
@@ -76,7 +85,7 @@ def _first_int(*nodes: ast.expr | None) -> int | None:
 
 def _cheap_bcrypt(inputs: Inputs) -> list[Violation]:
     found: list[Violation] = []
-    for at, node in _calls(inputs):
+    for where, node in _calls(inputs):
         if _called(node, "CryptContext"):
             rounds = _first_int(_keyword(node, "bcrypt__rounds"), _keyword(node, "bcrypt__default_rounds"))
         elif _called(node, "gensalt"):
@@ -84,7 +93,8 @@ def _cheap_bcrypt(inputs: Inputs) -> list[Violation]:
         else:
             continue
         if rounds is not None and rounds < _MIN_BCRYPT_ROUNDS:
-            found.append(Violation(at, f"{at}: bcrypt runs with fewer than {_MIN_BCRYPT_ROUNDS} rounds."))
+            message = f"bcrypt runs with fewer than {_MIN_BCRYPT_ROUNDS} rounds."
+            found.append(Violation(f"{where}:{node.lineno}", located(where, node.lineno, message)))
     return found
 
 
@@ -128,11 +138,13 @@ def _node_secrets(node: ast.AST, where: str) -> Iterator[Violation]:
         if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
             continue
         if len(value.value) >= _MIN_NAMED_SECRET and is_sensitive_key(name):
-            at = f"{where}:{value.lineno}"
-            yield Violation(at, f"{at} assigns a literal to the secret-like name {name}.")
+            shown = f"the secret-like name {name}" if is_plain(name) else "a secret-like name"
+            message = f"assigns a literal to {shown}."
+            yield Violation(f"{where}:{value.lineno}", located(where, value.lineno, message))
     if isinstance(node, ast.Constant) and isinstance(node.value, str) and is_secret_value(node.value):
-        at = f"{where}:{node.lineno}"
-        yield Violation(at, f"{at} holds a literal the secret detectors flag.")
+        yield Violation(
+            f"{where}:{node.lineno}", located(where, node.lineno, "holds a literal the secret detectors flag.")
+        )
 
 
 def _literal_secrets(inputs: Inputs) -> list[Violation]:
@@ -213,9 +225,7 @@ def _jwt_audience(inputs: Inputs) -> list[Violation]:
                 continue
             message = _audience_message(node)
             if message is not None:
-                at = f"{where}:{node.lineno}"
-                # the text comes first: in auth.py the masker reads "auth.py:<text>" as a secret assignment
-                found.append(Violation(at, f"{message} ({where} line {node.lineno})"))
+                found.append(Violation(f"{where}:{node.lineno}", located(where, node.lineno, message)))
     return found
 
 
