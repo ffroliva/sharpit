@@ -8,6 +8,8 @@ from sharpit.engine.collectors.security import (
     SecurityRule,
     Violation,
     chain_has,
+    is_plain,
+    located,
     rule,
     source_file,
     source_modules,
@@ -34,9 +36,15 @@ def _https_in_production(inputs: Inputs) -> list[Violation]:
     return [Violation(_STACK, message)]
 
 
+def _read_text(location: str, key: str) -> str:
+    where, _, line = location.rpartition(":")
+    shown = key if is_plain(key) else "a secret-like key"
+    return located(where, int(line), f"reads {shown} with a literal default.")
+
+
 def _literal_secret_defaults(inputs: Inputs) -> list[Violation]:
     return [
-        Violation(read.location, f"{read.location} reads {read.key} with a literal default.")
+        Violation(read.location, _read_text(read.location, read.key))
         for module in source_modules(inputs)
         for read in getenv_findings(module.tree, source_file(module))
         if read.default and read.default.strip() and is_sensitive_key(read.key)

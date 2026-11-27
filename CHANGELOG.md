@@ -20,6 +20,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - SEC-OAUTH-002 reports `jwt.decode` with `verify_signature` set to `False` in a literal `options=` keyword, also when an audience is passed, and its message is readable for a file named `auth.py` (#332).
+- Source-rule findings (SEC-AUTH-001, SEC-AUTH-002, SEC-AUTH-006, SEC-SRC-001, SEC-CONFIG-007, SEC-OAUTH-002) begin with the file and line (`<path> line <N>: <message>`), so the message stays readable when the file name looks sensitive, such as `tokens.py` (#334). A name or key from the application is shown only when it holds word characters, dots and hyphens. Targets, fingerprints and dismissals are unchanged.
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
 - HTTP exchange capture reads the request user as plain data and never runs a property, descriptor or `__getattr__` of it; a user whose name or authentication flag is computed is no longer named in HTTP Exchanges and Live Activity.
 

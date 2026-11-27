@@ -106,7 +106,7 @@ def test_jwt_decode_with_signature_verification_disabled_fires(run_rule: RuleRun
     package = _package(tmp_path)
     (package / "auth.py").write_text(f"import jwt\njwt.decode(token, key, {arguments})\n", encoding="utf-8")
     messages = [message for _, message in run_rule("SEC-OAUTH-002", FastAPI(), source=package)]
-    assert messages == ["jwt.decode disables signature verification with verify_signature=False. (shop/auth.py line 2)"]
+    assert messages == ["shop/auth.py line 2: jwt.decode disables signature verification with verify_signature=False."]
 
 
 def test_jwt_decode_with_signature_verification_enabled_does_not_fire(run_rule: RuleRun, tmp_path: Path):
@@ -130,7 +130,7 @@ def test_jwt_message_survives_masking_in_a_file_named_auth(
     results = service.scan()["results"]
     result = next(row for row in results if row["id"] == "SEC-OAUTH-002")
     assert result["sampleViolations"] == [
-        "jwt.decode disables signature verification with verify_signature=False. (shop/auth.py line 2)"
+        "shop/auth.py line 2: jwt.decode disables signature verification with verify_signature=False."
     ]
 
 
@@ -207,3 +207,129 @@ def test_unrelated_decode_does_not_fire(run_rule: RuleRun, tmp_path: Path):
     package = _package(tmp_path)
     (package / "auth.py").write_text("from other import decode\ndecode(token, key)\n", encoding="utf-8")
     assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []
+
+
+PLAINTEXT_CONTEXT = 'from passlib.context import CryptContext\npwd = CryptContext(schemes=["plaintext"])\n'
+
+
+def _shopapp(root: Path, files: dict[str, str]) -> Path:
+    package = root / "shopapp"
+    for name, text in files.items():
+        path = package / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        init = path.parent / "__init__.py"
+        init.exists() or init.write_text("", encoding="utf-8")
+    return package
+
+
+def _samples(service, rule_id: str) -> list[str]:
+    return next(row for row in service.scan()["results"] if row["id"] == rule_id)["sampleViolations"]
+
+
+def test_source_finding_in_a_file_named_tokens_keeps_its_line_and_message(inputs_of, service_for, tmp_path: Path):
+    package = _shopapp(tmp_path, {"crypto.py": PLAINTEXT_CONTEXT, "tokens.py": PLAINTEXT_CONTEXT})
+    service = service_for(lambda: inputs_of(FastAPI(), source=package))
+    assert _samples(service, "SEC-AUTH-001") == [
+        "shopapp/crypto.py line 2: a CryptContext lists a plaintext scheme.",
+        "shopapp/tokens.py line 2: a CryptContext lists a plaintext scheme.",
+    ]
+
+
+def test_source_finding_target_and_fingerprint_are_unchanged(inputs_of, service_for, tmp_path: Path):
+    package = _shopapp(tmp_path, {"crypto.py": PLAINTEXT_CONTEXT, "tokens.py": PLAINTEXT_CONTEXT})
+    service = service_for(lambda: inputs_of(FastAPI(), source=package))
+    occurrences = service._scan_once(None).occurrences["SEC-AUTH-001"]
+    assert [(fingerprint, identity) for fingerprint, _, identity in occurrences] == [
+        ("security:SEC-AUTH-001:719f7214e56b8204", "shopapp/crypto.py:2"),
+        ("security:SEC-AUTH-001:535d315899101a9a", "shopapp/tokens.py:******"),
+    ]
+
+
+def test_a_path_holding_a_secret_shaped_pair_stays_masked(inputs_of, service_for, tmp_path: Path):
+    package = _shopapp(tmp_path, {"token=abc12345678/crypto.py": PLAINTEXT_CONTEXT})
+    service = service_for(lambda: inputs_of(FastAPI(), source=package))
+    samples = _samples(service, "SEC-AUTH-001")
+    assert samples != []
+    assert "abc12345678" not in repr(samples)
+
+
+SECRET_SHAPED_NAMES = [
+    pytest.param("token=abc12345678", "abc12345678", id="pair"),
+    pytest.param("password hunter2xyz", "hunter2xyz", id="space"),
+    pytest.param("secret/hunter2xyz", "hunter2xyz", id="slash"),
+]
+
+
+@pytest.mark.parametrize(("name", "tail"), SECRET_SHAPED_NAMES)
+def test_a_secret_shaped_name_in_the_message_slot_stays_masked(inputs_of, service_for, tmp_path: Path, name, tail):
+    package = _shopapp(tmp_path, {"keys.py": f'CONFIG = {{"{name}": "literal-value-1234"}}\n'})
+    service = service_for(lambda: inputs_of(FastAPI(), source=package))
+    samples = _samples(service, "SEC-SRC-001")
+    assert samples != []
+    assert tail not in repr(samples)
+
+
+@pytest.mark.parametrize(("name", "tail"), SECRET_SHAPED_NAMES)
+def test_a_secret_shaped_environment_key_stays_masked(inputs_of, service_for, tmp_path: Path, name, tail):
+    package = _shopapp(tmp_path, {"settings.py": f'import os\nKEY = os.getenv("{name}", "dev-secret")\n'})
+    service = service_for(lambda: inputs_of(FastAPI(), source=package))
+    samples = _samples(service, "SEC-CONFIG-007")
+    assert samples != []
+    assert tail not in repr(samples)
+
+
+@pytest.mark.parametrize(
+    ("rule_id", "files", "expected"),
+    [
+        pytest.param(
+            "SEC-AUTH-001",
+            {"tokens.py": PLAINTEXT_CONTEXT},
+            ["shopapp/tokens.py line 2: a CryptContext lists a plaintext scheme."],
+            id="plaintext",
+        ),
+        pytest.param(
+            "SEC-AUTH-002",
+            {"tokens.py": 'from passlib.context import CryptContext\nc = CryptContext(schemes=["md5_crypt"])\n'},
+            ["shopapp/tokens.py line 2: a CryptContext hashes new passwords with a legacy scheme."],
+            id="legacy",
+        ),
+        pytest.param(
+            "SEC-AUTH-006",
+            {"tokens.py": "import bcrypt\nsalt = bcrypt.gensalt(rounds=6)\n"},
+            ["shopapp/tokens.py line 2: bcrypt runs with fewer than 10 rounds."],
+            id="bcrypt",
+        ),
+        pytest.param(
+            "SEC-SRC-001",
+            {"tokens.py": f'STRIPE = "{STRIPE_KEY}"\nSECRET_KEY = "{NAMED_SECRET}"\n'},
+            [
+                "shopapp/tokens.py line 1: holds a literal the secret detectors flag.",
+                "shopapp/tokens.py line 2: assigns a literal to the secret-like name SECRET_KEY.",
+            ],
+            id="literal-secret",
+        ),
+        pytest.param(
+            "SEC-CONFIG-007",
+            {"tokens.py": 'import os\nKEY = os.getenv("SECRET_KEY", "dev-secret")\n'},
+            ["shopapp/tokens.py line 2: reads SECRET_KEY with a literal default."],
+            id="literal-default",
+        ),
+        pytest.param(
+            "SEC-OAUTH-002",
+            {"tokens.py": 'import jwt\njwt.decode(t, k, audience="a", options={"verify_aud": False})\n'},
+            ["shopapp/tokens.py line 2: jwt.decode disables audience validation with verify_aud=False."],
+            id="jwt",
+        ),
+    ],
+)
+def test_source_rule_text_leads_with_the_location(run_rule: RuleRun, tmp_path: Path, rule_id, files, expected):
+    package = _shopapp(tmp_path, files)
+    assert [message for _, message in run_rule(rule_id, FastAPI(), source=package)] == expected
+
+
+@pytest.mark.parametrize("name", ["KEY٣", "clé", "ＡPI_KEY"])
+def test_a_name_with_characters_outside_ascii_is_not_plain(name: str) -> None:
+    from sharpit.engine.collectors.security import is_plain
+
+    assert is_plain(name) is False
