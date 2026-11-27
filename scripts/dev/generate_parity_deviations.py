@@ -65,6 +65,7 @@ FRAGMENTS_0_10_0 = [
     ("#305", "0.10.0-305.tsv"),
     ("exchanges-principal", "0.10.0-exchanges-principal.tsv"),
     ("not-exercised", "0.10.0-not-exercised.tsv"),
+    ("gate-completeness", "0.10.0-gate-completeness.tsv"),
     ("anonymous-access", "0.10.0-anonymous-access.tsv"),
 ]
 

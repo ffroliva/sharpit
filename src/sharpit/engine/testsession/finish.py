@@ -10,7 +10,9 @@ from sharpit.engine.advisors import http_security
 from sharpit.engine.advisors.http_security import HeaderExpectation, StatusExpectation
 from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
-from sharpit.engine.testsession.sink import report_masker
+from sharpit.engine.testsession.sink import HOOK_FAILURE_WARNING, report_masker
+
+_HOOK_FAILURE_PREFIX = HOOK_FAILURE_WARNING.partition("{")[0]
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,17 @@ def _add_http_security(
     merged.findings.extend(f.to_dto() for f in run.findings if f.fingerprint not in known)
 
 
+def _add_controller_failure(merged: outcome.MergedFacts, warnings: Sequence[str]) -> None:
+    """A hook failure of the process writing the report: named for the xdist controller, which is no part."""
+    failure = next((w for w in warnings if w.startswith(_HOOK_FAILURE_PREFIX)), None)
+    if failure is None:
+        return
+    if not any(source["name"] == "pytest-plugin" for source in merged.sources):
+        merged.sources.append({"name": "pytest-plugin", "attached": False, "reason": failure, "limitations": []})
+    if ("pytest-plugin", "master") not in merged.unattached:  # a serial run's sink is its part and named itself
+        merged.unattached.append(("pytest-plugin", "controller"))
+
+
 def finish(
     parts: Sequence[SessionFacts],
     missing: Sequence[str],
@@ -78,11 +91,7 @@ def finish(
     for warning in warnings:
         if warning not in merged.warnings:
             merged.warnings.append(warning)
-    if any(warning.startswith("a sharpit session hook failed (") for warning in warnings) and not any(
-        source["name"] == "pytest-plugin" for source in merged.sources
-    ):
-        warning = next(w for w in warnings if w.startswith("a sharpit session hook failed ("))
-        merged.sources.append({"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []})
+    _add_controller_failure(merged, warnings)
     session = outcome.session_status(
         merged,
         allow_unknown=options.allow_unknown,

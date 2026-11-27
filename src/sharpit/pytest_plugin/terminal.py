@@ -30,8 +30,7 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
             terminalreporter.write_line(notice)
         _write_summary(terminalreporter, config, state, plugin, data)
     except Exception as exc:  # noqa: BLE001
-        plugin._record_hook_failure(state.sink, exc)
-        plugin._refresh_report_after_hook_failure(state, config, exc)
+        plugin._refresh_report_after_hook_failure(state, config, plugin._record_hook_failure(state.sink, exc))
 
 
 def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, data: dict[str, Any]) -> None:

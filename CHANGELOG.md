@@ -15,6 +15,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
 - The pytest terminal summary lists all five runtime gates.
 - The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.
+- The pytest gate reports `unknown` when a hook of the pytest plugin or of its session sink fails before the report is written, or when a nested in-process pytest run ends capture early. A statement that has no text (`None`, bytes, a number or a query object, including one the stdlib `sqlite3` driver refuses) is counted once with empty text and does not make the run `unknown`.
 
 ### Fixed
 
