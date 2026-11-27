@@ -105,12 +105,22 @@ def _assessed_only_in_part(advisor: dict[str, Any]) -> bool:
     )
 
 
+# the rules fed by SQLAlchemy capture: a driver call outside SQLAlchemy reaches none of them
+_SQL_RULES = (gates.MAX_QUERIES, gates.N_PLUS_ONE, gates.UNBOUNDED_READ)
+
+
+def _limited(data: dict[str, Any], name: str, suffix: str = "") -> bool:
+    source = next((s for s in data["sources"] if s["name"] == name), None)
+    return source is not None and any(str(x).endswith(suffix) for x in source["limitations"])
+
+
 def _incomplete_rules(data: dict[str, Any]) -> tuple[str, ...]:
-    """The rules whose silence proves nothing: all of them when capture was lost, one when the read was unbounded."""
+    """The rules whose silence proves nothing: all when capture was lost, the SQL ones when SQL ran untraced."""
     if data["unknownReasons"] or any(w.startswith(HOOK_FAILURE_PREFIX) for w in data["warnings"]):
         return gates.GATE_IDS
-    unbounded = next((s for s in data["sources"] if s["name"] == "unbounded-read"), None)
-    return (gates.UNBOUNDED_READ,) if unbounded and unbounded["limitations"] else ()
+    if _limited(data, "sqlalchemy", outcome.OUTSIDE_SQLALCHEMY):
+        return _SQL_RULES
+    return (gates.UNBOUNDED_READ,) if _limited(data, "unbounded-read") else ()
 
 
 def _apply_baseline(state: Any, data: dict[str, Any], tests: Sequence[TestFacts] = ()) -> None:

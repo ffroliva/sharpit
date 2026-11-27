@@ -89,6 +89,9 @@ def driver_covered(module: str, engine_drivers: set[str]) -> bool:
     return bool(DRIVER_DIALECTS.get(module, frozenset({module})) & engine_drivers)
 
 
+OUTSIDE_SQLALCHEMY = "calls outside SQLAlchemy are not traced"  # a sqlalchemy source limitation
+
+
 def uncovered_drivers(merged: MergedFacts) -> list[str]:
     return sorted(d for d in merged.untraced_drivers if not driver_covered(d, merged.engine_drivers))
 
@@ -106,7 +109,7 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
             combined["limitations"] += [x for x in entry.get("limitations", []) if x not in combined["limitations"]]
     for module in sorted(untraced):
         if driver_covered(module, engines):
-            note = f"{module} calls outside SQLAlchemy are not traced"
+            note = f"{module} {OUTSIDE_SQLALCHEMY}"
             through = by_name.get("sqlalchemy")
             if through is not None and note not in through["limitations"]:
                 through["limitations"].append(note)

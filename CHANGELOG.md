@@ -7,7 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`. Inconclusive entries are listed and kept on rewrite also while an advisor entry is carried. A max-queries entry whose queries moved into a fixture is inconclusive, not fixed.
+- Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`. Inconclusive entries are listed and kept on rewrite also while an advisor entry is carried. A max-queries entry whose queries moved into a fixture is inconclusive, not fixed, and so are max-queries, N+1 and unbounded-read entries when SQL ran through a driver outside SQLAlchemy.
 - Runtime Insights lists declared HTTP routes not exercised during the run, with report and agent limits and explicit limitations when recording loss, suspension, exposure, or missing templates prevent classification.
 
 ### Changed

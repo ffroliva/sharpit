@@ -64,8 +64,9 @@ of its test's node id, to find that test. Any other test-runtime finding not see
 lists it in `baseline.inconclusiveFindings` with the first reason that applies:
 
 1. `recorded without its owner`: the entry was written before baselines recorded owners.
-2. `the run's evidence is incomplete`: the run has an unknown reason or a failed session hook, or, for an unbounded-read
-   entry, the unbounded-read source lists a limitation.
+2. `the run's evidence is incomplete`: the run has an unknown reason or a failed session hook; or, for a max-queries,
+   N+1 or unbounded-read entry, the `sqlalchemy` source lists `<driver> calls outside SQLAlchemy are not traced`; or,
+   for an unbounded-read entry, the unbounded-read source lists a limitation.
 3. `its test did not run`: no test of the run has the entry's owner (deleted, renamed or not collected).
 4. `its test did not complete`: a call phase of its deciding attempt did not pass, or it never reached its call phase
    (skipped, a setup error).

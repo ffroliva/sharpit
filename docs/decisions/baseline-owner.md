@@ -19,8 +19,10 @@ The reasons are checked in this order; the first that applies is the entry's rea
 
 1. `recorded without its owner`: the entry has no `owner`.
 2. `the run's evidence is incomplete`: the entry's rule is incomplete for this run. Every runtime gate is incomplete
-   when the run has an unknown reason or a session hook failure warning; `sharpit.unbounded-read` alone is incomplete
-   when the `unbounded-read` source lists a limitation.
+   when the run has an unknown reason or a session hook failure warning; `sharpit.max-queries`, `sharpit.n-plus-one`
+   and `sharpit.unbounded-read`, the rules fed by SQL capture, are incomplete when the `sqlalchemy` source lists
+   `<driver> calls outside SQLAlchemy are not traced`; `sharpit.unbounded-read` alone is incomplete when the
+   `unbounded-read` source lists a limitation.
 3. `its test did not run`: no test of the run has the entry's owner.
 4. `its test did not complete`: a deciding attempt of the owner has a call-phase report that did not pass, or no
    call-phase report.
