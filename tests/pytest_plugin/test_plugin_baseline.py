@@ -10,6 +10,7 @@ from tests.pytest_plugin.inprocess import without_driver_modules
 def _isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     """The in-process runs below share this process's modules."""
     without_driver_modules(monkeypatch)
+    monkeypatch.setenv("SHARPIT_IDENTITY_KEY", "0123456789abcdef" * 4)
 
 
 def test_write_baseline_refused_on_partial_xdist_run(pytester: pytest.Pytester) -> None:
@@ -257,8 +258,8 @@ def _changed_run(
 ) -> dict:
     """Run against the baseline; ``-n 2`` and a conftest that patches sharpit itself need their own process.
 
-    So does a changed run that executes no SQL: it is complete only when the process held no earlier connection, which
-    an in-process run on a shared test worker cannot promise.
+    So does any run whose SQL-rule verdict must not be turned into ``incomplete`` by a leftover ``sqlite3.Connection``
+    on a shared test worker.
     """
     pytester.makepyfile(test_a=source)
     args = [*_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra]
@@ -308,7 +309,7 @@ def test_request_moved_to_a_fixture_is_not_fixed(pytester: pytest.Pytester) -> N
         "import pytest, sqlite3\n@pytest.fixture\ndef rows():\n"
         f"{_N1_BODY}\ndef test_n1(rows): pass\ndef test_other(): pass\n"
     )
-    _only_reason(_changed_run(pytester, moved), fingerprint, STILL_SHOWN)
+    _only_reason(_changed_run(pytester, moved, own_process=True), fingerprint, STILL_SHOWN)
 
 
 def test_write_keeps_an_inconclusive_entry(pytester: pytest.Pytester) -> None:
@@ -332,7 +333,7 @@ def test_fixed_for_a_real_fix_serial_and_xdist(pytester: pytest.Pytester, worker
     _write_first_baseline(pytester)
     fixed = "import sqlite3\ndef test_n1():\n c=sqlite3.connect(':memory:')\n c.execute('SELECT 1').fetchone()\n"
     fixed += "def test_other(): pass\n"
-    result = _changed_run(pytester, fixed, workers=workers)
+    result = _changed_run(pytester, fixed, workers=workers, own_process=not workers)
     assert result["fixed"] == 1
     assert result["inconclusive"] == 0
 
@@ -397,5 +398,5 @@ def test_real_fix_beside_a_loaded_driver_module_reads_fixed(pytester: pytest.Pyt
     pytester.runpytest_inprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
     rows = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
     assert [row["ruleId"] for row in rows] == ["sharpit.n-plus-one"]
-    result = _changed_run(pytester, _async_test(1))
+    result = _changed_run(pytester, _async_test(1), own_process=True)
     assert result["fixed"] == 1
