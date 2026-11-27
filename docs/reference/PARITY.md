@@ -360,7 +360,7 @@ the 0.9.0 lane fragments in `docs/reference/matrix-updates/` (24 entries):
 ## 0.10.0 against BootUI 2.5.0: deviations
 
 Every deviation, partial implementation, adapted behavior, gap, or not-applicable item recorded across
-the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (46 entries):
+the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (53 entries):
 
 | Lane | Key | Status | Reason |
 |---|---|---|---|
@@ -410,3 +410,10 @@ the 0.10.0 lane fragments in `docs/reference/matrix-updates/` (46 entries):
 | gate-completeness | pytest-gate:baseline-write-on-unknown-run | n-a | BootUI has no findings baseline: its run artefact is written unconditionally (JournalAggregates.java:293-310) and judged when it is read. sharpit's `--sharpit-write-baseline` refuses to record a baseline from a run that is `unknown`, because a run that lost facts must not become the reference later runs are compared against (report_io.py:140-147). |
 | anonymous-access | kind:anonymous-data-reach | n-a | BootUI decides it from its authorization layer. sharpit observes no authorization decision (FastAPI security dependencies decide inside the endpoint) and a missing principal does not prove anonymity, so the check reports NOT_APPLICABLE with that reason, ahead of any missing-source check. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically. |
 | anonymous-access | kind:anonymous-success-on-restricted-route | n-a | BootUI decides it from its authorization layer. sharpit observes no authorization decision (FastAPI security dependencies decide inside the endpoint) and a missing principal does not prove anonymity, so the check reports NOT_APPLICABLE with that reason, ahead of any missing-source check. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically. |
+| baseline-owner | gate:baseline-fixed-needs-owner | adapted | BootUI reports a side-effect key gone only when its owner (route, execution or startup) was exercised, else NOT_EXERCISED; sharpit's owner is the pytest node id, because each test-runtime fingerprint is per test, and an unproved entry is inconclusive with a reason |
+| baseline-owner | gate:baseline-exercised | adapted | BootUI counts any key or request of the owner as exercised; sharpit requires every call-phase report of the owner's deciding attempt to pass, because a test can stop before the code |
+| baseline-owner | gate:baseline-incomplete-run | adapted | BootUI withholds the comparison per sensor that did not record a run whole; sharpit withholds every test-runtime entry on any unknown reason or session hook failure, and the unbounded-read entries alone when that source has a limitation |
+| baseline-owner | gate:baseline-relaxed-gate | n-a | BootUI side effects have no per-test gate to relax; sharpit re-evaluates the owner's facts with every gate unrelaxed, so a marker that loosened a gate cannot make an entry fixed |
+| baseline-owner | gate:baseline-identity-drift | n-a | BootUI keys have no per-test fingerprint; a new finding of the same rule in the owner withholds fixed, because a changed identity cannot be told from a second finding |
+| baseline-owner | gate:baseline-owner-digest | n-a | BootUI stores route and execution names in its run file; sharpit stores a sha256 digest of the node id, so test-id text is not added to the committed baseline |
+| baseline-owner | gate:baseline-new-needs-exercised-before | n-a | BootUI does not report a key new when its owner was not exercised in the previous run; sharpit keeps every unlisted finding new, which fails closed |
