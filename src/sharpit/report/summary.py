@@ -39,6 +39,9 @@ def _baseline_line(baseline: Mapping[str, object]) -> str:
     shown = (
         f"fixed {_esc(fixed)}" if fixed is not None else f"fixed n/a ({_esc(baseline.get('fixedReason') or 'unknown')})"
     )
+    inconclusive = baseline.get("inconclusive")
+    if isinstance(inconclusive, int):
+        shown += f", inconclusive {inconclusive}"
     return f"- **Baseline:** {_esc(baseline.get('existing'))} existing, {_esc(baseline.get('new'))} new, {shown}"
 
 
