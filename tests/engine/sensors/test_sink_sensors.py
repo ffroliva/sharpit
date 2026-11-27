@@ -299,11 +299,8 @@ def test_platform_system_starts_no_command() -> None:
 
 
 def test_a_value_naming_part_of_the_temp_folder_redacts_and_classes_elsewhere() -> None:
-    tmp_dir = tempfile.gettempdir()
-    tmp_segment = Path(tmp_dir).name
-    if not tmp_segment or len(tmp_segment) < 4:
-        tmp_segment = "tmppath"
-    sensor = files(f"u={tmp_segment}", tmp=tmp_dir)
+    tmp_dir = os.path.join(tempfile.gettempdir(), "sinkfolder")
+    sensor = files("u=sinkfolder", tmp=tmp_dir)
     target_path = os.path.join(tmp_dir, "report.csv")
     rows = run(sensor, "open", target_path, "r", 0)
     assert len(rows) > 0
