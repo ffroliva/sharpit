@@ -8,11 +8,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from engine.testsession import tsfakes
 from engine.testsession.tsfakes import attempt_facts, part, render_parts
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.testsession import baseline, gates
 from sharpit.engine.testsession.facts import PhaseFacts
 from sharpit.pytest_plugin.report_io import _apply_baseline
+from sharpit.pytest_plugin.session import UNBOUNDED_READ_LIMITATION
 
 
 def _finding(rule_id: str = "sharpit.max-queries", target: str = "node", observed: int | None = None) -> Finding:
@@ -514,3 +516,56 @@ def test_advisor_entry_keeps_the_current_rule(tmp_path) -> None:
         [], baseline.read(path), partial=False, ran={"test-runtime", "rest-api"}, tests=(), incomplete=()
     )
     assert [e.rule_id for e in result.fixed or ()] == ["RAPI-1"]
+
+
+# --- the run's completeness reaches the comparison (#329) -------------------------------------------------------
+
+
+def _apply_run(tmp_path, data: dict, *findings: Finding, partial: bool = False) -> dict:
+    state = SimpleNamespace(
+        baseline_data=_baseline_of(tmp_path, *findings),
+        partial=partial,
+        options=SimpleNamespace(baseline="old.json"),
+        baseline_carried=(),
+    )
+    _apply_baseline(state, data, [_clean()])
+    return data["baseline"]
+
+
+def _unbounded_entry() -> Finding:
+    return Finding(gates.UNBOUNDED_READ, "test-runtime", "HIGH", "t", "m", OWN, identity="U", observed=1)
+
+
+def test_unknown_reason_marks_every_rule_incomplete(tmp_path) -> None:
+    lost = [tsfakes.source(), tsfakes.source("exceptions", attached=False, reason="capture lost")]
+    data = render_parts(part(tests=[_clean()], sources=lost))
+    assert data["unknownReasons"], "the fixture must make the run unknown"
+    entry = _old_finding(gates.N_PLUS_ONE)
+    result = _apply_run(tmp_path, data, entry)
+    assert result["fixed"] == 0
+    assert result["inconclusiveFindings"] == [{"fingerprint": entry.fingerprint, "reason": INCOMPLETE}]
+
+
+def test_hook_failure_warning_marks_every_rule_incomplete(tmp_path) -> None:
+    data = render_parts(part(tests=[_clean()]))
+    data["warnings"].append("a sharpit session hook failed (RuntimeError); some facts may be missing")
+    entry = _old_finding(gates.N_PLUS_ONE)
+    result = _apply_run(tmp_path, data, entry)
+    assert result["fixed"] == 0
+    assert result["inconclusiveFindings"] == [{"fingerprint": entry.fingerprint, "reason": INCOMPLETE}]
+
+
+def test_unbounded_read_without_install_is_not_fixed(tmp_path) -> None:
+    limited = [tsfakes.source(), tsfakes.source("unbounded-read", limitations=[UNBOUNDED_READ_LIMITATION])]
+    data = render_parts(part(tests=[_clean()], sources=limited))
+    result = _apply_run(tmp_path, data, _unbounded_entry())
+    assert result["fixed"] == 0
+    assert result["inconclusiveFindings"] == [{"fingerprint": _unbounded_entry().fingerprint, "reason": INCOMPLETE}]
+
+
+def test_partial_run_keeps_inconclusive_null(tmp_path) -> None:
+    data = render_parts(part(tests=[_clean()]))
+    result = _apply_run(tmp_path, data, _old_finding(gates.N_PLUS_ONE), partial=True)
+    assert "inconclusive" in result
+    assert result["inconclusive"] is None
+    assert result["inconclusiveFindings"] is None

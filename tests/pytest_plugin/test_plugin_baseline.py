@@ -223,3 +223,88 @@ def test_baseline_write_failure_is_reported_unknown(pytester: pytest.Pytester) -
     assert report["status"] != "pass"
     assert "baseline write failed" in result.stdout.str()
     assert result.ret == 1
+
+
+# --- an entry whose owner did not prove it fixed is inconclusive, not fixed (#329) ---------------------------------
+
+_N1_BODY = " c=sqlite3.connect(':memory:')\n for _ in range(30): c.execute('SELECT 1').fetchone()\n"
+_N1_TEST = f"import sqlite3\ndef test_n1():\n{_N1_BODY}\ndef test_other(): pass\n"
+_RUN = ["--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q"]
+DID_NOT_RUN = "its test did not run"
+DID_NOT_COMPLETE = "its test did not complete"
+STILL_SHOWN = "its test still shows it outside the gate"
+INCOMPLETE = "the run's evidence is incomplete"
+
+
+def _write_first_baseline(pytester: pytest.Pytester) -> str:
+    """Run the suite once with the finding present; return the fingerprint written for it."""
+    pytester.makepyfile(test_a=_N1_TEST)
+    pytester.runpytest_subprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
+    rows = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    assert len(rows) == 1, "the first run must baseline exactly the one N+1 finding"
+    return rows[0]["fingerprint"]
+
+
+def _changed_run(pytester: pytest.Pytester, source: str, *extra: str, workers: bool = False) -> dict:
+    pytester.makepyfile(test_a=source)
+    args = ["-n", "2"] if workers else []
+    pytester.runpytest_subprocess(*args, *_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra)
+    return json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))["baseline"]
+
+
+def _only_reason(result: dict, fingerprint: str, reason: str) -> None:
+    assert result["fixed"] == 0
+    assert result.get("inconclusiveFindings") == [{"fingerprint": fingerprint, "reason": reason}]
+
+
+def test_issue_329_deleted_test_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    result = _changed_run(pytester, "def test_other(): pass\n")
+    _only_reason(result, fingerprint, DID_NOT_RUN)
+
+
+def test_skip_marker_on_the_owner_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    skipped = f"import pytest, sqlite3\n@pytest.mark.skip\ndef test_n1():\n{_N1_BODY}\ndef test_other(): pass\n"
+    _only_reason(_changed_run(pytester, skipped), fingerprint, DID_NOT_COMPLETE)
+
+
+def test_crashed_xdist_worker_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    crashed = "import os\ndef test_n1(): os._exit(1)\ndef test_other(): pass\n"
+    _only_reason(_changed_run(pytester, crashed, workers=True), fingerprint, INCOMPLETE)
+
+
+def test_dropped_sql_events_are_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    pytester.makeconftest(
+        "from sharpit.engine.testsession.sink import TestSessionSink\n"
+        "def broken(*args, **kwargs): raise RuntimeError('injected')\n"
+        "TestSessionSink.begin_test = broken\n"
+    )
+    _only_reason(_changed_run(pytester, _N1_TEST), fingerprint, INCOMPLETE)
+
+
+def test_request_moved_to_a_fixture_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    moved = (
+        "import pytest, sqlite3\n@pytest.fixture\ndef rows():\n"
+        f"{_N1_BODY}\ndef test_n1(rows): pass\ndef test_other(): pass\n"
+    )
+    _only_reason(_changed_run(pytester, moved), fingerprint, STILL_SHOWN)
+
+
+def test_write_keeps_an_inconclusive_entry(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    before = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    _changed_run(pytester, "def test_other(): pass\n", "--sharpit-write-baseline=baseline.json")
+    after = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    assert [row["fingerprint"] for row in after] == [fingerprint]
+    assert after[0]["owner"] == before[0]["owner"]
+
+
+def test_report_lists_inconclusive_with_reason(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    result = _changed_run(pytester, "def test_other(): pass\n")
+    assert result.get("inconclusive") == 1
+    assert result.get("inconclusiveFindings") == [{"fingerprint": fingerprint, "reason": DID_NOT_RUN}]
