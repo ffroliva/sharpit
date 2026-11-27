@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -137,24 +137,27 @@ def _still_shown(entry: Entry, facts: TestFacts) -> bool:
 
 
 def unproved(
-    entry: Entry, tests: Sequence[TestFacts], incomplete: Collection[str], findings: Sequence[Finding]
+    entry: Entry,
+    by_owner: Mapping[str | None, Sequence[TestFacts]],
+    incomplete: Collection[str],
+    new_of_rule: Collection[tuple[str | None, str]],
 ) -> str | None:
-    """Why an unseen entry is not proven fixed, or None when it is (advisor entries keep the current rule)."""
+    """Why an unseen entry is not proven fixed, or None when it is (advisor entries keep the current rule).
+
+    ``by_owner`` holds the run's tests by owner digest and ``new_of_rule`` the (owner, rule) pairs of its new findings.
+    """
     if not entry.fingerprint.startswith(TEST_RUNTIME_PREFIX):
         return None
     if entry.owner is None:
         return _UNPROVED["no_owner"]
     if entry.rule_id in incomplete:
         return _UNPROVED["incomplete"]
-    mine = [t for t in tests if owner_of(t.key.node_id) == entry.owner]
+    mine = by_owner.get(entry.owner, ())
     if not mine:
         return _UNPROVED["not_run"]
     if any(t.completed is not True for t in deciding(mine)):
         return _UNPROVED["not_completed"]
-    if any(
-        f.baseline_state == "new" and f.rule_id == entry.rule_id and owner_of(f.test_node_id) == entry.owner
-        for f in findings
-    ):
+    if (entry.owner, entry.rule_id) in new_of_rule:
         return _UNPROVED["new_of_rule"]
     if any(_still_shown(entry, t) for t in mine):
         return _UNPROVED["still_shown"]
@@ -191,7 +194,11 @@ def compare(
     carried = tuple(e for e in unseen if ran is not None and e.fingerprint.split(":", 1)[0] not in ran)
     if partial:
         return Comparison(tuple(compared), None, "partial run", carried)
-    reasons = {e.fingerprint: reason for e in unseen if (reason := unproved(e, tests, incomplete, compared))}
+    by_owner: dict[str | None, list[TestFacts]] = {}
+    for test in tests:  # digest each node once: per entry it was quadratic on a large suite
+        by_owner.setdefault(owner_of(test.key.node_id), []).append(test)
+    new_of_rule = {(owner_of(f.test_node_id), f.rule_id) for f in compared if f.baseline_state == "new"}
+    reasons = {e.fingerprint: reason for e in unseen if (reason := unproved(e, by_owner, incomplete, new_of_rule))}
     inconclusive = tuple(
         (e, reasons[e.fingerprint]) for e in sorted(unseen, key=lambda e: e.fingerprint) if e.fingerprint in reasons
     )
