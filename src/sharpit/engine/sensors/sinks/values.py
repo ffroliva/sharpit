@@ -412,7 +412,9 @@ class RequestValues:
         now = self._clock()
         if not self._entries:
             return now
-        for request_id in [rid for rid, entry in self._entries.items() if now - entry.begun > DEADLINE_SECONDS]:
+        for request_id, current in list(self._entries.items()):
+            if now - current.begun <= DEADLINE_SECONDS:
+                continue
             if (entry := self._entries.pop(request_id, None)) is not None:
                 entry.generation = -1
             if len(self._swept) >= ENTRIES:
