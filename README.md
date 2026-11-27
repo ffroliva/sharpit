@@ -94,7 +94,9 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
   report, but findings do not fail tests or the session. An unknown reason still exits 1 unless
   `--sharpit-allow-unknown`: report-only relaxes findings, never blindness.
 - **Baselines** match findings by fingerprint. A listed finding is `existing` and never fails, an unlisted one is `new`
-  and gates as usual, a listed one not seen is `fixed`. A count gate that grows past its baselined count is `new`.
+  and gates as usual. A listed test-runtime finding not seen is `fixed` only when its test ran and completed, the run's
+  evidence was whole and the test no longer shows it; otherwise it is `inconclusive`, with its reason in
+  `inconclusiveFindings`, and a rewrite keeps it. A count gate that grows past its baselined count is `new`.
   Vulnerability findings are not baselined, and INFO findings never fail.
 - `--sharpit-write-baseline=PATH` is the only way a baseline is written. It refuses a partial run (`-k`, `-m`, node ids,
   `--lf`, `--deselect`, `-x` stopping early, an interrupt) and a run with any unknown reason.

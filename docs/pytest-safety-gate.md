@@ -57,6 +57,47 @@ Existing findings are recorded as `existing`; newly detected findings are `new` 
 malformed or unreadable baseline is unknown and fails closed. Baseline writing is refused for partial or unknown runs.
 Protect the baseline in code review so a change cannot silently accept its own findings.
 
+A baselined test-runtime finding that is no longer seen counts as `fixed` only when the run proves it: its test ran,
+every call phase of its deciding attempt passed, the run's evidence was whole, and no attempt or phase of the test still
+shows the finding once every gate is evaluated without relaxation. Each baseline entry records `owner`, a 16-hex digest
+of its test's node id, to find that test. Any other test-runtime finding not seen counts as `inconclusive`; the report
+lists it in `baseline.inconclusiveFindings` with the first reason that applies:
+
+1. `recorded without its owner`: the entry was written before baselines recorded owners.
+2. `the run's evidence is incomplete`: the run has an unknown reason or a failed session hook; or, for a max-queries,
+   N+1 or unbounded-read entry, the `sqlite3` source lists evidence of untraced SQL in this run (`connections opened
+   before capture started are not traced`, `connections opened before capture started could not be counted`, or
+   `a connection factory or cursor class that does not subclass sqlite3.Connection / sqlite3.Cursor is not traced`);
+   or, for an unbounded-read entry, the unbounded-read source lists a limitation.
+3. `its test did not run`: no test of the run has the entry's owner (deleted, renamed or not collected).
+4. `its test did not complete`: a call phase of its deciding attempt did not pass, or it never reached its call phase
+   (skipped, a setup error).
+5. `its test has a new finding of the same rule`: the finding's identity may have changed.
+6. `its test still shows it outside the gate`: a marker, a fixture phase or a raised budget hides it from the gate. A
+   `sharpit.max-queries` entry compares the queries of all phases of the attempt, summed, with its observed count here,
+   although the gate counts only the call phase. A fixture that runs queries, such as one that seeds rows, therefore
+   keeps a fixed max-queries entry inconclusive; clear it as described below. The other rules are checked phase by
+   phase: N+1 is a pattern of repeated queries within one phase, so queries split across a fixture and the call phase
+   are not summed.
+
+Limits of this check: SQL a test sends through a driver beside SQLAlchemy (a raw `aiosqlite`, `psycopg`, `asyncpg` or
+`pymysql` cursor; raw `sqlite3` is traced) is not traced, so an N+1 or query count moved onto such a cursor reads as
+fixed. The `sqlalchemy` source note `<driver> calls outside SQLAlchemy are not traced` is listed whenever the driver
+module is loaded, so it does not by itself make the evidence incomplete. Unbounded reads are recorded only in the call
+phase, so an unbounded read moved into a fixture is not seen and its entry reads as fixed.
+
+An advisor finding not seen counts as `fixed` when its advisor assessed the whole app, as before.
+`--sharpit-write-baseline` combined with `--sharpit-baseline` keeps every inconclusive entry, so an entry is never
+dropped on evidence the run did not have. The inconclusive entries are listed and kept also when an advisor entry is
+carried and `fixed` is `null`; only a partial run reports `inconclusive` as `null`. An `inconclusive` count never changes the exit status. A baseline written
+before owners were recorded makes every test-runtime entry inconclusive until it is rewritten once with both
+`--sharpit-baseline` and `--sharpit-write-baseline` on a complete run, while those findings are still seen.
+
+To clear an entry that stays inconclusive, for example one whose test was deleted, either rewrite the baseline without
+`--sharpit-baseline` (with the `sharpit_baseline` ini option set, pass `--sharpit-baseline=`) on a complete run, which
+also drops entries carried for an advisor that did not run in full, or delete its row from the baseline file, found by
+the fingerprint the report lists.
+
 ## Accepted findings and required reasons
 
 Individual tests can accept findings using `@pytest.mark.sharpit(...)`:

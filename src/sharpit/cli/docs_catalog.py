@@ -27,6 +27,11 @@ TOPICS = {
         "Activation signals",
         "Activation precedence and recognition of reloading development servers",
     ),
+    "decision-baseline-owner": (
+        "docs/decisions/baseline-owner.md",
+        "Baseline entry owner",
+        "When a baselined test-runtime finding is reported fixed or inconclusive",
+    ),
     "decision-wsgi-request-target": (
         "docs/decisions/wsgi-request-target.md",
         "WSGI request target validation",

@@ -252,6 +252,7 @@ class TestFacts:
     budget: Budget | None = None
     findings: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
     http: HttpFacts = field(default_factory=HttpFacts)
+    completed: bool | None = None
 
     def to_json(self) -> dict[str, Any]:
         budget = self.budget
@@ -260,6 +261,7 @@ class TestFacts:
             "worker": self.key.worker,
             "attempt": self.key.attempt,
             "outcome": self.outcome,
+            "completed": self.completed,
             "budget": None
             if budget is None
             else {
@@ -296,6 +298,7 @@ class TestFacts:
             ),
             list(data["findings"]),
             HttpFacts.from_json(data["http"]) if "http" in data else HttpFacts(),
+            data.get("completed"),
         )
 
 

@@ -201,10 +201,12 @@ pytest --sharpit --sharpit-write-baseline=sharpit-baseline.json   # once, on a c
 pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI
 ```
 
-Findings in the baseline are reported as `existing` and do not fail; new findings are `new` and do. Baseline
-fingerprints hold no line number or timestamp, so reformatting code does not turn an existing finding into a new one.
-Writing a baseline is refused for a partial or `unknown` run. Review changes to the baseline file like code: a change
-that adds its own findings to it accepts them.
+Findings in the baseline are reported as `existing` and do not fail; new findings are `new` and do. A baselined
+test-runtime finding no longer seen counts as `fixed` only when its test ran and completed, the run's evidence was whole
+and the test no longer shows it; otherwise it counts as `inconclusive`, its reason is listed in `inconclusiveFindings`,
+and a rewritten baseline keeps it. Baseline fingerprints hold no line number or timestamp, so reformatting code does not
+turn an existing finding into a new one. Writing a baseline is refused for a partial or `unknown` run. Review changes to
+the baseline file like code: a change that adds its own findings to it accepts them.
 
 ### Dismissing a swallowed exception
 
