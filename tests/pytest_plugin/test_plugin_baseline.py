@@ -255,7 +255,11 @@ def _write_first_baseline(pytester: pytest.Pytester) -> str:
 def _changed_run(
     pytester: pytest.Pytester, source: str, *extra: str, workers: bool = False, own_process: bool = False
 ) -> dict:
-    """Run against the baseline; ``-n 2`` and a conftest that patches sharpit itself need their own process."""
+    """Run against the baseline; ``-n 2`` and a conftest that patches sharpit itself need their own process.
+
+    So does a changed run that executes no SQL: it is complete only when the process held no earlier connection, which an
+    in-process run on a shared test worker cannot promise.
+    """
     pytester.makepyfile(test_a=source)
     args = [*_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra]
     if workers or own_process:
@@ -272,14 +276,14 @@ def _only_reason(result: dict, fingerprint: str, reason: str) -> None:
 
 def test_issue_329_deleted_test_is_not_fixed(pytester: pytest.Pytester) -> None:
     fingerprint = _write_first_baseline(pytester)
-    result = _changed_run(pytester, "def test_other(): pass\n")
+    result = _changed_run(pytester, "def test_other(): pass\n", own_process=True)
     _only_reason(result, fingerprint, DID_NOT_RUN)
 
 
 def test_skip_marker_on_the_owner_is_not_fixed(pytester: pytest.Pytester) -> None:
     fingerprint = _write_first_baseline(pytester)
     skipped = f"import pytest, sqlite3\n@pytest.mark.skip\ndef test_n1():\n{_N1_BODY}\ndef test_other(): pass\n"
-    _only_reason(_changed_run(pytester, skipped), fingerprint, DID_NOT_COMPLETE)
+    _only_reason(_changed_run(pytester, skipped, own_process=True), fingerprint, DID_NOT_COMPLETE)
 
 
 def test_crashed_xdist_worker_is_not_fixed(pytester: pytest.Pytester) -> None:
@@ -318,7 +322,7 @@ def test_write_keeps_an_inconclusive_entry(pytester: pytest.Pytester) -> None:
 
 def test_report_lists_inconclusive_with_reason(pytester: pytest.Pytester) -> None:
     fingerprint = _write_first_baseline(pytester)
-    result = _changed_run(pytester, "def test_other(): pass\n")
+    result = _changed_run(pytester, "def test_other(): pass\n", own_process=True)
     assert result.get("inconclusive") == 1
     assert result.get("inconclusiveFindings") == [{"fingerprint": fingerprint, "reason": DID_NOT_RUN}]
 
