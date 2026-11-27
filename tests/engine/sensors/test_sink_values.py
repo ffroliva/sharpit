@@ -139,6 +139,29 @@ def test_a_match_that_races_the_end_of_its_request_leaves_nothing() -> None:
     assert held.held() == 0
 
 
+def _finished_request_pull(text: str) -> tuple[RequestValues, tuple[str, ...]]:
+    held, request = RequestValues(), info("q=alpha")
+    assert held.match(request, "/srv/alpha", "file").names == ("q",)
+    assert request.scope is not None
+    request.scope["path_params"] = {"id": "y" * 300}
+    request.finished_ns = 1
+    return held, held.match(request, text, "file").names
+
+
+def test_a_finished_request_does_not_pull_its_path_values() -> None:
+    # adapted from: RequestValues.java:927-951 (generation and liveness checked before the path pull)
+    held, names = _finished_request_pull("/srv/alpha")
+    assert names == ()
+    assert held.status()["valuesTooLong"] == 0
+
+
+def test_a_finished_request_does_not_pull_its_path_values_on_a_partial_scan() -> None:
+    # adapted from: RequestValues.java:927-951 (generation and liveness checked before the path pull)
+    held, names = _finished_request_pull("/srv/alpha" + "x" * MAX_SCAN)
+    assert names == ()
+    assert held.status()["valuesTooLong"] == 0
+
+
 def test_no_repr_shows_a_value_or_a_span_text() -> None:
     held, request = RequestValues(), info("v=needle")
     match = held.match(request, "needle", "file")
