@@ -326,3 +326,10 @@ def test_a_secret_shaped_environment_key_stays_masked(inputs_of, service_for, tm
 def test_source_rule_text_leads_with_the_location(run_rule: RuleRun, tmp_path: Path, rule_id, files, expected):
     package = _shopapp(tmp_path, files)
     assert [message for _, message in run_rule(rule_id, FastAPI(), source=package)] == expected
+
+
+@pytest.mark.parametrize("name", ["KEY٣", "clé", "ＡPI_KEY"])
+def test_a_name_with_characters_outside_ascii_is_not_plain(name: str) -> None:
+    from sharpit.engine.collectors.security import is_plain
+
+    assert is_plain(name) is False
