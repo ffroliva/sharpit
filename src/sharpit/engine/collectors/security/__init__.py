@@ -82,7 +82,7 @@ def located(where: str, line: int, message: str) -> str:
     return f"{where} line {line}: {message}"
 
 
-_PLAIN_NAME = re.compile(r"[\w.-]+")
+_PLAIN_NAME = re.compile(r"[\w.-]+", re.ASCII)
 
 
 def is_plain(name: str) -> bool:
