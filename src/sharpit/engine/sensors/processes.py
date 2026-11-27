@@ -61,29 +61,34 @@ def _program(command: str) -> str | None:
 
     Fails closed: a value or a quote that does not parse gives ``(unknown)``, never a fragment of what follows.
     """
+    return _parse_program(command)[0]
+
+
+def _parse_program(command: str) -> tuple[str | None, int]:
+    """``_program``'s name and the offset where the program word ends (0 when there is no word to hide)."""
     if _PLAIN_MATCH(command):
-        return command.rpartition("/")[2][:_MAX] or UNKNOWN
+        return command.rpartition("/")[2][:_MAX] or UNKNOWN, len(command)
     end = 0
     while match := _ASSIGNMENT.match(command, end):
         end = match.end()
     if _NAMED.match(command, end):
-        return UNKNOWN
+        return UNKNOWN, 0
     if not command[end:].strip():
-        return None
+        return None, 0
     word = (_WIN_WORD if _WINDOWS.match(command, end) else _WORD).match(command, end)
     if word is None:
-        return UNKNOWN
+        return UNKNOWN, 0
     token = word[1]
     # a quoted program is its quoted text (a Windows path with blanks); otherwise never past an inner quote (BootUI)
     if token[0] in "\"'":
         program = token[1 : token.index(token[0], 1)]
     elif token[0] in _META:
-        return UNKNOWN
+        return UNKNOWN, 0
     else:
         program = _AT_META.split(_QUOTE.split(token, 1)[0], 1)[0]
     # never past an '=' (BootUI, a start that may have failed), then the file name of this one word only
     name = program.partition("=")[0].replace("\\", "/").rpartition("/")[2].strip()
-    return name[:_MAX] or UNKNOWN
+    return name[:_MAX] or UNKNOWN, word.end(1)
 
 
 def _argv_target(program: object, argv: object) -> str | None:
@@ -95,13 +100,6 @@ def _argv_target(program: object, argv: object) -> str | None:
         return _program(first) if first else None
     line = _text(argv) if isinstance(argv, (str, bytes)) else None
     return _program(line) if line else None
-
-
-def _program_first_end(command: str, program_name: str | None) -> int:
-    if not program_name or program_name == UNKNOWN:
-        return 0
-    pos = command.find(program_name)
-    return pos + len(program_name) if pos >= 0 else 0
 
 
 def _check_explicit_executable(
@@ -131,7 +129,7 @@ def _check_joined_command(
     if match is None:
         return executable
     if match.names:
-        prog_end = _program_first_end(command_line, command_name)
+        prog_end = _parse_program(command_line)[1] if command_name != UNKNOWN else 0
         overflow = bool(match.flags & F_OVERFLOW)
         held = overflow or (prog_end > 0 and any(s[1] < prog_end for s in match.spans))
         if held:
