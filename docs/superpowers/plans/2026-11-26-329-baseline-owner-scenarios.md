@@ -48,31 +48,31 @@ fix would read as inconclusive, or a documented limit; Low for wording.
 
 | # | Dimension | Scenario | Severity | Expected behaviour | Task | Test |
 |---|---|---|---|---|---|---|
-| 1 | D1 | Owner test deleted (the issue's reproduction) | High | inconclusive, R3 | 4, 5 | `test_deleted_owner_is_not_fixed`, `test_issue_329_deleted_test_is_not_fixed` |
-| 2 | D1 | Owner test renamed | High | inconclusive, R3 | 4 | `test_renamed_owner_is_not_fixed` |
-| 3 | D1 | Parametrize id of the owner changed | High | inconclusive, R3 (another node id, as a rename) | 4 | `test_renamed_owner_is_not_fixed` |
-| 4 | D1 | Skip marker on the owner | High | inconclusive, R4 (no call report) | 4, 5 | `test_skipped_owner_is_not_fixed`, `test_skip_marker_on_the_owner_is_not_fixed` |
-| 5 | D1 | `pytest.skip` in the owner's body, before or after the SQL | High | inconclusive, R4 (the call report did not pass) | 4 | `test_xfailed_owner_is_not_fixed` |
-| 6 | D1 | Owner marked xfail | High | inconclusive, R4 | 4 | `test_xfailed_owner_is_not_fixed` |
-| 7 | D1 | Setup error in the owner | High | inconclusive, R4 | 4 | `test_owner_with_setup_error_is_not_fixed` |
-| 8 | D1 | Owner fails before it reaches the code | High | inconclusive, R4 | 4 | `test_owner_that_fails_before_the_code_is_not_fixed` |
-| 9 | D1 | Teardown error after a passed call | Medium | fixed (the call completed) | 4 | `test_teardown_error_after_a_passed_call_is_fixed` |
+| 1 | D1 | Owner test deleted (the issue's reproduction) | High | inconclusive, R3 | 4, 5 | `test_owner_that_is_gone_is_not_fixed[deleted]`, `test_issue_329_deleted_test_is_not_fixed` |
+| 2 | D1 | Owner test renamed | High | inconclusive, R3 | 4 | `test_owner_that_is_gone_is_not_fixed[renamed]` |
+| 3 | D1 | Parametrize id of the owner changed | High | inconclusive, R3 (another node id, as a rename) | 4 | `test_owner_that_is_gone_is_not_fixed[renamed]` |
+| 4 | D1 | Skip marker on the owner | High | inconclusive, R4 (no call report) | 4, 5 | `test_owner_that_did_not_complete_is_not_fixed[skipped]`, `test_skip_marker_on_the_owner_is_not_fixed` |
+| 5 | D1 | `pytest.skip` in the owner's body, before or after the SQL | High | inconclusive, R4 (the call report did not pass) | 4 | `test_owner_that_did_not_complete_is_not_fixed[xfailed]` |
+| 6 | D1 | Owner marked xfail | High | inconclusive, R4 | 4 | `test_owner_that_did_not_complete_is_not_fixed[xfailed]` |
+| 7 | D1 | Setup error in the owner | High | inconclusive, R4 | 4 | `test_owner_that_did_not_complete_is_not_fixed[setup-error]` |
+| 8 | D1 | Owner fails before it reaches the code | High | inconclusive, R4 | 4 | `test_owner_that_did_not_complete_is_not_fixed[failed-before-the-code]` |
+| 9 | D1 | Teardown error after a passed call | Medium | fixed (the call completed) | 4 | `test_completed_call_is_fixed_whatever_the_final_outcome[teardown-error-after-a-passed-call]` |
 | 10 | D1 | Owner fixed, but failed by another rule's new finding | Medium | fixed (completion is read before the gates) | 3, 4 | `test_completed_is_read_before_a_gate_fails_the_test`, `test_owner_failed_by_another_rule_is_fixed` |
-| 11 | D1 | A failing subtest (built-in `subtests` or `unittest.subTest`), later ones pass | High | inconclusive, R4 (failure is sticky) | 3, 4 | `test_a_failing_report_keeps_completed_false`, `test_owner_with_a_failing_subtest_is_not_fixed` |
-| 12 | D1 | `pytest.importorskip` skips the owner's module at collection | High | inconclusive, R3 (no facts) | 4 | `test_deleted_owner_is_not_fixed` |
-| 13 | D1 | Collection error under `--continue-on-collection-errors` | High | inconclusive, R3 | 4 | `test_deleted_owner_is_not_fixed` |
-| 14 | D1 | A conftest drops the owner item silently | High | inconclusive, R3 | 4 | `test_deleted_owner_is_not_fixed` |
-| 15 | D1 | `--setup-only` or `--setup-plan` | High | inconclusive, R4 (no call report, `completed` is null) | 4 | `test_skipped_owner_is_not_fixed` |
+| 11 | D1 | A failing subtest (built-in `subtests` or `unittest.subTest`), later ones pass | High | inconclusive, R4 (failure is sticky) | 3, 4 | `test_a_failing_report_keeps_completed_false`, `test_owner_that_did_not_complete_is_not_fixed[failing-subtest]` |
+| 12 | D1 | `pytest.importorskip` skips the owner's module at collection | High | inconclusive, R3 (no facts) | 4 | `test_owner_that_is_gone_is_not_fixed[deleted]` |
+| 13 | D1 | Collection error under `--continue-on-collection-errors` | High | inconclusive, R3 | 4 | `test_owner_that_is_gone_is_not_fixed[deleted]` |
+| 14 | D1 | A conftest drops the owner item silently | High | inconclusive, R3 | 4 | `test_owner_that_is_gone_is_not_fixed[deleted]` |
+| 15 | D1 | `--setup-only` or `--setup-plan` | High | inconclusive, R4 (no call report, `completed` is null) | 4 | `test_owner_that_did_not_complete_is_not_fixed[skipped]` |
 | 16 | D1 | `-k`, `--lf`, `--deselect`, a node id: a partial run | Medium | `fixed`, `inconclusive` and `inconclusiveFindings` are null, `fixedReason: "partial run"` | 5 | `test_partial_run_keeps_inconclusive_null`, `test_partial_xdist_report_keeps_fixed_null` |
 | 17 | D1 | `-n 2`, `--dist each`, loadgroup | Medium | same result as serial; node id unchanged | 5 | `test_fixed_for_a_real_fix_serial_and_xdist` |
 | 18 | D1 | xdist worker crashes | High | inconclusive, R2 (unknown reason) | 5 | `test_crashed_xdist_worker_is_not_fixed` |
 | 19 | D1 | Swallowed-exception capture not attached in a process | High | inconclusive, R2 | 5 | `test_unknown_reason_marks_every_rule_incomplete` |
-| 20 | D1 | A session hook fails and drops SQL events | High | inconclusive, R2 (hook-failure warning) | 5 | `test_dropped_sql_events_are_not_fixed`, `test_hook_failure_warning_marks_every_rule_incomplete`, `test_hook_failure_warnings_start_with_the_prefix` |
+| 20 | D1 | A session hook fails and drops SQL events | High | inconclusive, R2 (hook-failure warning) | 5 | `test_dropped_sql_events_are_not_fixed`, `test_hook_failure_warning_marks_every_rule_incomplete`, `test_hook_failure_prefix_is_the_documented_text`, `test_hook_failure_the_sink_records_starts_with_the_prefix` |
 | 21 | D1 | unbounded-read without `sharpit.install(app)` | High | unbounded-read entries inconclusive, R2; other rules unaffected | 4, 5 | `test_unbounded_read_limitation_withholds_only_its_rule`, `test_unbounded_read_without_install_is_not_fixed` |
-| 22 | D1 | `allow_n_plus_one` added to the owner, the group still at 20 | High | inconclusive, R6 | 4 | `test_allow_n_plus_one_is_not_fixed` |
-| 23 | D1 | N+1 threshold raised | High | inconclusive, R6 (re-evaluated at threshold 2) | 4 | `test_raised_threshold_is_not_fixed` |
-| 24 | D1 | `max_exceptions` raised | High | inconclusive, R6 | 4 | `test_raised_max_exceptions_is_not_fixed` |
-| 25 | D1 | `--sharpit-max-queries` dropped, count still at or above the baselined value | High | inconclusive, R6 | 4 | `test_dropped_max_queries_is_not_fixed`, `test_count_at_the_baselined_value_is_still_shown` |
+| 22 | D1 | `allow_n_plus_one` added to the owner, the group still at 20 | High | inconclusive, R6 | 4 | `test_finding_still_shown_outside_the_gate_is_not_fixed[allow-n-plus-one]` |
+| 23 | D1 | N+1 threshold raised | High | inconclusive, R6 (re-evaluated at threshold 2) | 4 | `test_finding_still_shown_outside_the_gate_is_not_fixed[raised-threshold]` |
+| 24 | D1 | `max_exceptions` raised | High | inconclusive, R6 | 4 | `test_finding_still_shown_outside_the_gate_is_not_fixed[raised-max-exceptions]` |
+| 25 | D1 | `--sharpit-max-queries` dropped, count still at or above the baselined value | High | inconclusive, R6 | 4 | `test_finding_still_shown_outside_the_gate_is_not_fixed[dropped-max-queries]`, `test_finding_still_shown_outside_the_gate_is_not_fixed[count-at-baseline]` |
 | 26 | D1 | `allow_swallowed`: the finding is still listed (INFO) | Low | existing, as today | - | existing tests in `tests/pytest_plugin/test_plugin_swallowed_baseline.py`, unchanged |
 | 27 | D1 | SQL text of the statement edited (identity drift) | High | inconclusive, R5 | 4 | `test_changed_statement_is_not_fixed` |
 | 28 | D1 | Exception rule: lines moved, so the target changes | High | inconclusive, R5 (same mechanism, any rule) | 4 | `test_changed_statement_is_not_fixed` |
@@ -95,7 +95,7 @@ fix would read as inconclusive, or a documented limit; Low for wording.
 | 45 | D4 | `completed` across the worker JSON round trip | High | kept | 3 | `test_completed_survives_the_worker_round_trip` |
 | 46 | D4 | `completed` missing from a worker's facts | High | `None`, so R4 | 3 | `test_completed_missing_from_a_worker_is_none` |
 | 47 | D1 | A rerun that reuses the facts of an attempt that recorded no event | High | `completed` reset at each setup report | 3 | `test_setup_report_resets_completed` |
-| 48 | D1 | xpass | Medium | fixed | 4 | `test_xpass_owner_is_fixed` |
+| 48 | D1 | xpass | Medium | fixed | 4 | `test_completed_call_is_fixed_whatever_the_final_outcome[xpass]` |
 | 49 | D1 | `allow_n_plus_one`, group gone to 1 statement | Medium | fixed | 4 | `test_relaxed_gate_with_the_finding_gone_is_fixed` |
 | 50 | D1 | Every rule withheld when the run is incomplete; two owners, one ran | High | the one that ran is fixed, the other R3; under incomplete evidence none is fixed | 4 | `test_gone_only_where_its_owner_ran_again`, `test_evidence_not_recorded_whole_withholds_and_fixes_nothing`, `test_incomplete_evidence_is_not_fixed` |
 | 51 | D4 | Report keys present and typed | High | `inconclusive` integer or null; `inconclusiveFindings` list or null; not in `required` | 5 | `test_report_schema_accepts_inconclusive_keys`, `test_report_schema_accepts_a_report_without_inconclusive_keys` |
@@ -122,19 +122,19 @@ Every Critical and High row. Full node ids, so no name is ambiguous across files
 - `tests/engine/testsession/test_baseline.py::test_entry_without_owner_is_not_fixed`
 - `tests/engine/testsession/test_baseline.py::test_incomplete_evidence_is_not_fixed`
 - `tests/engine/testsession/test_baseline.py::test_unbounded_read_limitation_withholds_only_its_rule`
-- `tests/engine/testsession/test_baseline.py::test_deleted_owner_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_renamed_owner_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_skipped_owner_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_xfailed_owner_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_owner_that_fails_before_the_code_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_owner_with_setup_error_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_owner_with_a_failing_subtest_is_not_fixed`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_is_gone_is_not_fixed[deleted]`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_is_gone_is_not_fixed[renamed]`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_did_not_complete_is_not_fixed[skipped]`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_did_not_complete_is_not_fixed[xfailed]`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_did_not_complete_is_not_fixed[failed-before-the-code]`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_did_not_complete_is_not_fixed[setup-error]`
+- `tests/engine/testsession/test_baseline.py::test_owner_that_did_not_complete_is_not_fixed[failing-subtest]`
 - `tests/engine/testsession/test_baseline.py::test_changed_statement_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_allow_n_plus_one_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_raised_threshold_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_raised_max_exceptions_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_dropped_max_queries_is_not_fixed`
-- `tests/engine/testsession/test_baseline.py::test_count_at_the_baselined_value_is_still_shown`
+- `tests/engine/testsession/test_baseline.py::test_finding_still_shown_outside_the_gate_is_not_fixed[allow-n-plus-one]`
+- `tests/engine/testsession/test_baseline.py::test_finding_still_shown_outside_the_gate_is_not_fixed[raised-threshold]`
+- `tests/engine/testsession/test_baseline.py::test_finding_still_shown_outside_the_gate_is_not_fixed[raised-max-exceptions]`
+- `tests/engine/testsession/test_baseline.py::test_finding_still_shown_outside_the_gate_is_not_fixed[dropped-max-queries]`
+- `tests/engine/testsession/test_baseline.py::test_finding_still_shown_outside_the_gate_is_not_fixed[count-at-baseline]`
 - `tests/engine/testsession/test_baseline.py::test_finding_moved_to_setup_phase_is_not_fixed`
 - `tests/engine/testsession/test_baseline.py::test_finding_in_an_earlier_rerun_attempt_is_not_fixed`
 - `tests/engine/testsession/test_baseline.py::test_inconclusive_entry_is_carried`
@@ -143,7 +143,8 @@ Every Critical and High row. Full node ids, so no name is ambiguous across files
 - `tests/engine/testsession/test_baseline.py::test_unknown_reason_marks_every_rule_incomplete`
 - `tests/engine/testsession/test_baseline.py::test_hook_failure_warning_marks_every_rule_incomplete`
 - `tests/engine/testsession/test_baseline.py::test_unbounded_read_without_install_is_not_fixed`
-- `tests/engine/testsession/test_finish.py::test_hook_failure_warnings_start_with_the_prefix`
+- `tests/engine/testsession/test_finish.py::test_hook_failure_prefix_is_the_documented_text`
+- `tests/engine/testsession/test_finish.py::test_hook_failure_the_sink_records_starts_with_the_prefix`
 - `tests/pytest_plugin/test_plugin_baseline.py::test_issue_329_deleted_test_is_not_fixed`
 - `tests/pytest_plugin/test_plugin_baseline.py::test_skip_marker_on_the_owner_is_not_fixed`
 - `tests/pytest_plugin/test_plugin_baseline.py::test_crashed_xdist_worker_is_not_fixed`
@@ -155,9 +156,9 @@ Every Critical and High row. Full node ids, so no name is ambiguous across files
 
 Medium guards that the merge also requires, because each is the proof that a real fix still reads as fixed:
 `test_completed_clean_owner_is_fixed`, `test_fixed_for_a_real_fix_serial_and_xdist`,
-`test_teardown_error_after_a_passed_call_is_fixed`, `test_owner_failed_by_another_rule_is_fixed`,
+`test_completed_call_is_fixed_whatever_the_final_outcome[teardown-error-after-a-passed-call]`, `test_owner_failed_by_another_rule_is_fixed`,
 `test_completed_is_read_before_a_gate_fails_the_test`, `test_flaky_rerun_with_the_code_fixed_is_fixed`,
-`test_xpass_owner_is_fixed`, `test_relaxed_gate_with_the_finding_gone_is_fixed`,
+`test_completed_call_is_fixed_whatever_the_final_outcome[xpass]`, `test_relaxed_gate_with_the_finding_gone_is_fixed`,
 `test_advisor_entry_keeps_the_current_rule`, `test_partial_run_keeps_inconclusive_null`.
 
 ## Deferred

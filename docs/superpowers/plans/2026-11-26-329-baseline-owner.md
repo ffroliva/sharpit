@@ -16,8 +16,7 @@ passes the facts and the run's completeness to the engine. Capture, masking of f
 exit status do not change. The baseline schema stays `sharpit-baseline/1`; the report schema stays `sharpit-report/1`
 with two added keys.
 
-**Predict verdict:** pending (`/sharpit:predict` before Task 2; the `owner` digest is new output derived from the node
-id, see the risk register).
+**Predict verdict:** GO (the `owner` digest is new output derived from the node id, see the risk register).
 
 **Scenarios:** [2026-11-26-329-baseline-owner-scenarios.md](2026-11-26-329-baseline-owner-scenarios.md). Its
 must-cover tests are this plan's acceptance criteria.
