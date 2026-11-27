@@ -432,7 +432,9 @@ class RequestValues:
         if not self._entries:
             return
         now = self._clock()
-        for request_id, current in list(self._entries.items()):
+        # The list() snapshot is required: end() and clear() change the dict without the table lock (iterating it
+        # live raises).
+        for request_id, current in list(self._entries.items()):  # NOSONAR - snapshot needed, see above
             if now - current.begun <= DEADLINE_SECONDS:
                 continue
             if (entry := self._entries.pop(request_id, None)) is not None:
