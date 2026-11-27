@@ -12,7 +12,7 @@ from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.testsession import gates
-from sharpit.engine.testsession.facts import TestFacts
+from sharpit.engine.testsession.facts import PhaseFacts, TestFacts
 from sharpit.engine.testsession.outcome import deciding
 from sharpit.engine.testsession.report import clean_text
 
@@ -107,13 +107,15 @@ _UNPROVED = {
 def _shown(facts: TestFacts) -> list[Finding]:
     """What every phase of one attempt shows under an unrelaxed budget, so no budget or marker hides a finding.
 
-    Every phase counts for every rule, max-queries included, although that gate evaluates only the call phase: queries
-    moved into a fixture are not proof of a fix.
+    Every phase counts for every rule, although the gates evaluate only the call phase. Max-queries counts the queries
+    of all phases summed, so queries moved into or split across fixtures are not proof of a fix.
     """
     shown: list[Finding] = []
     for phase in facts.phases.values():
         shown.extend(gates.evaluate_test(replace(facts, phases={"call": phase}), _UNRELAXED, 2, ()))
-    return shown
+    summed = PhaseFacts(queries=sum(phase.queries for phase in facts.phases.values()))
+    whole = gates.evaluate_test(replace(facts, phases={"call": summed}), _UNRELAXED, 2, ())
+    return [f for f in shown if f.rule_id != gates.MAX_QUERIES] + [f for f in whole if f.rule_id == gates.MAX_QUERIES]
 
 
 def _gate_off(rule_id: str, budget: gates.Budget | None) -> bool:
