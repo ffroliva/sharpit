@@ -312,6 +312,14 @@ class RequestValues:
         self._stopped = 0
         self._busy = 0
 
+    def _live_values(self, info: RequestInfo, entry: _Entry) -> bool:
+        """Whether the entry is live and holds values; path values are pulled only for a live entry (BootUI order)."""
+        if entry.generation != self._generation or info.finished_ns is not None:
+            return False
+        if entry.path_pending:
+            self._pull_path(entry, info.scope)
+        return bool(entry.values)
+
     def match(self, info: RequestInfo, text: str, kind: Kind) -> Match:
         """Which of ``info``'s values appear verbatim in ``text``, within the request's budgets. Never waits."""
         # ported: RequestValues.compare (:912-1060), same order of checks
@@ -324,9 +332,7 @@ class RequestValues:
             self._busy += 1
             return _BUSY
         try:
-            if entry.path_pending:
-                self._pull_path(entry, info.scope)
-            if entry.generation != self._generation or info.finished_ns is not None or not entry.values:
+            if not self._live_values(info, entry):
                 return _EMPTY
             if entry.stopped:
                 return _STOPPED
@@ -360,9 +366,7 @@ class RequestValues:
             self._busy += 1
             return _BUSY
         try:
-            if entry.path_pending:
-                self._pull_path(entry, info.scope)
-            if entry.generation != self._generation or info.finished_ns is not None or not entry.values:
+            if not self._live_values(info, entry):
                 return _EMPTY
             if entry.stopped:
                 return _STOPPED
