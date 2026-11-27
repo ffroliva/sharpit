@@ -31,8 +31,9 @@ The reasons are checked in this order; the first that applies is the entry's rea
    off.
 
 The report's `baseline` object gains `inconclusive`, a count, and `inconclusiveFindings`, a list of `fingerprint` and
-`reason` sorted by fingerprint. Both are `null` when `fixed` is `null`, and neither is required by the report schema, so
-a report written before this change still validates. `inconclusive` never changes the exit status.
+`reason` sorted by fingerprint. Both are `null` on a partial run; they are listed, and the rewrite keeps the entries,
+also when `fixed` is `null` because an advisor entry is carried. Neither is required by the report schema, so a report
+written before this change still validates. `inconclusive` never changes the exit status.
 
 ## Rationale
 

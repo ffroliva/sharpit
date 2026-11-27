@@ -145,9 +145,9 @@ def _apply_baseline(state: Any, data: dict[str, Any], tests: Sequence[TestFacts]
         "new": sum(f.baseline_state == "new" for f in comparison.findings),
         "fixed": None if comparison.fixed is None else len(comparison.fixed),
         "fixedReason": comparison.fixed_reason,
-        "inconclusive": None if comparison.fixed is None else len(comparison.inconclusive),
+        "inconclusive": None if state.partial else len(comparison.inconclusive),
         "inconclusiveFindings": None
-        if comparison.fixed is None
+        if state.partial
         else [{"fingerprint": entry.fingerprint, "reason": reason} for entry, reason in comparison.inconclusive],
     }
 

@@ -188,9 +188,14 @@ def compare(
     carried = tuple(e for e in unseen if ran is not None and e.fingerprint.split(":", 1)[0] not in ran)
     if partial:
         return Comparison(tuple(compared), None, "partial run", carried)
+    reasons = {e.fingerprint: reason for e in unseen if (reason := unproved(e, tests, incomplete, compared))}
+    inconclusive = tuple(
+        (e, reasons[e.fingerprint]) for e in sorted(unseen, key=lambda e: e.fingerprint) if e.fingerprint in reasons
+    )
+    kept = tuple(e for e, _ in inconclusive)
     if carried:  # an advisor that did not read the whole app cannot say an entry is gone: neither fixed nor dropped
         names = {e.fingerprint.split(":", 1)[0] for e in carried}
-        reasons = [
+        why = [
             f"{text}: {', '.join(sorted(group))}"
             for text, group in (
                 ("advisor did not run", names - set(in_part)),
@@ -198,13 +203,9 @@ def compare(
             )
             if group
         ]
-        return Comparison(tuple(compared), None, "; ".join(reasons), carried)
-    reasons = {e.fingerprint: reason for e in unseen if (reason := unproved(e, tests, incomplete, compared))}
+        return Comparison(tuple(compared), None, "; ".join(why), carried + kept, inconclusive)
     fixed = tuple(e for e in unseen if not e.rule_id.startswith("VULN-") and e.fingerprint not in reasons)
-    inconclusive = tuple(
-        (e, reasons[e.fingerprint]) for e in sorted(unseen, key=lambda e: e.fingerprint) if e.fingerprint in reasons
-    )
-    return Comparison(tuple(compared), fixed, None, tuple(e for e, _ in inconclusive), inconclusive)
+    return Comparison(tuple(compared), fixed, None, kept, inconclusive)
 
 
 def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -> None:

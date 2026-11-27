@@ -74,7 +74,8 @@ lists it in `baseline.inconclusiveFindings` with the first reason that applies:
 
 An advisor finding not seen counts as `fixed` when its advisor assessed the whole app, as before.
 `--sharpit-write-baseline` combined with `--sharpit-baseline` keeps every inconclusive entry, so an entry is never
-dropped on evidence the run did not have. An `inconclusive` count never changes the exit status. A baseline written
+dropped on evidence the run did not have. The inconclusive entries are listed and kept also when an advisor entry is
+carried and `fixed` is `null`; only a partial run reports `inconclusive` as `null`. An `inconclusive` count never changes the exit status. A baseline written
 before owners were recorded makes every test-runtime entry inconclusive until it is rewritten once with both
 `--sharpit-baseline` and `--sharpit-write-baseline` on a complete run, while those findings are still seen.
 

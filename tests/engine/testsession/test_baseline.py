@@ -123,7 +123,7 @@ def test_fixed_only_for_advisors_that_ran(tmp_path) -> None:
     result = baseline.compare([], old, partial=False, ran={"test-runtime"}, tests=(), incomplete=())
     assert result.fixed is None
     assert result.fixed_reason == "advisor did not run: rest-api"
-    assert [entry.fingerprint for entry in result.carried] == [rest.fingerprint]
+    assert [entry.fingerprint for entry in result.carried if entry.rule_id == "RAPI-1"] == [rest.fingerprint]
 
 
 def test_write_keeps_carried_entries(tmp_path) -> None:
