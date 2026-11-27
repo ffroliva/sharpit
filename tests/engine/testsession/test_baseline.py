@@ -50,8 +50,13 @@ def test_baseline_rejects_duplicate_fingerprint(tmp_path) -> None:
 def test_compare_existing_new_and_fixed(tmp_path) -> None:
     path = tmp_path / "baseline.json"
     baseline.write(path, (_finding(target="seen"), _finding(target="gone")))
+    gone = attempt_facts("gone", call=PhaseFacts())
     result = baseline.compare(
-        (_finding(target="seen"), _finding(target="new")), baseline.read(path), partial=False, tests=(), incomplete=()
+        (_finding(target="seen"), _finding(target="new")),
+        baseline.read(path),
+        partial=False,
+        tests=[gone],
+        incomplete=(),
     )
     assert [finding.baseline_state for finding in result.findings] == ["existing", "new"]
     assert [entry.target for entry in result.fixed or ()] == ["gone"]
@@ -457,3 +462,55 @@ def test_evidence_not_recorded_whole_withholds_and_fixes_nothing(tmp_path) -> No
     result = _compare(old, _clean(), incomplete=gates.GATE_IDS)
     assert result.fixed == ()
     assert _reasons(result) == [INCOMPLETE, INCOMPLETE]
+
+
+# --- guards: what a completed owner does prove -----------------------------------------------------------------
+
+
+def _fixed_rules(result: baseline.Comparison) -> list[str]:
+    return [e.rule_id for e in result.fixed or ()]
+
+
+def test_completed_clean_owner_is_fixed(tmp_path) -> None:
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), attempt_facts(OWN, call=_call(selects=3)))
+    assert _fixed_rules(result) == [gates.N_PLUS_ONE]
+    assert result.inconclusive == ()
+
+
+def test_relaxed_gate_with_the_finding_gone_is_fixed(tmp_path) -> None:
+    facts = attempt_facts(OWN, call=_call(selects=1), budget=gates.Budget(100, True, 0))
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), facts)
+    assert _fixed_rules(result) == [gates.N_PLUS_ONE]
+
+
+@pytest.mark.parametrize("outcome", ["passed", "error"], ids=["xpass", "teardown-error-after-a-passed-call"])
+def test_completed_call_is_fixed_whatever_the_final_outcome(tmp_path, outcome: str) -> None:
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), _clean(outcome=outcome))
+    assert _fixed_rules(result) == [gates.N_PLUS_ONE]
+
+
+def test_owner_failed_by_another_rule_is_fixed(tmp_path) -> None:
+    # ported: SideEffectComparisonTests.anOwnerThatDidSomethingElseOutsideTheJvmThisRunCountsAsExercised, adapted:
+    # another rule's new finding in the owner still proves this entry gone
+    other = Finding(gates.EXCEPTION, "test-runtime", "HIGH", f"{OWN}#E", "m", OWN, observed=1)
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), _clean(), current=[other])
+    assert _fixed_rules(result) == [gates.N_PLUS_ONE]
+
+
+def test_flaky_rerun_with_the_code_fixed_is_fixed(tmp_path) -> None:
+    first = attempt_facts(OWN, completed=False, outcome="failed", attempt=1, call=_call(selects=1))
+    second = attempt_facts(OWN, attempt=2, call=_call(selects=1))
+    result = _compare(_entry_of(tmp_path, gates.N_PLUS_ONE), first, second)
+    assert _fixed_rules(result) == [gates.N_PLUS_ONE]
+
+
+def test_advisor_entry_keeps_the_current_rule(tmp_path) -> None:
+    path = tmp_path / "advisor.json"
+    baseline.write(path, [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m")])
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["findings"][0]["owner"] = baseline.owner_of(OWN)
+    path.write_text(json.dumps(document), encoding="utf-8")
+    result = baseline.compare(
+        [], baseline.read(path), partial=False, ran={"test-runtime", "rest-api"}, tests=(), incomplete=()
+    )
+    assert [e.rule_id for e in result.fixed or ()] == ["RAPI-1"]

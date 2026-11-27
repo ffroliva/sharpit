@@ -6,12 +6,14 @@ import hashlib
 import json
 import os
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.testsession import gates
 from sharpit.engine.testsession.facts import TestFacts
+from sharpit.engine.testsession.outcome import deciding
 from sharpit.engine.testsession.report import clean_text
 
 SCHEMA = "sharpit-baseline/1"
@@ -91,6 +93,71 @@ def read(path: Path) -> Baseline:
     return Baseline(entries, raw)
 
 
+_UNRELAXED = gates.Budget(0, False, 0)
+_UNPROVED = {
+    "no_owner": "recorded without its owner",
+    "incomplete": "the run's evidence is incomplete",
+    "not_run": "its test did not run",
+    "not_completed": "its test did not complete",
+    "new_of_rule": "its test has a new finding of the same rule",
+    "still_shown": "its test still shows it outside the gate",
+}
+
+
+def _shown(facts: TestFacts) -> list[Finding]:
+    """What every phase of one attempt shows under an unrelaxed budget, so no budget or marker hides a finding."""
+    shown: list[Finding] = []
+    for name, phase in facts.phases.items():
+        found = gates.evaluate_test(replace(facts, phases={"call": phase}), _UNRELAXED, 2, ())
+        shown.extend(f for f in found if name == "call" or f.rule_id != gates.MAX_QUERIES)
+    return shown
+
+
+def _gate_off(rule_id: str, budget: gates.Budget | None) -> bool:
+    if budget is None:  # no budget recorded: assume the gate could have hidden it
+        return True
+    return {
+        gates.MAX_QUERIES: budget.max_queries is None,
+        gates.N_PLUS_ONE: budget.allow_n_plus_one,
+        gates.SWALLOWED: budget.allow_swallowed,
+        gates.UNBOUNDED_READ: budget.allow_unbounded_read,
+    }.get(rule_id, False)
+
+
+def _still_shown(entry: Entry, facts: TestFacts) -> bool:
+    gate_off = _gate_off(entry.rule_id, facts.budget)
+    return any(
+        f.fingerprint == entry.fingerprint
+        and (gate_off or f.observed is None or entry.observed is None or f.observed >= entry.observed)
+        for f in _shown(facts)
+    )
+
+
+def unproved(
+    entry: Entry, tests: Sequence[TestFacts], incomplete: Collection[str], findings: Sequence[Finding]
+) -> str | None:
+    """Why an unseen entry is not proven fixed, or None when it is (advisor entries keep the current rule)."""
+    if not entry.fingerprint.startswith(TEST_RUNTIME_PREFIX):
+        return None
+    if entry.owner is None:
+        return _UNPROVED["no_owner"]
+    if entry.rule_id in incomplete:
+        return _UNPROVED["incomplete"]
+    mine = [t for t in tests if owner_of(t.key.node_id) == entry.owner]
+    if not mine:
+        return _UNPROVED["not_run"]
+    if any(t.completed is not True for t in deciding(mine)):
+        return _UNPROVED["not_completed"]
+    if any(
+        f.baseline_state == "new" and f.rule_id == entry.rule_id and owner_of(f.test_node_id) == entry.owner
+        for f in findings
+    ):
+        return _UNPROVED["new_of_rule"]
+    if any(_still_shown(entry, t) for t in mine):
+        return _UNPROVED["still_shown"]
+    return None
+
+
 def compare(
     findings: Sequence[Finding],
     baseline: Baseline | None,
@@ -102,8 +169,6 @@ def compare(
     incomplete: Collection[str],
 ) -> Comparison:
     """Annotate current findings and report baseline entries no longer seen."""
-    from dataclasses import replace
-
     if baseline is None:
         return Comparison(tuple(findings), None, None)
     entries = baseline.entries
@@ -134,7 +199,12 @@ def compare(
             if group
         ]
         return Comparison(tuple(compared), None, "; ".join(reasons), carried)
-    return Comparison(tuple(compared), tuple(e for e in unseen if not e.rule_id.startswith("VULN-")), None)
+    reasons = {e.fingerprint: reason for e in unseen if (reason := unproved(e, tests, incomplete, compared))}
+    fixed = tuple(e for e in unseen if not e.rule_id.startswith("VULN-") and e.fingerprint not in reasons)
+    inconclusive = tuple(
+        (e, reasons[e.fingerprint]) for e in sorted(unseen, key=lambda e: e.fingerprint) if e.fingerprint in reasons
+    )
+    return Comparison(tuple(compared), fixed, None, tuple(e for e, _ in inconclusive), inconclusive)
 
 
 def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -> None:
