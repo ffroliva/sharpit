@@ -91,8 +91,15 @@ def test_finish_names_the_threshold_in_the_partial_note() -> None:
     ]
 
 
-def test_hook_failure_warnings_start_with_the_prefix() -> None:
+def test_hook_failure_prefix_is_the_documented_text() -> None:
     from sharpit.engine.testsession.finish import HOOK_FAILURE_PREFIX
-    from sharpit.engine.testsession.sink import HOOK_FAILURE_WARNING
 
-    assert HOOK_FAILURE_WARNING.format("RuntimeError").startswith(HOOK_FAILURE_PREFIX)
+    assert HOOK_FAILURE_PREFIX == "a sharpit session hook failed ("
+
+
+def test_hook_failure_the_sink_records_starts_with_the_prefix() -> None:
+    from sharpit.engine.testsession.finish import HOOK_FAILURE_PREFIX
+    from sharpit.engine.testsession.sink import TestSessionSink
+
+    text = TestSessionSink("gw0").record_failure(RuntimeError("x"))
+    assert text.startswith(HOOK_FAILURE_PREFIX)
