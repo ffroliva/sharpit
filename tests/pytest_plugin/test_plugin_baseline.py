@@ -335,3 +335,49 @@ def test_fixed_for_a_real_fix_serial_and_xdist(pytester: pytest.Pytester, worker
     result = _changed_run(pytester, fixed, workers=workers)
     assert result["fixed"] == 1
     assert result["inconclusive"] == 0
+
+
+_TRACED = "import sqlite3\ndef test_n1():\n c=sqlite3.connect(':memory:')\n"
+_UNTRACED_FACTORY = {
+    "connection-factory": (
+        "import sqlite3\ndef test_n1():\n"
+        " c=sqlite3.connect(':memory:', factory=lambda *a, **k: sqlite3.Connection(*a, **k))\n"
+        " for _ in range(30): c.execute('SELECT 1').fetchone()\ndef test_other(): pass\n"
+    ),
+    "cursor-factory": (
+        f"{_TRACED} for _ in range(30): c.cursor(factory=lambda conn: sqlite3.Cursor(conn)).execute('SELECT 1')\n"
+        "def test_other(): pass\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("moved", list(_UNTRACED_FACTORY))
+def test_n_plus_one_moved_to_an_untraced_sqlite3_factory_is_not_fixed(pytester: pytest.Pytester, moved: str) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    _only_reason(_changed_run(pytester, _UNTRACED_FACTORY[moved]), fingerprint, INCOMPLETE)
+
+
+_ASYNC_APP = (
+    "from sqlalchemy import text\nfrom sqlalchemy.ext.asyncio import create_async_engine\n"
+    "engine = create_async_engine('sqlite+aiosqlite:///:memory:')\n"
+    "async def run(n):\n"
+    "    async with engine.connect() as c:\n"
+    "        for _ in range(n):\n"
+    "            await c.execute(text('SELECT 1'))\n"
+)
+
+
+def _async_test(n: int) -> str:
+    return f"import asyncio, appmod\ndef test_n1():\n    asyncio.run(appmod.run({n}))\ndef test_other(): pass\n"
+
+
+@pytest.mark.needs_sqlalchemy
+def test_real_fix_beside_a_loaded_driver_module_reads_fixed(pytester: pytest.Pytester) -> None:
+    # the aiosqlite module is loaded beside SQLAlchemy: its standing note is a documented limitation, not evidence
+    pytest.importorskip("aiosqlite")
+    pytester.makepyfile(appmod=_ASYNC_APP, test_a=_async_test(30))
+    pytester.runpytest_inprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
+    rows = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    assert [row["ruleId"] for row in rows] == ["sharpit.n-plus-one"]
+    result = _changed_run(pytester, _async_test(1))
+    assert result["fixed"] == 1

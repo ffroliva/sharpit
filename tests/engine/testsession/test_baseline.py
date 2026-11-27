@@ -11,6 +11,7 @@ import pytest
 from engine.testsession import tsfakes
 from engine.testsession.tsfakes import attempt_facts, part, render_parts
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
+from sharpit.engine.sources import sqlite as sqlite_source
 from sharpit.engine.testsession import baseline, gates
 from sharpit.engine.testsession.facts import PhaseFacts
 from sharpit.pytest_plugin.report_io import _apply_baseline
@@ -606,6 +607,16 @@ def test_max_queries_moved_to_a_setup_fixture_is_not_fixed(tmp_path) -> None:
     assert _reasons(result) == [STILL_SHOWN]
 
 
+def test_max_queries_split_between_setup_and_call_is_not_fixed(tmp_path) -> None:
+    # 30 queries became setup 20 + call 10: under the budget of 10 per phase, still 30 over the whole test
+    split = attempt_facts(
+        OWN, setup=_call(selects=1, queries=20), call=_call(selects=1, queries=10), budget=gates.Budget(10, False, 0)
+    )
+    result = _compare(_entry_of(tmp_path, gates.MAX_QUERIES), split)
+    assert result.fixed == ()
+    assert _reasons(result) == [STILL_SHOWN]
+
+
 def test_owner_digest_is_computed_once_per_node(tmp_path, monkeypatch) -> None:
     old = _baseline_of(tmp_path, *(_old_finding(gates.N_PLUS_ONE, f"tests/test_a.py::test_{i}") for i in range(5)))
     tests = [_clean(f"tests/test_b.py::test_{i}") for i in range(20)]
@@ -622,23 +633,41 @@ def test_owner_digest_is_computed_once_per_node(tmp_path, monkeypatch) -> None:
 
 
 _OUTSIDE_SQLALCHEMY = "sqlite3 calls outside SQLAlchemy are not traced"
+_ENTRY_OF_RULE = {
+    gates.MAX_QUERIES: lambda: _old_finding(gates.MAX_QUERIES),
+    gates.N_PLUS_ONE: lambda: _old_finding(gates.N_PLUS_ONE),
+    gates.UNBOUNDED_READ: _unbounded_entry,
+}
 
 
-@pytest.mark.parametrize("rule", [gates.MAX_QUERIES, gates.N_PLUS_ONE])
-def test_sql_outside_sqlalchemy_marks_the_sql_rules_incomplete(tmp_path, rule: str) -> None:
+@pytest.mark.parametrize("rule", [gates.MAX_QUERIES, gates.N_PLUS_ONE, gates.UNBOUNDED_READ])
+def test_sql_outside_sqlalchemy_is_a_documented_limitation_that_reads_fixed(tmp_path, rule: str) -> None:
+    # documented limitation: the note is listed whenever the driver module is loaded, so it is not evidence of a loss;
+    # an N+1 moved to a raw driver cursor beside SQLAlchemy is not traced and reads fixed
     data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(limitations=[_OUTSIDE_SQLALCHEMY])]))
-    entry = _old_finding(rule)
-    result = _apply_run(tmp_path, data, entry)
-    assert result["inconclusiveFindings"] == [{"fingerprint": entry.fingerprint, "reason": INCOMPLETE}]
-
-
-def test_sql_outside_sqlalchemy_marks_unbounded_read_incomplete(tmp_path) -> None:
-    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(limitations=[_OUTSIDE_SQLALCHEMY])]))
-    result = _apply_run(tmp_path, data, _unbounded_entry())
-    assert result["inconclusiveFindings"] == [{"fingerprint": _unbounded_entry().fingerprint, "reason": INCOMPLETE}]
+    result = _apply_run(tmp_path, data, _ENTRY_OF_RULE[rule]())
+    assert result["fixed"] == 1
 
 
 def test_sql_outside_sqlalchemy_leaves_the_exception_rule_provable(tmp_path) -> None:
     data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(limitations=[_OUTSIDE_SQLALCHEMY])]))
+    result = _apply_run(tmp_path, data, _old_finding(gates.EXCEPTION))
+    assert result["fixed"] == 1
+
+
+def _untraced_sqlite_factory() -> dict:
+    return tsfakes.source("sqlite3", limitations=[sqlite_source.FACTORY_PASSED_THROUGH])
+
+
+@pytest.mark.parametrize("rule", [gates.MAX_QUERIES, gates.N_PLUS_ONE, gates.UNBOUNDED_READ])
+def test_an_untraced_sqlite3_factory_marks_the_sql_rules_incomplete(tmp_path, rule: str) -> None:
+    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(), _untraced_sqlite_factory()]))
+    entry = _ENTRY_OF_RULE[rule]()
+    result = _apply_run(tmp_path, data, entry)
+    assert result["inconclusiveFindings"] == [{"fingerprint": entry.fingerprint, "reason": INCOMPLETE}]
+
+
+def test_an_untraced_sqlite3_factory_leaves_the_exception_rule_provable(tmp_path) -> None:
+    data = render_parts(part(tests=[_clean()], sources=[tsfakes.source(), _untraced_sqlite_factory()]))
     result = _apply_run(tmp_path, data, _old_finding(gates.EXCEPTION))
     assert result["fixed"] == 1
