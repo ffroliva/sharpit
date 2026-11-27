@@ -52,7 +52,8 @@ A baseline written before this change has no owners: each of its test-runtime en
 baseline is rewritten once with both `--sharpit-baseline` and `--sharpit-write-baseline` on a complete run, while those
 findings are still seen. An older sharpit that rewrites a baseline drops `owner`, and its entries then read as reason
 1. An entry that stays inconclusive is cleared by a rewrite without `--sharpit-baseline` on a complete run, which also
-drops advisor entries carried for an advisor that did not run in full, or by deleting its row.
+drops advisor entries carried for an advisor that did not run in full, or by deleting its row. After a rewrite, a
+finding whose identity drifted is baselined under its new fingerprint and stays gated; its old entry then reads fixed.
 
 Accepted limits: a test whose body no longer reaches the code reads as proof; SQL on a thread no test owns is not
 attributed to the owner; facts above a raised `unbounded_read_factor` are not kept, so such a read cannot be
