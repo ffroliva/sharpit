@@ -7,6 +7,7 @@ Rules are pure functions of one ``Inputs``: the ``SecurityModel`` (routes, schem
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,19 @@ def rule(
 
 def source_modules(inputs: Inputs) -> list[ModuleInfo]:
     return list(inputs.source.modules.values()) if inputs.source is not None else []
+
+
+def located(where: str, line: int, message: str) -> str:
+    """``<path> line <N>: <message>``: the path leads, so no ``<path>:`` pair reads as a secret."""
+    return f"{where} line {line}: {message}"
+
+
+_PLAIN_NAME = re.compile(r"[\w.-]+", re.ASCII)
+
+
+def is_plain(name: str) -> bool:
+    """An application-supplied name that holds only word characters, dots and hyphens: safe to show beside a path."""
+    return _PLAIN_NAME.fullmatch(name) is not None
 
 
 def source_file(module: ModuleInfo) -> str:

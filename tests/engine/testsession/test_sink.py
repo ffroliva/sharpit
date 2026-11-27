@@ -673,6 +673,18 @@ def test_test_facts_json_round_trip_is_exact() -> None:
     assert again.phases["call"].selects == test.phases["call"].selects
 
 
+def test_completed_survives_the_worker_round_trip() -> None:
+    test = TestFacts(TestKey(NODE, "gw0", 1), completed=True)
+    again = TestFacts.from_json(json.loads(json.dumps(test.to_json())))
+    assert again.completed is True
+
+
+def test_completed_missing_from_a_worker_is_none() -> None:
+    data = json.loads(json.dumps(TestFacts(TestKey(NODE, "gw0", 1), completed=True).to_json()))
+    del data["completed"]
+    assert TestFacts.from_json(data).completed is None
+
+
 def test_shaped_secret_absent_from_facts_json() -> None:
     sink = _sink()
     attempt = sink.begin_test(NODE)

@@ -340,9 +340,12 @@ For complete gate behavior, exit statuses and the adoption workflow, see [The sa
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
   a summary of failing tests and status. Report-only relaxes findings, never blindness: any unknown
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
-- With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
-  gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a
-  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined.
+- With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails) or `new` (unlisted;
+  gates as usual). A count gate above its baselined `observed` count is `new`. A listed test-runtime entry not seen
+  counts in `baseline.fixed` only when its test ran and completed, the run's evidence was whole and the test no longer
+  shows it; otherwise it counts in `baseline.inconclusive`, with its reason in `baseline.inconclusiveFindings`, and
+  `--sharpit-write-baseline` keeps it. On a partial run `fixed`, `inconclusive` and `inconclusiveFindings` are `null`,
+  with `fixedReason: "partial run"`. Vulnerability findings are not baselined.
 - `--sharpit-write-baseline=PATH` refuses (file not written) a partial run (`-k`, `-m`, node ids, `--lf`, `--deselect`,
   `-x` stopping early, an interrupt, under xdist too) and a run with any unknown reason.
 - A missing or malformed baseline is an unknown reason, never sharpit off. Renaming a test makes its findings `new`.

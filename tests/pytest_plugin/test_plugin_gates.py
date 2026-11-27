@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from importlib import util
 from pathlib import Path
 
 import pytest
-
-from sharpit.engine.sources import sqlite as sqlite_source
-from sharpit.engine.testsession import outcome
+from tests.pytest_plugin.inprocess import without_driver_modules
 
 
 def _f5_app_source(player_count: int) -> str:
@@ -802,20 +799,9 @@ def test_n_plus_one():
 _REPORT_ARGS = ("--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q")
 
 
-def _without_driver_modules(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An in-process run shares this process's modules: a driver another test imported would add its own reason.
-
-    So would a module holding an early ``sqlite3.connect`` alias (another test module's ``REAL_CONNECT``).
-    """
-    for module in outcome.DRIVER_DIALECTS:
-        monkeypatch.delitem(sys.modules, module, raising=False)
-    for alias in sqlite_source.early_aliases():
-        monkeypatch.delitem(sys.modules, alias.rpartition(".")[0], raising=False)
-
-
 def test_a_failed_sink_hook_makes_the_run_unknown(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     """The sink's own SQL hook fails on every statement: the N+1 is not counted, so the run is `unknown`."""
-    _without_driver_modules(monkeypatch)
+    without_driver_modules(monkeypatch)
     pytester.makeconftest(
         """
         import pytest
@@ -842,7 +828,7 @@ def test_a_statement_sqlite3_refused_counts_once_with_empty_text(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A statement the stdlib driver refuses is one statement with empty text: no hook failure, the run stays known."""
-    _without_driver_modules(monkeypatch)
+    without_driver_modules(monkeypatch)
     pytester.makepyfile(
         """
         import sqlite3

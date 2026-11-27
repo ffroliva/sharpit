@@ -7,10 +7,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`. Inconclusive entries are listed and kept on rewrite also while an advisor entry is carried. A max-queries entry is checked against the queries of all phases of its test summed, so queries moved into or split across fixtures are inconclusive, not fixed; a fixture that seeds rows keeps a fixed max-queries entry inconclusive until it is cleared. Max-queries, N+1 and unbounded-read entries are inconclusive when the run used a sqlite3 connection factory or cursor class that sharpit does not trace. Known limits: SQL sent through a raw driver cursor beside SQLAlchemy is not traced, and unbounded reads are recorded only in the call phase, so such a change can read fixed.
 - Runtime Insights lists declared HTTP routes not exercised during the run, with report and agent limits and explicit limitations when recording loss, suspension, exposure, or missing templates prevent classification.
 
 ### Changed
 
+- A baseline entry written before this release is inconclusive until the baseline is rewritten once with both `--sharpit-baseline` and `--sharpit-write-baseline` on a complete run; an older sharpit that rewrites the file drops `owner`.
 - Runtime Insights reports the anonymous-data-reach and anonymous-success-on-restricted-route checks as not applicable, with the reason: sharpit observes no authorization decision, and a missing principal does not prove a request was anonymous. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically.
 - The Side Effects panel reports process and file activity and, when enabled, request input reaching a command or file path. The security-sinks sensor and request-value matching are off by default; enable matching with `SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES`. MCP `get_side_effects` and the `sharpit side-effects` CLI command expose the rows. SQL statements and outbound URLs are not checked: the security-sinks sensor covers commands and file paths only.
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
@@ -20,7 +22,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A baseline entry is reported fixed only when its test ran and completed, the run's evidence was whole and the test no longer shows it; such entries were reported fixed even when their test was deleted, skipped or failed early (#329).
 - SEC-OAUTH-002 reports `jwt.decode` with `verify_signature` set to `False` in a literal `options=` keyword, also when an audience is passed, and its message is readable for a file named `auth.py` (#332).
+- Source-rule findings (SEC-AUTH-001, SEC-AUTH-002, SEC-AUTH-006, SEC-SRC-001, SEC-CONFIG-007, SEC-OAUTH-002) begin with the file and line (`<path> line <N>: <message>`), so the message stays readable when the file name looks sensitive, such as `tokens.py` (#334). A name or key from the application is shown only when it holds word characters, dots and hyphens. Targets, fingerprints and dismissals are unchanged.
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
 - HTTP exchange capture reads the request user as plain data and never runs a property, descriptor or `__getattr__` of it; a user whose name or authentication flag is computed is no longer named in HTTP Exchanges and Live Activity.
 
