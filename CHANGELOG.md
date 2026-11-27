@@ -7,10 +7,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`.
 - Runtime Insights lists declared HTTP routes not exercised during the run, with report and agent limits and explicit limitations when recording loss, suspension, exposure, or missing templates prevent classification.
 
 ### Changed
 
+- A baseline entry written before this release is inconclusive until the baseline is rewritten once with both `--sharpit-baseline` and `--sharpit-write-baseline` on a complete run; an older sharpit that rewrites the file drops `owner`.
 - Runtime Insights reports the anonymous-data-reach and anonymous-success-on-restricted-route checks as not applicable, with the reason: sharpit observes no authorization decision, and a missing principal does not prove a request was anonymous. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically.
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
 - The pytest terminal summary lists all five runtime gates.
@@ -19,6 +21,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A baseline entry is reported fixed only when its test ran and completed, the run's evidence was whole and the test no longer shows it; such entries were reported fixed even when their test was deleted, skipped or failed early (#329).
 - SEC-OAUTH-002 reports `jwt.decode` with `verify_signature` set to `False` in a literal `options=` keyword, also when an audience is passed, and its message is readable for a file named `auth.py` (#332).
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
 - HTTP exchange capture reads the request user as plain data and never runs a property, descriptor or `__getattr__` of it; a user whose name or authentication flag is computed is no longer named in HTTP Exchanges and Live Activity.
