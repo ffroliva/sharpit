@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from urllib.parse import unquote_plus
 
 from sharpit.engine.capture.correlation import RequestInfo
@@ -58,9 +58,16 @@ _HASH_KEY = os.urandom(32)
 _BAD_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _NAME = re.compile(rf"[A-Za-z0-9_.\-\[\]]{{1,{MAX_NAME}}}")
 _PATH_TYPES = (str, int, float, uuid.UUID)
-_compile_uncached: Callable[[str, int], re.Pattern[str]] | None
+_compile_uncached: Callable[[Any, int], re.Pattern[str]] | None
+_sub_pattern: Any = None
+_parser_state: Any = None
+_literal_op: Any = None
+_branch_op: Any = None
 try:  # shortcut: private to ``re``, used for its cache-free compile; upgrade if a release drops it (no prefilter then)
-    _compile_uncached = cast("Callable[[str, int], re.Pattern[str]]", importlib.import_module("re._compiler").compile)
+    _compiler = importlib.import_module("re._compiler")
+    _compile_uncached = cast("Callable[[Any, int], re.Pattern[str]]", _compiler.compile)
+    _sub_pattern, _parser_state = _compiler._parser.SubPattern, _compiler._parser.State()
+    _literal_op, _branch_op = _compiler.LITERAL, _compiler.BRANCH
 except (ImportError, AttributeError):  # pragma: no cover
     _compile_uncached = None
 
@@ -173,6 +180,16 @@ def _compile_pattern(values: list[str]) -> re.Pattern[str] | None:
     if len(values) <= 1 or _compile_uncached is None:
         return None
     try:
+        if _sub_pattern is not None:
+            prefix = os.path.commonprefix(values)
+            plen = len(prefix)
+            data: list[Any] = [(_literal_op, c) for c in map(ord, prefix)]
+            if any(len(v) > plen for v in values):
+                data.append((_branch_op, (None, [[(_literal_op, c) for c in map(ord, v[plen:])] for v in values])))
+            sub = _sub_pattern(_parser_state, data)
+            lengths = [len(v) for v in values]
+            sub.width = (min(lengths), max(lengths))
+            return _compile_uncached(sub, 0)
         return _compile_uncached("|".join(v if v.isalnum() else re.escape(v) for v in values), 0)
     except Exception:  # private API moved: no prefilter, ``_scan`` then finds each value itself
         return None
@@ -232,10 +249,10 @@ def _scan(
 ) -> tuple[list[tuple[int, int, int]], list[int], bool]:
     """Every value's non-overlapping occurrences, in value order, at most MAX_SPANS; and whether more matched."""
     # ported: RequestValues.compare (:998-1017)
-    if len(values) == 1:
-        if scanned.find(values[0]) < 0:
+    if pattern is not None:
+        if pattern.search(scanned) is None:
             return _NO_SCAN
-    elif pattern is not None and pattern.search(scanned) is None:
+    elif len(values) == 1 and scanned.find(values[0]) < 0:
         return _NO_SCAN
     spans: list[tuple[int, int, int]] = []
     matched: list[int] = []
@@ -391,7 +408,7 @@ class RequestValues:
                 return _STOPPED
             self._checks += 1
             spans, matched, overflow = _scan(scanned, entry.values, entry.pattern)
-            self._partial += int(partial)
+            self._partial += partial
             if not matched:
                 if not partial:
                     _remember(entry.misses, HASHES, key)
@@ -400,6 +417,21 @@ class RequestValues:
             names = list(entry.names)
         finally:
             entry.lock.release()
+        return self._matched(info, entry, text, spans, matched, names, key, partial, overflow, seen)
+
+    def _matched(
+        self,
+        info: RequestInfo,
+        entry: _Entry,
+        text: str,
+        spans: list[tuple[int, int, int]],
+        matched: list[int],
+        names: list[str],
+        key: int,
+        partial: bool,
+        overflow: bool,
+        seen: bool,
+    ) -> Match:
         flags = (F_PARTIAL if partial else 0) | (F_OVERFLOW if overflow else 0) | (F_SEEN if seen else 0)
         redacted = _redact(text, spans, names, flags)
         result = Match(

@@ -8,9 +8,7 @@ drops its oldest row, counted.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
 from contextlib import suppress
-from typing import cast
 
 from sharpit.engine.capture.journal import Event, JournalSink
 
@@ -20,13 +18,13 @@ RINGED = ("processes", "files", "security-sinks")
 
 class SensorRows:
     def __init__(self) -> None:
-        self._rings: dict[str, deque[dict[str, object]]] = {name: deque(maxlen=RING_CAPACITY) for name in RINGED}
-        self._dropped: dict[str, int] = dict.fromkeys(RINGED, 0)
+        self._rings: dict[object, deque[dict[str, object]]] = {name: deque(maxlen=RING_CAPACITY) for name in RINGED}
+        self._dropped: dict[object, int] = dict.fromkeys(RINGED, 0)
         self._cleared: dict[str, int] = dict.fromkeys(RINGED, 0)
 
     def append(self, row: dict[str, object]) -> None:
         source = row.get("source")
-        if not isinstance(source, str) or (ring := self._rings.get(source)) is None:
+        if (ring := self._rings.get(source)) is None:
             return
         if len(ring) == RING_CAPACITY:
             # shortcut: two racing appends may count one drop twice or not at all; the count is advisory
@@ -63,15 +61,27 @@ class TeeSink:
     def __init__(self, journal: JournalSink, rows: SensorRows) -> None:
         self._journal = journal
         self._rows = rows
+        self._rings = rows._rings  # pyright: ignore[reportPrivateUsage]
+        self._dropped = rows._dropped  # pyright: ignore[reportPrivateUsage]
+        self._flat = hasattr(journal, "offer_flat")
 
     def offer(self, event: Event) -> bool:
-        self._ring(dict(event))
+        with suppress(Exception):  # publishing never raises into the host
+            self._rows.append(dict(event))
         return self._journal.offer(event)
 
     def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None, started: int = -1) -> bool:
-        self._ring(event)
-        flat = getattr(self._journal, "offer_flat", None)
-        return flat(event, size, started) if flat else self._journal.offer(event)
+        try:  # publishing never raises into the host
+            source = event.get("source")
+            if (ring := self._rings.get(source)) is not None:
+                if len(ring) == RING_CAPACITY:
+                    self._dropped[source] += 1
+                ring.append(event)  # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001, S110
+            pass
+        if self._flat:
+            return self._journal.offer_flat(event, size, started)  # type: ignore[attr-defined, no-any-return]
+        return self._journal.offer(event)
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         return self._journal.records(source)
@@ -81,7 +91,3 @@ class TeeSink:
 
     def count_dropped(self, key: str) -> None:
         self._journal.count_dropped(key)
-
-    def _ring(self, row: Mapping[str, object]) -> None:
-        with suppress(Exception):  # publishing never raises into the host
-            self._rows.append(cast("dict[str, object]", row))
