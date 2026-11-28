@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import sys
 
 import pytest
@@ -17,6 +18,10 @@ def without_driver_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     connection an earlier test left open (held or awaiting collection): the attach scan counts only the connections
     opened after this call.
     """
+    for name in ("_preexisting", "_count_failed", "_early", "_scanned_at"):  # undo restores the cached scan
+        monkeypatch.setattr(sqlite_source, name, getattr(sqlite_source, name))
+    sqlite_source._scanned_at = None  # an earlier test's cached scan would skip the patched count below
+    gc.collect()  # garbage freed later would otherwise absorb a connection the inner run opens early
     count = sqlite_source._count_preexisting
     before = count()
     monkeypatch.setattr(sqlite_source, "_count_preexisting", lambda: max(0, count() - before))
