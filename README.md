@@ -92,16 +92,17 @@ run fails closed.
 
 - Off unless a dev signal turns it on (`fastapi dev`, `uvicorn --reload`, or a dev profile). Otherwise every path under
   `/sharpit` answers 404.
-- Loopback callers only. A forwarding header never grants trust, and remote access needs a token.
+- Loopback callers only. A forwarding header never grants trust, and remote access needs an explicit opt-in
+  (`SHARPIT_ALLOW_NON_LOCALHOST` or `SHARPIT_TRUSTED_PROXIES`) plus a token.
 - Cross-site requests are refused on every method (`Sec-Fetch-Site: cross-site`, or a mismatched `Origin`), even when
   the app allows any origin through `CORSMiddleware`.
-- A browser trades the token for an `HttpOnly; SameSite=Strict` session cookie. Without `SHARPIT_AUTHENTICATION_TOKEN`,
-  a token is generated per process.
+- A browser trades the token for an `HttpOnly; SameSite=Strict` session cookie. When remote access is enabled
+  without `SHARPIT_AUTHENTICATION_TOKEN`, a token is generated per process.
 - Secret-looking names and values are masked by default. Showing them takes an explicit switch
   (`SHARPIT_EXPOSE_VALUES=FULL`, or SQL parameter capture), and sharpit warns at startup when one is on. URLs that
   carry userinfo, such as DSN keys, are masked too.
-- Reading a panel makes no network call, writes no file and changes no logger level. Network calls happen only in
-  actions you trigger, such as the vulnerability scan.
+- Reading a panel makes no network call, writes no file and changes no logger level. Network calls happen only in two
+  actions you trigger: the vulnerability scan (OSV and EPSS) and the GitHub refresh.
 - If an app ships with `sharpit.install(app)` still in it, a `prod` or `production` profile, or no dev signal, makes
   sharpit inert: every path under `/sharpit` answers 404 and no listener is attached. A test pins this behaviour.
 
@@ -116,7 +117,7 @@ See the [Safety model](https://ffroliva.github.io/sharpit/safety/) and the
 | FastAPI Security | The middleware stack and each route's `fastapi.security` schemes |
 | Pentesting | An in-process probe of HTTP security headers (HSTS, CSP, framing, MIME sniffing) and CORS preflight responses, without opening sockets |
 | Vulnerabilities | Installed distributions checked against [OSV](https://osv.dev) and scored with EPSS, on explicit request |
-| `pytest --sharpit-http-security` | Fails a test run when a route's responses lack the configured security headers or answer an unexpected status |
+| `pytest --sharpit-http-security` | Checks the responses your tests receive through a `sharpit_http_observed(app)` client against the headers and statuses you require per route (`--sharpit-required-response-header`, `--sharpit-expected-status`). [Details](https://ffroliva.github.io/sharpit/pytest-plugin/) |
 
 ## Features
 
@@ -140,7 +141,7 @@ See the [Safety model](https://ffroliva.github.io/sharpit/safety/) and the
 | [fastapi-debug-toolbar](https://github.com/mongkok/fastapi-debug-toolbar) | A FastAPI debug toolbar based on django-debug-toolbar | You want per-request panels in the browser and do not need CI gates |
 | [nplusone](https://github.com/jmcarp/nplusone) | N+1 detection for SQLAlchemy, Peewee and the Django ORM, by logging or raising | You need N+1 detection only, or you use Django |
 | Bandit, Semgrep | Static analysis of the source code | You want source-wide security linting; sharpit's advisor adds what only the running app knows (its middleware stack and each route's security schemes) and flags a project that declares no static analyzer |
-| pip-audit | Checking dependencies against vulnerability databases from the command line | You want a dependency audit in CI; sharpit scans the distributions installed in the running app and adds EPSS exploit scores |
+| pip-audit | Checking dependencies against vulnerability databases from the command line | You want a dependency audit in CI; sharpit adds EPSS exploit scores and shows the result in the dev console |
 | Logfire, Sentry, OpenTelemetry | Traces, errors and metrics from deployed services, sent to a backend | You observe production; sharpit is a development tool and stays off without a dev signal |
 
 ## Gate CI on findings
@@ -158,7 +159,8 @@ pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-ju
 sharpit finds your app on its own: the one FastAPI, Starlette or Flask app defined in the modules your tests already imported.
 It never imports a module to look. Pass `--sharpit-app module:attr` when there are several. With none, several, or one
 without routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that
-`unknown`. Pass `--sharpit-http-security` to gate responses against configured HTTP security headers. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
+`unknown`. Pass `--sharpit-http-security` to gate the responses seen through a `sharpit_http_observed(app)` client against the
+headers and statuses you require per route. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
 lists every one. The JSON report and JUnit file always hold every finding.
 The terminal also adds a `swallowed exceptions:` block grouped by `except` clause; a clause includes the test-double
 note when a test double raised the swallowed exception.
@@ -306,7 +308,7 @@ Exit codes follow BootUI 2.5.0 (`ExitCodes`):
 
 ## Use with an AI agent
 
-sharpit has a read-only MCP endpoint that a coding agent can query: routes, configuration, SQL, exceptions and health of the
+sharpit has an MCP endpoint that a coding agent can query: routes, configuration, SQL, exceptions and health of the
 running app. It is off until you set `SHARPIT_MCP_ENABLED=ON`. Install the plugin and the agent gets the sharpit skill and the
 connection in one step:
 
@@ -376,7 +378,7 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 - [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/): CI gates for queries, N+1, exceptions, and advisors
 - [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
 - [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): tracing SQLAlchemy and raw `sqlite3`
-- [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its tools
+- [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the MCP endpoint and its tools
 - [AI agents](https://ffroliva.github.io/sharpit/ai-agents/): improvement playbooks, CLI and MCP workflows, and runtime recipes
 - [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers

@@ -17,7 +17,8 @@ any output, and makes no network call, file write or logger change on a read.
   hashing, HTTP Basic and session cookies without HTTPS, session secret length, CORS, CSRF, OAuth2/OpenID Connect URLs,
   PyJWT audience checks, `FastAPI(debug=True)`, `TrustedHostMiddleware`, proxy headers and hard-coded secrets), the
   Pentesting panel (an in-process probe of HTTP security headers and CORS preflight responses), the Vulnerabilities
-  panel (installed distributions against OSV, scored with EPSS, on explicit request) and `pytest --sharpit-http-security`.
+  panel (installed distributions against OSV, scored with EPSS, on explicit request) and `pytest --sharpit-http-security` (checks responses seen through a `sharpit_http_observed(app)`
+  client against the headers and statuses required per route).
   Rules: https://github.com/ffroliva/sharpit/blob/main/docs/security-advisor-checks.md
 - Find N+1 queries and slow SQL per route in a SQLAlchemy (sync or async) or raw `sqlite3` app.
 - Fail CI on N+1 queries, query budgets and swallowed exceptions: `pytest --sharpit`.

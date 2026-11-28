@@ -13,7 +13,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 
-README = Path(__file__).resolve().parents[2] / "README.md"
+ROOT = Path(__file__).resolve().parents[2]
+README = ROOT / "README.md"
+README_ZH = ROOT / "README.zh-CN.md"
 
 
 def test_readme_panel_count_matches_the_panels_the_console_lists():
@@ -25,3 +27,4 @@ def test_readme_panel_count_matches_the_panels_the_console_lists():
     finally:
         handle.uninstall_capture()
     assert f"**What you get:** {count} panels." in README.read_text(encoding="utf-8")
+    assert f"共 {count} 个面板" in README_ZH.read_text(encoding="utf-8")

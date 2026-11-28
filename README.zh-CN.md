@@ -79,13 +79,13 @@ sharpit 默认关闭，只有检测到开发模式时才会启用：`fastapi dev
 ### 为什么可以放心留在开发环境里
 
 - 默认关闭：没有开发模式信号（`fastapi dev`、`uvicorn --reload` 或开发环境配置）时，`/sharpit` 下的所有路径都返回 404。
-- 只接受本机回环地址的请求。转发类请求头（如 `X-Forwarded-For`）不会被当作可信来源；远程访问必须提供令牌。
+- 只接受本机回环地址的请求。转发类请求头（如 `X-Forwarded-For`）不会被当作可信来源；远程访问需要显式开启（`SHARPIT_ALLOW_NON_LOCALHOST` 或 `SHARPIT_TRUSTED_PROXIES`）并携带令牌。
 - 所有请求方法都会拒绝跨站请求（`Sec-Fetch-Site: cross-site` 或 `Origin` 不匹配），即使应用通过 `CORSMiddleware`
   允许任意来源也一样。
-- 浏览器用令牌换取 `HttpOnly; SameSite=Strict` 的会话 Cookie。未设置 `SHARPIT_AUTHENTICATION_TOKEN` 时，每个进程会自动生成一个令牌。
+- 浏览器用令牌换取 `HttpOnly; SameSite=Strict` 的会话 Cookie。开启远程访问但未设置 `SHARPIT_AUTHENTICATION_TOKEN` 时，每个进程会自动生成一个令牌。
 - 看起来像密钥的配置名和值默认脱敏。要显示原值必须显式开启（`SHARPIT_EXPOSE_VALUES=FULL`，或开启 SQL 参数采集），
   开启后 sharpit 会在启动时给出警告。带用户信息的 URL（例如 DSN 里的密钥）同样会被脱敏。
-- 读取面板不会发起网络请求、不会写文件，也不会修改日志级别。只有你主动触发的操作（如漏洞扫描）才会联网。
+- 读取面板不会发起网络请求、不会写文件，也不会修改日志级别。只有你主动触发的两个操作会联网：漏洞扫描（OSV 和 EPSS）和 GitHub 信息刷新。
 - 即使上线时忘了删掉 `sharpit.install(app)`：只要环境配置是 `prod` 或 `production`，或者没有开发模式信号，sharpit
   就完全不起作用，`/sharpit` 下所有路径返回 404，也不会挂载任何监听器。这一行为有专门的测试保证。
 
@@ -99,7 +99,7 @@ sharpit 默认关闭，只有检测到开发模式时才会启用：`fastapi dev
 | FastAPI Security | 中间件栈以及每条路由的 `fastapi.security` 认证方案 |
 | 渗透探测（Pentesting） | 在进程内探测 HTTP 安全响应头（HSTS、CSP、防嵌套、MIME 嗅探）和 CORS 预检响应，不打开任何网络连接 |
 | 依赖漏洞（Vulnerabilities） | 按需将已安装的依赖包与 [OSV](https://osv.dev) 漏洞库比对，并给出 EPSS 评分 |
-| `pytest --sharpit-http-security` | 路由响应缺少配置的安全响应头，或返回了预期之外的状态码时，测试失败 |
+| `pytest --sharpit-http-security` | 检查测试通过 `sharpit_http_observed(app)` 客户端收到的响应，是否带有你为每个路由要求的响应头、状态码是否在允许范围内（`--sharpit-required-response-header`、`--sharpit-expected-status`）。[详情](https://ffroliva.github.io/sharpit/pytest-plugin/) |
 
 ## 功能一览
 
@@ -123,7 +123,7 @@ sharpit 默认关闭，只有检测到开发模式时才会启用：`fastapi dev
 | [fastapi-debug-toolbar](https://github.com/mongkok/fastapi-debug-toolbar) | 基于 django-debug-toolbar 的 FastAPI 调试工具栏 | 只需要在浏览器里查看单个请求的调试面板，不需要 CI 门禁 |
 | [nplusone](https://github.com/jmcarp/nplusone) | 针对 SQLAlchemy、Peewee 和 Django ORM 的 N+1 检测，以日志或抛异常的方式提示 | 只需要 N+1 检测，或者项目使用 Django |
 | Bandit、Semgrep | 对源代码做静态分析 | 需要覆盖整个代码库的安全扫描；sharpit 的安全顾问补充的是只有运行中的应用才知道的信息（中间件栈、每条路由的认证方案），并会提示项目没有配置静态分析工具 |
-| pip-audit | 在命令行中对照漏洞数据库检查依赖 | 需要在 CI 里审计依赖；sharpit 扫描的是运行中应用实际安装的依赖，并附带 EPSS 可利用性评分 |
+| pip-audit | 在命令行中对照漏洞数据库检查依赖 | 需要在 CI 里审计依赖；sharpit 额外提供 EPSS 可利用性评分，并在开发控制台中展示结果 |
 | Logfire、Sentry、OpenTelemetry | 采集线上服务的链路追踪、错误和指标，发送到后端系统 | 需要观测生产环境；sharpit 是开发工具，没有开发模式信号时不会启用 |
 
 ## 在 CI 中设置门禁
@@ -169,7 +169,7 @@ sharpit insights list --fail-on insufficient       # 运行时洞察，证据不
 sharpit 提供一个 MCP 端点，AI 编程助手可以通过它查询运行中应用的路由、配置、SQL、异常和健康状态。该端点默认关闭，需设置
 `SHARPIT_MCP_ENABLED=ON` 才会启用。
 
-任何支持 Streamable HTTP 的 MCP 客户端（如 Cursor、Cline、Trae 等）都可以直接连接：
+支持 Streamable HTTP 的 MCP 客户端可以连接以下地址（已验证的客户端见下方链接）：
 
 ```text
 http://127.0.0.1:8000/sharpit/api/mcp
