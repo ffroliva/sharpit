@@ -50,7 +50,7 @@ def detect_repository(start: Path, allowed_hosts: frozenset[str]) -> Repository 
     if host not in _GITHUB_HOSTS | allowed:
         return _NOT_GITHUB
     github = host in _GITHUB_HOSTS
-    html_host = _GITHUB_HOST if host == _GITHUB_SSH_HOST else host
+    html_host = credential_host(host)
     branch = _read_branch(layout.git_dir)
     merge = config.get((f'branch "{branch}"', "merge")) if branch is not None else None
     upstream = merge.removeprefix("refs/heads/") if merge is not None else None
@@ -64,6 +64,12 @@ def detect_repository(start: Path, allowed_hosts: frozenset[str]) -> Repository 
         branch,
         upstream,
     )
+
+
+def credential_host(host: str | None) -> str:
+    """BootUI ``credentialHost``: trimmed, lower-cased, ``ssh.github.com`` as ``github.com``; ``""`` for none."""
+    normalized = "" if host is None else host.strip().lower()
+    return _GITHUB_HOST if normalized == _GITHUB_SSH_HOST else normalized
 
 
 def _find_git_layout(start: Path) -> _GitLayout | None:

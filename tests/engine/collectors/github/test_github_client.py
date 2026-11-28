@@ -163,7 +163,7 @@ def test_an_empty_environment_never_yields_an_environment_sourced_token(gh_env: 
     assert token == Token("cli-token", "gh auth token")
     ((args, kwargs),) = runner.calls
     assert Path(args[0]).parent == Path(gh_env["PATH"])
-    assert args[1:] == ["auth", "token"]
+    assert args[1:] == ["auth", "token", "--hostname", "github.com"]
     assert kwargs["shell"] is False
     assert kwargs["stderr"] == subprocess.DEVNULL
     assert kwargs["stdin"] == subprocess.DEVNULL

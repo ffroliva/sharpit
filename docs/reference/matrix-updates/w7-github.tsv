@@ -12,3 +12,6 @@ prop:bootui.github.quota-safety-threshold	matched	positive quota safety threshol
 prop:bootui.github.request-timeout	matched	5 second default and duration parser
 panel:github	matched	GET, read tool and the REST-only refresh action (G2) implemented; masking corpus rows for fetched text wait on Fk
 op:github.refresh	matched	POST /github/refresh: BootUI call order, budget, quota protection, 2 MiB cap, no redirects; tests/engine/collectors/github/test_github_client.py, tests/fastapi/test_github_refresh_api.py
+op:github.refresh.credential-host	adapted	BootUI 2.6.0 host-bound credentials (DefaultGitHubTokenProvider, 7287e6f92) ported; the token variables are stripped from gh's environment case-insensitively because Windows reads gh_token as GH_TOKEN
+op:github.refresh.host-pattern	adapted	beyond BootUI: a credential host that is not a plain lower-case host name ([a-z0-9][a-z0-9.-]*) resolves no credential and never reaches gh's argv
+op:github.refresh.gh-path	adapted	beyond BootUI: gh is resolved to an absolute path from absolute PATH entries outside the working directory (BootUI runs whichever gh is first on PATH)
