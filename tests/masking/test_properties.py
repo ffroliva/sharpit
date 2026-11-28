@@ -18,7 +18,9 @@ import re
 import sqlite3
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import closing
+from functools import cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -222,14 +224,26 @@ def _sqlite() -> sqlite3.Connection:
     return db
 
 
-_DB = _sqlite()
+@cache
+def _db() -> sqlite3.Connection:
+    """The one connection the properties query, opened on first use and closed after the module (see ``_close_db``)."""
+    return _sqlite()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _close_db() -> Iterator[None]:
+    yield
+    if _db.cache_info().currsize:
+        _db().close()
+        _db.cache_clear()
 
 
 def _takes_double_quoted_strings() -> bool:
-    try:
-        _DB.execute('SELECT "no such column"')
-    except sqlite3.OperationalError:
-        return False
+    with closing(_sqlite()) as db:
+        try:
+            db.execute('SELECT "no such column"')
+        except sqlite3.OperationalError:
+            return False
     return True
 
 
@@ -239,7 +253,7 @@ _DQS = _takes_double_quoted_strings()  # ``SQLITE_DQS``: a build compiled withou
 def _returned(text: str) -> str:
     """What ``sqlite3`` gives back. The generator writes only valid queries: a refusal is a fault in it, not a pass."""
     try:
-        return repr(_DB.execute(text).fetchall())
+        return repr(_db().execute(text).fetchall())
     except sqlite3.OperationalError:
         if _DQS:
             raise

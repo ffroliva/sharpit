@@ -68,6 +68,33 @@ def isolated_default_state_dir(tmp_path: Path, request: pytest.FixtureRequest) -
     )
 
 
+@pytest.fixture
+def recorded_audit_hook(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Any]]:
+    """Point the process audit hub at a recorder, so installing a sensor never arms the real hook."""
+    from sharpit.engine.sensors import audit
+
+    hooks: list[Any] = []
+    monkeypatch.setattr(audit.hub, "_add_hook", hooks.append)
+    monkeypatch.setattr(audit.hub, "_installed", False)
+    yield hooks
+    audit.hub.release()
+
+
+@pytest.fixture(autouse=True)
+def _real_audit_hook_not_armed() -> Iterator[None]:
+    """Catch tests that permanently arm the process-wide audit hook."""
+    from sharpit.engine.sensors import audit
+
+    was_installed = audit.hub._installed
+    uses_real_hook = audit.hub._add_hook is None
+    yield
+    if uses_real_hook and not was_installed and audit.hub._installed:
+        pytest.fail(
+            "test armed the process-wide real audit hook; use the hook fixture pattern "
+            "(replace audit.hub._add_hook with a recorder and call audit.hub.release() on teardown)"
+        )
+
+
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
 _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")
@@ -419,6 +446,14 @@ class SideEffectGuard:
         assert not problems, "side effects detected: " + "; ".join(problems)
 
 
+def reset_sqlite_source() -> bool:
+    """Detach the sqlite3 source between tests, keeping a clean scan cache; True when the test left it attached."""
+    leaked = sqlite.is_attached()
+    # a scan that counted a connection (a test's own early one) would make the next in-process run look incomplete
+    sqlite.detach_all(keep_scan=sqlite.preexisting_connections() == 0)
+    return leaked
+
+
 @pytest.fixture(autouse=True)
 def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
     """sqlite3 source tests detach what they attach: a leak fails them. Elsewhere install() without a lifespan leaks.
@@ -426,15 +461,14 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
     shortcut: 230+ tests install an app and never run its shutdown (a supported use), so the leak is only asserted
     for the files that exercise the source itself; upgrade if those tests get a shared fixture that uninstalls.
     """
-    sqlite.detach_all(keep_scan=True)
+    reset_sqlite_source()
     sqla.detach_all()  # install() without shutdown leaves contexts; 2+ make routing outside a request ambiguous
     # Transactions route through their own table: a leaked context (some with a fake engine registry) broke routing.
     with transactions._contexts_lock:  # pyright: ignore[reportPrivateUsage]
         transactions._contexts.clear()  # pyright: ignore[reportPrivateUsage]
         transactions._context_attachments.clear()  # pyright: ignore[reportPrivateUsage]
     yield
-    leaked = sqlite.is_attached()
-    sqlite.detach_all(keep_scan=True)
+    leaked = reset_sqlite_source()
     strict = any(word in request.node.path.name for word in ("sqlite", "dispatch", "sources"))
     assert not (leaked and strict), (
         "the test left sqlite3.connect patched; detach it (uninstall_capture / sqlite.detach)"

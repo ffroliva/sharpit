@@ -98,6 +98,27 @@ def test_summary_includes_baseline_counts_when_present() -> None:
     assert render_summary(_golden_report_with_baseline()) == expected
 
 
+def _baseline_report(**baseline: object) -> dict[str, object]:
+    report = _report()
+    report["baseline"] = {"existing": 4, "new": 0, "fixed": 1, "fixedReason": None, **baseline}
+    return report
+
+
+def test_summary_prints_inconclusive() -> None:
+    summary = render_summary(_baseline_report(inconclusive=2))
+    assert "- **Baseline:** 4 existing, 0 new, fixed 1, inconclusive 2" in summary
+
+
+def test_summary_without_inconclusive_is_unchanged() -> None:
+    summary = render_summary(_baseline_report())
+    assert "- **Baseline:** 4 existing, 0 new, fixed 1\n" in summary
+
+
+def test_summary_with_null_inconclusive_is_unchanged() -> None:
+    summary = render_summary(_baseline_report(inconclusive=None))
+    assert "inconclusive" not in summary
+
+
 def test_summary_without_baseline_is_stable() -> None:
     first = render_summary(_golden_report())
     second = render_summary(_golden_report())  # an independently built report renders byte for byte the same

@@ -146,7 +146,6 @@ MISSING_TOOLS = (
     "resume_rest_client_recording",
     "get_rest_client_traces",
     "get_spring_security",
-    "get_side_effects",
     "get_spring_report",
     "spring_scan",
     "get_spring_rule_violations",
@@ -162,7 +161,7 @@ MISSING_TOOLS = (
 )
 # W6 floor (DEFAULT TAKEN 2): registered with BootUI's schema, action flag and panel, but the matrix row stays partial
 # because sharpit has no agent sensors yet, so they carry no bootui mark
-FLOOR_TOOLS = ("get_agent_status", "enable_agent_sensor", "disable_agent_sensor")
+FLOOR_TOOLS = ("get_agent_status", "enable_agent_sensor", "disable_agent_sensor", "get_side_effects")
 SHARPIT_ONLY = (
     "fastapi_scan",
     "get_data_repositories",

@@ -17,10 +17,10 @@ from sharpit import __version__
 if TYPE_CHECKING:  # lane imports this module's SWITCHABLE_SENSORS
     from sharpit.engine.sensors.lane import SensorLane
 
-# JavaAgentService.NOT_ATTACHED_REASON, BootUI -> sharpit and JVM -> process; this version ships no agent to attach
+# JavaAgentService.NOT_ATTACHED_REASON: the sharpit agent is its in-process sensors, enabled by SHARPIT_AGENT_SENSORS
 NOT_ATTACHED_REASON = (
-    "This process runs without the sharpit agent. sharpit works without it; this version does not ship the agent's"
-    " sensors yet."
+    "This process runs without the sharpit agent. sharpit works without it; enable its sensors with"
+    " SHARPIT_AGENT_SENSORS to add agent-based evidence."
 )
 _SEE_PANEL = " See the Java Agent panel."
 # JavaAgentService.*_REQUIREMENT, BootUI -> sharpit
@@ -53,6 +53,16 @@ FILES_DEFAULT_REASON = (
     "On by default: it records the files the application opens, deletes, moves, and copies, as path patterns, never"
     " their contents. Switch it off to stop recording them."
 )
+# AgentSensorSettings.defaultReason("security-sinks"), BootUI -> sharpit
+SECURITY_SINKS_DEFAULT_REASON = (
+    "Off by default: its request-value matching, which also needs"
+    " SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true, holds each request's query and path values in memory while it"
+    " runs."
+)
+DEFAULT_REASONS: dict[str, str] = {
+    "files": FILES_DEFAULT_REASON,
+    "security-sinks": SECURITY_SINKS_DEFAULT_REASON,
+}
 _THREADS_AND_LEAKS = "Threads and leaks"
 # SideEffectsCatalog.SENSORS, in tab order: (id, group, label)
 SIDE_EFFECT_SENSORS = (
@@ -67,8 +77,7 @@ SIDE_EFFECT_SENSORS = (
     (
         "security-sinks",
         "Security sinks",
-        "Request input reaching SQL, commands, file paths, and URLs; deserialization without a filter, weak"
-        " algorithms, and trust managers",
+        "Request input reaching commands and file paths",
     ),
 )
 # SideEffectsService.LIMITATION_SCOPE, _VALUES, _NETWORK: the minimisation the sensors will keep, BootUI -> sharpit

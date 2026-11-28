@@ -1,19 +1,35 @@
 """The processes sensor (W6 lane S3): which commands the application starts, by file name only.
 
-Minimisation: a row is ``{source, kind, target}``. The target is the base name of the program, or BootUI's
-``(unknown)`` when the program cannot be told apart from what follows it. Arguments, the environment, the working
-directory and a shell's ``NAME=value`` prefixes are never read into a row.
+Minimisation: a row is ``{source, kind, target, requestId, at, callSite, threadName}`` (no call site: a stack walk per
+event exceeds the sensor overhead budget). The target is the base name of the program, or BootUI's ``(unknown)`` when
+the program cannot be told apart from what follows it. Arguments, the environment, the working directory and a shell's
+``NAME=value`` prefixes are never read into a row.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+import threading
+import time
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
+
+from sharpit.engine.capture.correlation import REQUEST, RequestInfo
+from sharpit.engine.sensors.sinks import (
+    F_OVERFLOW,
+    FROM_REQUEST_INPUT,
+    MAX_ARGUMENTS,
+    MIN_LENGTH,
+    NOT_CHECKED,
+    SinkMatcher,
+    unchecked,
+)
 
 SOURCE = "processes"
 UNKNOWN = "(unknown)"  # SideEffects.commandName's marker for a command it cannot name
+_EXECUTABLE = "(the executable)"
+_SYSTEM = "os.system"
 _MAX = 128
 # a shell word's quoted run or escaped character; an assignment's value also takes an unnested $(...) or `...`
 _PIECE = r"""'[^']*'|"(?:[^"\\]|\\.)*"|\\."""
@@ -27,6 +43,8 @@ _WINDOWS = re.compile(r"""\s*["']?(?:[A-Za-z]:|\\\\|[\w.-]+\\[\w.-])""")
 _META = ";|&<>#`()$,"  # a shell metacharacter ends the program word; one that starts it is no program at all
 _AT_META = re.compile(f"[{re.escape(_META)}]")
 _PLAIN = re.compile(r"[^\s'\"\\=;|&<>#`()$,]+")  # one word with no quote, escape or '=': a path to basename as it is
+_PLAIN_MATCH = _PLAIN.fullmatch
+_REQUEST_GET = REQUEST.get
 
 
 def _text(value: object) -> str | None:
@@ -43,33 +61,38 @@ def _program(command: str) -> str | None:
 
     Fails closed: a value or a quote that does not parse gives ``(unknown)``, never a fragment of what follows.
     """
-    if _PLAIN.fullmatch(command):
-        return command.rpartition("/")[2][:_MAX] or UNKNOWN
+    return _parse_program(command)[0]
+
+
+def _parse_program(command: str) -> tuple[str | None, int]:
+    """``_program``'s name and the offset where the program word ends (0 when there is no word to hide)."""
+    if _PLAIN_MATCH(command):
+        return command.rpartition("/")[2][:_MAX] or UNKNOWN, len(command)
     end = 0
     while match := _ASSIGNMENT.match(command, end):
         end = match.end()
     if _NAMED.match(command, end):
-        return UNKNOWN
+        return UNKNOWN, 0
     if not command[end:].strip():
-        return None
+        return None, 0
     word = (_WIN_WORD if _WINDOWS.match(command, end) else _WORD).match(command, end)
     if word is None:
-        return UNKNOWN
+        return UNKNOWN, 0
     token = word[1]
     # a quoted program is its quoted text (a Windows path with blanks); otherwise never past an inner quote (BootUI)
     if token[0] in "\"'":
         program = token[1 : token.index(token[0], 1)]
     elif token[0] in _META:
-        return UNKNOWN
+        return UNKNOWN, 0
     else:
         program = _AT_META.split(_QUOTE.split(token, 1)[0], 1)[0]
     # never past an '=' (BootUI, a start that may have failed), then the file name of this one word only
     name = program.partition("=")[0].replace("\\", "/").rpartition("/")[2].strip()
-    return name[:_MAX] or UNKNOWN
+    return name[:_MAX] or UNKNOWN, word.end(1)
 
 
 def _argv_target(program: object, argv: object) -> str | None:
-    named = _text(program)
+    named = program if type(program) is str else _text(program)
     if named:
         return _program(named)
     if isinstance(argv, (list, tuple)) and argv:
@@ -77,6 +100,146 @@ def _argv_target(program: object, argv: object) -> str | None:
         return _program(first) if first else None
     line = _text(argv) if isinstance(argv, (str, bytes)) else None
     return _program(line) if line else None
+
+
+def _check_explicit_executable(
+    matcher: SinkMatcher,
+    program: str,
+    sink_rows: list[Mapping[str, object]],
+    req: RequestInfo | None,
+) -> str | None:
+    match = matcher.check(program, "command", req)
+    if match is None:
+        return None
+    if match.names:
+        sink_rows.extend(matcher.rows("command", match, program, _EXECUTABLE, req))
+        return FROM_REQUEST_INPUT
+    return NOT_CHECKED if unchecked(match) else None
+
+
+def _check_joined_command(
+    matcher: SinkMatcher,
+    command_line: str,
+    command_name: str,
+    executable: str | None,
+    sink_rows: list[Mapping[str, object]],
+    req: RequestInfo | None,
+) -> str | None:
+    match = matcher.check(command_line, "command", req)
+    if match is None:
+        return executable
+    if match.names:
+        prog_end = _parse_program(command_line)[1] if command_name != UNKNOWN else 0
+        overflow = bool(match.flags & F_OVERFLOW)
+        held = overflow or (prog_end > 0 and any(s[1] < prog_end for s in match.spans))
+        if held:
+            executable = FROM_REQUEST_INPUT
+        target = _EXECUTABLE if executable is not None else command_name
+        sink_rows.extend(matcher.rows("command", match, command_line, target, req))
+        return executable
+    if unchecked(match) and executable is None:
+        return NOT_CHECKED
+    return executable
+
+
+def _process_row(target: str, context_id: str | None, req: RequestInfo | None) -> dict[str, object]:
+    req_id = req.id if req is not None and (context_id is None or req.context_id == context_id) else None
+    return {
+        "source": SOURCE,
+        "kind": "start",
+        "target": target,
+        "requestId": req_id,
+        "at": time.time_ns() // 1_000_000,
+        "callSite": None,
+        # shortcut: current_thread() registers a _DummyThread (a blocking lock) for a foreign thread, when
+        # a private _active lookup would avoid it; upgrade when the hook shows that lock in a profile
+        "threadName": threading.current_thread().name if req_id is None else None,
+    }
+
+
+def _string_sink_rows(
+    matcher: SinkMatcher,
+    command_name: str,
+    program: str | None,
+    command_line: str,
+    context_id: str | None = None,
+    req: RequestInfo | None = None,
+) -> tuple[Mapping[str, object], ...]:
+    executable: str | None = None
+    sink_rows: list[Mapping[str, object]] = []
+    try:
+        if program is not None:
+            executable = _check_explicit_executable(matcher, program, sink_rows, req)
+        executable = _check_joined_command(matcher, command_line, command_name, executable, sink_rows, req)
+    except Exception:
+        if executable is None:
+            executable = NOT_CHECKED
+        sink_rows.clear()
+    proc_target = executable if executable is not None else command_name
+    return (_process_row(proc_target, context_id, req), *sink_rows)
+
+
+def _argv_elements(program: object, argv: Sequence[object]) -> list[str]:
+    prog_text = _text(program)
+    if argv:
+        first = prog_text or _text(argv[0]) or ""
+        rest = [_text(arg) or "" for arg in argv[1:MAX_ARGUMENTS]]
+        return [first, *rest]
+    return [prog_text or ""] if prog_text else []
+
+
+def _argv_sink_target(index: int, command_name: str, executable: str | None) -> str:
+    if index == 0:
+        return _EXECUTABLE
+    head = _EXECUTABLE if executable is not None else command_name
+    return f"{head}, argument {index}"
+
+
+def _check_argv_elements(
+    matcher: SinkMatcher,
+    elements: list[str],
+    command_name: str,
+    req: RequestInfo | None,
+) -> tuple[str | None, list[Mapping[str, object]]]:
+    executable: str | None = None
+    sink_rows: list[Mapping[str, object]] = []
+    for i, argument in enumerate(elements[:MAX_ARGUMENTS]):
+        match = matcher.check(argument, "command", req)
+        if match is None:
+            if len(argument) >= MIN_LENGTH:
+                break
+            continue
+        if not match.names:
+            if i == 0 and unchecked(match):
+                executable = NOT_CHECKED
+            continue
+        if i == 0:
+            executable = FROM_REQUEST_INPUT
+        target = _argv_sink_target(i, command_name, executable)
+        sink_rows.extend(matcher.rows("command", match, argument, target, req))
+    return executable, sink_rows
+
+
+def _argv_sink_rows(
+    matcher: SinkMatcher,
+    command_name: str,
+    program: object,
+    argv: Sequence[object],
+    context_id: str | None = None,
+    req: RequestInfo | None = None,
+) -> tuple[Mapping[str, object], ...]:
+    elements = _argv_elements(program, argv)
+    executable: str | None = None
+    sink_rows: list[Mapping[str, object]] = []
+    try:
+        executable, sink_rows = _check_argv_elements(matcher, elements, command_name, req)
+    except Exception:
+        if executable is None:
+            executable = NOT_CHECKED
+        sink_rows.clear()
+    proc_target = executable if executable is not None else command_name
+    row = _process_row(proc_target, context_id, req)
+    return (row, *sink_rows) if sink_rows else (row,)
 
 
 _ARGV_AT = {
@@ -89,15 +252,53 @@ _ARGV_AT = {
 
 class ProcessesSensor:
     name = SOURCE
-    events = ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn")
+    events = ("subprocess.Popen", _SYSTEM, "os.exec", "os.spawn", "os.posix_spawn")
 
-    def record(self, event: str, args: tuple[Any, ...]) -> tuple[Mapping[str, object], ...]:
+    def __init__(self, matcher: SinkMatcher | None = None, *, context_id: str | None = None) -> None:
+        self._matcher = matcher
+        if context_id is not None:
+            self._context_id: str | None = context_id
+        else:
+            self._context_id = matcher._context_id if matcher is not None else None  # pyright: ignore[reportPrivateUsage]
+
+    def record(self, event: str, args: tuple[Any, ...]) -> Sequence[Mapping[str, object]]:
         target = self._target(event, args)
-        return ({"source": SOURCE, "kind": "start", "target": target},) if target else ()
+        if not target:
+            return ()
+        req = _REQUEST_GET()
+        matcher = self._matcher
+        if matcher is None or not matcher.enabled or req is None:
+            return [_process_row(target, self._context_id, req)]
+        return self._record_matched(matcher, event, args, target, req)
+
+    def _record_matched(
+        self,
+        matcher: SinkMatcher,
+        event: str,
+        args: tuple[Any, ...],
+        target: str,
+        req: RequestInfo | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        if event == _SYSTEM:
+            command = _text(args[0]) if args else None
+            return _string_sink_rows(matcher, target, None, command, self._context_id, req) if command else ()
+        where = _ARGV_AT.get(event)
+        if not where or len(args) <= where[1]:
+            return ()
+        program, argv = args[where[0]], args[where[1]]
+        if isinstance(argv, (list, tuple)):
+            return _argv_sink_rows(matcher, target, program, cast("Sequence[object]", argv), self._context_id, req)
+        line = _text(cast("object", argv)) if isinstance(argv, (str, bytes)) else None
+        prog_text = _text(program) if program is not None else None
+        if line is not None:
+            return _string_sink_rows(matcher, target, prog_text, line, self._context_id, req)
+        if prog_text is not None:
+            return _string_sink_rows(matcher, target, None, prog_text, self._context_id, req)
+        return ()
 
     @staticmethod
     def _target(event: str, args: tuple[Any, ...]) -> str | None:
-        if event == "os.system":
+        if event == _SYSTEM:
             command = _text(args[0]) if args else None
             return _program(command) if command else None
         where = _ARGV_AT.get(event)

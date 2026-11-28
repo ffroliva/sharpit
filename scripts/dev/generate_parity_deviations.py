@@ -65,7 +65,9 @@ FRAGMENTS_0_10_0 = [
     ("#305", "0.10.0-305.tsv"),
     ("exchanges-principal", "0.10.0-exchanges-principal.tsv"),
     ("not-exercised", "0.10.0-not-exercised.tsv"),
+    ("gate-completeness", "0.10.0-gate-completeness.tsv"),
     ("anonymous-access", "0.10.0-anonymous-access.tsv"),
+    ("baseline-owner", "0.10.0-baseline-owner.tsv"),
 ]
 
 SECTION_HEADING_0_7_0 = "## 0.7.0 against BootUI 2.4.0: deviations"

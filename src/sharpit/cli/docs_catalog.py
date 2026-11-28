@@ -27,10 +27,20 @@ TOPICS = {
         "Activation signals",
         "Activation precedence and recognition of reloading development servers",
     ),
+    "decision-baseline-owner": (
+        "docs/decisions/baseline-owner.md",
+        "Baseline entry owner",
+        "When a baselined test-runtime finding is reported fixed or inconclusive",
+    ),
     "decision-wsgi-request-target": (
         "docs/decisions/wsgi-request-target.md",
         "WSGI request target validation",
         "Validation of original request targets and the WSGI Host header",
+    ),
+    "decision-003-request-values-in-memory": (
+        "docs/decisions/003-request-values-in-memory.md",
+        "Request values in memory",
+        "Bounded request-lifetime matching for command and file path sinks",
     ),
 }
 

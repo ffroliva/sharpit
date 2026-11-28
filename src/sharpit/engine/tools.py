@@ -738,6 +738,7 @@ TOOLS, COMMANDS = merge_lane_tools(
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,
+    advertised as advertised,
     call_tool as call_tool,
     cli_invoke as cli_invoke,
     cli_status as cli_status,

@@ -51,7 +51,17 @@
             "existing": {"type": "integer", "minimum": 0},
             "new": {"type": "integer", "minimum": 0},
             "fixed": {"type": ["integer", "null"], "minimum": 0},
-            "fixedReason": {"type": ["string", "null"]}
+            "fixedReason": {"type": ["string", "null"]},
+            "inconclusive": {"type": ["integer", "null"], "minimum": 0},
+            "inconclusiveFindings": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fingerprint", "reason"],
+                "properties": {"fingerprint": {"type": "string"}, "reason": {"type": "string"}}
+              }
+            }
           }
         }
       ]

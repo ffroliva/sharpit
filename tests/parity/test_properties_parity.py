@@ -22,6 +22,7 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.activity.n-plus-one-threshold"),
     pytest.mark.bootui("prop:bootui.activity.request-slow-threshold-ms"),
     pytest.mark.bootui("prop:bootui.advisors.max-retained-violations"),
+    pytest.mark.bootui("prop:bootui.agent.security-sinks.request-values"),
     pytest.mark.bootui("prop:bootui.ai.max-recent-chats"),
     pytest.mark.bootui("prop:bootui.ai.show-content-capture-banner"),
     pytest.mark.bootui("prop:bootui.ai.token-series-minutes"),

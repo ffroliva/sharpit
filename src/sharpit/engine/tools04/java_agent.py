@@ -9,8 +9,9 @@ from sharpit.engine.tools import _ID, _QUERY, CallContext, Tool, ToolCallError  
 _SWITCH = (
     " one supported sharpit agent sensor for this application now; the override is not persisted. id is one of"
     " threads, files, environment, thread-activity, thread-locals, or security-sinks. The agent must be attached and"
-    " armed for this application: this version ships no agent sensors, so a switchable id is refused (409, not armed)"
-    " and any other id is refused (400). Returns the updated Java Agent report; ask the user before switching."
+    " armed for this application: files is built; security-sinks is built only when"
+    " SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES=true. A supported but unarmed id is refused (409, not armed);"
+    " any other id is refused (400). Returns the updated Java Agent report; ask the user before switching."
 )
 
 

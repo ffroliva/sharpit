@@ -10,6 +10,7 @@ from typing import Any
 
 from sharpit.engine import panels04
 from sharpit.engine.panels import PANELS
+from sharpit.engine.sensors.floor import AGENT_SENSOR_TOOLS
 from sharpit.fastapi.routes import _panel_04_routes  # pyright: ignore[reportPrivateUsage]
 
 BASE_PANEL_IDS = [
@@ -89,13 +90,19 @@ BASE_CLI_COMMANDS = {
 }
 
 
-def lane_tools() -> tuple[Any, ...]:
-    """The tools the implemented lane modules add (``engine/tools04/<id>.py``), in catalogue order."""
+def catalogue_lane_tools() -> tuple[Any, ...]:
+    """The tools the implemented lane modules add (``engine/tools04/<id>.py``) in full catalogue order."""
     return panels04.tool_definitions()[0]
 
 
+def lane_tools() -> tuple[Any, ...]:
+    """The tools the implemented lane modules add (``engine/tools04/<id>.py``) that an application with no agent
+    sensor on lists, in catalogue order: an agent-sensor tool is listed only while a sensor records."""
+    return tuple(t for t in panels04.tool_definitions()[0] if t.name not in AGENT_SENSOR_TOOLS)
+
+
 def lane_commands() -> dict[str, str]:
-    return panels04.tool_definitions()[1]
+    return {n: c for n, c in panels04.tool_definitions()[1].items() if n not in AGENT_SENSOR_TOOLS}
 
 
 def expected_panel_ids() -> list[str]:

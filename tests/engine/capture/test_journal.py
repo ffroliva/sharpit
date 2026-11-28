@@ -67,6 +67,26 @@ def test_journal_bounds_and_counts_drops() -> None:
     assert sum(status["dropped"].values()) == status["droppedEvents"]
 
 
+def test_request_routes_filters_outside_the_journal_lock() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, sources=("http",))
+    journal.offer({"source": "http", "requestId": "r1", "route": "GET /items"})
+    lock_states: list[bool] = []
+
+    class LockCheckingEvent(dict[str, object]):
+        def get(self, key: str, default: Any = None) -> Any:
+            lock_states.append(journal._lock._is_owned())
+            return super().get(key, default)
+
+    event, size, at, source = journal._events[0]
+    journal._events[0] = (LockCheckingEvent(event), size, at, source)
+
+    routes = journal.request_routes({"r1"})
+
+    assert routes == {"r1": "GET /items"}
+    assert lock_states
+    assert not any(lock_states)
+
+
 def test_an_offer_made_while_the_host_copy_runs_is_refused_and_counted() -> None:
     """The copy runs outside the lock, so only the thread's own flag stops an offer made from inside it."""
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)
@@ -550,3 +570,25 @@ def test_registering_the_same_aggregate_again_neither_counts_twice_nor_repairs_m
     registry.register(journal)
     registry.register(journal)
     assert registry.hooks() == (journal,)
+
+
+def test_request_routes_copies_only_http_events_under_the_lock() -> None:
+    journal = _journal_module().RuntimeJournal()
+    journal.offer({"source": "http", "requestId": "r1", "route": "GET /items"})
+    journal.offer({"source": "other", "requestId": "r2", "route": "GET /ignored"})
+    assert journal.request_routes({"r1", "r2"}) == {"r1": "GET /items"}
+
+
+def test_request_routes_does_not_hold_the_lock_while_mapping() -> None:
+    journal = _journal_module().RuntimeJournal()
+    journal.offer({"source": "http", "requestId": "r1", "route": "GET /items"})
+    observed: list[bool] = []
+    original = journal._request_routes
+
+    def inspect_lock(events: object, ids: object) -> object:
+        observed.append(journal._owned())
+        return original(events, ids)  # type: ignore[arg-type]
+
+    journal._request_routes = inspect_lock  # type: ignore[method-assign]
+    journal.request_routes({"r1"})
+    assert observed == [False]

@@ -552,6 +552,10 @@ class Masker:
         self._identity_key = key
         self._never_shown = tuple(secret for secret in (self._token, _key_text(key)) if secret)
 
+    def holds_never_shown(self, text: str) -> bool:
+        """Whether ``text`` contains sharpit's own token or identity key."""
+        return any(secret in text for secret in self._never_shown)
+
     def mask(self, name: str, value: object) -> tuple[object | None, bool]:
         """Return ``(display_value, masked)``."""
         # sharpit's own token and identity key are never shown, whatever the mask setting or exposure: one grants the

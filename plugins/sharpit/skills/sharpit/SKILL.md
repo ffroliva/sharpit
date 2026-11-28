@@ -159,7 +159,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 22 action tools (see Actions below), over plain HTTP. The `sharpit` command-line client runs against this endpoint: it supports the advertised tools plus `tools` and `mcp status|enable|disable` (see Command-line client below; `sharpit --help` for usage) |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
-| Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | agent-sensor panels: BootUI's shape, `available: false` with the reason. The `processes` and `files` sensors (`SHARPIT_AGENT_SENSORS`, off by default) feed the runtime journal, not these panels; with them on, `POST {api}/java-agent/sensors/files` switches the files sensor, otherwise it is refused (409) as BootUI refuses it without the agent. MCP: `get_agent_status` |
+| Java Agent, Code Inventory, Code Paths, Side Effects | `GET {api}/java-agent`, `POST {api}/java-agent/sensors/{id}`, `GET {api}/code-inventory[/changes\|/methods\|/dependencies]`, `GET {api}/code-paths[/route\|/beans\|/requests/{id}\|/probes]`, `POST {api}/code-paths/probes[/{id}/stop]`, `DELETE {api}/code-paths/probes/{id}`, `GET {api}/side-effects[/sensor]` | Side Effects shows process, file and opt-in security-sinks rows. Request-value matching (`SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES`, off by default) checks commands and file paths only. MCP: `get_side_effects` while a Side Effects sensor records; CLI: `sharpit side-effects`. SQL and outbound URLs are not checked. |
 | Metrics | `GET {api}/metrics`, `GET {api}/metrics/detail` | host Prometheus registry, collected on each read (every host collector runs once); label values and HELP text are masked. MCP and CLI: `get_metrics` / `metrics` |
 | AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
 | Email | `GET {api}/email`, `GET {api}/email/{id}`, `GET {api}/email/{id}/eml`, `DELETE {api}/email` | outgoing mail captured at `smtplib`/`aiosmtplib` `sendmail`, bounded; secret-shaped text masked unless `SHARPIT_EXPOSE_VALUES=FULL`; DELETE clears (refused on a read-only panel). `SHARPIT_EMAIL_DEV_TRAP=true` captures without connecting or sending. MCP: `get_emails`; CLI: `mail` |
@@ -189,7 +189,7 @@ front of the app can store it with the response.
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 51 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 52 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
@@ -226,7 +226,7 @@ An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharp
   `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
   `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,
   `disable_low_footprint` (CLI and guarded API only).
-- Agent sensors: `enable_agent_sensor`, `disable_agent_sensor` (switch the `files` sensor when `SHARPIT_AGENT_SENSORS` arms
+- Agent sensors: `enable_agent_sensor`, `disable_agent_sensor` (switch the `files` or `security-sinks` sensor when `SHARPIT_AGENT_SENSORS` arms
   one; refused otherwise);
   `start_method_probe` is not advertised.
 
@@ -329,7 +329,9 @@ warning that names what was not read and says no finding is not proof there is n
 `--sharpit-fail-on` still fails. Everything else stays `UNKNOWN`: an uninspectable app or router passed to
 `--sharpit-app` (expected an app, a router or a zero-argument factory), no usable routes plus a limitation, a router or
 exception handler sharpit could not read, an errored scan or a rule that threw. An app with no routes and no limitation
-is confirmed empty and passes. Lost capture stays `unknown`.
+is confirmed empty and passes. These cases of lost capture stay `unknown`: no SQL source, a missing worker, a
+hook of the pytest plugin or of its session sink that fails before the report is written, and capture ended before the session did (a nested in-process
+pytest run).
 
 ### Report-only mode and baselines
 
@@ -338,9 +340,12 @@ For complete gate behavior, exit statuses and the adoption workflow, see [The sa
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
   a summary of failing tests and status. Report-only relaxes findings, never blindness: any unknown
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
-- With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
-  gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a
-  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined.
+- With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails) or `new` (unlisted;
+  gates as usual). A count gate above its baselined `observed` count is `new`. A listed test-runtime entry not seen
+  counts in `baseline.fixed` only when its test ran and completed, the run's evidence was whole and the test no longer
+  shows it; otherwise it counts in `baseline.inconclusive`, with its reason in `baseline.inconclusiveFindings`, and
+  `--sharpit-write-baseline` keeps it. On a partial run `fixed`, `inconclusive` and `inconclusiveFindings` are `null`,
+  with `fixedReason: "partial run"`. Vulnerability findings are not baselined.
 - `--sharpit-write-baseline=PATH` refuses (file not written) a partial run (`-k`, `-m`, node ids, `--lf`, `--deselect`,
   `-x` stopping early, an interrupt, under xdist too) and a run with any unknown reason.
 - A missing or malformed baseline is an unknown reason, never sharpit off. Renaming a test makes its findings `new`.

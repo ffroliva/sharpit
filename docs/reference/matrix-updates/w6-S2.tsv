@@ -5,7 +5,7 @@ tool:get_code_inventory	partial	W6 floor: not advertised (JavaAgentPresence.AGEN
 tool:get_code_paths	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
 tool:get_method_probe	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
 tool:start_method_probe	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
-tool:get_side_effects	partial	W6 floor: not advertised; unavailable-tool error with the panel's reason; known gap: the error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); tests/fastapi/test_w6_sensor_floor_tools.py
+tool:get_side_effects	partial	listed on MCP only while a side-effects sensor (processes, files or security-sinks) records, else the unavailable-tool answer with the panel's reason; known gap: that error carries no data {tool, panel, reason} (sharpit RpcError has no data field, spec §14); the network, environment, thread, resources and blocking sensors are not available in this version; tests/fastapi/test_side_effects_tools.py, tests/engine/collectors/sideeffects/test_agent_report.py
 cli:agent/status	partial	W6 floor: listed, answers NOT_ATTACHED; tests/fastapi/test_w6_sensor_floor_tools.py
 cli:agent/sensor/enable	partial	W6 floor: listed; 400 missing/unswitchable id, 409 not armed; tests/fastapi/test_w6_sensor_floor_tools.py
 cli:agent/sensor/disable	partial	W6 floor: listed; 400 missing/unswitchable id, 409 not armed; tests/fastapi/test_w6_sensor_floor_tools.py
@@ -13,9 +13,9 @@ cli:code/inventory	partial	W6 floor: not listed, 404 naming the tool (AbstractCl
 cli:code/paths	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
 cli:probe/show	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
 cli:probe/start	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
-cli:side-effects	partial	W6 floor: not listed, 404 naming the tool; tests/fastapi/test_w6_sensor_floor_tools.py
-route:GET /side-effects	partial	W6 floor: every sensor listed unavailable with the reason; golden keys; tests/fastapi/test_w6_sensor_floor_api.py
-route:GET /side-effects/sensor?sensor=processes	partial	W6 floor: SideEffectsSensorReport unavailable; unknown or missing sensor 400; tests/fastapi/test_w6_sensor_floor_api.py
+cli:side-effects	partial	listed in the live catalogue and served only while a side-effects sensor records, else 404 naming the tool (AbstractCliConformanceTest); the bundled cli/tools.json lists it always, as BootUI's does; tests/fastapi/test_side_effects_tools.py, tests/engine/collectors/sideeffects/test_agent_report.py
+route:GET /side-effects	partial	every sensor listed; processes, files and security-sinks report rows while armed, the others not-available in this version; unavailable with the agent reason when no sensor is armed; tests/fastapi/test_side_effects_api.py, tests/fastapi/test_w6_sensor_floor_api.py
+route:GET /side-effects/sensor?sensor=processes	partial	SideEffectsSensorReport with the sensor's masked rows and page while armed, else unavailable; unknown or missing sensor 400; tests/fastapi/test_side_effects_api.py, tests/fastapi/test_w6_sensor_floor_api.py
 route:GET /code-inventory	partial	W6 floor: CodeInventoryReport.unavailable, golden keys; tests/fastapi/test_w6_sensor_floor_api.py
 route:GET /code-inventory/changes	partial	W6 floor: unavailable, empty page echoing limit; tests/fastapi/test_w6_sensor_floor_api.py
 route:GET /code-inventory/methods?status=never-executed	partial	W6 floor: unavailable, empty page; tests/fastapi/test_w6_sensor_floor_api.py
@@ -34,4 +34,4 @@ op:java-agent.sensor.switch	partial	W6 floor: 400 without enabled / unswitchable
 panel:java-agent	partial	W6 floor: registered, available (BootUI lists it available without the agent)
 panel:code-inventory	partial	W6 floor: registered, unavailable with the inventory-sensor reason
 panel:code-paths	partial	W6 floor: registered, unavailable with the code-paths-sensor reason
-panel:side-effects	partial	W6 floor: registered, unavailable with the agent reason
+panel:side-effects	partial	registered; its reports are available while a processes, files or security-sinks sensor is armed, else unavailable with the agent reason

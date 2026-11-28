@@ -76,7 +76,7 @@ def client(
     transport = FakeTransport(routes)
     s = settings(**overrides)
 
-    def tokens(_timeout: float) -> Token | None:
+    def tokens(_host: str, _timeout: float) -> Token | None:
         return None if token is None else Token(token, "test-token")
 
     return GitHubApiClient(s, tokens, no_redirect_opener(transport), scrub=masker(s).mask_text), transport

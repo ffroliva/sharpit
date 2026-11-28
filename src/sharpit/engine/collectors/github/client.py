@@ -167,7 +167,7 @@ class GitHubApiClient:
     def __init__(
         self,
         settings: SharpitSettings,
-        token: Callable[[float], Token | None],
+        token: Callable[[str, float], Token | None],
         opener: Opener | None = None,
         *,
         scrub: m.Scrub,
@@ -198,7 +198,7 @@ class GitHubApiClient:
         token: Token | None = None
         try:
             # read only once the host is allowed (a blocked host never runs gh), within the refresh deadline
-            token = self._token(min(self.timeout, max(0.1, deadline - self.clock())))
+            token = self._token(repo.host, min(self.timeout, max(0.1, deadline - self.clock())))
             return _Refresh(self, repo, token, deadline).run(refreshed_at)
         except _Failed:
             return self.error(repo, refreshed_at, token, NETWORK_FAILED)

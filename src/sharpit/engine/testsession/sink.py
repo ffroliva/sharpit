@@ -14,6 +14,7 @@ import weakref
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from typing import cast
 
 from sharpit.engine import sqltext
 from sharpit.engine.advisors.http_security import HeaderExpectation, StatusExpectation
@@ -29,6 +30,7 @@ from sharpit.engine.testsession.filters import filtered_rule
 from sharpit.settings import SharpitSettings
 
 MAX_UNATTRIBUTED_STATEMENTS = 500  # distinct masked statements kept for the top list; the count stays exact
+HOOK_FAILURE_WARNING = "a sharpit session hook failed ({}); some facts may be missing"
 _MASKING_OFF = ("false", "0", "no", "off")
 
 
@@ -97,6 +99,7 @@ class TestSessionSink:
         self._models_by_signature: dict[tuple[str, tuple[tuple[object, ...], ...]], ApiModel] = {}
         self._http_keys: frozenset[tuple[str, str]] = frozenset()
         self._http_headers: frozenset[str] = frozenset()
+        self._failure_texts: dict[str, str] = {}  # exception class name -> the masked warning recorded for it
 
     def configure_http(self, headers: Iterable[HeaderExpectation], statuses: Iterable[StatusExpectation]) -> None:
         """Name the only routes and headers the observer keeps (the configured expectations)."""
@@ -114,7 +117,7 @@ class TestSessionSink:
                 facts = self.facts.http_unassociated if running is None else running.http
                 facts.record(method, state, route, status, present)
         except Exception as exc:  # noqa: BLE001
-            self._failed(exc)
+            self.record_failure(exc)
 
     @property
     def masker(self) -> Masker:
@@ -127,11 +130,35 @@ class TestSessionSink:
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
 
-    def _failed(self, exc: BaseException) -> None:
-        """A broken hook costs a missing fact and one warning, never the host's query or the session."""
-        warning = f"a sharpit session hook failed ({type(exc).__name__}); some facts may be missing"
-        if warning not in self.facts.warnings:
-            self.facts.warnings.append(warning)
+    def record_failure(self, exc: BaseException) -> str:
+        """A broken hook costs missing facts and a known run, never the host's query or the session.
+
+        Returns the masked text recorded; a repeated exception type returns it without masking again.
+        """
+        name = type(exc).__name__
+        with self._lock:
+            known = self._failure_texts.get(name)
+        if known is not None:
+            return known
+        text = self.record_lost(HOOK_FAILURE_WARNING.format(name))
+        with self._lock:
+            return self._failure_texts.setdefault(name, text)
+
+    def record_lost(self, reason: str) -> str:
+        """Capture lost facts: say so once, and mark the plugin's own source unattached so the run is `unknown`."""
+        try:
+            reason = self._mask(reason)
+        # a failing masker must not reach the host, and the unmasked reason is never kept
+        except Exception as exc:  # noqa: BLE001
+            reason = HOOK_FAILURE_WARNING.format(type(exc).__name__)
+        with self._lock:
+            if reason not in self.facts.warnings:
+                self.facts.warnings.append(reason)
+            if not any(source["name"] == "pytest-plugin" for source in self.facts.sources):
+                self.facts.sources.append(
+                    {"name": "pytest-plugin", "attached": False, "reason": reason, "limitations": []}
+                )
+        return reason
 
     def begin_test(self, node_id: str) -> int:
         with self._lock:
@@ -164,11 +191,13 @@ class TestSessionSink:
 
     def on_sql(self, event: SqlEvent, test: TestTag | None) -> None:
         try:
-            rule = filtered_rule(event.sql)
+            # a statement without text is one statement with empty text, as the SQLAlchemy error path records it
+            sql = event.sql if isinstance(cast("object", event.sql), str) else ""
+            rule = filtered_rule(sql)
             # The test-session sink resolves with no application fallback (`lambda: None`),
             # so it does not share the recorder's fallback behavior (owner ruling, 2026-11-06).
             dialect = event_dialect(event, lambda: None)
-            shape = None if rule else self._shape(event.sql, dialect)
+            shape = None if rule else self._shape(sql, dialect)
             with self._lock:
                 self.facts.sqlite_seen |= dialect is Dialect.SQLITE
                 phase = self._phase_of(test)
@@ -188,12 +217,11 @@ class TestSessionSink:
                     self._count_unattributed(key, shape.text)
                     return
                 phase.queries += 1
-                if category_of(event.sql) == "SELECT":
+                if category_of(sql) == "SELECT":
                     phase.selects[key] += 1
-                    if key not in phase.sql_of:
-                        phase.sql_of[key] = shape.text
+                    phase.sql_of.setdefault(key, shape.text)
         except Exception as exc:  # noqa: BLE001
-            self._failed(exc)
+            self.record_failure(exc)
 
     def _count_unattributed(self, key: str, sql: str) -> None:
         self.facts.unattributed += 1
@@ -237,7 +265,7 @@ class TestSessionSink:
                 self._seen[identity] = (exc, test[2], group)
                 self._group_refs[test[2], group] += 1
         except Exception as error:  # noqa: BLE001
-            self._failed(error)
+            self.record_failure(error)
 
     def on_escaped(self, exc: BaseException) -> None:
         try:
@@ -254,14 +282,14 @@ class TestSessionSink:
                 if self._group_refs[phase_name, group] <= 0:
                     phase.exception_groups.pop(group, None)
         except Exception as error:  # noqa: BLE001
-            self._failed(error)
+            self.record_failure(error)
 
     def register_app(self, app: object) -> None:
         try:
             with self._lock:
                 self._registrations.append(_Registration(weakref.ref(app)))
         except Exception as exc:  # noqa: BLE001
-            self._failed(exc)
+            self.record_failure(exc)
 
     def _live_registrations(self) -> list[_Registration]:
         """The registrations whose app is alive; a dead one keeps its last snapshot as an orphan."""
@@ -308,7 +336,7 @@ class TestSessionSink:
                 registration.snapshot = (signature[0], model)
                 registration.route_token = signature
             except Exception as exc:  # noqa: BLE001
-                self._failed(exc)
+                self.record_failure(exc)
 
     def app_snapshots(self) -> list[tuple[str, ApiModel]]:
         """``(identity, model)`` per distinct content, identity ``"<title>#<8 hex of sha256 of the model>"``."""

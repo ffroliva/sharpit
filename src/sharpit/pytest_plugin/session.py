@@ -55,6 +55,20 @@ def register_worker_apps(config: Any) -> None:
         manager.register(WorkerApps(), WORKER_APPS)
 
 
+def record_other_phase(test: Any, report: Any) -> None:
+    if report.when == "setup":
+        test.completed = None  # a rerun reuses the same facts
+    if report.skipped:
+        test.outcome = "skipped"
+    elif report.failed:
+        test.outcome = "error"
+
+
+def record_call_completion(test: Any, report: Any) -> None:
+    """Sticky across a test's call reports (one per subtest); read before a sharpit gate rewrites the outcome."""
+    test.completed = report.passed and test.completed is not False
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: Any, call: Any) -> Any:
     from sharpit import pytest_plugin
@@ -70,11 +84,9 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         if test is None:
             return
         if report_obj.when != "call":
-            if report_obj.skipped:
-                test.outcome = "skipped"
-            elif report_obj.failed:
-                test.outcome = "error"
+            record_other_phase(test, report_obj)
             return
+        record_call_completion(test, report_obj)
         test.outcome = report_obj.outcome
         budget = plugin.budget_for(
             item,

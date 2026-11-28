@@ -3,6 +3,14 @@ from __future__ import annotations
 import json
 
 import pytest
+from tests.pytest_plugin.inprocess import without_driver_modules
+
+
+@pytest.fixture(autouse=True)
+def _isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The in-process runs below share this process's modules."""
+    without_driver_modules(monkeypatch)
+    monkeypatch.setenv("SHARPIT_IDENTITY_KEY", "0123456789abcdef" * 4)
 
 
 def test_write_baseline_refused_on_partial_xdist_run(pytester: pytest.Pytester) -> None:
@@ -31,16 +39,16 @@ def test_write_baseline_is_only_writer(pytester: pytest.Pytester) -> None:
         " for _ in range(5): c.execute('SELECT 1').fetchone()"
     )
     args = ["--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"]
-    pytester.runpytest_subprocess(*args)
+    pytester.runpytest_inprocess(*args)
     unbased = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert unbased["baseline"] is None
     assert unbased["findings"][0]["baselineState"] is None
     assert unbased["findings"][0]["observed"] is not None
     path = pytester.path / "baseline.json"
     assert path.exists() is False
-    pytester.runpytest_subprocess(*args, "--sharpit-write-baseline=baseline.json")
+    pytester.runpytest_inprocess(*args, "--sharpit-write-baseline=baseline.json")
     assert path.exists() is True
-    loaded = pytester.runpytest_subprocess(*args, "--sharpit-baseline=baseline.json")
+    loaded = pytester.runpytest_inprocess(*args, "--sharpit-baseline=baseline.json")
     assert loaded.ret == 0
     report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert report["baseline"]["existing"] == 1
@@ -223,3 +231,172 @@ def test_baseline_write_failure_is_reported_unknown(pytester: pytest.Pytester) -
     assert report["status"] != "pass"
     assert "baseline write failed" in result.stdout.str()
     assert result.ret == 1
+
+
+# --- an entry whose owner did not prove it fixed is inconclusive, not fixed (#329) ---------------------------------
+
+_N1_BODY = " c=sqlite3.connect(':memory:')\n for _ in range(30): c.execute('SELECT 1').fetchone()\n"
+_N1_TEST = f"import sqlite3\ndef test_n1():\n{_N1_BODY}\ndef test_other(): pass\n"
+_RUN = ["--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q"]
+DID_NOT_RUN = "its test did not run"
+DID_NOT_COMPLETE = "its test did not complete"
+STILL_SHOWN = "its test still shows it outside the gate"
+INCOMPLETE = "the run's evidence is incomplete"
+
+
+def _write_first_baseline(pytester: pytest.Pytester) -> str:
+    """Run the suite once with the finding present; return the fingerprint written for it."""
+    pytester.makepyfile(test_a=_N1_TEST)
+    pytester.runpytest_inprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
+    rows = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    assert len(rows) == 1, "the first run must baseline exactly the one N+1 finding"
+    return rows[0]["fingerprint"]
+
+
+def _changed_run(
+    pytester: pytest.Pytester, source: str, *extra: str, workers: bool = False, own_process: bool = False
+) -> dict:
+    """Run against the baseline; ``-n 2`` and a conftest that patches sharpit itself need their own process.
+
+    So does any run whose SQL-rule verdict must not be turned into ``incomplete`` by a leftover ``sqlite3.Connection``
+    on a shared test worker.
+    """
+    pytester.makepyfile(test_a=source)
+    args = [*_RUN, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json", *extra]
+    if workers or own_process:
+        pytester.runpytest_subprocess(*(["-n", "2"] if workers else []), *args)
+    else:
+        pytester.runpytest_inprocess(*args)
+    return json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))["baseline"]
+
+
+def _only_reason(result: dict, fingerprint: str, reason: str) -> None:
+    assert result["fixed"] == 0
+    assert result.get("inconclusiveFindings") == [{"fingerprint": fingerprint, "reason": reason}]
+
+
+def test_issue_329_deleted_test_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    result = _changed_run(pytester, "def test_other(): pass\n", own_process=True)
+    _only_reason(result, fingerprint, DID_NOT_RUN)
+
+
+def test_skip_marker_on_the_owner_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    skipped = f"import pytest, sqlite3\n@pytest.mark.skip\ndef test_n1():\n{_N1_BODY}\ndef test_other(): pass\n"
+    _only_reason(_changed_run(pytester, skipped, own_process=True), fingerprint, DID_NOT_COMPLETE)
+
+
+def test_crashed_xdist_worker_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    crashed = "import os\ndef test_n1(): os._exit(1)\ndef test_other(): pass\n"
+    _only_reason(_changed_run(pytester, crashed, workers=True), fingerprint, INCOMPLETE)
+
+
+def test_dropped_sql_events_are_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    pytester.makeconftest(
+        "from sharpit.engine.testsession.sink import TestSessionSink\n"
+        "def broken(*args, **kwargs): raise RuntimeError('injected')\n"
+        "TestSessionSink.begin_test = broken\n"
+    )
+    _only_reason(_changed_run(pytester, _N1_TEST, own_process=True), fingerprint, INCOMPLETE)
+
+
+def test_request_moved_to_a_fixture_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    moved = (
+        "import pytest, sqlite3\n@pytest.fixture\ndef rows():\n"
+        f"{_N1_BODY}\ndef test_n1(rows): pass\ndef test_other(): pass\n"
+    )
+    _only_reason(_changed_run(pytester, moved, own_process=True), fingerprint, STILL_SHOWN)
+
+
+def test_write_keeps_an_inconclusive_entry(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    before = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    _changed_run(pytester, "def test_other(): pass\n", "--sharpit-write-baseline=baseline.json")
+    after = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    assert [row["fingerprint"] for row in after] == [fingerprint]
+    assert after[0]["owner"] == before[0]["owner"]
+
+
+def test_report_lists_inconclusive_with_reason(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    result = _changed_run(pytester, "def test_other(): pass\n", own_process=True)
+    assert result.get("inconclusive") == 1
+    assert result.get("inconclusiveFindings") == [{"fingerprint": fingerprint, "reason": DID_NOT_RUN}]
+
+
+@pytest.mark.parametrize("workers", [False, True], ids=["serial", "xdist"])
+def test_fixed_for_a_real_fix_serial_and_xdist(pytester: pytest.Pytester, workers: bool) -> None:
+    _write_first_baseline(pytester)
+    fixed = "import sqlite3\ndef test_n1():\n c=sqlite3.connect(':memory:')\n c.execute('SELECT 1').fetchone()\n"
+    fixed += "def test_other(): pass\n"
+    result = _changed_run(pytester, fixed, workers=workers, own_process=not workers)
+    assert result["fixed"] == 1
+    assert result["inconclusive"] == 0
+
+
+_TRACED = "import sqlite3\ndef test_n1():\n c=sqlite3.connect(':memory:')\n"
+_UNTRACED_FACTORY = {
+    "connection-factory": (
+        "import sqlite3\ndef test_n1():\n"
+        " c=sqlite3.connect(':memory:', factory=lambda *a, **k: sqlite3.Connection(*a, **k))\n"
+        " for _ in range(30): c.execute('SELECT 1').fetchone()\ndef test_other(): pass\n"
+    ),
+    "cursor-factory": (
+        f"{_TRACED} for _ in range(30): c.cursor(factory=lambda conn: sqlite3.Cursor(conn)).execute('SELECT 1')\n"
+        "def test_other(): pass\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("moved", list(_UNTRACED_FACTORY))
+def test_n_plus_one_moved_to_an_untraced_sqlite3_factory_is_not_fixed(pytester: pytest.Pytester, moved: str) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    _only_reason(_changed_run(pytester, _UNTRACED_FACTORY[moved], own_process=True), fingerprint, INCOMPLETE)
+
+
+_EARLY_PLUGIN = "import sqlite3\nCONN = sqlite3.connect(':memory:', check_same_thread=False)\n"
+_ON_EARLY = (
+    "import earlyplug, sqlite3\n"
+    "def test_n1():\n for _ in range(30): earlyplug.CONN.execute('SELECT 1').fetchone()\n"
+    "def test_other(): sqlite3.connect(':memory:').execute('SELECT 1').fetchone()\n"
+)
+
+
+def test_n_plus_one_moved_onto_a_connection_opened_before_capture_is_not_fixed(pytester: pytest.Pytester) -> None:
+    fingerprint = _write_first_baseline(pytester)
+    pytester.makepyfile(earlyplug=_EARLY_PLUGIN)
+    # own process: the plugin's connection must exist before capture starts, and no other connection may
+    _only_reason(_changed_run(pytester, _ON_EARLY, "-p", "earlyplug", own_process=True), fingerprint, INCOMPLETE)
+
+
+_ASYNC_APP = (
+    "from sqlalchemy import text\nfrom sqlalchemy.ext.asyncio import create_async_engine\n"
+    "async def run(n):\n"
+    "    engine = create_async_engine('sqlite+aiosqlite:///:memory:')\n"
+    "    try:\n"
+    "        async with engine.connect() as c:\n"
+    "            for _ in range(n):\n"
+    "                await c.execute(text('SELECT 1'))\n"
+    "    finally:\n"
+    "        await engine.dispose()\n"
+)
+
+
+def _async_test(n: int) -> str:
+    return f"import asyncio, appmod\ndef test_n1():\n    asyncio.run(appmod.run({n}))\ndef test_other(): pass\n"
+
+
+@pytest.mark.needs_sqlalchemy
+def test_real_fix_beside_a_loaded_driver_module_reads_fixed(pytester: pytest.Pytester) -> None:
+    # the aiosqlite module is loaded beside SQLAlchemy: its standing note is a documented limitation, not evidence
+    pytest.importorskip("aiosqlite")
+    pytester.makepyfile(appmod=_ASYNC_APP, test_a=_async_test(30))
+    pytester.runpytest_inprocess(*_RUN, "--sharpit-write-baseline=baseline.json")
+    rows = json.loads((pytester.path / "baseline.json").read_text(encoding="utf-8"))["findings"]
+    assert [row["ruleId"] for row in rows] == ["sharpit.n-plus-one"]
+    result = _changed_run(pytester, _async_test(1), own_process=True)
+    assert result["fixed"] == 1

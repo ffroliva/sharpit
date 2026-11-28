@@ -84,3 +84,43 @@ def test_schema_validates_a_report_with_a_partial_advisor(path: Path) -> None:
     assert data["advisors"][0]["apps"][0]["status"] == "PARTIAL"
     errors = list(Draft202012Validator(json.loads(path.read_text(encoding="utf-8"))).iter_errors(data))
     assert errors == []
+
+
+def _with_baseline(**extra: Any) -> dict[str, Any]:
+    data = render_parts(part())
+    data["baseline"] = {
+        "path": "b.json",
+        "sha256": "0" * 64,
+        "existing": 0,
+        "new": 0,
+        "fixed": 0,
+        "fixedReason": None,
+        **extra,
+    }
+    return data
+
+
+def test_report_schema_accepts_inconclusive_keys() -> None:
+    rows = [{"fingerprint": "f", "reason": "its test did not run"}]
+    assert _errors(_with_baseline(inconclusive=1, inconclusiveFindings=rows)) == []
+
+
+def test_report_schema_accepts_null_inconclusive_keys() -> None:
+    assert _errors(_with_baseline(inconclusive=None, inconclusiveFindings=None)) == []
+
+
+def test_report_schema_rejects_a_negative_inconclusive_count() -> None:
+    assert _errors(_with_baseline(inconclusive=-1)) != []
+
+
+def test_report_schema_rejects_an_inconclusive_row_without_a_reason() -> None:
+    assert _errors(_with_baseline(inconclusiveFindings=[{"fingerprint": "f"}])) != []
+
+
+def test_report_schema_rejects_an_inconclusive_row_with_another_key() -> None:
+    rows = [{"fingerprint": "f", "reason": "r", "message": "raw text"}]
+    assert _errors(_with_baseline(inconclusiveFindings=rows)) != []
+
+
+def test_report_schema_accepts_a_report_without_inconclusive_keys() -> None:
+    assert _errors(_with_baseline()) == []

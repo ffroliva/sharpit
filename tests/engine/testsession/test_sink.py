@@ -8,7 +8,7 @@ import weakref
 
 import pytest
 
-from engine.testsession.tsfakes import NODE, event, run_phase
+from engine.testsession.tsfakes import NODE, LockProbe, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sources.dispatch import SqlEvent
@@ -287,6 +287,161 @@ def test_sink_hook_failure_costs_a_warning_not_an_exception() -> None:
     assert len(sink.facts.warnings) == 1
 
 
+def _hook_warning(name: str) -> str:
+    return f"a sharpit session hook failed ({name}); some facts may be missing"
+
+
+def test_a_hook_failure_marks_the_plugin_source_unattached_once() -> None:
+    """A failed hook lost facts: the plugin's own source is unattached, so the run is `unknown`."""
+    sink = _sink()
+    sink.begin_test(NODE)
+    sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
+    sink.on_exception(ValueError("x"), "log", object())  # type: ignore[arg-type]
+    plugin = {"name": "pytest-plugin", "attached": False, "reason": _hook_warning("AttributeError"), "limitations": []}
+    assert sink.facts.sources == [plugin]
+
+
+def test_a_hook_failure_in_an_earlier_attempt_stays_recorded() -> None:
+    """A clean rerun attempt does not prove the failed attempt's facts complete: the run stays unknown."""
+    sink = _sink()
+    sink.begin_test(NODE)
+    sink.on_sql(object(), (NODE, 1, "call"))  # type: ignore[arg-type]
+    attempt = sink.begin_test(NODE)
+    run_phase(sink, NODE, attempt, "call", "SELECT 1")
+    assert [source["name"] for source in sink.facts.sources] == ["pytest-plugin"]
+
+
+def test_a_lost_capture_reason_is_masked() -> None:
+    """The reason reaches the report's warnings and sources: it is masked like every other report string."""
+    sink = _sink()
+    sink.record_lost(f"capture lost: password={SECRET}")
+    assert SECRET not in json.dumps(sink.facts.to_json())
+
+
+def test_a_masker_that_fails_still_marks_the_capture_lost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Masking the reason fails on a host thread: nothing reaches the host, and the run is still `unknown`."""
+    sink = _sink()
+
+    def broken(text: str | None) -> str | None:
+        raise RuntimeError(text)
+
+    monkeypatch.setattr(sink.masker, "mask_text", broken)
+    sink.record_lost("capture lost")
+    assert [source["reason"] for source in sink.facts.sources] == [_hook_warning("RuntimeError")]
+
+
+def test_a_repeated_hook_failure_is_masked_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hook failing on every statement pays the masker once per exception type, not once per call."""
+    sink = _sink()
+    calls: list[str | None] = []
+    real = sink.masker.mask_text
+
+    def counting(text: str | None) -> str | None:
+        calls.append(text)
+        return real(text)
+
+    monkeypatch.setattr(sink.masker, "mask_text", counting)
+    for _ in range(3):
+        sink.record_failure(RuntimeError("x"))
+    assert len(calls) == 1
+
+
+def test_a_hook_failure_returns_the_masked_text_it_recorded() -> None:
+    """The text a caller reuses for a report written later is the sink's masked one, never the raw class name."""
+    secret_class = type(f"password={SECRET}", (RuntimeError,), {})
+    sink = _sink()
+    text = sink.record_failure(secret_class())
+    assert text == sink.facts.warnings[0]
+    assert SECRET not in text
+
+
+def test_a_hook_failure_is_recorded_under_the_sink_lock() -> None:
+    """Hooks fail on host threads too: the source is recorded under the sink's lock."""
+    sink = _sink()
+    probe = LockProbe(sink._lock)  # pyright: ignore[reportPrivateUsage]
+    sink.facts.sources = probe  # type: ignore[assignment]
+    sink.on_sql(object(), None)  # type: ignore[arg-type]
+    assert probe.held == [True]
+
+
+class _HostTypeError(TypeError):
+    pass
+
+
+def _raised_here(error: BaseException) -> BaseException:
+    """``error`` with the traceback a C driver leaves: one frame, the caller's, and nothing below it."""
+    try:
+        raise error
+    except BaseException as exc:  # noqa: BLE001
+        return exc
+
+
+def _raise(error: BaseException) -> None:
+    raise error
+
+
+def _raised_below(error: BaseException) -> BaseException:
+    """``error`` raised by Python code below the catching frame (a host cursor class, a driver written in Python)."""
+    try:
+        _raise(error)
+    except BaseException as exc:  # noqa: BLE001
+        return exc
+    raise AssertionError("unreachable")
+
+
+def _statement(sql: object, error: BaseException | None, source: str = "sqlite3") -> SqlEvent:
+    return SqlEvent(source, sql, (), False, None, 0, 1000, -1, error, None, None, Dialect.SQLITE)  # type: ignore[arg-type]
+
+
+def _counted_once(sink: TestSessionSink) -> None:
+    assert sink.facts.warnings == []
+    assert sink.facts.filtered == 0
+    assert sink.current_test is not None
+    phase = sink.current_test.phases.get("call")
+    assert phase is not None
+    assert phase.queries == 1
+
+
+def test_a_statement_the_stdlib_driver_refused_counts_once_with_empty_text() -> None:
+    """BootUI counts a refused statement as one statement with empty text, and so does the SQLAlchemy path."""
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_statement(123, _raised_here(TypeError("bad statement"))), (NODE, attempt, "call"))
+    _counted_once(sink)
+
+
+@pytest.mark.parametrize(
+    ("sql", "error", "source"),
+    [
+        pytest.param(123, None, "sqlite3", id="accepted"),
+        pytest.param(None, _raised_here(TypeError("x")), "sqlite3", id="none"),
+        pytest.param(b"SELECT 1", _raised_here(TypeError("x")), "sqlite3", id="bytes"),
+        pytest.param(123, _raised_below(TypeError("x")), "sqlite3", id="python-frame-below"),
+        pytest.param(123, _raised_here(_HostTypeError("x")), "sqlite3", id="typeerror-subclass"),
+        pytest.param(123, _raised_here(ValueError("x")), "sqlite3", id="another-error"),
+        pytest.param(123, _raised_here(TypeError("x")), "sqlalchemy", id="another-source"),
+        pytest.param(123, TypeError("never raised"), "sqlite3", id="no-traceback"),
+    ],
+)
+def test_a_statement_that_is_not_text_counts_once_with_empty_text(
+    sql: object, error: BaseException | None, source: str
+) -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_statement(sql, error, source), (NODE, attempt, "call"))
+    _counted_once(sink)
+
+
+def test_a_text_statement_that_failed_with_typeerror_is_counted() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_statement("SELECT 1", _raised_here(TypeError("x"))), (NODE, attempt, "call"))
+    assert sink.current_test is not None
+    phase = sink.current_test.phases.get("call")
+    assert phase is not None
+    assert phase.queries == 1
+
+
 def test_latest_snapshot_kept_after_gc() -> None:
     class App:
         title = "Owners API"
@@ -516,6 +671,18 @@ def test_test_facts_json_round_trip_is_exact() -> None:
     assert again.key == TestKey(NODE, "gw0", 1)
     assert again.budget == Budget(5, False, 0)
     assert again.phases["call"].selects == test.phases["call"].selects
+
+
+def test_completed_survives_the_worker_round_trip() -> None:
+    test = TestFacts(TestKey(NODE, "gw0", 1), completed=True)
+    again = TestFacts.from_json(json.loads(json.dumps(test.to_json())))
+    assert again.completed is True
+
+
+def test_completed_missing_from_a_worker_is_none() -> None:
+    data = json.loads(json.dumps(TestFacts(TestKey(NODE, "gw0", 1), completed=True).to_json()))
+    del data["completed"]
+    assert TestFacts.from_json(data).completed is None
 
 
 def test_shaped_secret_absent_from_facts_json() -> None:

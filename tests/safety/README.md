@@ -4,6 +4,8 @@ Each 0.4 panel lane adds `tests/safety/test_<lane_id>_safety.py` (lane id in low
 `test_a_data_safety.py`) and never edits `tests/test_safety_matrix.py` or `tests/conftest.py`, except that base-route rows
 belong in `tests/test_safety_matrix.py`. The file exports:
 
+`test_security_sinks_rows_safety.py` checks the Side Effects canary across the panel, MCP, CLI, exposure modes, and guarded reads.
+
 ```python
 PANEL = "data"  # the panel id (a 0.4 id or sql-trace) whose flag gates these rows; omit it for base-route tests
 GET_ROWS = ["/sharpit/api/data", "/sharpit/api/data/{table}"]  # every GET route path format the panel adds
