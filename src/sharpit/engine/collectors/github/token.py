@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -23,12 +24,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sharpit.engine.collectors.github.detector import credential_host
+
 DEFAULT_TIMEOUT = 5.0
 MAX_OUTPUT_BYTES = 4096  # a token is ~40-100 bytes
 _KILL_RESERVE = 0.5  # seconds of the lookup kept for the kill and reap
 _POPEN = subprocess.Popen  # the real class, bound at import: a patched subprocess.Popen must not break isinstance
 
 Runner = Callable[..., Any]  # subprocess.Popen, injectable for tests
+_GITHUB_TOKENS = ("GITHUB_TOKEN", "GH_TOKEN")
+_ENTERPRISE_TOKENS = ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+_TOKEN_VARIABLES = frozenset(_GITHUB_TOKENS + _ENTERPRISE_TOKENS)
+_HOST = re.compile(r"[a-z0-9][a-z0-9.-]*")  # beyond BootUI: only a plain host name reaches gh's argv
 
 
 @dataclass(frozen=True)
@@ -45,16 +52,41 @@ def safe_timeout(timeout: float | None) -> float:
 def resolve_token(
     host: str | None, timeout: float | None, environ: Mapping[str, str] | None = None, run: Runner | None = None
 ) -> Token | None:
-    """``GITHUB_TOKEN``, then ``GH_TOKEN``, then ``gh auth token``; trimmed, blanks skipped, ``None`` when none."""
+    """BootUI ``token(repositoryHost, timeout)``: a credential bound to the repository host, ``None`` when none.
+
+    ``GITHUB_TOKEN`` then ``GH_TOKEN`` for github.com (and ``ssh.github.com``); ``GH_ENTERPRISE_TOKEN`` then
+    ``GITHUB_ENTERPRISE_TOKEN`` only when the host is ``GH_HOST``; then ``gh auth token --hostname <host>``.
+    Values trimmed, blanks skipped."""
+    host = credential_host(host)
+    if not _HOST.fullmatch(host):
+        return None
     env = os.environ if environ is None else environ
-    for name in ("GITHUB_TOKEN", "GH_TOKEN"):
+    if host == "github.com":
+        names = _GITHUB_TOKENS
+    elif host == credential_host(env.get("GH_HOST")):
+        names = _ENTERPRISE_TOKENS
+    else:
+        names = ()
+    for name in names:
         value = env.get(name)
         if value is not None and value.strip():
             return Token(value.strip(), name)
     gh = find_gh(env.get("PATH", ""))
     if gh is None:
         return None
-    return _gh_token(gh, safe_timeout(timeout), run or subprocess.Popen)
+    return _gh_token(
+        [gh, "auth", "token", "--hostname", host],
+        _gh_environment(env, host),
+        safe_timeout(timeout),
+        run or subprocess.Popen,
+    )
+
+
+def _gh_environment(env: Mapping[str, str], host: str) -> dict[str, str]:
+    """BootUI: gh also consults the generic token variables with ``--hostname``, so only its host-specific login is
+    used. Names compare case-insensitively: Windows reads ``gh_token`` as ``GH_TOKEN``."""
+    child = {name: value for name, value in env.items() if name.upper() not in _TOKEN_VARIABLES}
+    return child | {"GH_HOST": host, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1"}
 
 
 def _is_or_under(found: str, cwd: os.stat_result) -> bool:
@@ -174,7 +206,7 @@ def _read_output(proc: Any, box: list[bytes]) -> None:
         box.append(bytes(proc.stdout.read(MAX_OUTPUT_BYTES + 1)))
 
 
-def _gh_token(gh: str, timeout: float, run: Runner) -> Token | None:
+def _gh_token(command: list[str], env: dict[str, str], timeout: float, run: Runner) -> Token | None:
     """One bound for everything: the read, the exit wait, the tree kill and the reap all share ``timeout``."""
     end = time.monotonic() + timeout
 
@@ -184,7 +216,8 @@ def _gh_token(gh: str, timeout: float, run: Runner) -> Token | None:
     session = {} if sys.platform == "win32" else {"start_new_session": True}
     try:
         proc = run(
-            [gh, "auth", "token"],
+            command,
+            env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
