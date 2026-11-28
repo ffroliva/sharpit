@@ -18,6 +18,16 @@ def _attached_count() -> int:
         sqlite_source.detach("t")
 
 
+class _Pool:
+    """Stands in for a library owner (its module is SQLAlchemy's), whose connections the scan skips."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+
+_Pool.__module__ = "sqlalchemy.pool.fake"
+
+
 def test_a_connection_an_earlier_test_still_holds_is_not_counted_as_opened_before_capture(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -29,6 +39,28 @@ def test_a_connection_an_earlier_test_still_holds_is_not_counted_as_opened_befor
         held.close()
 
 
+def test_an_earlier_connection_whose_owner_is_freed_before_the_run_is_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held = sqlite3.connect(":memory:")
+    pool = _Pool(held)
+    try:
+        without_driver_modules(monkeypatch)
+        del pool  # the owner goes; the connection, opened before the helper, stays
+        assert _attached_count() == 0
+    finally:
+        held.close()
+
+
+def test_a_connection_opened_after_the_helper_is_still_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    without_driver_modules(monkeypatch)
+    early = sqlite3.connect(":memory:")  # opened before the inner run attaches: a real early connection
+    try:
+        assert _attached_count() == 1
+    finally:
+        early.close()
+
+
 def test_a_fresh_scan_an_earlier_test_cached_is_not_reused_by_the_inner_run(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sqlite_source, "_preexisting", 5)
     monkeypatch.setattr(sqlite_source, "_scanned_at", time.monotonic())
@@ -36,18 +68,15 @@ def test_a_fresh_scan_an_earlier_test_cached_is_not_reused_by_the_inner_run(monk
     assert _attached_count() == 0
 
 
-def test_the_inner_runs_scan_does_not_outlive_the_test() -> None:
-    before = (sqlite_source._preexisting, sqlite_source._count_failed, sqlite_source._early, sqlite_source._scanned_at)
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        without_driver_modules(monkeypatch)
+def _cache() -> tuple[object, ...]:
+    return (sqlite_source._preexisting, sqlite_source._count_failed, sqlite_source._early, sqlite_source._scanned_at)
+
+
+def test_the_inner_runs_scan_does_not_outlive_the_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in (("_preexisting", 7), ("_count_failed", True), ("_early", ["m.connect"]), ("_scanned_at", 1.0)):
+        monkeypatch.setattr(sqlite_source, name, value)
+    before = _cache()
+    with pytest.MonkeyPatch.context() as inner:
+        without_driver_modules(inner)
         _attached_count()
-    after = (sqlite_source._preexisting, sqlite_source._count_failed, sqlite_source._early, sqlite_source._scanned_at)
-    assert after == before
-
-
-def test_a_connection_freed_after_the_helper_does_not_make_the_count_negative(monkeypatch: pytest.MonkeyPatch) -> None:
-    held = sqlite3.connect(":memory:")
-    without_driver_modules(monkeypatch)
-    held.close()
-    del held  # freed at once by reference counting: the live count drops below the helper's baseline
-    assert _attached_count() == 0
+    assert _cache() == before
