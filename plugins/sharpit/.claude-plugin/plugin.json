@@ -1,6 +1,6 @@
 {
   "name": "sharpit",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "displayName": "sharpit",
   "description": "Ask a running FastAPI app about itself: routes, configuration, SQL, exceptions, health and advisors, over sharpit's read-only local MCP server.",
   "author": {
