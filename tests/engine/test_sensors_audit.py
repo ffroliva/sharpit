@@ -368,7 +368,7 @@ def test_the_processes_sensor_keeps_the_file_name_and_nothing_else(
     rows = _processes(event, *args)
     assert [row.get("target") for row in rows] == ([target] if target else [])
     assert CANARY not in json.dumps(rows)
-    assert all(set(row) == {"source", "kind", "target"} for row in rows)
+    assert all(set(row) == {"source", "kind", "target", "requestId", "at", "callSite", "threadName"} for row in rows)
 
 
 def test_the_processes_sensor_survives_odd_arguments() -> None:
@@ -411,7 +411,10 @@ def test_the_files_sensor_collapses_a_path_to_a_pattern(
 ) -> None:
     rows = _files().record(event, args)
     assert [(row["kind"], row["target"], row["location"]) for row in rows] == [(kind, target, location)]
-    assert all(set(row) == {"source", "kind", "target", "origin", "location"} for row in rows)
+    assert all(
+        set(row) == {"source", "kind", "target", "origin", "location", "requestId", "at", "callSite", "threadName"}
+        for row in rows
+    )
 
 
 @pytest.mark.parametrize(
@@ -556,7 +559,7 @@ def test_a_failed_copy_does_not_hide_the_applications_next_open(tmp_path: Path) 
 # --- scenario 4: the journal takes both sensors' sources -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("source", ["processes", "files"])
+@pytest.mark.parametrize("source", ["processes", "files", "security-sinks"])
 def test_the_journal_accepts_each_sensors_source(source: str) -> None:
     assert source in JOURNAL_SOURCES
     journal = RuntimeJournal(sources=JOURNAL_SOURCES)

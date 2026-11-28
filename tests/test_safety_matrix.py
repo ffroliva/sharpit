@@ -799,7 +799,14 @@ def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: 
             no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit MCP read never opens the app's source
         arguments = _tool_arguments(tool, app.state.sharpit)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
-        result = client.post("/sharpit/api/mcp", json=call).json()["result"]
+        answer = client.post("/sharpit/api/mcp", json=call).json()
+    if tool == "get_side_effects":
+        assert answer["error"]["code"] == -32602, answer
+        assert answer["error"]["message"].startswith("Tool not available in this application:")
+        assert no_side_effects.violations == []
+        assert ran() == []
+        return
+    result = answer["result"]
     assert result["isError"] is False, result
     assert no_side_effects.violations == []
     assert ran() == []

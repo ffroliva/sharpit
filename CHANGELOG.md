@@ -14,6 +14,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - A baseline entry written before this release is inconclusive until the baseline is rewritten once with both `--sharpit-baseline` and `--sharpit-write-baseline` on a complete run; an older sharpit that rewrites the file drops `owner`.
 - Runtime Insights reports the anonymous-data-reach and anonymous-success-on-restricted-route checks as not applicable, with the reason: sharpit observes no authorization decision, and a missing principal does not prove a request was anonymous. SEC-AUTHZ-002 and SEC-AUTHZ-001 cover part of it statically.
+- The Side Effects panel reports process and file activity and, when enabled, request input reaching a command or file path. The security-sinks sensor and request-value matching are off by default; enable matching with `SHARPIT_AGENT_SECURITY_SINKS_REQUEST_VALUES`. MCP `get_side_effects` and the `sharpit side-effects` CLI command expose the rows. SQL statements and outbound URLs are not checked: the security-sinks sensor covers commands and file paths only.
 - Pentest reports describe Python host evidence and link to framework guidance where applicable.
 - The pytest terminal summary lists all five runtime gates.
 - The pytest terminal summary reports how many processes could not attach swallowed-exception capture and why.

@@ -75,6 +75,8 @@ class CaptureState:
     log_tail: LogTailBuffer | None = None
     journal: RuntimeJournal | None = None
     sensors: SensorLane | None = None  # W6 S3: the process and file sensors, only when agent_sensors names one
+    side_effects: Any | None = None
+    ready_at_ms: int | None = None
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
     raw_sqlite_seen: bool = False

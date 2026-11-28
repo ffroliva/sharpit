@@ -41,6 +41,7 @@
   import SqlalchemyStatistics from './views/SqlalchemyStatistics.svelte';
   import Traces from './views/Traces.svelte';
   import Transactions from './views/Transactions.svelte';
+  import SideEffects from './views/SideEffects.svelte';
 
   let panels = $state<Panel[] | null>(null);
   let shellError = $state<string | null>(null);
@@ -211,6 +212,7 @@
           {:else if current.id === 'sqlalchemy-statistics' && panelImplemented('sqlalchemy-statistics')}<SqlalchemyStatistics panel={current} />
           {:else if current.id === 'fastapi-security' && panelImplemented('fastapi-security')}<FastapiSecurity panel={current} />
           {:else if current.id === 'fastapi' && panelImplemented('fastapi')}<Fastapi panel={current} />
+          {:else if current.id === 'side-effects'}<SideEffects panel={current} />
           {:else}
             <div class="empty"><h1>{current.title}</h1><p>This version of the console has no view for this panel yet.</p></div>
           {/if}

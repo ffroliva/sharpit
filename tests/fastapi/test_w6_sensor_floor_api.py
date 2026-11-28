@@ -117,6 +117,16 @@ def test_java_agent_report_is_not_attached_with_bootui_keys(client: TestClient) 
     assert list(body["setup"]) == ["jarPath", "jarFound", "buildTool", "snippets"]
 
 
+def test_not_attached_reason_names_the_setting_that_enables_the_sensors(client: TestClient) -> None:
+    # adapted from: JavaAgentService.NOT_ATTACHED_REASON
+    resp = client.get(f"{API}/java-agent")
+    assert resp.status_code == 200
+    assert resp.json()["reason"] == (
+        "This process runs without the sharpit agent. sharpit works without it; enable its sensors with"
+        " SHARPIT_AGENT_SENSORS to add agent-based evidence."
+    )
+
+
 def test_side_effects_lists_every_sensor_unavailable(client: TestClient) -> None:
     # ported: AbstractBootUiApiConformanceTest.sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
     resp = client.get(f"{API}/side-effects")
@@ -246,9 +256,18 @@ def test_read_only_panel_refuses_the_action(
     assert resp.json() == {"error": PANEL_ACCESS_DENIED, "panel": panel, "reason": read_only_reason(panel, False)}
 
 
-def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard) -> None:
+def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard, recorded_audit_hook: object) -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, config_scan=False, state_dir=str(no_side_effects.state_dir))
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        state_dir=str(no_side_effects.state_dir),
+        agent_sensors=("processes", "files", "security-sinks"),
+        agent_security_sinks_request_values=True,
+    )
+    no_side_effects.rebaseline()
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop opens a self-pipe socket pair.
     with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
         no_side_effects.block_network()

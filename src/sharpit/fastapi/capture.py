@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import sharpit.fastapi.capture_exceptions as capture_exceptions
+import sharpit.fastapi.sink_ownership as sink_ownership
 from sharpit.engine import sqla
 from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
@@ -29,9 +30,9 @@ from sharpit.engine.capture.mail import HOOK as MAIL_HOOK
 from sharpit.engine.capture.mail import ensure_wrapped as ensure_mail_wrapped
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
+from sharpit.engine.collectors.sideeffects.arming import arm_sensors
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
-from sharpit.engine.sensors.lane import build_lane
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.fastapi.request_id_header import with_request_id_header
 
@@ -142,6 +143,11 @@ def _lose_http(ctx: SharpitContext) -> None:
     """A request the capture could not journal is an http drop, so a route is never reported absent because of it."""
     if (journal := ctx.capture.journal) is not None:
         journal.count_dropped("http")
+
+
+def _end_request_sensors(ctx: SharpitContext, request_id: str) -> None:
+    if ctx.capture.sensors is not None:
+        ctx.capture.sensors.request_ended(request_id)
 
 
 def _needs_log_handler(ctx: SharpitContext, journal: RuntimeJournal | None) -> bool:
@@ -290,13 +296,12 @@ class CaptureWiring:
         self._register(ctx, HOOK_CAPTURE_MIDDLEWARE, exchanges.clear if exchanges is not None else _nothing)
 
     def _arm_sensors(self, ctx: SharpitContext, journal: RuntimeJournal) -> None:
-        lane = ctx.capture.sensors = build_lane(
-            ctx.settings.agent_sensors, journal, ctx.masker.mask_path, own=(ctx.settings.state_dir,)
+        arm_sensors(
+            ctx,
+            journal,
+            owner=sink_ownership.owner,
+            exchanges_enabled=lambda: _panel_enabled(ctx, "http-exchanges"),
         )
-        if lane is not None:
-            for hook in lane.hooks():
-                ctx.capture.hooks.register(hook)
-            lane.attach()
 
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions
@@ -659,6 +664,7 @@ class CaptureMiddleware:
                     finished = end_ns or time.perf_counter_ns()
                     info.finished_ns = finished
                     with _request_end_guard(wiring):
+                        _end_request_sensors(self.ctx, info.id)
                         info.endpoint = capture_exceptions.endpoint_name(scope.get("endpoint"))
                     store = self.ctx.capture.exceptions
                     if store is not None:

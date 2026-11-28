@@ -28,6 +28,7 @@ import time
 import uuid
 from collections import Counter, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from typing import Any, Protocol, cast
 
 from sharpit.engine import sqltext
@@ -236,6 +237,10 @@ def _lost_start(event: Mapping[str, object], at: int, now: int) -> int | None:
     return min(now, started) if started else None
 
 
+class _Copying(threading.local):
+    active = False
+
+
 class RuntimeJournal:
     """In-memory event ring: O(1) append, raw events kept, masking applied when records are read."""
 
@@ -258,7 +263,7 @@ class RuntimeJournal:
         self.run_id = uuid.uuid4().hex[:8]
         self._events: deque[tuple[dict[str, object], int, int, int]] = deque()  # event, size, offered at, loss start
         self._bytes = 0
-        self._accepted: Counter[str] = Counter()
+        self._accepted: dict[str, int] = {}
         self._dropped: Counter[str] = Counter()
         self._evicted = 0
         self._clears = 0  # internal clear boundary; not part of RuntimeJournalStatusDto
@@ -270,7 +275,7 @@ class RuntimeJournal:
         self._lock = threading.RLock()
         self._clearing = threading.Lock()  # a clear walks what it dropped under this, never under the ring lock
         self._owned = cast("Any", self._lock)._is_owned  # noqa: SLF001  # whether THIS thread holds the lock
-        self._copying = threading.local()  # set while this thread runs the host copy, which runs outside the lock
+        self._copying = _Copying()  # set while this thread runs the host copy, which runs outside the lock
 
     def offer(self, event: Event) -> bool:
         return self._offer(event, _copied)
@@ -285,15 +290,15 @@ class RuntimeJournal:
         """
         if size is None or size < 1:
             return self._offer(event, lambda stored: (*_flat(stored), started))
-        if self._owned() or getattr(self._copying, "active", False):
+        if self._owned() or self._copying.active:
             self.count_dropped(REENTRANT)
             return False
         try:
-            source = event.get("source")
+            source = event["source"]
         except Exception:  # noqa: BLE001 - publishing never raises into the host
             self.count_dropped(FAILED)
             return False
-        if not isinstance(source, str):
+        if type(source) is not str:
             self.count_dropped(FAILED)
             return False
         with self._lock:
@@ -304,7 +309,7 @@ class RuntimeJournal:
                 return False
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int, int]]) -> bool:
-        if self._owned() or getattr(self._copying, "active", False):  # in an append, read or copy: never recurse
+        if self._owned() or self._copying.active:  # in an append, read or copy: never recurse
             self.count_dropped(REENTRANT)  # before any copy of the event
             return False
         self._copying.active = True
@@ -332,26 +337,37 @@ class RuntimeJournal:
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
         stamp = time.time_ns() // 1_000_000
-        if size > self.max_bytes:
+        max_bytes = self.max_bytes
+        if size > max_bytes:
             self._dropped[source] += 1  # one event larger than the whole byte bound
             self._lose(cast("Mapping[str, object]", stored), stamp, stamp)  # EvidenceRing.add (v2.3.0): lost too
             return False
-        while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
-            self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
-            _, removed, _, lost = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
+        events = self._events
+        if len(events) >= self.max_events or self._bytes + size > max_bytes:
+            self._evict(size, stamp)
+        if started < 0:  # a producer that did not say where this event starts
+            started = (
+                _lost_start(cast("Mapping[str, object]", stored), stamp, sys.maxsize) or 0
+            )  # uncapped: now is later
+        events.append((cast("dict[str, object]", stored), size, stamp, started))
+        self._bytes += size
+        try:
+            self._accepted[source] += 1
+        except KeyError:
+            self._accepted[source] = 1
+        return True
+
+    def _evict(self, size: int, stamp: int) -> None:
+        events = self._events
+        max_events, max_bytes = self.max_events, self.max_bytes
+        while events and (len(events) >= max_events or self._bytes + size > max_bytes):
+            self._binding_bound = "COUNT" if len(events) >= max_events else "BYTES"
+            _, removed, _, lost = events.popleft()  # a ring: the oldest event makes room, counted as evicted
             self._bytes -= removed
             self._evicted += 1
             lost = min(lost, stamp)  # EvidenceRing.lost (v2.3.0): the start the event recorded, never past now
             if lost > (self._loss_horizon or 0):
                 self._loss_horizon = lost
-        if started < 0:  # a producer that did not say where this event starts
-            started = (
-                _lost_start(cast("Mapping[str, object]", stored), stamp, sys.maxsize) or 0
-            )  # uncapped: now is later
-        self._events.append((cast("dict[str, object]", stored), size, stamp, started))
-        self._bytes += size
-        self._accepted[source] += 1
-        return True
 
     def _lose(self, event: Mapping[str, object], at: int, now: int) -> None:
         """``EvidenceRing.lost`` for the oversize event, a cold path (the eviction loop does the same inline)."""
@@ -487,3 +503,22 @@ class RuntimeJournal:
             "previousRunsUnavailable": None,
             "agentEvidence": None,
         }
+
+    def request_routes(self, ids: AbstractSet[str]) -> dict[str, str]:
+        """Route labels for requested HTTP events still retained in the journal."""
+        if not ids:
+            return {}
+        with self._lock:
+            events = tuple(self._events)
+        return self._request_routes((event for event, _, _, _ in events if event.get("source") == "http"), ids)
+
+    def _request_routes(self, events: Iterable[dict[str, object]], ids: AbstractSet[str]) -> dict[str, str]:
+        routes: dict[str, str] = {}
+        for event in events:
+            request_id = event.get("requestId")
+            route = event.get("route")
+            if isinstance(request_id, str) and request_id in ids and isinstance(route, str):
+                routes[request_id] = route
+                if len(routes) == len(ids):
+                    break
+        return routes
