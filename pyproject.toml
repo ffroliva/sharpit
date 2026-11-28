@@ -11,7 +11,27 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 authors = [{ name = "Flavio Oliva" }]
-keywords = ["fastapi", "starlette", "developer-tools", "devtools", "debugging", "introspection", "mcp", "bootui"]
+keywords = [
+    "fastapi",
+    "starlette",
+    "flask",
+    "developer-tools",
+    "devtools",
+    "debugging",
+    "debug-toolbar",
+    "introspection",
+    "security",
+    "appsec",
+    "vulnerability-scanner",
+    "security-headers",
+    "sqlalchemy",
+    "n-plus-one",
+    "pytest",
+    "pytest-plugin",
+    "mcp",
+    "bootui",
+    "spring-boot-actuator",
+]
 
 classifiers = [
     "Development Status :: 3 - Alpha",
