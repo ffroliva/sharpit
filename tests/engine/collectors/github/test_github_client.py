@@ -134,32 +134,32 @@ def _headers(request: urllib.request.Request) -> dict[str, str]:
 
 def test_github_token_is_preferred_over_gh_token() -> None:
     # ported: DefaultGitHubTokenProviderTests.githubTokenIsPreferredOverGhToken
-    token = resolve_token(5.0, {"GITHUB_TOKEN": "primary", "GH_TOKEN": "secondary"}, Runner())
+    token = resolve_token("github.com", 5.0, {"GITHUB_TOKEN": "primary", "GH_TOKEN": "secondary"}, Runner())
     assert token == Token("primary", "GITHUB_TOKEN")
 
 
 def test_gh_token_is_used_when_github_token_is_absent() -> None:
     # ported: DefaultGitHubTokenProviderTests.ghTokenIsUsedWhenGithubTokenIsAbsent
-    token = resolve_token(5.0, {"GH_TOKEN": "secondary"}, Runner())
+    token = resolve_token("github.com", 5.0, {"GH_TOKEN": "secondary"}, Runner())
     assert token == Token("secondary", "GH_TOKEN")
 
 
 def test_surrounding_whitespace_is_stripped_from_the_environment_value() -> None:
     # ported: DefaultGitHubTokenProviderTests.surroundingWhitespaceIsStrippedFromTheEnvironmentValue
-    token = resolve_token(5.0, {"GITHUB_TOKEN": "  padded \n"}, Runner())
+    token = resolve_token("github.com", 5.0, {"GITHUB_TOKEN": "  padded \n"}, Runner())
     assert token == Token("padded", "GITHUB_TOKEN")
 
 
 def test_a_blank_environment_token_is_ignored_in_favour_of_the_next_source() -> None:
     # ported: DefaultGitHubTokenProviderTests.aBlankEnvironmentTokenIsIgnoredInFavourOfTheNextSource
-    token = resolve_token(5.0, {"GITHUB_TOKEN": "   ", "GH_TOKEN": "secondary"}, Runner())
+    token = resolve_token("github.com", 5.0, {"GITHUB_TOKEN": "   ", "GH_TOKEN": "secondary"}, Runner())
     assert token == Token("secondary", "GH_TOKEN")
 
 
 def test_an_empty_environment_never_yields_an_environment_sourced_token(gh_env: dict[str, str]) -> None:
     # ported: DefaultGitHubTokenProviderTests.anEmptyEnvironmentNeverYieldsAnEnvironmentSourcedToken
     runner = Runner(b"  cli-token \n")
-    token = resolve_token(0.5, gh_env, runner)
+    token = resolve_token("github.com", 0.5, gh_env, runner)
     assert token == Token("cli-token", "gh auth token")
     ((args, kwargs),) = runner.calls
     assert Path(args[0]).parent == Path(gh_env["PATH"])
@@ -183,13 +183,13 @@ def test_an_empty_environment_never_yields_an_environment_sourced_token(gh_env: 
     ids=["logged-out", "blank", "not-installed", "hangs", "oversized"],
 )
 def test_gh_failures_give_no_token(runner: Runner, gh_env: dict[str, str]) -> None:
-    assert resolve_token(5.0, gh_env, runner) is None
+    assert resolve_token("github.com", 5.0, gh_env, runner) is None
     assert [proc.poll() is not None for proc in runner.procs] == [True] * len(runner.procs)  # none left running
 
 
 def test_gh_output_is_read_bounded(gh_env: dict[str, str]) -> None:
     runner = Runner(b"x" * 5000)
-    assert resolve_token(5.0, gh_env, runner) is None
+    assert resolve_token("github.com", 5.0, gh_env, runner) is None
     assert runner.procs[0].stdout.consumed <= 4097
 
 
@@ -197,10 +197,10 @@ def test_a_missing_or_non_positive_timeout_falls_back_to_the_default_instead_of_
     gh_env: dict[str, str],
 ) -> None:
     # ported: DefaultGitHubTokenProviderTests.aMissingOrNonPositiveTimeoutFallsBackToTheDefaultInsteadOfFailing
-    assert resolve_token(None, {"GITHUB_TOKEN": "primary"}, Runner()) == Token("primary", "GITHUB_TOKEN")
+    assert resolve_token("github.com", None, {"GITHUB_TOKEN": "primary"}, Runner()) == Token("primary", "GITHUB_TOKEN")
     for timeout in (None, 0.0, -1.0):
         runner = Runner()
-        resolve_token(timeout, gh_env, runner)
+        resolve_token("github.com", timeout, gh_env, runner)
         ((waited,),) = [runner.procs[0].waited]
         assert 4.0 < waited <= 5.0
 
@@ -208,11 +208,197 @@ def test_a_missing_or_non_positive_timeout_falls_back_to_the_default_instead_of_
 def test_create_reads_the_real_process_environment_without_throwing(monkeypatch: pytest.MonkeyPatch) -> None:
     # ported: DefaultGitHubTokenProviderTests.createReadsTheRealProcessEnvironmentWithoutThrowing
     monkeypatch.setenv("GITHUB_TOKEN", "from-process")
-    assert resolve_token(5.0) == Token("from-process", "GITHUB_TOKEN")
+    assert resolve_token("github.com", 5.0) == Token("from-process", "GITHUB_TOKEN")
 
 
 def test_token_repr_never_shows_the_value() -> None:
     assert "ghp_canary" not in repr(Token("ghp_canary", "GITHUB_TOKEN"))
+
+
+# ---- token bound to the repository host (BootUI 2.6.0, 7287e6f92) -------------------------------------------------
+
+_TOKEN_VARIABLES = ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN")
+
+
+def _gh_args(runner: Runner) -> list[str]:
+    ((args, _),) = runner.calls
+    return list(args[1:])
+
+
+def _gh_env(runner: Runner) -> dict[str, str]:
+    ((_, kwargs),) = runner.calls
+    env = kwargs.get("env")
+    assert env is not None, "gh inherited the host process environment"  # None: Popen passes os.environ through
+    return dict(env)
+
+
+@pytest.mark.parametrize(
+    "host", ["GITHUB.COM", "ssh.github.com", "SSH.GITHUB.COM", " GITHUB.COM \n", " \tssh.github.com "]
+)
+def test_public_github_aliases_use_the_public_credential(host: str) -> None:
+    # ported: DefaultGitHubTokenProviderTests.publicGithubAliasesUseThePublicCredential
+    token = resolve_token(host, 1.0, {"GITHUB_TOKEN": "public-token"}, Runner())
+    assert token == Token("public-token", "GITHUB_TOKEN")
+
+
+@pytest.mark.parametrize("host", ["ghe-one.example", "ghe-two.example"])
+def test_enterprise_environment_tokens_require_a_matching_explicit_host(host: str) -> None:
+    # ported: DefaultGitHubTokenProviderTests.enterpriseEnvironmentTokensRequireAMatchingExplicitHost
+    environ = {
+        "GH_HOST": " \t" + host.upper() + "\n ",
+        "GH_TOKEN": "public-token",
+        "GITHUB_TOKEN": "other-public-token",
+        "GH_ENTERPRISE_TOKEN": "enterprise-token",
+        "GITHUB_ENTERPRISE_TOKEN": "other-enterprise-token",
+    }
+    token = resolve_token(" \t" + host + " \n", 1.0, environ, Runner())
+    assert token == Token("enterprise-token", "GH_ENTERPRISE_TOKEN")
+
+
+def test_blank_enterprise_token_falls_back_to_the_other_enterprise_variable() -> None:
+    # ported: DefaultGitHubTokenProviderTests.blankEnterpriseTokenFallsBackToTheOtherEnterpriseVariable
+    environ = {
+        "GH_HOST": "ghe-one.example",
+        "GH_ENTERPRISE_TOKEN": " ",
+        "GITHUB_ENTERPRISE_TOKEN": "  enterprise-token\n",
+    }
+    token = resolve_token("ghe-one.example", 1.0, environ, Runner())
+    assert token == Token("enterprise-token", "GITHUB_ENTERPRISE_TOKEN")
+
+
+@pytest.mark.parametrize("host", ["github.com", "ghe-one.example", "ghe-two.example"])
+def test_cli_lookup_is_host_specific_and_cannot_inherit_tokens_for_another_host(
+    host: str, gh_env: dict[str, str]
+) -> None:
+    # ported: DefaultGitHubTokenProviderTests.cliLookupIsHostSpecificAndCannotInheritTokensForAnotherHost
+    environ = {
+        **gh_env,
+        "GH_HOST": "other.example",
+        "GH_ENTERPRISE_TOKEN": "wrong-enterprise-token",
+        "GITHUB_ENTERPRISE_TOKEN": "another-wrong-token",
+        "GH_CONFIG_DIR": "/fixture/gh",
+    }
+    runner = Runner(f"stored-for-{host}\n".encode())
+    token = resolve_token(host, 1.0, environ, runner)
+    assert token == Token(f"stored-for-{host}", "gh auth token")
+    assert _gh_args(runner) == ["auth", "token", "--hostname", host]
+    env = _gh_env(runner)
+    assert [name for name in _TOKEN_VARIABLES if name in env] == []
+    assert env["GH_HOST"] == host
+    assert env["GH_CONFIG_DIR"] == "/fixture/gh"
+    assert env["GH_PROMPT_DISABLED"] == "1"
+    assert env["GH_NO_UPDATE_NOTIFIER"] == "1"
+
+
+@pytest.mark.parametrize("environment_host", ["", "github.com", "ghe-two.example", "ghe-one.example:8443"])
+def test_an_unbound_or_different_enterprise_environment_cannot_authenticate_another_host(
+    environment_host: str, gh_env: dict[str, str]
+) -> None:
+    # ported: DefaultGitHubTokenProviderTests.anUnboundOrDifferentEnterpriseEnvironmentCannotAuthenticateAnotherHost
+    environ = {
+        **gh_env,
+        "GH_HOST": environment_host,
+        "GITHUB_TOKEN": "public-token",
+        "GH_TOKEN": "other-public-token",
+        "GITHUB_ENTERPRISE_TOKEN": "enterprise-token",
+        "GH_ENTERPRISE_TOKEN": "other-enterprise-token",
+    }
+    runner = Runner(b"")
+    assert resolve_token("ghe-one.example", 1.0, environ, runner) is None
+    assert _gh_args(runner) == ["auth", "token", "--hostname", "ghe-one.example"]
+    env = _gh_env(runner)
+    assert [name for name in _TOKEN_VARIABLES if name in env] == []
+
+
+def test_enterprise_variables_without_gh_host_are_not_used(gh_env: dict[str, str]) -> None:
+    # ported: DefaultGitHubTokenProviderTests.enterpriseVariablesWithoutGhHostAreNotUsed
+    environ = {**gh_env, "GH_ENTERPRISE_TOKEN": "unbound-token"}
+    assert resolve_token("ghe-one.example", 1.0, environ, Runner(b"")) is None
+
+
+@pytest.mark.parametrize("enterprise_token", [None, "", " \t\n"])
+def test_matching_enterprise_host_does_not_reuse_public_tokens_when_enterprise_tokens_are_missing(
+    enterprise_token: str | None, gh_env: dict[str, str]
+) -> None:
+    # ported: DefaultGitHubTokenProviderTests.matchingEnterpriseHostDoesNotReusePublicTokensWhenEnterpriseTokensAreMissing  # noqa: E501
+    environ = {**gh_env, "GH_HOST": "ghe-one.example", "GITHUB_TOKEN": "public-token", "GH_TOKEN": "other-public-token"}
+    if enterprise_token is not None:
+        environ |= {"GH_ENTERPRISE_TOKEN": enterprise_token, "GITHUB_ENTERPRISE_TOKEN": enterprise_token}
+    runner = Runner(b"")
+    assert resolve_token("ghe-one.example", 0.5, environ, runner) is None
+    assert _gh_args(runner) == ["auth", "token", "--hostname", "ghe-one.example"]
+    env = _gh_env(runner)
+    assert [name for name in _TOKEN_VARIABLES if name in env] == []
+    assert env["GH_HOST"] == "ghe-one.example"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "GITHUB.COM",
+        "SSH.GITHUB.COM",
+        "GHE-ONE.EXAMPLE",
+        " GITHUB.COM \n",
+        " \tSSH.GITHUB.COM ",
+        " \tGHE-ONE.EXAMPLE\n ",
+    ],
+)
+def test_cli_receives_the_canonical_host(host: str, gh_env: dict[str, str]) -> None:
+    # ported: DefaultGitHubTokenProviderTests.cliReceivesTheCanonicalHost
+    expected = "ghe-one.example" if host.strip().startswith("GHE") else "github.com"
+    runner = Runner(b"stored-token")
+    assert resolve_token(host, 1.0, gh_env, runner) == Token("stored-token", "gh auth token")
+    assert _gh_args(runner) == ["auth", "token", "--hostname", expected]
+
+
+@pytest.mark.parametrize("host", [None, "", " ", "\t\r\n"])
+def test_missing_repository_host_cannot_fall_back_to_any_credential(host: str | None) -> None:
+    # ported: DefaultGitHubTokenProviderTests.missingRepositoryHostCannotFallBackToAnyCredential
+    assert resolve_token(host, 1.0, {"GITHUB_TOKEN": "public-token"}, Runner()) is None
+
+
+@pytest.mark.parametrize("host", ["github.com", "ghe-one.example", "ghe-two.example"])
+def test_refresh_resolves_credentials_for_the_repository_host_without_exposing_them(host: str, no_side_effects) -> None:
+    # ported: GitHubApiClientTests.refreshResolvesCredentialsForTheRepositoryHostWithoutExposingThem
+    api = "https://api.github.com/" if host == "github.com" else f"https://{host}/api/v3/"
+    rate = {"resources": {"core": {"limit": 60, "remaining": 1}}}
+    allowed = ("api.github.com", "ghe-one.example", "ghe-two.example")
+    github, transport = client(
+        {"/rate_limit": ok(rate), "/api/v3/rate_limit": ok(rate)}, github_allowed_api_hosts=allowed
+    )
+    asked: list[str] = []
+
+    def tokens(repository_host: str, _timeout: float) -> Token:
+        asked.append(repository_host)
+        return Token(f"fixture-token-for-{repository_host}", "host-specific fixture")
+
+    github._token = tokens  # pyright: ignore[reportPrivateUsage]
+    report = github.refresh(repository(host, api))
+    assert asked == [host]
+    assert _headers(transport.requests[0])["authorization"] == f"Bearer fixture-token-for-{host}"
+    assert report["credential"]["authenticated"] is True
+    assert report["credential"]["source"] == "host-specific fixture"
+    assert "fixture-token-for-" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("host", ["ghe-one.example", "ghe-two.example"])
+def test_public_credential_is_never_sent_to_enterprise(host: str, no_side_effects) -> None:
+    # ported: GitHubApiClientTests.legacyCredentialIsNeverSentToEnterprise (adapted: the real resolver holds the
+    # public token in GITHUB_TOKEN, no gh on PATH)
+    allowed = ("api.github.com", "ghe-one.example", "ghe-two.example")
+    github, transport = client({"/api/v3/rate_limit": (401, "{}", {})}, github_allowed_api_hosts=allowed)
+    environ = {"GITHUB_TOKEN": "public-only-token", "GH_TOKEN": "public-only-token", "PATH": ""}
+
+    def tokens(repository_host: str, timeout: float) -> Token | None:
+        return resolve_token(repository_host, timeout, environ, Runner())
+
+    github._token = tokens  # pyright: ignore[reportPrivateUsage]
+    report = github.refresh(repository(host, f"https://{host}/api/v3/"))
+    assert transport.requests != []
+    assert [_headers(r).get("authorization") for r in transport.requests] == [None] * len(transport.requests)
+    assert report["credential"]["authenticated"] is False
+    assert report["credential"]["source"] == "unauthenticated"
+    assert "public-only-token" not in json.dumps(report)
 
 
 def test_gh_inside_the_working_directory_is_never_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -221,7 +407,7 @@ def test_gh_inside_the_working_directory_is_never_run(tmp_path: Path, monkeypatc
     _gh_dir(app / "tools")
     for path in ("", ".", str(app), str(app / "tools"), os.pathsep.join([".", str(tmp_path / "empty")])):
         runner = Runner()
-        assert resolve_token(5.0, {"PATH": path}, runner) is None
+        assert resolve_token("github.com", 5.0, {"PATH": path}, runner) is None
         assert runner.calls == []
 
 
@@ -232,7 +418,7 @@ def test_gh_is_resolved_to_an_absolute_path_outside_the_working_directory(
     monkeypatch.chdir(app)
     real = _gh_dir(tmp_path / "bin")
     runner = Runner()
-    token = resolve_token(5.0, {"PATH": os.pathsep.join([str(app), str(real)])}, runner)
+    token = resolve_token("github.com", 5.0, {"PATH": os.pathsep.join([str(app), str(real)])}, runner)
     assert token == Token("cli-token", "gh auth token")
     assert Path(runner.calls[0][0][0]).parent == real
 
@@ -241,7 +427,7 @@ def test_gh_is_resolved_to_an_absolute_path_outside_the_working_directory(
 def test_a_gh_whose_stdout_never_closes_gives_no_token_within_the_timeout(blocks: str, gh_env: dict[str, str]) -> None:
     runner = Runner(blocks=blocks)
     started = time.monotonic()
-    assert resolve_token(0.2, gh_env, runner) is None
+    assert resolve_token("github.com", 0.2, gh_env, runner) is None
     elapsed = time.monotonic() - started
     assert elapsed < 1.5  # the read is abandoned at the 0.2 s timeout, not when the pipe finally closes (3 s)
     assert runner.procs[0].kills >= 1
@@ -254,7 +440,7 @@ def test_an_extended_length_path_entry_cannot_reach_the_working_directory(
     app = _gh_dir(tmp_path / "app")
     monkeypatch.chdir(app)
     runner = Runner()
-    assert resolve_token(5.0, {"PATH": "\\\\?\\" + str(app)}, runner) is None
+    assert resolve_token("github.com", 5.0, {"PATH": "\\\\?\\" + str(app)}, runner) is None
     assert runner.calls == []
 
 
@@ -277,14 +463,14 @@ def test_another_spelling_of_the_working_directory_is_refused(
     if not os.path.isdir(entry):
         pytest.skip(f"{entry} is not reachable on this machine")
     runner = Runner()
-    assert resolve_token(5.0, {"PATH": entry}, runner) is None
+    assert resolve_token("github.com", 5.0, {"PATH": entry}, runner) is None
     assert runner.calls == []
 
 
 def test_a_shim_that_exits_but_leaves_a_child_on_stdout_is_killed_and_closed(gh_env: dict[str, str]) -> None:
     runner = Runner(blocks="exited")
     started = time.monotonic()
-    assert resolve_token(0.3, gh_env, runner) is None
+    assert resolve_token("github.com", 0.3, gh_env, runner) is None
     assert time.monotonic() - started < 1.5
     proc = runner.procs[0]
     assert proc.kills >= 1  # the tree is killed although the shim itself already exited
@@ -294,7 +480,7 @@ def test_a_shim_that_exits_but_leaves_a_child_on_stdout_is_killed_and_closed(gh_
 def test_the_whole_token_lookup_is_bounded_by_its_timeout(gh_env: dict[str, str]) -> None:
     runner = Runner(blocks="slow")  # the read takes 0.3 s, then wait() sleeps whatever it is given
     started = time.monotonic()
-    resolve_token(0.5, gh_env, runner)
+    resolve_token("github.com", 0.5, gh_env, runner)
     elapsed = time.monotonic() - started
     assert elapsed < 0.75  # read 0.3 + wait capped at the 0.2 left (+ slack), not read 0.3 + a fresh 0.5 wait
 
@@ -317,7 +503,7 @@ def test_a_failed_reader_start_still_kills_reaps_and_closes(
     monkeypatch.setattr(token_module, "threading", types.SimpleNamespace(Thread=NoThread))
     runner = Runner(hangs=True)
     try:
-        result: object = resolve_token(1.0, gh_env, runner)
+        result: object = resolve_token("github.com", 1.0, gh_env, runner)
     except RuntimeError as error:  # an escaped failure is the defect; the assertions below name it
         result = f"raised {error}"
     assert result is None
@@ -881,7 +1067,7 @@ def test_github_refresh_has_an_overall_deadline(no_side_effects) -> None:
 def test_github_token_lookup_respects_the_refresh_deadline(no_side_effects) -> None:
     seen: list[float] = []
 
-    def tokens(timeout: float) -> Token | None:
+    def tokens(_host: str, timeout: float) -> Token | None:
         seen.append(timeout)
         return None
 
@@ -890,3 +1076,40 @@ def test_github_token_lookup_respects_the_refresh_deadline(no_side_effects) -> N
     github.clock = Clock()  # pyright: ignore[reportAttributeAccessIssue]
     _refresh(github)
     assert seen == [19.0]  # deadline 41 minus the clock read 22, not the 100 s read timeout
+
+
+def test_token_variables_are_stripped_from_the_gh_environment_whatever_their_case(gh_env: dict[str, str]) -> None:
+    # Windows environment names are case-insensitive: gh would read a lower-case gh_token as GH_TOKEN
+    environ = {
+        **gh_env,
+        "gh_token": "a",
+        "Github_Token": "b",
+        "gh_enterprise_TOKEN": "c",
+        "github_enterprise_token": "d",
+    }
+    runner = Runner(b"stored-token")
+    resolve_token("ghe-one.example", 1.0, environ, runner)
+    env = _gh_env(runner)
+    assert [name for name in env if name.upper() in _TOKEN_VARIABLES] == []
+
+
+def test_an_enterprise_token_bound_to_another_gh_host_never_reaches_gh(gh_env: dict[str, str]) -> None:
+    environ = {**gh_env, "GH_HOST": "ghe-two.example", "GH_ENTERPRISE_TOKEN": "ghe-two-token"}
+    runner = Runner(b"")
+    assert resolve_token("ghe-one.example", 1.0, environ, runner) is None
+    env = _gh_env(runner)
+    assert "ghe-two-token" not in env.values()
+
+
+def test_an_api_github_com_remote_gets_no_generic_token(gh_env: dict[str, str]) -> None:
+    # api.github.com is a repository host only by misconfiguration; its API base is https://api.github.com/api/v3/
+    runner = Runner(b"")
+    assert resolve_token("api.github.com", 1.0, {**gh_env, "GITHUB_TOKEN": "public-token"}, runner) is None
+
+
+@pytest.mark.parametrize("host", ["ghe one.example", "ghe.example/x", "--version", "ghe.example\x00", "ghé.example"])
+def test_a_host_gh_could_misread_resolves_nothing(host: str, gh_env: dict[str, str]) -> None:
+    runner = Runner()
+    environ = {**gh_env, "GH_HOST": host, "GH_ENTERPRISE_TOKEN": "enterprise-token"}
+    assert resolve_token(host, 1.0, environ, runner) is None
+    assert runner.calls == []

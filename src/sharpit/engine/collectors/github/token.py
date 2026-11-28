@@ -43,7 +43,7 @@ def safe_timeout(timeout: float | None) -> float:
 
 
 def resolve_token(
-    timeout: float | None, environ: Mapping[str, str] | None = None, run: Runner | None = None
+    host: str | None, timeout: float | None, environ: Mapping[str, str] | None = None, run: Runner | None = None
 ) -> Token | None:
     """``GITHUB_TOKEN``, then ``GH_TOKEN``, then ``gh auth token``; trimmed, blanks skipped, ``None`` when none."""
     env = os.environ if environ is None else environ
