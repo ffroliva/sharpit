@@ -85,8 +85,9 @@ def resolve_token(
 def _gh_environment(env: Mapping[str, str], host: str) -> dict[str, str]:
     """BootUI: gh also consults the generic token variables with ``--hostname``, so only its host-specific login is
     used. Names compare case-insensitively: Windows reads ``gh_token`` as ``GH_TOKEN``."""
-    child = {name: value for name, value in env.items() if name.upper() not in _TOKEN_VARIABLES}
-    return child | {"GH_HOST": host, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1"}
+    overrides = {"GH_HOST": host, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1"}
+    child = {name: value for name, value in env.items() if name.upper() not in _TOKEN_VARIABLES | overrides.keys()}
+    return child | overrides
 
 
 def _is_or_under(found: str, cwd: os.stat_result) -> bool:
