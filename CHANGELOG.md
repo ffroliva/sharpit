@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-28
+
 ### Added
 
 - Baseline entries record a digest of their test (`owner`); reports list `inconclusive` and `inconclusiveFindings`. Inconclusive entries are listed and kept on rewrite also while an advisor entry is carried. A max-queries entry is checked against the queries of all phases of its test summed, so queries moved into or split across fixtures are inconclusive, not fixed; a fixture that seeds rows keeps a fixed max-queries entry inconclusive until it is cleared. Max-queries, N+1 and unbounded-read entries are inconclusive when the run used a sqlite3 connection factory or cursor class that sharpit does not trace. Known limits: SQL sent through a raw driver cursor beside SQLAlchemy is not traced, and unbounded reads are recorded only in the call phase, so such a change can read fixed.
@@ -571,7 +573,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.10.0
 [0.9.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.9.0
 [0.8.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.7.0

@@ -58,7 +58,7 @@ installed packages for known vulnerabilities when you ask for it. Every panel in
 swallows an exception, and runs the REST API advisor over your routes. When capture cannot see enough to judge, the
 run fails closed.
 
-> **Status: alpha (0.9.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.10.0, FastAPI and Starlette console; Flask supported for test gates).** Django is not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Gate CI on findings
 
