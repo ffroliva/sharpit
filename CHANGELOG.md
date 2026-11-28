@@ -28,6 +28,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Pytest reports lazy-load, repeated-statement, and unbounded-read finding locations relative to the pytest root directory.
 - HTTP exchange capture reads the request user as plain data and never runs a property, descriptor or `__getattr__` of it; a user whose name or authentication flag is computed is no longer named in HTTP Exchanges and Live Activity.
 
+### Security
+
+- GitHub credentials are bound to the detected repository host (BootUI 2.6.0). For github.com (including
+  `ssh.github.com`) the GitHub refresh uses `GITHUB_TOKEN`, then `GH_TOKEN`. For an allow-listed GitHub Enterprise
+  host it uses `GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, only when `GH_HOST` names that host, and
+  otherwise the host's stored login through `gh auth token --hostname <host>`, run with the token variables removed
+  from its environment. A github.com token is no longer sent to an Enterprise host. A setup that relied on
+  `GITHUB_TOKEN` for an Enterprise host sets `GH_HOST` and `GH_ENTERPRISE_TOKEN`, or runs
+  `gh auth login --hostname <host>`.
+
 ## [0.9.0] - 2026-11-23
 
 sharpit 0.9.0 stays on BootUI 2.5.0 and closes part of the gaps recorded against it. These move to 0.10.0: the Flask

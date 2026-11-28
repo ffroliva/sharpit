@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from sharpit.engine.collectors.github.dashboard import GitHubDashboard
 from sharpit.engine.collectors.github.detector import Repository, detect_repository
+from sharpit.engine.collectors.github.token import resolve_token
 from sharpit.settings import SharpitSettings
 
 ALLOWED = frozenset({"api.github.com"})
@@ -198,3 +201,35 @@ def test_github_module_tools_are_exactly_the_dashboard() -> None:
     from sharpit.engine.tools04 import github
 
     assert {tool.name for tool in github.TOOLS} == {"get_github_dashboard"}
+
+
+@pytest.mark.parametrize(
+    ("remote", "host", "api_base"),
+    [
+        ("https://GITHUB.COM:443/team/service.git", "github.com", "https://api.github.com/"),
+        ("ssh://git@SSH.GITHUB.COM:443/team/service.git", "ssh.github.com", "https://api.github.com/"),
+        ("ssh://git@GHE-ONE.EXAMPLE:2222/team/service.git", "ghe-one.example", "https://ghe-one.example/api/v3/"),
+        ("https://GHE-TWO.EXAMPLE:8443/team/service.git", "ghe-two.example", "https://ghe-two.example/api/v3/"),
+    ],
+)
+def test_credential_lookup_uses_the_detected_host_without_the_git_transport_port(
+    tmp_path: Path, remote: str, host: str, api_base: str
+) -> None:
+    # ported: GitHubRepositoryDetectorTests.credentialLookupUsesTheDetectedHostWithoutTheGitTransportPort
+    repository = detect_repository(_repo(tmp_path / "app", remote), frozenset({"ghe-one.example", "ghe-two.example"}))
+    assert isinstance(repository, Repository)
+    assert repository.host == host
+    assert repository.api_base_uri == api_base
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / ("gh.exe" if sys.platform == "win32" else "gh")).write_bytes(b"")
+    (bin_dir / ("gh.exe" if sys.platform == "win32" else "gh")).chmod(0o755)
+    commands: list[list[str]] = []
+
+    def no_credentials(args: list[str], **_kwargs: Any) -> Any:
+        commands.append(args[1:])
+        raise OSError("No credentials in fixture")
+
+    assert resolve_token(repository.host, 1.0, {"PATH": str(bin_dir)}, no_credentials) is None
+    credential_host = "github.com" if host == "ssh.github.com" else host
+    assert commands == [["auth", "token", "--hostname", credential_host]]
