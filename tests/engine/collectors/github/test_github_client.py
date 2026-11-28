@@ -1093,6 +1093,14 @@ def test_token_variables_are_stripped_from_the_gh_environment_whatever_their_cas
     assert [name for name in env if name.upper() in _TOKEN_VARIABLES] == []
 
 
+def test_gh_host_reaches_gh_once_whatever_the_case_of_the_inherited_name(gh_env: dict[str, str]) -> None:
+    # Windows keeps one of two names that differ only in case: an inherited gh_host could shadow the GH_HOST set here
+    runner = Runner(b"stored-token")
+    resolve_token("ghe-one.example", 1.0, {**gh_env, "gh_host": "ghe-two.example"}, runner)
+    env = _gh_env(runner)
+    assert [value for name, value in env.items() if name.upper() == "GH_HOST"] == ["ghe-one.example"]
+
+
 def test_an_enterprise_token_bound_to_another_gh_host_never_reaches_gh(gh_env: dict[str, str]) -> None:
     environ = {**gh_env, "GH_HOST": "ghe-two.example", "GH_ENTERPRISE_TOKEN": "ghe-two-token"}
     runner = Runner(b"")

@@ -1,4 +1,7 @@
-"""BootUI test citations stay resolvable against the pinned source inventory."""
+"""BootUI test citations stay resolvable against the pinned source inventories.
+
+A citation resolves in the pinned release (2.5.0) or in the next one (2.6.0), whose ports start before the pin moves.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-FIXTURE = ROOT / "tests" / "fixtures" / "bootui" / "2.5.0" / "bootui-tests.json"
+FIXTURES = tuple(ROOT / "tests" / "fixtures" / "bootui" / v / "bootui-tests.json" for v in ("2.5.0", "2.6.0"))
 CITATION = re.compile(r"#\s*ported:\s*([\w$]+)\.([\w$]+)")
 MARKER = re.compile(r"#\s*ported:")
 UNRESOLVED_CITATION_ITEMS = {
@@ -236,7 +239,10 @@ def _allowlist_errors(unresolved: set[str], allowed: tuple[tuple[str, str], ...]
 
 
 def test_ported_citations_resolve_in_bootui_test_inventory() -> None:
-    inventory = json.loads(FIXTURE.read_text("utf-8"))["testClasses"]
+    inventory: dict[str, list[str]] = {}
+    for fixture in FIXTURES:
+        for name, methods in json.loads(fixture.read_text("utf-8"))["testClasses"].items():
+            inventory[name] = sorted({*inventory.get(name, []), *methods})
     citations: list[tuple[str, str]] = []
     labels: set[str] = set()
     for path in (ROOT / "tests").rglob("*.py"):
